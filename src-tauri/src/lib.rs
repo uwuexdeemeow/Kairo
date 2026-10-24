@@ -4,34 +4,43 @@ mod collector;
 mod commands;
 mod db;
 mod demo;
+mod nudge;
 mod platform;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::menu::{Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Manager, WindowEvent, Wry};
 
 pub struct AppState {
     /// Connection used by UI commands; the collector thread has its own.
     pub db: Mutex<rusqlite::Connection>,
     pub paused: Arc<AtomicBool>,
+    pub window_cache: nudge::SharedCache,
 }
+
+/// The tray's "Focus nudges" checkbox, kept so the in-app toggle can update it.
+pub struct NudgeToggle(pub CheckMenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("kairo.db");
 
             let conn = db::open(&db_path)?;
+            let nudges_on = nudge::enabled(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
-            collector::spawn(db_path, paused.clone());
-            app.manage(AppState { db: Mutex::new(conn), paused: paused.clone() });
-            setup_tray(app, paused)?;
+            let window_cache = nudge::SharedCache::default();
+            collector::spawn(db_path.clone(), paused.clone());
+            nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
+            app.manage(AppState { db: Mutex::new(conn), paused: paused.clone(), window_cache });
+            setup_tray(app, paused, nudges_on)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -47,6 +56,11 @@ pub fn run() {
             commands::get_categories,
             commands::set_category,
             commands::get_status,
+            commands::get_heads_up,
+            commands::dismiss_heads_up,
+            commands::get_nudges_enabled,
+            commands::set_nudges_enabled,
+            commands::send_test_nudge,
             commands::seed_demo_data,
             commands::clear_demo_data,
         ])
@@ -54,11 +68,13 @@ pub fn run() {
         .expect("error while running Kairo");
 }
 
-fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>) -> tauri::Result<()> {
+fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Kairo", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
+    let nudges = CheckMenuItem::with_id(app, "nudges", "Focus nudges", true, nudges_on, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pause, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &quit])?;
+    app.manage(NudgeToggle(nudges.clone()));
 
     let pause_item = pause.clone();
     TrayIconBuilder::with_id("main")
@@ -71,6 +87,15 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>) -> tauri::Result<()> {
             "pause" => {
                 let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
                 let _ = pause_item.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });
+            }
+            "nudges" => {
+                // The OS flips the checkmark on click; persist whatever it now shows.
+                let on = nudges.is_checked().unwrap_or(true);
+                if let Ok(conn) = app.state::<AppState>().db.lock() {
+                    if let Err(e) = nudge::set_enabled(&conn, on) {
+                        eprintln!("tray: cannot save nudge setting: {e}");
+                    }
+                }
             }
             "quit" => app.exit(0),
             _ => {}

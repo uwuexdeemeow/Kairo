@@ -34,6 +34,12 @@
             <div class="legend" data-legend></div>
           </section>
 
+          <section class="heads-up" id="heads-up" aria-label="Heads-up" aria-live="polite" hidden>
+            <span class="heads-up-time" id="heads-up-time"></span>
+            <p><span id="heads-up-title"></span> <span class="faint" id="heads-up-detail"></span></p>
+            <button class="link-btn" id="heads-up-dismiss">Dismiss for tonight</button>
+          </section>
+
           <div class="columns">
             <section>
               <h2>Apps</h2>
@@ -87,6 +93,19 @@
           </section>
           <p class="muted lede">Changes apply to past and future data. A browser's own category only counts for sites Kairo can't recognise.</p>
           <div id="categories"></div>
+
+          <section class="block">
+            <h2>Focus nudges</h2>
+            <label class="toggle">
+              <input type="checkbox" id="nudges-enabled" />
+              Notify me when my low-focus hours start
+            </label>
+            <p class="muted">At most one notification a night, and only while you're at the computer.</p>
+            <div class="row-buttons">
+              <button class="link-btn" id="nudge-test">Send a test nudge</button>
+              <span class="muted" id="nudge-status"></span>
+            </div>
+          </section>
 
           <section class="block demo">
             <h2>Demo data</h2>

@@ -3,10 +3,10 @@ use std::sync::atomic::Ordering;
 use chrono::Local;
 use rusqlite::params;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, Category, DaySummary, Patterns};
-use crate::{demo, AppState};
+use crate::{db, demo, nudge, AppState, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -104,6 +104,7 @@ pub fn set_category(state: State<AppState>, key: String, category: String) -> Cm
         params![key, category],
     )
     .map_err(err)?;
+    nudge::invalidate(&state.window_cache);
     Ok(())
 }
 
@@ -120,39 +121,60 @@ pub struct Status {
 pub fn get_status(state: State<AppState>) -> CmdResult<Status> {
     let tracking = !state.paused.load(Ordering::Relaxed);
     let conn = state.db.lock().map_err(err)?;
-    let mut stmt = conn
-        .prepare("SELECT app, start_ms, end_ms, idle FROM sessions WHERE demo = 0 ORDER BY id DESC LIMIT 200")
-        .map_err(err)?;
-    let recent: Vec<(String, i64, i64, bool)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-        .map_err(err)?
-        .collect::<Result<_, _>>()
-        .map_err(err)?;
+    let current = if tracking { db::current_activity(&conn, now_ms()).map_err(err)? } else { None };
+    Ok(Status {
+        tracking,
+        app: current.as_ref().map(|c| c.app.clone()),
+        since_ms: current.map(|c| c.since_ms),
+    })
+}
 
-    // The collector flushes the open session every 10s, so anything older has already ended.
-    let live = recent.first().filter(|(_, _, end, idle)| tracking && !idle && now_ms() - end < 15_000);
-    let Some((app, mut since, _, _)) = live.cloned() else {
-        return Ok(Status { tracking, app: None, since_ms: None });
-    };
-    // Title changes split sessions; walk back over contiguous ones in the same app.
-    for pair in recent.windows(2) {
-        let ((_, start, _, _), (prev_app, _, prev_end, _)) = (&pair[0], &pair[1]);
-        if *prev_app != app || start - prev_end > 5_000 {
-            break;
-        }
-        since = pair[1].1;
+#[tauri::command]
+pub fn get_heads_up(state: State<AppState>) -> CmdResult<Option<nudge::HeadsUp>> {
+    let conn = state.db.lock().map_err(err)?;
+    Ok(nudge::heads_up(&conn, &state.window_cache))
+}
+
+#[tauri::command]
+pub fn dismiss_heads_up(state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    nudge::dismiss(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_nudges_enabled(state: State<AppState>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    nudge::enabled(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_nudges_enabled(app: AppHandle, state: State<AppState>, enabled: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    nudge::set_enabled(&conn, enabled).map_err(err)?;
+    // Keep the tray checkbox in sync with the in-app toggle.
+    if let Some(toggle) = app.try_state::<NudgeToggle>() {
+        let _ = toggle.0.set_checked(enabled);
     }
-    Ok(Status { tracking, app: Some(app), since_ms: Some(since) })
+    Ok(())
+}
+
+#[tauri::command]
+pub fn send_test_nudge(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    let message = nudge::heads_up_ignoring_time(&conn, &state.window_cache).unwrap_or_else(nudge::sample);
+    nudge::notify(&app, &message).map_err(err)
 }
 
 #[tauri::command]
 pub fn seed_demo_data(state: State<AppState>) -> CmdResult<usize> {
     let mut conn = state.db.lock().map_err(err)?;
+    nudge::invalidate(&state.window_cache);
     demo::seed(&mut conn, 21).map_err(err)
 }
 
 #[tauri::command]
 pub fn clear_demo_data(state: State<AppState>) -> CmdResult<usize> {
     let conn = state.db.lock().map_err(err)?;
+    nudge::invalidate(&state.window_cache);
     demo::clear(&conn).map_err(err)
 }

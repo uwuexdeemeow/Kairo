@@ -73,7 +73,7 @@ pub fn category_map(conn: &Connection) -> Result<HashMap<String, Category>> {
     Ok(map)
 }
 
-fn resolve(cats: &HashMap<String, Category>, exe: &str, site: Option<&str>) -> Category {
+pub fn resolve(cats: &HashMap<String, Category>, exe: &str, site: Option<&str>) -> Category {
     site.and_then(|s| cats.get(&format!("site:{s}")))
         .or_else(|| cats.get(&format!("app:{exe}")))
         .copied()
@@ -414,7 +414,8 @@ pub struct Patterns {
     insights: Vec<Insight>,
 }
 
-pub fn patterns(rows: &[Row]) -> Patterns {
+/// Per-hour totals, the weekday x hour grid, and the days with meaningful activity.
+fn accumulate(rows: &[Row]) -> (Vec<Acc>, Vec<Vec<Cell>>, Vec<NaiveDate>) {
     let mut hourly = vec![Acc::default(); 24];
     let mut grid = vec![vec![Cell::default(); 24]; 7];
     let mut day_active: HashMap<NaiveDate, i64> = HashMap::new();
@@ -443,6 +444,11 @@ pub fn patterns(rows: &[Row]) -> Patterns {
 
     let active_days: Vec<NaiveDate> =
         day_active.iter().filter(|(_, ms)| **ms >= MIN_DAY_ACTIVE_MS).map(|(d, _)| *d).collect();
+    (hourly, grid, active_days)
+}
+
+pub fn patterns(rows: &[Row]) -> Patterns {
+    let (hourly, grid, active_days) = accumulate(rows);
     let insights = insights(rows, &hourly, &grid, &active_days);
 
     Patterns {
@@ -480,6 +486,40 @@ const WINDOWS: &[TimeWindow] = &[
     TimeWindow { phrase: "after 10pm", short: "after 10pm", hours: &[22, 23, 0, 1, 2, 3, 4] },
 ];
 
+/// The part of the day where distraction share stands out most from the overall rate, if any does.
+fn worst_window(hourly: &[Acc], total: &Acc) -> Option<(&'static TimeWindow, Acc)> {
+    let overall = total.distracting_share();
+    WINDOWS
+        .iter()
+        .map(|w| (w, sum_hours(hourly, w.hours.iter().copied())))
+        .filter(|(_, acc)| acc.active >= (45 * MIN_MS).max(total.active / 20))
+        .max_by(|a, b| a.1.distracting_share().total_cmp(&b.1.distracting_share()))
+        .filter(|(_, acc)| {
+            let s = acc.distracting_share();
+            s >= overall * 1.3 && s - overall >= 0.08
+        })
+}
+
+/// The hours a user reliably loses focus in, used for live nudges.
+#[derive(Clone)]
+pub struct LowFocusWindow {
+    pub hours: &'static [usize],
+    /// "after 10pm", "in the evening (5–10pm)".
+    pub phrase: &'static str,
+    pub share: f64,
+    pub overall: f64,
+}
+
+pub fn low_focus_window(rows: &[Row]) -> Option<LowFocusWindow> {
+    let (hourly, _, active_days) = accumulate(rows);
+    if active_days.len() < MIN_DAYS_FOR_INSIGHTS {
+        return None;
+    }
+    let total = sum_hours(&hourly, 0..24);
+    let (w, acc) = worst_window(&hourly, &total)?;
+    Some(LowFocusWindow { hours: w.hours, phrase: w.phrase, share: acc.distracting_share(), overall: total.distracting_share() })
+}
+
 const WEEKDAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 fn sum_hours(hourly: &[Acc], hours: impl IntoIterator<Item = usize>) -> Acc {
@@ -510,27 +550,20 @@ fn insights(rows: &[Row], hourly: &[Acc], grid: &[Vec<Cell>], active_days: &[Nai
 
     // When does distraction peak?
     let overall = total.distracting_share();
-    let worst = WINDOWS
-        .iter()
-        .map(|w| (w, sum_hours(hourly, w.hours.iter().copied())))
-        .filter(|(_, acc)| acc.active >= (45 * MIN_MS).max(total.active / 20))
-        .max_by(|a, b| a.1.distracting_share().total_cmp(&b.1.distracting_share()));
-    if let Some((w, acc)) = worst {
+    if let Some((w, acc)) = worst_window(hourly, &total) {
         let s = acc.distracting_share();
-        if s >= overall * 1.3 && s - overall >= 0.08 {
-            let culprit = acc.top_distraction().map(|c| format!(" The biggest pull is {c}.")).unwrap_or_default();
-            out.push(Insight::new(
-                InsightKind::Warning,
-                format!("You lose focus most {}", w.phrase),
-                format!(
-                    "{}% of your screen time {} goes to distracting apps and sites, compared with {}% overall.{culprit}",
-                    pct(s),
-                    w.phrase,
-                    pct(overall)
-                ),
-            )
-            .with_metric(format!("{}%", pct(s)), format!("distracted {}", w.short)));
-        }
+        let culprit = acc.top_distraction().map(|c| format!(" The biggest pull is {c}.")).unwrap_or_default();
+        out.push(Insight::new(
+            InsightKind::Warning,
+            format!("You lose focus most {}", w.phrase),
+            format!(
+                "{}% of your screen time {} goes to distracting apps and sites, compared with {}% overall.{culprit}",
+                pct(s),
+                w.phrase,
+                pct(overall)
+            ),
+        )
+        .with_metric(format!("{}%", pct(s)), format!("distracted {}", w.short)));
     }
 
     // When is focus best?
@@ -688,7 +721,7 @@ fn distraction_trigger(rows: &[Row]) -> Option<Insight> {
 
 // ---------- formatting ----------
 
-fn pct(x: f64) -> i64 {
+pub fn pct(x: f64) -> i64 {
     (x * 100.0).round() as i64
 }
 

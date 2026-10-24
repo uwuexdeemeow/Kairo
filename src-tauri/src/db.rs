@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 
 use crate::classify::DEFAULT_CATEGORIES;
 
@@ -28,6 +28,10 @@ pub fn open(path: &Path) -> Result<Connection> {
              key      TEXT PRIMARY KEY,
              category TEXT NOT NULL CHECK (category IN ('productive', 'neutral', 'distracting')),
              user_set INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS settings (
+             key   TEXT PRIMARY KEY,
+             value TEXT NOT NULL
          );",
     )?;
     // INSERT OR IGNORE keeps any category the user has changed.
@@ -62,4 +66,54 @@ pub fn insert_session(conn: &Connection, s: &NewSession) -> Result<i64> {
 pub fn set_session_end(conn: &Connection, id: i64, end_ms: i64) -> Result<()> {
     conn.execute("UPDATE sessions SET end_ms = ?1 WHERE id = ?2", params![end_ms, id])?;
     Ok(())
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// What is in front of the user right now.
+pub struct Current {
+    pub app: String,
+    pub exe: String,
+    pub site: Option<String>,
+    /// When the user switched to this app (title changes within it don't count).
+    pub since_ms: i64,
+}
+
+/// The live session, or None when idle, paused or asleep.
+pub fn current_activity(conn: &Connection, now_ms: i64) -> Result<Option<Current>> {
+    let mut stmt = conn.prepare(
+        "SELECT app, exe, site, start_ms, end_ms, idle FROM sessions WHERE demo = 0 ORDER BY id DESC LIMIT 200",
+    )?;
+    let recent: Vec<(String, String, Option<String>, i64, i64, bool)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?
+        .collect::<Result<_>>()?;
+
+    // The collector flushes the open session every 10s, so anything older has already ended.
+    let Some((app, exe, site, start, end, idle)) = recent.first().cloned() else {
+        return Ok(None);
+    };
+    if idle || now_ms - end > 15_000 {
+        return Ok(None);
+    }
+    // Title changes split sessions; walk back over contiguous ones in the same app.
+    let mut since = start;
+    for pair in recent.windows(2) {
+        let (cur, prev) = (&pair[0], &pair[1]);
+        if prev.0 != app || prev.5 || cur.3 - prev.4 > 5_000 {
+            break;
+        }
+        since = prev.3;
+    }
+    Ok(Some(Current { app, exe, site, since_ms: since }))
 }

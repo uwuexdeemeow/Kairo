@@ -64,6 +64,11 @@ export interface Status {
   sinceMs: number | null;
 }
 
+export interface HeadsUp {
+  title: string;
+  detail: string;
+}
+
 export interface CategoryEntry {
   key: string;
   label: string;
@@ -78,6 +83,11 @@ export const api = {
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
   status: () => invoke<Status>("get_status"),
+  headsUp: () => invoke<HeadsUp | null>("get_heads_up"),
+  dismissHeadsUp: () => invoke<void>("dismiss_heads_up"),
+  nudgesEnabled: () => invoke<boolean>("get_nudges_enabled"),
+  setNudgesEnabled: (enabled: boolean) => invoke<void>("set_nudges_enabled", { enabled }),
+  testNudge: () => invoke<void>("send_test_nudge"),
   seedDemo: () => invoke<number>("seed_demo_data"),
   clearDemo: () => invoke<number>("clear_demo_data"),
 };

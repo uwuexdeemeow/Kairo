@@ -112,6 +112,7 @@ function renderToday(d: DaySummary) {
     stat("Switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
   );
   renderTimeline(d);
+  renderHeadsUp();
   renderUsage($("#today-apps"), d.topApps, "No app activity yet today.");
   renderUsage($("#today-sites"), d.topSites, "No recognised sites yet today.");
 }
@@ -152,6 +153,16 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
       return row;
     }),
   );
+}
+
+async function renderHeadsUp() {
+  const box = $("#heads-up");
+  const h = await api.headsUp().catch(() => null);
+  box.hidden = !h;
+  if (!h) return;
+  $("#heads-up-time").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("#heads-up-title").textContent = h.title;
+  $("#heads-up-detail").textContent = h.detail;
 }
 
 // ---------- patterns ----------
@@ -326,7 +337,10 @@ async function load(v: View = view) {
   try {
     if (v === "today") renderToday(await api.today());
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
-    if (v === "categories") renderCategories(await api.categories());
+    if (v === "categories") {
+      renderCategories(await api.categories());
+      $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
+    }
   } catch (e) {
     const target = v === "today" ? "#today-timeline" : v === "patterns" ? "#insights" : "#categories";
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
@@ -349,6 +363,25 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>("#range button"))
     load("patterns");
   });
 }
+
+$("#heads-up-dismiss").addEventListener("click", async () => {
+  await api.dismissHeadsUp();
+  $("#heads-up").hidden = true;
+});
+
+$<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {
+  await api.setNudgesEnabled((e.target as HTMLInputElement).checked);
+});
+
+$("#nudge-test").addEventListener("click", async () => {
+  const out = $("#nudge-status");
+  try {
+    await api.testNudge();
+    out.textContent = "Sent. Check your notifications.";
+  } catch (e) {
+    out.textContent = `Couldn't send: ${e}`;
+  }
+});
 
 $("#demo-load").addEventListener("click", async () => {
   const n = await api.seedDemo();

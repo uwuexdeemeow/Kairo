@@ -393,6 +393,37 @@ h2 {
   margin-top: 6px;
 }
 
+.heads-up {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-top: 56px;
+  padding: 18px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.heads-up[hidden] {
+  display: none;
+}
+
+.heads-up-time {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--warm);
+}
+
+.heads-up p {
+  flex: 1 1 420px;
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.faint {
+  color: var(--faint);
+}
+
 /* ---------- patterns ---------- */
 
 .range {
@@ -628,6 +659,22 @@ select {
 
 .link-btn:hover {
   color: var(--productive);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  cursor: pointer;
+}
+
+.toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--productive);
+  cursor: pointer;
 }
 
 /* ---------- tooltip ---------- */
