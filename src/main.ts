@@ -340,6 +340,11 @@ async function load(v: View = view) {
     if (v === "categories") {
       renderCategories(await api.categories());
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
+      const auto = await api.autostart();
+      const box = $<HTMLInputElement>("#autostart-enabled");
+      box.checked = auto.enabled;
+      box.disabled = !auto.available;
+      if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
     }
   } catch (e) {
     const target = v === "today" ? "#today-timeline" : v === "patterns" ? "#insights" : "#categories";
@@ -371,6 +376,16 @@ $("#heads-up-dismiss").addEventListener("click", async () => {
 
 $<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {
   await api.setNudgesEnabled((e.target as HTMLInputElement).checked);
+});
+
+$<HTMLInputElement>("#autostart-enabled").addEventListener("change", async (e) => {
+  const box = e.target as HTMLInputElement;
+  try {
+    await api.setAutostart(box.checked);
+  } catch (err) {
+    box.checked = !box.checked;
+    $("#autostart-note").textContent = `Couldn't change it: ${err}`;
+  }
 });
 
 $("#nudge-test").addEventListener("click", async () => {

@@ -6,7 +6,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, Category, DaySummary, Patterns};
-use crate::{db, demo, nudge, AppState, NudgeToggle};
+use crate::{db, demo, nudge, startup, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -163,6 +163,26 @@ pub fn send_test_nudge(app: AppHandle, state: State<AppState>) -> CmdResult<()> 
     let conn = state.db.lock().map_err(err)?;
     let message = nudge::heads_up_ignoring_time(&conn, &state.window_cache).unwrap_or_else(nudge::sample);
     nudge::notify(&app, &message).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct Autostart {
+    available: bool,
+    enabled: bool,
+}
+
+#[tauri::command]
+pub fn get_autostart(app: AppHandle) -> Autostart {
+    Autostart { available: startup::AVAILABLE, enabled: startup::is_enabled(&app) }
+}
+
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
+    startup::set_enabled(&app, enabled)?;
+    if let Some(toggle) = app.try_state::<AutostartToggle>() {
+        let _ = toggle.0.set_checked(enabled);
+    }
+    Ok(())
 }
 
 #[tauri::command]

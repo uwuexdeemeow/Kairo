@@ -6,6 +6,7 @@ mod db;
 mod demo;
 mod nudge;
 mod platform;
+mod startup;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,12 +22,20 @@ pub struct AppState {
     pub window_cache: nudge::SharedCache,
 }
 
-/// The tray's "Focus nudges" checkbox, kept so the in-app toggle can update it.
+/// The tray's checkboxes, kept so the in-app toggles can update them.
 pub struct NudgeToggle(pub CheckMenuItem<Wry>);
+pub struct AutostartToggle(pub CheckMenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Must be first: a second launch (e.g. from Start while Kairo sits in the tray) just
+        // focuses the running copy instead of starting another collector.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![startup::MINIMIZED_ARG]),
+        ))
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
@@ -34,6 +43,9 @@ pub fn run() {
             let db_path = dir.join("kairo.db");
 
             let conn = db::open(&db_path)?;
+            if let Err(e) = startup::apply_default(app.handle(), &conn) {
+                eprintln!("startup: cannot enable start at login: {e}");
+            }
             let nudges_on = nudge::enabled(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -41,6 +53,10 @@ pub fn run() {
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState { db: Mutex::new(conn), paused: paused.clone(), window_cache });
             setup_tray(app, paused, nudges_on)?;
+            // The window starts hidden; show it unless Windows launched us at sign-in.
+            if !startup::launched_at_login() {
+                show_main(app.handle());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -61,6 +77,8 @@ pub fn run() {
             commands::get_nudges_enabled,
             commands::set_nudges_enabled,
             commands::send_test_nudge,
+            commands::get_autostart,
+            commands::set_autostart,
             commands::seed_demo_data,
             commands::clear_demo_data,
         ])
@@ -72,9 +90,13 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     let open = MenuItem::with_id(app, "open", "Open Kairo", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
     let nudges = CheckMenuItem::with_id(app, "nudges", "Focus nudges", true, nudges_on, None::<&str>)?;
+    let autostart_on = startup::is_enabled(app.handle());
+    let autostart =
+        CheckMenuItem::with_id(app, "autostart", "Start with Windows", startup::AVAILABLE, autostart_on, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &autostart, &quit])?;
     app.manage(NudgeToggle(nudges.clone()));
+    app.manage(AutostartToggle(autostart.clone()));
 
     let pause_item = pause.clone();
     TrayIconBuilder::with_id("main")
@@ -95,6 +117,13 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
                     if let Err(e) = nudge::set_enabled(&conn, on) {
                         eprintln!("tray: cannot save nudge setting: {e}");
                     }
+                }
+            }
+            "autostart" => {
+                let on = autostart.is_checked().unwrap_or(false);
+                if let Err(e) = startup::set_enabled(app, on) {
+                    eprintln!("tray: {e}");
+                    let _ = autostart.set_checked(startup::is_enabled(app));
                 }
             }
             "quit" => app.exit(0),

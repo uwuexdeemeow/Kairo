@@ -69,6 +69,11 @@ export interface HeadsUp {
   detail: string;
 }
 
+export interface Autostart {
+  available: boolean;
+  enabled: boolean;
+}
+
 export interface CategoryEntry {
   key: string;
   label: string;
@@ -88,6 +93,8 @@ export const api = {
   nudgesEnabled: () => invoke<boolean>("get_nudges_enabled"),
   setNudgesEnabled: (enabled: boolean) => invoke<void>("set_nudges_enabled", { enabled }),
   testNudge: () => invoke<void>("send_test_nudge"),
+  autostart: () => invoke<Autostart>("get_autostart"),
+  setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   seedDemo: () => invoke<number>("seed_demo_data"),
   clearDemo: () => invoke<number>("clear_demo_data"),
 };
