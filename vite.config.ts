@@ -6,6 +6,7 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    watch: { ignored: ["**/src-tauri/**"] },
+    // The regex also catches Windows backslash paths; watching cargo's locked build files crashes Vite (EBUSY).
+    watch: { ignored: ["**/src-tauri/**", /[\\/]src-tauri[\\/]/] },
   },
 });
