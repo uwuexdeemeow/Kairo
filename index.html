@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kairo</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="topbar">
+        <span class="wordmark">kairo</span>
+        <nav class="tabs" role="tablist" aria-label="Main">
+          <button role="tab" data-view="today" aria-selected="true">Today</button>
+          <button role="tab" data-view="patterns" aria-selected="false">Patterns</button>
+          <button role="tab" data-view="categories" aria-selected="false">Categories</button>
+        </nav>
+        <span id="status" class="status"></span>
+      </header>
+
+      <main>
+        <section id="view-today" class="view">
+          <section class="summary" aria-label="Summary">
+            <p class="eyebrow" id="today-date"></p>
+            <div class="hero">
+              <span class="hero-value" id="today-active"></span>
+              <span class="hero-sub" id="today-sub"></span>
+            </div>
+            <dl class="stats" id="today-stats"></dl>
+          </section>
+
+          <section class="block" aria-label="Timeline">
+            <div id="today-timeline"></div>
+            <div class="legend" data-legend></div>
+          </section>
+
+          <div class="columns">
+            <section>
+              <h2>Apps</h2>
+              <div id="today-apps"></div>
+            </section>
+            <section>
+              <h2>Sites</h2>
+              <div id="today-sites"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-patterns" class="view" hidden>
+          <section class="page-head">
+            <div>
+              <p class="eyebrow" id="patterns-days"></p>
+              <h1>What your time says</h1>
+            </div>
+            <div class="range" id="range" role="group" aria-label="Range">
+              <button data-days="7" aria-pressed="false">7d</button>
+              <button data-days="14" aria-pressed="false">14d</button>
+              <button data-days="30" aria-pressed="true">30d</button>
+            </div>
+          </section>
+
+          <section id="insights" class="insights" aria-label="Insights"></section>
+
+          <section class="block">
+            <div class="section-head">
+              <h2>An average day, minutes per hour</h2>
+              <div class="legend" data-legend></div>
+            </div>
+            <div id="hourly"></div>
+          </section>
+
+          <section class="block">
+            <div class="section-head">
+              <h2>Productive share, weekday by hour</h2>
+              <div class="ramp-legend" id="heatmap-legend"></div>
+            </div>
+            <div id="heatmap"></div>
+          </section>
+        </section>
+
+        <section id="view-categories" class="view" hidden>
+          <section class="page-head">
+            <div>
+              <p class="eyebrow">Last 30 days</p>
+              <h1>How Kairo sorts your time</h1>
+            </div>
+          </section>
+          <p class="muted lede">Changes apply to past and future data. A browser's own category only counts for sites Kairo can't recognise.</p>
+          <div id="categories"></div>
+
+          <section class="block demo">
+            <h2>Demo data</h2>
+            <p class="muted">Load three weeks of made-up activity to try the insights now. It's flagged separately and can be cleared without touching your real history.</p>
+            <div class="row-buttons">
+              <button class="link-btn" id="demo-load">Load demo data</button>
+              <button class="link-btn" id="demo-clear">Clear demo data</button>
+              <span class="muted" id="demo-status"></span>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+  </body>
+</html>
