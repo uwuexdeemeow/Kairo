@@ -1,0 +1,57 @@
+# Tests Kairo on Linux and builds an AppImage and a .deb, kept with the run for 14 days, for
+# trying a Linux build between releases.
+name: Linux build
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/linux.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    # The oldest supported Ubuntu, so the AppImage runs on distributions as old as it.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      # Without updater files, which need the release signing key.
+      - name: Build
+        run: >
+          npm run tauri -- build --bundles appimage,deb
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kairo-linux
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+          retention-days: 14
+          if-no-files-found: error

@@ -1,7 +1,7 @@
 //! The command palette on macOS and Linux: `palette.html` in a small see-through window, made the
 //! first time it's wanted and let go after a while unused. Windows draws its own (`native`).
 
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window, WindowEvent};
@@ -16,6 +16,8 @@ const FROM_TOP: f64 = 0.16;
 const KEEP_FOR_MS: i64 = 10 * 60_000;
 /// When the palette was last put away.
 static HIDDEN_AT: AtomicI64 = AtomicI64::new(0);
+/// Set while the palette's window is being made.
+static OPENING: AtomicBool = AtomicBool::new(false);
 
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
@@ -44,6 +46,22 @@ fn show(app: &AppHandle) {
         let _ = window.emit("palette:open", ());
         return;
     }
+    // Made on a thread of its own: the shortcut arrives on the app's main thread, which mustn't
+    // wait on a web view starting up, and a second press meanwhile mustn't make another.
+    if OPENING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let opened = open(&app);
+        OPENING.store(false, Ordering::Release);
+        if opened {
+            let_go_when_unused(&app);
+        }
+    });
+}
+
+fn open(app: &AppHandle) -> bool {
     // A new page loads its own suggestions.
     let built = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("palette.html".into()))
         .title("Kairo")
@@ -65,7 +83,7 @@ fn show(app: &AppHandle) {
         Ok(window) => window,
         Err(e) => {
             eprintln!("palette: cannot open: {e}");
-            return;
+            return false;
         }
     };
     let mode = app.state::<AppState>().db.lock().ok().and_then(|conn| crate::appearance::get(&conn).ok()).unwrap_or_default();
@@ -73,11 +91,11 @@ fn show(app: &AppHandle) {
     place(&window);
     let _ = window.show();
     let _ = window.set_focus();
-    let app = app.clone();
-    std::thread::spawn(move || let_go_when_unused(&app));
+    true
 }
 
-/// Closes the palette's page once it has been put away for a while, and ends with it.
+/// Closes the palette's page once it has been put away for a while; runs on the thread that
+/// made it, and ends with it.
 fn let_go_when_unused(app: &AppHandle) {
     loop {
         std::thread::sleep(Duration::from_secs(60));

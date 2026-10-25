@@ -10,7 +10,13 @@ use crate::db;
 pub const MINIMIZED_ARG: &str = "--minimized";
 const INITIALIZED_KEY: &str = "autostart_initialized";
 /// The tray menu's name for it.
-pub const LABEL: &str = if cfg!(target_os = "macos") { "Open at Login" } else { "Start with Windows" };
+pub const LABEL: &str = if cfg!(target_os = "macos") {
+    "Open at Login"
+} else if cfg!(windows) {
+    "Start with Windows"
+} else {
+    "Start at login"
+};
 
 /// Dev builds run from target\debug; registering that path at login would go stale on every rebuild.
 pub const AVAILABLE: bool = !cfg!(debug_assertions);

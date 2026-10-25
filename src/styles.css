@@ -613,7 +613,7 @@ h2 {
   padding: 16px 20px 40px;
 }
 
-html:has(.palette-page) {
+html.palette-root {
   background: transparent;
 }
 
@@ -786,11 +786,14 @@ html:has(.palette-page) {
 }
 
 .palette-glyph.accent {
+  /* Older WebKit has no color-mix(); a plain tile then. */
+  background: var(--line);
   background: color-mix(in srgb, var(--productive) 16%, transparent);
   color: var(--productive);
 }
 
 .palette-glyph.warm {
+  background: var(--line);
   background: color-mix(in srgb, var(--distracting) 14%, transparent);
   color: var(--warm);
 }
@@ -842,6 +845,7 @@ html:has(.palette-page) {
 
 .palette-chip.selected {
   border-color: var(--productive);
+  background: var(--line);
   background: color-mix(in srgb, var(--productive) 12%, transparent);
 }
 

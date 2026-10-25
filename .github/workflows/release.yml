@@ -83,3 +83,44 @@ jobs:
           releaseBody: Installed copies of Kairo update to this version on their own.
           releaseDraft: false
           args: --target universal-apple-darwin --bundles app,dmg
+
+  # Last, for the same reason; it still runs if the Mac build fails, since Windows made the
+  # release. Copies installed from the AppImage update themselves; the .deb is for installing
+  # with the system's package tools.
+  linux:
+    needs: [windows, macos]
+    if: ${{ !cancelled() && needs.windows.result == 'success' }}
+    # The oldest supported Ubuntu, so the AppImage runs on distributions as old as it.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Kairo ${{ github.ref_name }}
+          releaseBody: Installed copies of Kairo update to this version on their own.
+          releaseDraft: false
+          args: --bundles appimage,deb
