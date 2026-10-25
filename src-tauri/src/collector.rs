@@ -1,5 +1,6 @@
 //! Background thread that samples the foreground window once a second and records sessions.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -26,11 +27,12 @@ struct Sample {
     title: String,
     site: Option<String>,
     idle: bool,
+    game: bool,
 }
 
 impl Sample {
     fn idle() -> Self {
-        Sample { app: "Idle".into(), exe: String::new(), title: String::new(), site: None, idle: true }
+        Sample { app: "Idle".into(), exe: String::new(), title: String::new(), site: None, idle: true, game: false }
     }
 }
 
@@ -60,6 +62,7 @@ pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>) {
 fn run(conn: &Connection, paused: &AtomicBool) {
     let mut open: Option<Open> = None;
     let mut last_tick = now_ms();
+    let mut adopted_games: HashSet<String> = HashSet::new();
 
     loop {
         thread::sleep(TICK);
@@ -84,6 +87,9 @@ fn run(conn: &Connection, paused: &AtomicBool) {
             _ => {
                 // When idle is detected, it actually began at the last input, so end the previous session there.
                 close(conn, open.take(), since);
+                if sample.game && adopted_games.insert(sample.exe.clone()) {
+                    log(db::adopt_game(conn, &sample.exe, &sample.app));
+                }
                 let start = since.min(now);
                 let row = db::NewSession {
                     app: &sample.app,
@@ -114,15 +120,18 @@ fn capture(now: i64) -> (Sample, i64) {
         return (Sample::idle(), now);
     }
 
-    let site = if classify::is_browser(&exe) { classify::site_from_title(&fg.title) } else { None };
+    let title = classify::clean_title(&fg.title);
+    let site = if classify::is_browser(&exe) { classify::site_from_title(&title) } else { None };
+    let game = classify::is_game(&exe, &fg.exe_path);
     let idle_for = platform::idle_ms();
-    let threshold = if classify::is_passive(&exe, site.as_deref()) { PASSIVE_IDLE_AFTER_MS } else { IDLE_AFTER_MS };
+    // Controller input never reaches the idle timer, so games get the long threshold too.
+    let threshold = if game || classify::is_passive(&exe, site.as_deref()) { PASSIVE_IDLE_AFTER_MS } else { IDLE_AFTER_MS };
     if idle_for >= threshold {
         return (Sample::idle(), now - idle_for);
     }
 
-    let app = classify::display_name(&exe, &fg.title);
-    (Sample { app, exe, title: fg.title, site, idle: false }, now)
+    let app = classify::game_name(&fg.exe_path).unwrap_or_else(|| classify::display_name(&exe, &title));
+    (Sample { app, exe, title, site, idle: false, game }, now)
 }
 
 fn close(conn: &Connection, open: Option<Open>, end: i64) {

@@ -68,6 +68,17 @@ pub fn set_session_end(conn: &Connection, id: i64, end_ms: i64) -> Result<()> {
     Ok(())
 }
 
+/// First sighting of a game: file it under distracting unless the user already chose, and relabel
+/// sessions recorded under the bare exe name before Kairo knew it was a game.
+pub fn adopt_game(conn: &Connection, exe: &str, name: &str) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO categories (key, category) VALUES (?1, 'distracting')",
+        [format!("app:{exe}")],
+    )?;
+    conn.execute("UPDATE sessions SET app = ?1 WHERE exe = ?2 AND app != ?1", params![name, exe])?;
+    Ok(())
+}
+
 pub fn get_setting(conn: &Connection, key: &str) -> Result<Option<String>> {
     conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()
 }

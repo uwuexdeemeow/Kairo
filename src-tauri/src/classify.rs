@@ -87,6 +87,46 @@ pub const DEFAULT_CATEGORIES: &[(&str, &str)] = &[
     ("site:twitch", "distracting"),
 ];
 
+/// Library folders whose next folder is a game, named the way players know it ("THE FINALS").
+const GAME_LIBRARIES: &[&[&str]] = &[&["steamapps", "common"], &["epic games"], &["riot games"], &["xboxgames"], &["gog games"]];
+
+/// Launchers and tools that live in those folders but aren't games.
+const NOT_GAMES: &[&str] = &["launcher", "riot client", "steamworks shared", "steamvr", "directxredist"];
+
+/// Games installed outside a library folder (Battle.net, Roblox), so they're only known by exe.
+const GAME_EXES: &[&str] = &["overwatch", "robloxplayerbeta", "league of legends", "valorant", "cs2", "fortniteclient-win64-shipping"];
+
+/// The game's name when the exe lives in a game library, e.g. `...\steamapps\common\THE FINALS\...\Discovery.exe`.
+pub fn game_name(exe_path: &str) -> Option<String> {
+    let parts: Vec<&str> = exe_path.split(['\\', '/']).filter(|p| !p.is_empty()).collect();
+    for library in GAME_LIBRARIES {
+        let found = parts.windows(library.len()).position(|w| w.iter().zip(*library).all(|(a, b)| a.eq_ignore_ascii_case(b)));
+        let Some(i) = found else { continue };
+        let folder = i + library.len();
+        // The game folder must contain the exe, not be the exe itself.
+        if folder + 1 >= parts.len() {
+            return None;
+        }
+        let name = clean_title(parts[folder]);
+        return (!NOT_GAMES.iter().any(|n| name.eq_ignore_ascii_case(n))).then_some(name);
+    }
+    None
+}
+
+pub fn is_game(exe: &str, exe_path: &str) -> bool {
+    GAME_EXES.contains(&exe) || game_name(exe_path).is_some()
+}
+
+/// Window titles with invisible characters removed; some games pad their title with them.
+pub fn clean_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|c| !matches!(c, '\u{00ad}' | '\u{200b}'..='\u{200f}' | '\u{2060}'..='\u{2064}' | '\u{feff}'))
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 pub fn exe_stem(exe_path: &str) -> String {
     let file = exe_path.rsplit(['\\', '/']).next().unwrap_or(exe_path);
     let stem = file.strip_suffix(".exe").or_else(|| file.strip_suffix(".EXE")).unwrap_or(file);
@@ -182,5 +222,22 @@ mod tests {
         assert_eq!(exe_stem(r"C:\Program Files\Google\Chrome\Application\chrome.exe"), "chrome");
         assert_eq!(display_name("code", ""), "VS Code");
         assert_eq!(display_name("obsidian", ""), "Obsidian");
+    }
+
+    #[test]
+    fn games_are_named_after_their_install_folder() {
+        let finals = r"D:\SteamLibrary\steamapps\common\THE FINALS\Discovery\Binaries\Win64\Discovery.exe";
+        assert_eq!(game_name(finals).as_deref(), Some("THE FINALS"));
+        assert_eq!(game_name(r"C:\Riot Games\VALORANT\live\VALORANT.exe").as_deref(), Some("VALORANT"));
+        assert_eq!(game_name(r"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe"), None);
+        assert_eq!(game_name(r"C:\Riot Games\Riot Client\RiotClientServices.exe"), None);
+        assert_eq!(game_name(r"C:\Program Files (x86)\Steam\steam.exe"), None);
+        assert!(is_game("overwatch", r"C:\Program Files (x86)\Overwatch\_retail_\Overwatch.exe"));
+        assert!(!is_game("cursor", r"C:\Users\me\AppData\Local\Programs\cursor\Cursor.exe"));
+    }
+
+    #[test]
+    fn invisible_characters_are_stripped_from_titles() {
+        assert_eq!(clean_title("\u{200b}\u{200b}\u{feff}T\u{200b}H\u{feff}E FI\u{200b}NALS"), "THE FINALS");
     }
 }
