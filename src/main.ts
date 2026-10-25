@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusBlock, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -315,6 +315,9 @@ function renderToday(d: DaySummary) {
   renderUsage($("#today-sites"), d.topSites, isToday ? "No recognised sites yet today." : "No recognised sites this day.");
 }
 
+/// Focus sessions on the day the Today view shows, loaded alongside it.
+let shownFocus: FocusBlock[] = [];
+
 function renderTimeline(d: DaySummary, isToday: boolean) {
   const t0 = parseDate(shownDay()).getTime();
   const span = 24 * HOUR_MS;
@@ -334,6 +337,18 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
 
   const axis = h("div", { class: "axis", "aria-hidden": "true" }, ...["00", "06", "12", "18", "24"].map((t) => h("span", {}, t)));
   const parts: Node[] = [strip, axis];
+  // Focus sessions run as a thin lane above the activity they covered.
+  if (shownFocus.length) {
+    const lane = h("div", { class: "focus-lane", role: "img", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
+    for (const b of shownFocus) {
+      const el = h("span", { class: `focus-block${b.completed ? "" : " cut"}` });
+      el.style.left = `${((b.start - t0) / span) * 100}%`;
+      el.style.width = `max(${((b.end - b.start) / span) * 100}%, 3px)`;
+      tip(el, () => `<strong>Focus session</strong><div class="muted">${fmtClock(b.start)}–${fmtClock(b.end)} · ${fmtDur(b.end - b.start)}${b.completed ? "" : " · ended early"}</div>`);
+      lane.append(el);
+    }
+    parts.unshift(lane);
+  }
   if (!d.timeline.length) parts.push(h("p", { class: "empty" }, isToday ? "Nothing tracked yet today. Kairo records in the background while it runs." : "Nothing was tracked this day."));
   $("#today-timeline").replaceChildren(...parts);
 }
@@ -439,6 +454,7 @@ function renderWeek(w: Week) {
     stat("On screen", fmtGoal(t.activeMs), vsLastWeek(t.activeMs, p.activeMs)),
     stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
     stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], { weekday: "long" }) : "—"),
+    stat("Focus sessions", String(w.focusSessions), w.focusSessions ? fmtDur(w.focusMs) : ""),
   );
   const before = parseDate(shiftDate(w.start, -7));
   const beforeEnd = parseDate(shiftDate(w.start, -1));
@@ -703,6 +719,7 @@ function renderCategories(entries: CategoryEntry[]) {
 
 const LIMIT_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240];
 const PRODUCTIVE_CHOICES = [0, 60, 120, 180, 240, 300, 360, 480];
+const BREAK_CHOICES = [0, 45, 60, 90, 120];
 const DISTRACTING_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180];
 
 /// A minutes picker where 0 is "off"; a saved value outside the presets is kept as an option.
@@ -902,16 +919,45 @@ const disarmDelete = confirmTwice(
 
 let status: { app: string | null; sinceMs: number | null; tracking: boolean } | null = null;
 
+let focusSession: FocusSession | null = null;
+
 async function refreshStatus() {
   try {
-    status = await api.status();
+    [status, focusSession] = await Promise.all([api.status(), api.focus()]);
   } catch {
     status = null;
   }
   paintStatus();
 }
 
+/// The sidebar's focus box: start buttons when idle, a countdown while a session runs.
+function paintFocus() {
+  const running = focusSession && Date.now() < focusSession.startMs + focusSession.plannedMs ? focusSession : null;
+  $("#focus-idle").hidden = !!running;
+  $("#focus-active").hidden = !running;
+  if (!running) return;
+  const left = running.startMs + running.plannedMs - Date.now();
+  $("#focus-left").textContent = `${fmtElapsed(left)} left`;
+  $("#focus-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
+}
+
+for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
+  btn.addEventListener("click", async () => {
+    focusSession = await api.startFocus(Number(btn.dataset.focus));
+    paintFocus();
+    if (view === "today" && selectedDay === null) load("today");
+  });
+}
+
+$("#focus-stop").addEventListener("click", async () => {
+  await api.stopFocus();
+  focusSession = null;
+  paintFocus();
+  if (view === "today" && selectedDay === null) load("today");
+});
+
 function paintStatus() {
+  paintFocus();
   const el = $("#status");
   if (!status) {
     el.textContent = "";
@@ -936,7 +982,9 @@ async function load(v: View = view) {
   try {
     if (v === "today") {
       firstDay = await api.firstDay();
-      const [day, goals] = await Promise.all([api.day(selectedDay ?? undefined), api.goals(selectedDay ?? undefined)]);
+      const date = selectedDay ?? undefined;
+      const [day, goals, focusBlocks] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date)]);
+      shownFocus = focusBlocks;
       renderToday(day);
       renderGoals(goals, selectedDay === null);
     }
@@ -950,6 +998,9 @@ async function load(v: View = view) {
       $("#settings-version").textContent = `Kairo ${await api.version()}`;
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
+      const breaks = $<HTMLSelectElement>("#break-every");
+      breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
+      breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
       const auto = await api.autostart();
       const box = $<HTMLInputElement>("#autostart-enabled");

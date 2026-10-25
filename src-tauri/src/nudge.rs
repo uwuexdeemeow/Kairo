@@ -111,7 +111,7 @@ fn message(conn: &Connection, w: &LowFocusWindow) -> HeadsUp {
 }
 
 /// The site or app in front, if it counts as distracting.
-fn current_distraction(conn: &Connection) -> Option<String> {
+pub fn current_distraction(conn: &Connection) -> Option<String> {
     let current = db::current_activity(conn, now_ms()).ok().flatten()?;
     let cats = analysis::category_map(conn).ok()?;
     (analysis::resolve(&cats, &current.exe, current.site.as_deref()) == Category::Distracting)

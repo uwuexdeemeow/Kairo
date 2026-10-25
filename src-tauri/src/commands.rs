@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{classify, db, demo, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{classify, db, demo, focus, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -160,6 +160,50 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
 
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
     Ok(out)
+}
+
+/// The running focus session, if any.
+#[tauri::command]
+pub fn get_focus(state: State<AppState>) -> CmdResult<Option<focus::Active>> {
+    let conn = state.db.lock().map_err(err)?;
+    focus::active(&conn).map_err(err)
+}
+
+/// Starts a focus session of `minutes`, ending any that is running.
+#[tauri::command]
+pub fn start_focus(state: State<AppState>, minutes: u32) -> CmdResult<focus::Active> {
+    if !(1..=240).contains(&minutes) {
+        return Err(format!("a focus session runs 1 to 240 minutes, not {minutes}"));
+    }
+    let conn = state.db.lock().map_err(err)?;
+    focus::start(&conn, minutes, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+pub fn stop_focus(state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    focus::stop(&conn, now_ms()).map_err(err)
+}
+
+/// Focus sessions on one local day (default today), for the timeline.
+#[tauri::command]
+pub fn get_focus_blocks(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<focus::Block>> {
+    let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
+    let conn = state.db.lock().map_err(err)?;
+    focus::blocks(&conn, from, to, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_break_minutes(state: State<AppState>) -> CmdResult<u32> {
+    let conn = state.db.lock().map_err(err)?;
+    focus::break_minutes(&conn).map_err(err)
+}
+
+/// Minutes of unbroken screen time before a break reminder; 0 turns them off.
+#[tauri::command]
+pub fn set_break_minutes(state: State<AppState>, minutes: u32) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    focus::set_break_minutes(&conn, minutes).map_err(err)
 }
 
 /// The Monday-to-Sunday week containing `date` (default today), against the week before.

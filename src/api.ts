@@ -127,6 +127,20 @@ export interface Week {
   goalDays: number;
   topApps: { label: string; category: Category; ms: number; previousMs: number }[];
   limitsOver: { label: string; overMs: number; daysOver: number }[];
+  focusSessions: number;
+  focusMs: number;
+}
+
+export interface FocusSession {
+  startMs: number;
+  plannedMs: number;
+}
+
+export interface FocusBlock {
+  start: number;
+  end: number;
+  /** False when the session was ended early. */
+  completed: boolean;
 }
 
 export interface GoalSettings {
@@ -147,6 +161,13 @@ export const api = {
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
   /** The Monday-to-Sunday week containing `date` (a local `YYYY-MM-DD`; default today). */
   week: (date?: string) => invoke<Week>("get_week", { date }),
+  focus: () => invoke<FocusSession | null>("get_focus"),
+  startFocus: (minutes: number) => invoke<FocusSession>("start_focus", { minutes }),
+  stopFocus: () => invoke<void>("stop_focus"),
+  /** Focus sessions on one local day (`YYYY-MM-DD`; default today). */
+  focusBlocks: (date?: string) => invoke<FocusBlock[]>("get_focus_blocks", { date }),
+  breakMinutes: () => invoke<number>("get_break_minutes"),
+  setBreakMinutes: (minutes: number) => invoke<void>("set_break_minutes", { minutes }),
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: "productive" | "distracting", minutes: number) => invoke<void>("set_goal", { kind, minutes }),

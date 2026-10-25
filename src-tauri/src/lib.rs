@@ -4,6 +4,7 @@ mod collector;
 mod commands;
 mod db;
 mod demo;
+mod focus;
 mod goals;
 mod nudge;
 mod platform;
@@ -15,7 +16,7 @@ mod updater;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent, Wry};
 
@@ -65,6 +66,7 @@ pub fn run() {
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone());
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
+            focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState { db: Mutex::new(conn), paused: paused.clone(), window_cache, privacy_rules });
             setup_tray(app, paused, nudges_on)?;
@@ -98,6 +100,12 @@ pub fn run() {
             commands::get_autostart,
             commands::set_autostart,
             commands::get_week,
+            commands::get_focus,
+            commands::start_focus,
+            commands::stop_focus,
+            commands::get_focus_blocks,
+            commands::get_break_minutes,
+            commands::set_break_minutes,
             commands::get_goals,
             commands::get_goal_settings,
             commands::set_goal,
@@ -123,9 +131,21 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     let autostart_on = startup::is_enabled(app.handle());
     let autostart =
         CheckMenuItem::with_id(app, "autostart", "Start with Windows", startup::AVAILABLE, autostart_on, None::<&str>)?;
+    let focus_menu = Submenu::with_items(
+        app,
+        "Focus session",
+        true,
+        &[
+            &MenuItem::with_id(app, "focus:25", "25 minutes", true, None::<&str>)?,
+            &MenuItem::with_id(app, "focus:50", "50 minutes", true, None::<&str>)?,
+            &MenuItem::with_id(app, "focus:90", "90 minutes", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "focus:stop", "End session", true, None::<&str>)?,
+        ],
+    )?;
     let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &autostart, &update, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &focus_menu, &pause, &nudges, &autostart, &update, &quit])?;
     app.manage(NudgeToggle(nudges.clone()));
     app.manage(AutostartToggle(autostart.clone()));
 
@@ -155,6 +175,18 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
                 if let Err(e) = startup::set_enabled(app, on) {
                     eprintln!("tray: {e}");
                     let _ = autostart.set_checked(startup::is_enabled(app));
+                }
+            }
+            id if id.starts_with("focus:") => {
+                let state = app.state::<AppState>();
+                let Ok(conn) = state.db.lock() else { return };
+                let now = chrono::Utc::now().timestamp_millis();
+                let result = match id.trim_start_matches("focus:") {
+                    "stop" => focus::stop(&conn, now),
+                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start(&conn, m, now).map(|_| ())),
+                };
+                if let Err(e) = result {
+                    eprintln!("tray: focus session: {e}");
                 }
             }
             "update" => {

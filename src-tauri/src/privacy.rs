@@ -113,11 +113,14 @@ pub fn delete_between(conn: &Connection, from: i64, to: i64) -> Result<usize> {
     let mut changed = tx.execute("DELETE FROM sessions WHERE start_ms >= ?1 AND end_ms <= ?2", params![from, to])?;
     changed += tx.execute("UPDATE sessions SET end_ms = ?1 WHERE start_ms < ?1 AND end_ms > ?1", params![from])?;
     changed += tx.execute("UPDATE sessions SET start_ms = ?1 WHERE start_ms < ?1 AND end_ms > ?1", params![to])?;
+    // Finished focus sessions that began in the range go with it; a running one is left alone.
+    tx.execute("DELETE FROM focus_sessions WHERE start_ms >= ?1 AND start_ms < ?2 AND end_ms IS NOT NULL", params![from, to])?;
     tx.commit()?;
     Ok(changed)
 }
 
 pub fn delete_all(conn: &Connection) -> Result<usize> {
+    conn.execute("DELETE FROM focus_sessions WHERE end_ms IS NOT NULL", [])?;
     conn.execute("DELETE FROM sessions", [])
 }
 

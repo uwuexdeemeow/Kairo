@@ -9,9 +9,9 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
-use crate::analysis::{Category, Row};
+use crate::analysis::{self, Category, Row};
 use crate::goals::{self, fmt_dur, Kind};
-use crate::db;
+use crate::{db, focus};
 
 const SENT_KEY: &str = "recap_sent_for";
 /// Sunday evening, when the week is all but done.
@@ -91,6 +91,8 @@ pub struct Week {
     goal_days: u32,
     top_apps: Vec<AppWeek>,
     limits_over: Vec<LimitWeek>,
+    focus_sessions: usize,
+    focus_ms: i64,
 }
 
 pub fn week_start(date: NaiveDate) -> NaiveDate {
@@ -160,7 +162,24 @@ pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Week> {
         limits.into_iter().map(|(label, (over_ms, days_over))| LimitWeek { label, over_ms, days_over }).collect();
     limits_over.sort_by_key(|l| std::cmp::Reverse(l.over_ms));
 
-    Ok(Week { start: start.to_string(), totals, previous, days, best_day, goal_days_met, goal_days, top_apps, limits_over })
+    let from = analysis::day_bounds(start).map_or(0, |b| b.0);
+    let to = analysis::day_bounds(start + Days::new(6)).map_or(now_ms, |b| b.1);
+    let focus = focus::blocks(conn, from, to, now_ms)?;
+    let focus_ms = focus.iter().map(focus::Block::ms).sum();
+
+    Ok(Week {
+        start: start.to_string(),
+        totals,
+        previous,
+        days,
+        best_day,
+        goal_days_met,
+        goal_days,
+        top_apps,
+        limits_over,
+        focus_sessions: focus.len(),
+        focus_ms,
+    })
 }
 
 fn weekday_name(iso: &str) -> String {

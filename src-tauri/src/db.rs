@@ -45,6 +45,14 @@ pub fn open(path: &Path) -> Result<Connection> {
              key     TEXT PRIMARY KEY,
              minutes INTEGER NOT NULL CHECK (minutes > 0)
          );
+         CREATE TABLE IF NOT EXISTS focus_sessions (
+             id         INTEGER PRIMARY KEY,
+             start_ms   INTEGER NOT NULL,
+             planned_ms INTEGER NOT NULL,
+             -- NULL while the session is running.
+             end_ms     INTEGER,
+             completed  INTEGER NOT NULL DEFAULT 0
+         );
          CREATE TABLE IF NOT EXISTS goal_alerts (
              day   TEXT    NOT NULL,
              key   TEXT    NOT NULL,

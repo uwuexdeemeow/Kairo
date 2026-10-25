@@ -32,6 +32,22 @@
             Settings
           </button>
         </nav>
+        <section class="focus" aria-label="Focus session">
+          <div class="focus-idle" id="focus-idle">
+            <span class="focus-label">Focus for</span>
+            <div class="focus-start" role="group" aria-label="Start a focus session">
+              <button data-focus="25" title="Start a 25-minute focus session">25m</button>
+              <button data-focus="50" title="Start a 50-minute focus session">50m</button>
+              <button data-focus="90" title="Start a 90-minute focus session">90m</button>
+            </div>
+          </div>
+          <div class="focus-active" id="focus-active" hidden>
+            <span class="focus-label">Focus session</span>
+            <span class="focus-left" id="focus-left" aria-live="off"></span>
+            <div class="track"><div class="line productive" id="focus-progress"></div></div>
+            <button class="link-btn focus-stop" id="focus-stop">End early</button>
+          </div>
+        </section>
         <span id="status" class="status"></span>
       </aside>
 
@@ -243,6 +259,15 @@
               <button class="link-btn" id="nudge-test">Send a test nudge</button>
               <span class="muted" id="nudge-status"></span>
             </div>
+          </section>
+
+          <section class="block">
+            <h2>Breaks</h2>
+            <label class="field">
+              Remind me to take a break after
+              <select id="break-every"></select>
+            </label>
+            <p class="muted">Only time you're actually at the computer counts, and 5 minutes away resets it. Reminders wait until a focus session or a game is over.</p>
           </section>
 
           <section class="block demo">
