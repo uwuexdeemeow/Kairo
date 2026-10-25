@@ -53,6 +53,25 @@
 
       <main class="wrap">
         <section id="view-today" class="view">
+          <section class="welcome" id="welcome" aria-label="Welcome" hidden>
+            <h1>Welcome to Kairo</h1>
+            <p class="muted lede">Kairo is already recording. Once a second it notes which app is in front and its window title, and everything stays on this computer. Give it an hour and this page fills in.</p>
+            <ol class="welcome-steps">
+              <li>
+                <button class="link-btn" data-goto="settings" data-goto-target="#goal-productive">Set a daily goal</button>
+                <span class="muted">a productive target, or a cap on distractions</span>
+              </li>
+              <li>
+                <button class="link-btn" data-goto="settings" data-goto-target="#ext-open">Add the browser extension</button>
+                <span class="muted">so Kairo knows exact sites in Brave or Chrome</span>
+              </li>
+              <li>
+                <button class="link-btn" id="welcome-demo">Try it with demo data</button>
+                <span class="muted">three made-up weeks, cleared in one click from Settings</span>
+              </li>
+            </ol>
+          </section>
+
           <section class="summary" aria-label="Summary">
             <nav class="day-nav" aria-label="Day">
               <button class="day-step" id="day-prev" aria-label="Previous day" title="Previous day (←)">‹</button>
@@ -175,6 +194,10 @@
             </div>
           </section>
           <p class="muted lede">Changes apply to past and future data. A browser's own category only counts for sites Kairo can't recognise.</p>
+          <div class="filter-row">
+            <input type="search" class="filter" id="category-filter" placeholder="Filter apps and sites" aria-label="Filter apps and sites" autocomplete="off" spellcheck="false" />
+            <span class="muted" id="category-count" aria-live="polite"></span>
+          </div>
           <div id="categories"></div>
           <div class="row-buttons privacy-notice" id="privacy-notice" aria-live="polite" hidden>
             <span id="privacy-notice-text"></span>

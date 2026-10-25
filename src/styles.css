@@ -1102,14 +1102,56 @@ select {
   min-height: 40px;
 }
 
-input[type="date"] {
+/* First run: only the welcome shows until something has been recorded. */
+#view-today.first-run > :not(#welcome) {
+  display: none;
+}
+
+.welcome {
+  margin-top: 14px;
+  max-width: 640px;
+}
+
+.welcome-steps {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  line-height: 1.6;
+}
+
+.welcome-steps li {
+  padding: 4px 0;
+}
+
+.welcome-steps .muted {
+  margin-left: 10px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.filter {
+  width: 280px;
+  max-width: 100%;
   font: inherit;
   color: var(--ink);
-  background: var(--bg);
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  padding: 4px 2px;
-  color-scheme: dark light;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color-scheme: dark;
+}
+
+.filter::placeholder {
+  color: var(--faint);
+}
+
+.filter:focus-visible {
+  outline: 2px solid var(--productive);
+  outline-offset: 1px;
 }
 
 .ext-status {

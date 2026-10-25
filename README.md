@@ -11,7 +11,7 @@ collector thread ──► SQLite (sessions, categories) ──► analysis ─�
   window + idle time)
 ```
 
-- **Collector** (`src-tauri/src/collector.rs`): foreground app, window title and idle detection. Idle starts after 2 minutes without input (30 minutes on video sites, so watching isn't counted as being away). Sleep and lock screen end the current session.
+- **Collector** (`src-tauri/src/collector.rs`): foreground app, window title and idle detection. Keyboard, mouse and Xbox-compatible controller input all count as activity. Idle starts after 2 minutes without input (30 minutes on video sites, so watching isn't counted as being away). Sleep and lock screen end the current session.
 - **Classification** (`src-tauri/src/classify.rs`): readable app names, sites guessed from browser titles, and default productive, neutral and distracting categories. Users can override any category in the app. Games are named after their install folder (`steamapps\common\THE FINALS` → THE FINALS).
 - **Goals** (`src-tauri/src/goals.rs`): a daily productive target, a cap on distracting time and per-app or per-site limits, shown on Today with a streak. A notification goes out at 80% of a limit, when it's passed, and when a target is reached, each at most once a day.
 - **Browser extension** (`extension/`, `src-tauri/src/browser.rs`): a small Manifest V3 extension for Brave, Chrome and other Chromium browsers that reports the active tab's domain to a listener on `127.0.0.1:47613`, so sites are exact rather than guessed from titles. It ships inside the installer; Settings opens its folder for **Load unpacked**. Only the hostname is sent, and only requests from an extension are accepted.

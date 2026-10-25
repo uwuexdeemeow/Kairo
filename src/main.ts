@@ -656,10 +656,21 @@ function renderHeatmap(p: Patterns) {
 
 // ---------- categories ----------
 
+/// Everything the table could show; the filter box narrows it without asking Kairo again.
+let allCategories: CategoryEntry[] = [];
+
 function renderCategories(entries: CategoryEntry[]) {
+  allCategories = entries;
+  paintCategories();
+}
+
+function paintCategories() {
   const root = $("#categories");
+  const query = $<HTMLInputElement>("#category-filter").value.trim().toLowerCase();
+  const entries = query ? allCategories.filter((e) => e.label.toLowerCase().includes(query) || e.key.toLowerCase().includes(query)) : allCategories;
+  $("#category-count").textContent = query ? `${entries.length} of ${allCategories.length}` : "";
   if (!entries.length) {
-    root.replaceChildren(h("p", { class: "empty" }, "Nothing tracked in the last 30 days yet."));
+    root.replaceChildren(h("p", { class: "empty" }, query ? `No apps or sites match “${query}”.` : "Nothing tracked in the last 30 days yet."));
     return;
   }
   const rows = entries.map((e) => {
@@ -982,6 +993,11 @@ async function load(v: View = view) {
   try {
     if (v === "today") {
       firstDay = await api.firstDay();
+      // Before anything is recorded, Today is a welcome rather than an empty dashboard.
+      const firstRun = firstDay === null;
+      $("#view-today").classList.toggle("first-run", firstRun);
+      $("#welcome").hidden = !firstRun;
+      if (firstRun) return;
       const date = selectedDay ?? undefined;
       const [day, goals, focusBlocks] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date)]);
       shownFocus = focusBlocks;
@@ -1102,6 +1118,24 @@ $("#ext-open").addEventListener("click", async () => {
   } catch (err) {
     $("#ext-note").textContent = `Couldn't open it: ${err}`;
   }
+});
+
+$("#category-filter").addEventListener("input", paintCategories);
+
+/// Welcome links open another view and bring the relevant control into sight.
+for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) {
+  link.addEventListener("click", async () => {
+    $<HTMLButtonElement>(`[data-view="${link.dataset.goto}"]`).click();
+    await load(link.dataset.goto as View);
+    const target = document.querySelector<HTMLElement>(link.dataset.gotoTarget ?? "");
+    target?.scrollIntoView({ block: "center" });
+    target?.focus();
+  });
+}
+
+$("#welcome-demo").addEventListener("click", async () => {
+  await api.seedDemo();
+  load("today");
 });
 
 $("#update-check").addEventListener("click", async () => {

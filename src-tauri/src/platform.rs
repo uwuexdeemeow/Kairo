@@ -1,4 +1,4 @@
-//! OS hooks: which window is in front, and how long since the last keyboard/mouse input.
+//! OS hooks: which window is in front, and how long since the last keyboard, mouse or controller input.
 
 pub struct Foreground {
     /// Full path of the process that owns the foreground window.
@@ -11,14 +11,17 @@ pub use win::{foreground, idle_ms};
 
 #[cfg(windows)]
 mod win {
+    use std::sync::Mutex;
+
     use super::Foreground;
-    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS};
     use windows_sys::Win32::System::SystemInformation::GetTickCount;
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
         PROCESS_QUERY_LIMITED_INFORMATION,
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+    use windows_sys::Win32::UI::Input::XboxController::{XInputGetState, XINPUT_STATE};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
     };
@@ -60,8 +63,10 @@ mod win {
         }
     }
 
+    /// Time since the last keyboard, mouse or game controller input.
     pub fn idle_ms() -> i64 {
         unsafe {
+            let now = GetTickCount();
             let mut info = LASTINPUTINFO {
                 cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,
                 dwTime: 0,
@@ -70,8 +75,62 @@ mod win {
                 return 0;
             }
             // Both are 32-bit tick counts that wrap every ~49 days; wrapping_sub handles that.
-            GetTickCount().wrapping_sub(info.dwTime) as i64
+            let keyboard_mouse = now.wrapping_sub(info.dwTime) as i64;
+            match pad_idle_ms(now) {
+                Some(pad) => keyboard_mouse.min(pad),
+                None => keyboard_mouse,
+            }
         }
+    }
+
+    const PAD_SLOTS: usize = 4;
+    /// Asking about an empty slot is slow, so unplugged ones are only rechecked this often.
+    const EMPTY_SLOT_RECHECK_MS: u32 = 5_000;
+
+    struct Pads {
+        /// Each connected controller's packet number, which changes with every button or stick move.
+        packets: [Option<u32>; PAD_SLOTS],
+        next_check: [u32; PAD_SLOTS],
+        last_input: Option<u32>,
+    }
+
+    static PADS: Mutex<Pads> =
+        Mutex::new(Pads { packets: [None; PAD_SLOTS], next_check: [0; PAD_SLOTS], last_input: None });
+
+    /// Windows' idle timer ignores game controllers, so they're polled here instead. None until a
+    /// controller has been used since Kairo started.
+    fn pad_idle_ms(now: u32) -> Option<i64> {
+        let mut pads = PADS.lock().unwrap_or_else(|e| e.into_inner());
+        for slot in 0..PAD_SLOTS {
+            // Wrapping comparison: is `now` at or past the slot's next check?
+            if pads.packets[slot].is_none() && (now.wrapping_sub(pads.next_check[slot]) as i32) < 0 {
+                continue;
+            }
+            let mut state: XINPUT_STATE = unsafe { std::mem::zeroed() };
+            let packet = (unsafe { XInputGetState(slot as u32, &mut state) } == ERROR_SUCCESS).then_some(state.dwPacketNumber);
+            // A controller's first sighting isn't input; a changed packet number is.
+            if packet.is_some() && pads.packets[slot].is_some() && packet != pads.packets[slot] {
+                pads.last_input = Some(now);
+            }
+            if packet.is_none() {
+                pads.next_check[slot] = now.wrapping_add(EMPTY_SLOT_RECHECK_MS);
+            }
+            pads.packets[slot] = packet;
+        }
+        pads.last_input.map(|t| now.wrapping_sub(t) as i64)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn idle_time_with_controller_polling_stays_cheap() {
+        // The collector asks every second; empty controller slots must not make that slow.
+        let start = std::time::Instant::now();
+        for _ in 0..20 {
+            assert!(super::idle_ms() >= 0);
+        }
+        assert!(start.elapsed() < std::time::Duration::from_millis(500), "took {:?}", start.elapsed());
     }
 }
 
