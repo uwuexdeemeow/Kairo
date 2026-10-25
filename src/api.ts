@@ -186,6 +186,8 @@ export const api = {
   testNudge: () => invoke<void>("send_test_nudge"),
   autostart: () => invoke<Autostart>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
+  extensionStatus: () => invoke<{ listening: boolean; lastReportMs: number | null }>("get_extension_status"),
+  openExtensionFolder: () => invoke<void>("open_extension_folder"),
   version: () => invoke<string>("get_version"),
   /** The result arrives as a notification, like the tray's "Check for updates". */
   checkForUpdates: () => invoke<void>("check_for_updates"),

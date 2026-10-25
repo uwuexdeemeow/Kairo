@@ -240,6 +240,20 @@
           </section>
 
           <section class="block">
+            <h2>Browser extension</h2>
+            <p class="muted">Without it, Kairo guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Kairo the exact site instead. It sends only the domain, never the page or what you type, and only to Kairo on this computer.</p>
+            <p class="ext-status" id="ext-status" aria-live="polite"></p>
+            <ol class="steps">
+              <li>Open <span class="mono">brave://extensions</span> or <span class="mono">chrome://extensions</span> and turn on <strong>Developer mode</strong>.</li>
+              <li>Click <strong>Load unpacked</strong> and pick Kairo's extension folder.</li>
+            </ol>
+            <div class="row-buttons">
+              <button class="link-btn" id="ext-open">Open the extension folder</button>
+              <span class="muted" id="ext-note"></span>
+            </div>
+          </section>
+
+          <section class="block">
             <h2>Start with Windows</h2>
             <label class="toggle">
               <input type="checkbox" id="autostart-enabled" />

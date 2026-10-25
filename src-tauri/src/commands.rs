@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{classify, db, demo, focus, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{browser, classify, db, demo, focus, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -406,6 +406,22 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
     if let Some(toggle) = app.try_state::<AutostartToggle>() {
         let _ = toggle.0.set_checked(enabled);
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_extension_status(state: State<AppState>) -> browser::Status {
+    browser::status(&state.browser_tab, state.browser_listening)
+}
+
+/// Shows the browser extension's folder, bundled with Kairo, for "Load unpacked".
+#[tauri::command]
+pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
+    let dir = app.path().resource_dir().map_err(err)?.join("extension");
+    if !dir.is_dir() {
+        return Err(format!("the extension folder is missing: {}", dir.display()));
+    }
+    std::process::Command::new("explorer").arg(&dir).spawn().map_err(err)?;
     Ok(())
 }
 

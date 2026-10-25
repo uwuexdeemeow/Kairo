@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+use crate::browser::{self, SharedTab};
 use crate::privacy::{self, Mode, Rules, SharedRules};
 use crate::{classify, db, platform};
 
@@ -46,7 +47,7 @@ struct Open {
     flushed_ms: i64,
 }
 
-pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules) {
+pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules, tab: SharedTab) {
     thread::Builder::new()
         .name("kairo-collector".into())
         .spawn(move || {
@@ -57,12 +58,12 @@ pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules) {
                     return;
                 }
             };
-            run(&conn, &paused, &rules);
+            run(&conn, &paused, &rules, &tab);
         })
         .expect("failed to start collector thread");
 }
 
-fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules) {
+fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &SharedTab) {
     let mut open: Option<Open> = None;
     let mut last_tick = now_ms();
     let mut adopted_games: HashSet<String> = HashSet::new();
@@ -84,7 +85,7 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules) {
             continue;
         }
 
-        let captured = capture(now, &rules.read().unwrap_or_else(|e| e.into_inner()));
+        let captured = capture(now, &rules.read().unwrap_or_else(|e| e.into_inner()), browser::fresh(tab, now));
         let Some((sample, since)) = captured else {
             close(conn, open.take(), now);
             continue;
@@ -127,7 +128,7 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules) {
 
 /// What the user is doing right now, and when that started (earlier than now only for idle).
 /// None while something the user excluded from recording is in front.
-fn capture(now: i64, rules: &Rules) -> Option<(Sample, i64)> {
+fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sample, i64)> {
     let Some(fg) = platform::foreground() else {
         return Some((Sample::idle(), now));
     };
@@ -137,8 +138,16 @@ fn capture(now: i64, rules: &Rules) -> Option<(Sample, i64)> {
     }
 
     let mut title = classify::clean_title(&fg.title);
-    let private = classify::is_browser(&exe) && classify::is_private_window(&title);
-    let site = if classify::is_browser(&exe) && !private { classify::site_from_title(&title) } else { None };
+    let browser = classify::is_browser(&exe);
+    // With the extension reporting, the browser in front says exactly which site it shows;
+    // without it, the site is guessed from the window title.
+    let tab = tab.filter(|_| browser);
+    let private = browser && (tab.as_ref().is_some_and(|t| t.incognito) || classify::is_private_window(&title));
+    let site = match tab {
+        _ if !browser || private => None,
+        Some(t) => t.site,
+        None => classify::site_from_title(&title),
+    };
     let mode = privacy::resolve(rules, &exe, site.as_deref());
     if mode == Mode::Ignore {
         return None;

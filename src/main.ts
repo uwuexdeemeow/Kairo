@@ -998,6 +998,7 @@ async function load(v: View = view) {
       $("#settings-version").textContent = `Kairo ${await api.version()}`;
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
+      await refreshExtension();
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
       breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
@@ -1067,6 +1068,40 @@ document.addEventListener("keydown", (e) => {
   if (!next) return;
   e.preventDefault();
   $<HTMLButtonElement>(`[data-view="${next}"]`).click();
+});
+
+/// Reports come every 30 seconds while the browser runs, so a couple of minutes' silence means
+/// the browser is closed or the extension isn't installed.
+const EXTENSION_QUIET_MS = 2 * 60_000;
+
+async function refreshExtension() {
+  const el = $("#ext-status");
+  try {
+    const s = await api.extensionStatus();
+    const ago = s.lastReportMs === null ? null : Date.now() - s.lastReportMs;
+    const connected = ago !== null && ago < EXTENSION_QUIET_MS;
+    el.className = `ext-status${connected ? " connected" : ""}`;
+    el.textContent = !s.listening
+      ? "Kairo can't listen for the extension: another program is using port 47613."
+      : connected
+        ? `Connected. Last heard ${fmtAgo(ago!)}.`
+        : ago === null
+          ? "Not connected yet. Once it's installed, open the browser and this turns green."
+          : `Last heard ${fmtAgo(ago)}. Is the browser open?`;
+  } catch (err) {
+    el.textContent = `Couldn't check the extension: ${err}`;
+  }
+}
+
+const fmtAgo = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s ago` : `${fmtDur(ms)} ago`);
+
+$("#ext-open").addEventListener("click", async () => {
+  try {
+    await api.openExtensionFolder();
+    $("#ext-note").textContent = "";
+  } catch (err) {
+    $("#ext-note").textContent = `Couldn't open it: ${err}`;
+  }
 });
 
 $("#update-check").addEventListener("click", async () => {
@@ -1146,6 +1181,8 @@ setInterval(() => {
   if (view === "today" && selectedDay === null) load("today");
 }, REFRESH_MS);
 setInterval(refreshStatus, STATUS_POLL_MS);
+// Settings shows whether the extension is talking; keep that current while it's open.
+setInterval(() => view === "settings" && refreshExtension(), STATUS_POLL_MS);
 // The elapsed counter ticks locally between polls.
 setInterval(paintStatus, 1000);
 

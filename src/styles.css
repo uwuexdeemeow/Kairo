@@ -1112,6 +1112,43 @@ input[type="date"] {
   color-scheme: dark light;
 }
 
+.ext-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+
+.ext-status::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.ext-status.connected {
+  color: var(--ink);
+}
+
+.ext-status.connected::before {
+  background: var(--good);
+}
+
+.steps {
+  margin: 14px 0 4px;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.steps strong {
+  color: var(--ink);
+  font-weight: 500;
+}
+
 .privacy-notice {
   margin-top: 12px;
   color: var(--muted);
