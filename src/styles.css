@@ -613,6 +613,10 @@ h2 {
   padding: 16px 20px 40px;
 }
 
+html:has(.palette-page) {
+  background: transparent;
+}
+
 .palette {
   display: flex;
   flex-direction: column;
