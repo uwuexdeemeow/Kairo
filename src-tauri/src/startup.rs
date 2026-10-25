@@ -19,6 +19,14 @@ pub fn launched_at_login() -> bool {
     std::env::args().any(|a| a == MINIMIZED_ARG)
 }
 
+/// Opens the command palette rather than Kairo's window, for a launcher or a desktop shortcut
+/// where apps can't listen for keys themselves (Linux on Wayland). A running Kairo gets it too.
+pub const PALETTE_ARG: &str = "--palette";
+
+pub fn launched_for_palette() -> bool {
+    std::env::args().any(|a| a == PALETTE_ARG)
+}
+
 /// Turn start-at-login on the first time an installed build runs; after that the user's choice stands.
 pub fn apply_default(app: &AppHandle, conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if !AVAILABLE || db::get_setting(conn, INITIALIZED_KEY)?.is_some() {

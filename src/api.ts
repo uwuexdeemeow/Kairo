@@ -116,6 +116,35 @@ export interface CategoryEntry {
 
 export type FocusRule = "auto" | "block" | "allow";
 
+export interface PaletteItem {
+  title: string;
+  /** Characters of the title to underline. */
+  at: number[];
+  sub: string | null;
+  detail: string | null;
+  icon: { kind: "app"; path: string } | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
+  section: string;
+  /** A day (`YYYY-MM-DD`) to preview while it's selected. */
+  preview: string | null;
+}
+
+/** Items are numbered across rows, tiles and chips, in that order. */
+export interface PaletteResults {
+  seq: number;
+  rows: PaletteItem[];
+  tiles: PaletteItem[];
+  chips: PaletteItem[];
+}
+
+export interface PaletteDay {
+  activeMs: number;
+  productivePct: number;
+  focusCount: number;
+  focusMs: number;
+  /** Stretches of the day as shares of it from midnight. */
+  segments: { from: number; to: number; category: Category }[];
+}
+
 /** "system" follows Windows' light or dark setting. */
 export type Appearance = "system" | "light" | "dark";
 
@@ -251,6 +280,16 @@ export const api = {
   /** Where the command palette last asked this window to go, once; null when it hasn't. `date`
    *  (local `YYYY-MM-DD`) is for Today or Week. */
   takeNavigation: () => invoke<{ view: string; date: string | null } | null>("take_navigation"),
+  /** The web palette (macOS and Linux) opening afresh: today's footer line and the theme. */
+  paletteOpen: () => invoke<{ footer: string; appearance: Appearance }>("palette_open"),
+  /** What a query finds; with nothing typed, the suggestions. */
+  paletteQuery: (query: string) => invoke<PaletteResults>("palette_query", { query }),
+  /** Icons for listed apps, as data URLs by path. */
+  paletteIcons: (paths: string[]) => invoke<Record<string, string>>("palette_icons", { paths }),
+  paletteDay: (date: string) => invoke<PaletteDay>("palette_preview", { date }),
+  /** Runs item `at` of the results numbered `seq`, then puts the palette away. */
+  paletteRun: (seq: number, at: number) => invoke<void>("palette_run", { seq, at }),
+  paletteHide: () => invoke<void>("palette_hide"),
   paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),

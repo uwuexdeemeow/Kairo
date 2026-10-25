@@ -42,6 +42,12 @@ pub fn apply_to(window: &WebviewWindow, mode: &str) {
     if let Err(e) = window.set_theme(chosen) {
         eprintln!("appearance: cannot set the window theme: {e}");
     }
+    // The web palette's window is see-through around its panel; a page color there would show
+    // as a solid box behind it.
+    if window.label() == crate::palette::LABEL {
+        let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+        return;
+    }
     let shown = chosen.or_else(|| window.theme().ok()).unwrap_or(Theme::Dark);
     let _ = window.set_background_color(Some(if shown == Theme::Light { LIGHT_BG } else { DARK_BG }));
 }
