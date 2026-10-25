@@ -32,11 +32,13 @@ struct Sample {
     site: Option<String>,
     idle: bool,
     game: bool,
+    /// The program's full path, remembered for its icon.
+    path: String,
 }
 
 impl Sample {
     fn idle() -> Self {
-        Sample { app: "Idle".into(), exe: String::new(), title: String::new(), site: None, idle: true, game: false }
+        Sample { app: "Idle".into(), exe: String::new(), title: String::new(), site: None, idle: true, game: false, path: String::new() }
     }
 }
 
@@ -67,6 +69,7 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
     let mut open: Option<Open> = None;
     let mut last_tick = now_ms();
     let mut adopted_games: HashSet<String> = HashSet::new();
+    let mut known_paths: HashSet<String> = HashSet::new();
     let mut pruned_ms = i64::MIN;
 
     loop {
@@ -105,6 +108,9 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
                 close(conn, open.take(), since);
                 if sample.game && adopted_games.insert(sample.exe.clone()) {
                     log(db::adopt_game(conn, &sample.exe, &sample.app));
+                }
+                if !sample.idle && known_paths.insert(sample.exe.clone()) {
+                    log(db::remember_path(conn, &sample.exe, &sample.path));
                 }
                 let start = since.min(now);
                 let row = db::NewSession {
@@ -165,7 +171,7 @@ fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sam
     if private || mode == Mode::HideTitle {
         title.clear();
     }
-    Some((Sample { app, exe, title, site, idle: false, game }, now))
+    Some((Sample { app, exe, title, site, idle: false, game, path: fg.exe_path }, now))
 }
 
 fn close(conn: &Connection, open: Option<Open>, end: i64) {

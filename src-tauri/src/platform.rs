@@ -9,7 +9,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{app_path, close_process, foreground, idle_ms, minimize, processes};
+pub use win::{app_path, close_process, foreground, icon_png, idle_ms, minimize, processes};
 
 #[cfg(windows)]
 mod win {
@@ -75,6 +75,85 @@ mod win {
             ShowWindow(hwnd, SW_MINIMIZE);
             IsIconic(hwnd) != 0
         }
+    }
+
+    /// A program's icon as Explorer shows it, as PNG bytes. None when it has none to give.
+    pub fn icon_png(path: &str) -> Option<Vec<u8>> {
+        use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
+        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+        let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
+        unsafe {
+            let mut info: SHFILEINFOW = std::mem::zeroed();
+            let found = SHGetFileInfoW(wide.as_ptr(), 0, &mut info, std::mem::size_of::<SHFILEINFOW>() as u32, SHGFI_ICON | SHGFI_LARGEICON);
+            if found == 0 || info.hIcon.is_null() {
+                return None;
+            }
+            let pixels = icon_rgba(info.hIcon);
+            DestroyIcon(info.hIcon);
+            let (width, height, rgba) = pixels?;
+            let mut png = Vec::new();
+            let mut encoder = png::Encoder::new(&mut png, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.write_header().ok()?.write_image_data(&rgba).ok()?;
+            Some(png)
+        }
+    }
+
+    /// An icon's pixels as top-down RGBA.
+    unsafe fn icon_rgba(icon: windows_sys::Win32::UI::WindowsAndMessaging::HICON) -> Option<(u32, u32, Vec<u8>)> {
+        use windows_sys::Win32::Graphics::Gdi::{DeleteObject, GetObjectW, BITMAP};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetIconInfo, ICONINFO};
+        let mut parts: ICONINFO = std::mem::zeroed();
+        if GetIconInfo(icon, &mut parts) == 0 {
+            return None;
+        }
+        let pixels = (|| {
+            // Old black-and-white icons have no color part; a letter badge does better than those.
+            if parts.hbmColor.is_null() {
+                return None;
+            }
+            let mut bitmap: BITMAP = std::mem::zeroed();
+            if GetObjectW(parts.hbmColor, std::mem::size_of::<BITMAP>() as i32, (&mut bitmap as *mut BITMAP).cast()) == 0 {
+                return None;
+            }
+            let (w, h) = (bitmap.bmWidth, bitmap.bmHeight);
+            let mut px = read_bits(parts.hbmColor, w, h)?;
+            // Older icons leave the alpha channel empty and keep their shape in the mask instead.
+            if px.chunks_exact(4).all(|p| p[3] == 0) {
+                let mask = read_bits(parts.hbmMask, w, h)?;
+                for (p, m) in px.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
+                    p[3] = if m[0] == 0 { 255 } else { 0 };
+                }
+            }
+            for p in px.chunks_exact_mut(4) {
+                p.swap(0, 2); // BGRA to RGBA
+            }
+            Some((w as u32, h as u32, px))
+        })();
+        DeleteObject(parts.hbmColor);
+        DeleteObject(parts.hbmMask);
+        pixels
+    }
+
+    /// A bitmap's pixels as top-down 32-bit BGRA.
+    unsafe fn read_bits(bitmap: windows_sys::Win32::Graphics::Gdi::HBITMAP, w: i32, h: i32) -> Option<Vec<u8>> {
+        use windows_sys::Win32::Graphics::Gdi::{GetDC, GetDIBits, ReleaseDC, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS};
+        if w <= 0 || h <= 0 {
+            return None;
+        }
+        let mut info: BITMAPINFO = std::mem::zeroed();
+        info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        info.bmiHeader.biWidth = w;
+        info.bmiHeader.biHeight = -h; // negative: rows top to bottom
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let dc = GetDC(std::ptr::null_mut());
+        let lines = GetDIBits(dc, bitmap, 0, h as u32, buf.as_mut_ptr().cast(), &mut info, DIB_RGB_COLORS);
+        ReleaseDC(std::ptr::null_mut(), dc);
+        (lines == h).then_some(buf)
     }
 
     /// Every running process: (process id, executable file name such as `steam.exe`).
@@ -212,6 +291,15 @@ mod tests {
     }
 
     #[test]
+    fn program_icons_come_out_as_png() {
+        // Explorer is on every Windows install and has a color icon.
+        let explorer = std::env::var("WINDIR").map(|w| format!(r"{w}\explorer.exe")).unwrap();
+        let png = super::icon_png(&explorer).expect("explorer.exe has an icon");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert!(super::icon_png(r"C:\no\such\program.exe").is_none());
+    }
+
+    #[test]
     fn the_process_list_includes_this_test_and_unknown_processes_cant_be_closed() {
         let me = std::process::id();
         assert!(super::processes().iter().any(|(pid, file)| *pid == me && file.ends_with(".exe")));
@@ -233,6 +321,11 @@ pub fn idle_ms() -> i64 {
 
 #[cfg(not(windows))]
 pub fn app_path(_exe: &str) -> Option<String> {
+    None
+}
+
+#[cfg(not(windows))]
+pub fn icon_png(_path: &str) -> Option<Vec<u8>> {
     None
 }
 

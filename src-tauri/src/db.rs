@@ -57,6 +57,10 @@ pub fn open(path: &Path) -> Result<Connection> {
              paused_at  INTEGER,
              label      TEXT
          );
+         CREATE TABLE IF NOT EXISTS app_paths (
+             exe  TEXT PRIMARY KEY,
+             path TEXT NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS focus_rules (
              key  TEXT PRIMARY KEY,
              rule TEXT NOT NULL CHECK (rule IN ('block', 'allow'))
@@ -115,6 +119,19 @@ pub fn insert_session(conn: &Connection, s: &NewSession) -> Result<i64> {
 /// False when the session no longer exists, e.g. the user just deleted that stretch of history.
 pub fn set_session_end(conn: &Connection, id: i64, end_ms: i64) -> Result<bool> {
     Ok(conn.execute("UPDATE sessions SET end_ms = ?1 WHERE id = ?2", params![end_ms, id])? > 0)
+}
+
+/// Where an app's program lives, for its icon. The latest sighting wins, so a moved install heals.
+pub fn remember_path(conn: &Connection, exe: &str, path: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO app_paths (exe, path) VALUES (?1, ?2) ON CONFLICT(exe) DO UPDATE SET path = excluded.path",
+        params![exe, path],
+    )?;
+    Ok(())
+}
+
+pub fn app_path(conn: &Connection, exe: &str) -> Result<Option<String>> {
+    conn.query_row("SELECT path FROM app_paths WHERE exe = ?1", [exe], |r| r.get(0)).optional()
 }
 
 /// First sighting of a game: file it under distracting unless the user already chose, and relabel

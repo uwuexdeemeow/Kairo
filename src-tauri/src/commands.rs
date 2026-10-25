@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{blocking, browser, classify, db, demo, focus, goals, nudge, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{appearance, blocking, browser, classify, db, demo, focus, goals, nudge, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -563,6 +563,46 @@ pub fn open_extensions_page(app: AppHandle, id: String) -> CmdResult<String> {
     let path = platform::app_path(exe).ok_or_else(|| format!("{name} isn't installed"))?;
     std::process::Command::new(path).arg(page).spawn().map_err(err)?;
     Ok(dir.display().to_string())
+}
+
+/// "system" (match Windows), "light" or "dark".
+#[tauri::command]
+pub fn get_appearance(state: State<AppState>) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    appearance::get(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_appearance(app: AppHandle, state: State<AppState>, mode: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    if !appearance::set(&conn, &mode).map_err(err)? {
+        return Err(format!("unknown appearance: {mode}"));
+    }
+    appearance::apply(&app, &mode);
+    Ok(())
+}
+
+/// Icons for the apps in `exes`, as PNG data URLs, for those Kairo knows a program file for.
+/// Each is read once and then kept for the rest of the run.
+#[tauri::command]
+pub fn get_app_icons(state: State<AppState>, exes: Vec<String>) -> CmdResult<HashMap<String, String>> {
+    use base64::Engine;
+    let conn = state.db.lock().map_err(err)?;
+    let mut cache = state.icons.lock().map_err(err)?;
+    let mut out = HashMap::new();
+    for exe in exes {
+        if !cache.contains_key(&exe) {
+            let icon = db::app_path(&conn, &exe)
+                .map_err(err)?
+                .and_then(|path| platform::icon_png(&path))
+                .map(|png| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)));
+            cache.insert(exe.clone(), icon);
+        }
+        if let Some(Some(url)) = cache.get(&exe) {
+            out.insert(exe, url.clone());
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]

@@ -1,4 +1,5 @@
-/* Kairo — "Quiet" theme: dark, no cards; hierarchy comes from type, spacing and hairlines. */
+/* Kairo — "Quiet" theme: no cards; hierarchy comes from type, spacing and hairlines. Dark by
+   default; `data-theme="light"` on the root swaps in the light palette. */
 
 :root {
   color-scheme: dark;
@@ -10,8 +11,12 @@
   --rule: #1e2026;
   --line: #2a2d34;
   --raised: #17191e;
+  /* The faint baseline under the day timeline. */
+  --track: #24272e;
+  --shadow: rgb(0 0 0 / 0.45);
 
   --productive: #3987e5;
+  --productive-hover: #4a95ec;
   --neutral: #4a505c;
   --distracting: #d95926;
   --warm: #f0a27c;
@@ -29,6 +34,38 @@
 
   --sans: "Geist Variable", system-ui, sans-serif;
   --mono: "Geist Mono Variable", ui-monospace, monospace;
+}
+
+/* Light: the same roles on paper. Accents are a shade deeper so they hold their contrast. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f6f6f4;
+  --ink: #17181c;
+  --ink-2: #33363d;
+  --muted: #565c66;
+  --faint: #6f7580;
+  --rule: #e6e6e3;
+  --line: #d2d3cf;
+  --raised: #ffffff;
+  --track: #dcdcd8;
+  --shadow: rgb(20 22 28 / 0.14);
+
+  --productive: #2f6fd0;
+  --productive-hover: #2860b8;
+  --neutral: #a9aeb6;
+  --distracting: #cf5220;
+  --warm: #b95420;
+  --good: #2b8a3e;
+  --rec: #d73a40;
+
+  /* Sequential blue for light: near-zero recedes into the paper, high values are deep. */
+  --seq-0: #d9e6fa;
+  --seq-1: #bad2f5;
+  --seq-2: #92b7ee;
+  --seq-3: #6a9be5;
+  --seq-4: #437fd9;
+  --seq-5: #2a64c0;
+  --seq-6: #1b4993;
 }
 
 * {
@@ -506,6 +543,38 @@ h2 {
   color: var(--distracting);
 }
 
+/* ---------- app icons ---------- */
+
+.app-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 10px;
+  vertical-align: -4px;
+}
+
+.app-icon img {
+  width: 18px;
+  height: 18px;
+}
+
+/* Sites, and apps with no icon to show, get the first letter of their name. */
+.app-icon.letter {
+  border-radius: 4px;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.table td:first-child .app-icon {
+  margin-right: 0;
+}
+
 /* ---------- buttons ---------- */
 
 .btn {
@@ -529,7 +598,7 @@ h2 {
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: #4a95ec;
+  background: var(--productive-hover);
 }
 
 .btn:disabled {
@@ -741,7 +810,7 @@ h2 {
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+  box-shadow: 0 12px 32px var(--shadow);
 }
 
 .cal-head {
@@ -895,7 +964,7 @@ h2 {
   right: 0;
   top: 6px;
   height: 1px;
-  background: #24272e;
+  background: var(--track);
 }
 
 .focus-lane {
@@ -1371,7 +1440,6 @@ select {
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 7px 10px;
-  color-scheme: dark;
 }
 
 .filter::placeholder {
@@ -1460,7 +1528,7 @@ select {
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 12px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 .tooltip strong {

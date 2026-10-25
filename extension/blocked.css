@@ -10,6 +10,20 @@
   --productive: #3987e5;
 }
 
+/* The browser's own light or dark setting decides here. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f6f6f4;
+    --ink: #17181c;
+    --muted: #565c66;
+    --faint: #6f7580;
+    --line: #d2d3cf;
+    --raised: #ffffff;
+    --productive: #2f6fd0;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

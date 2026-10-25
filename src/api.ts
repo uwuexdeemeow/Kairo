@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 export type Category = "productive" | "neutral" | "distracting";
 
 export interface Usage {
+  /** `app:<exe>` or `site:<name>`, for the icon. */
+  key: string;
   label: string;
   category: Category;
   ms: number;
@@ -114,6 +116,9 @@ export interface CategoryEntry {
 
 export type FocusRule = "auto" | "block" | "allow";
 
+/** "system" follows Windows' light or dark setting. */
+export type Appearance = "system" | "light" | "dark";
+
 export interface GoalProgress {
   key: string;
   label: string;
@@ -146,7 +151,7 @@ export interface Week {
   bestDay: string | null;
   goalDaysMet: number;
   goalDays: number;
-  topApps: { label: string; category: Category; ms: number; previousMs: number }[];
+  topApps: { key: string; label: string; category: Category; ms: number; previousMs: number }[];
   limitsOver: { label: string; overMs: number; daysOver: number }[];
   focusSessions: number;
   focusMs: number;
@@ -243,6 +248,10 @@ export const api = {
   browsers: () => invoke<{ id: string; name: string }[]>("get_browsers"),
   /** Opens that browser's extensions page; returns the extension folder's path to paste. */
   openExtensionsPage: (id: string) => invoke<string>("open_extensions_page", { id }),
+  appearance: () => invoke<Appearance>("get_appearance"),
+  setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),
+  /** PNG data URLs by executable, for the apps that have an icon to show. */
+  appIcons: (exes: string[]) => invoke<Record<string, string>>("get_app_icons", { exes }),
   version: () => invoke<string>("get_version"),
   /** The result arrives as a notification, like the tray's "Check for updates". */
   checkForUpdates: () => invoke<void>("check_for_updates"),

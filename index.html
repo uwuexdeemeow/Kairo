@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Kairo</title>
+    <!-- The theme used last time, before anything draws, so a light setup never flashes dark. -->
+    <script>
+      try {
+        const t = localStorage.getItem("kairo.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
@@ -277,6 +284,18 @@
           </section>
 
           <section class="block settings-first">
+            <h2>Appearance</h2>
+            <label class="field">
+              Theme
+              <select id="appearance">
+                <option value="system">Match Windows</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="block">
             <h2>Daily goals</h2>
             <p class="muted">Progress shows on Today, and Kairo lets you know when you reach a target or get close to a limit. Limits for single apps and sites are set in Categories.</p>
             <div class="row-buttons">

@@ -206,7 +206,7 @@ pub struct Blocked {
     until_ms: i64,
 }
 
-fn show_blocked(app: &AppHandle, blocked: &Blocked) -> std::result::Result<(), Box<dyn std::error::Error>> {
+fn show_blocked(app: &AppHandle, blocked: &Blocked, appearance_mode: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_string(blocked)?;
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         window.eval(format!("window.kairoBlocked && window.kairoBlocked({json})"))?;
@@ -216,16 +216,16 @@ fn show_blocked(app: &AppHandle, blocked: &Blocked) -> std::result::Result<(), B
         return Ok(());
     }
     // The page reads its first message before any of its own code runs.
-    WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("blocked.html".into()))
+    let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("blocked.html".into()))
         .title("Blocked during focus")
         .inner_size(460.0, 320.0)
         .resizable(false)
         .maximizable(false)
         .always_on_top(true)
         .center()
-        .theme(Some(tauri::Theme::Dark))
         .initialization_script(format!("window.__KAIRO_BLOCKED__ = {json};"))
         .build()?;
+    crate::appearance::apply_to(&window, appearance_mode);
     Ok(())
 }
 
@@ -294,7 +294,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
             && platform::minimize(fg.window)
         {
             let label = classify::game_name(&fg.exe_path).unwrap_or_else(|| classify::display_name(&exe, &classify::clean_title(&fg.title)));
-            show_blocked(app, &Blocked { label, key, until_ms: until })?;
+            show_blocked(app, &Blocked { label, key, until_ms: until }, &crate::appearance::get(conn)?)?;
         }
     }
 

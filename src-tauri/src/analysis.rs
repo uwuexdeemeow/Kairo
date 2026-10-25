@@ -268,6 +268,8 @@ fn share(part: i64, whole: i64) -> f64 {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {
+    /// `app:<exe>` or `site:<name>`, for the app's icon.
+    key: String,
     label: String,
     category: Category,
     ms: i64,
@@ -299,12 +301,13 @@ pub struct DaySummary {
 
 /// The apps and sites that took the most time in `rows`, `n` of each.
 fn top_apps_and_sites(rows: &[Row], n: usize) -> (Vec<Usage>, Vec<Usage>) {
-    let mut apps: HashMap<&str, (Category, i64)> = HashMap::new();
-    let mut sites: HashMap<&str, (Category, i64)> = HashMap::new();
+    // Apps group by name, since Windows Store apps all share one host program.
+    let mut apps: HashMap<&str, (String, Category, i64)> = HashMap::new();
+    let mut sites: HashMap<&str, (String, Category, i64)> = HashMap::new();
     for r in rows.iter().filter(|r| !r.idle) {
-        apps.entry(&r.app).or_insert((r.app_category, 0)).1 += r.dur();
+        apps.entry(&r.app).or_insert_with(|| (format!("app:{}", r.exe), r.app_category, 0)).2 += r.dur();
         if let Some(site) = &r.site {
-            sites.entry(site).or_insert((r.category, 0)).1 += r.dur();
+            sites.entry(site).or_insert_with(|| (format!("site:{site}"), r.category, 0)).2 += r.dur();
         }
     }
     (top_usage(apps, n), top_usage(sites, n))
@@ -332,10 +335,10 @@ pub fn day_summary(rows: &[Row]) -> DaySummary {
     }
 }
 
-fn top_usage(map: HashMap<&str, (Category, i64)>, n: usize) -> Vec<Usage> {
+fn top_usage(map: HashMap<&str, (String, Category, i64)>, n: usize) -> Vec<Usage> {
     let mut list: Vec<Usage> = map
         .into_iter()
-        .map(|(label, (category, ms))| Usage { label: label.to_string(), category, ms })
+        .map(|(label, (key, category, ms))| Usage { key, label: label.to_string(), category, ms })
         .collect();
     list.sort_by_key(|u| std::cmp::Reverse(u.ms));
     list.truncate(n);

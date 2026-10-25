@@ -1,4 +1,5 @@
 mod analysis;
+mod appearance;
 mod blocking;
 mod browser;
 mod classify;
@@ -15,6 +16,7 @@ mod recap;
 mod startup;
 mod updater;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -33,6 +35,8 @@ pub struct AppState {
     pub allowances: blocking::Allowances,
     /// Strict mode's pending "end early" and "allow" requests, shared with the extension's listener.
     pub strict_waits: blocking::Waits,
+    /// App icons as data URLs, by executable; None for apps with no icon to show.
+    pub icons: Mutex<HashMap<String, Option<String>>>,
     /// False when another program holds the extension's port.
     pub browser_listening: bool,
 }
@@ -70,6 +74,7 @@ pub fn run() {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
             let nudges_on = nudge::enabled(&conn)?;
+            let appearance_mode = appearance::get(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
@@ -91,8 +96,11 @@ pub fn run() {
                 browser_listening,
                 allowances,
                 strict_waits,
+                icons: Mutex::default(),
             });
             setup_tray(app, paused, nudges_on)?;
+            // Before the window first shows, so it opens in the chosen colors.
+            appearance::apply(app.handle(), &appearance_mode);
             updater::spawn(app.handle().clone());
             // The window starts hidden; show it unless Windows launched us at sign-in.
             if !startup::launched_at_login() {
@@ -148,6 +156,9 @@ pub fn run() {
             commands::delete_history,
             commands::get_extension_status,
             commands::open_extension_folder,
+            commands::get_appearance,
+            commands::set_appearance,
+            commands::get_app_icons,
             commands::get_version,
             commands::check_for_updates,
             commands::seed_demo_data,

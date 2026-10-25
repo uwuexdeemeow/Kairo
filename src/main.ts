@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -60,6 +60,70 @@ const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) 
 
 // Labels come from window titles, which any web page controls, so escape before using innerHTML.
 const esc = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+
+// ---------- theme ----------
+
+const THEME_KEY = "kairo.theme";
+const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
+let appearance: Appearance = "system";
+
+/// Puts the palette for a choice on the page. "Match Windows" asks the system, and the choice
+/// is kept for the next launch so the window opens in the right colors straight away.
+function applyTheme(mode: Appearance) {
+  appearance = mode;
+  const theme = mode === "system" ? (prefersLight.matches ? "light" : "dark") : mode;
+  document.documentElement.dataset.theme = theme;
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    // The next launch may open in the other palette for a moment; that's all.
+  }
+}
+
+prefersLight.addEventListener("change", () => appearance === "system" && applyTheme("system"));
+
+// ---------- icons ----------
+
+/// App icons by executable once asked for: a data URL, or null for apps without one.
+const icons = new Map<string, string | null>();
+const wantedIcons = new Set<string>();
+let iconTimer = 0;
+
+/// An app's icon, or a letter badge for sites and apps without one. Icons not yet loaded are
+/// fetched in one batch shortly after, and every badge waiting on them is filled in.
+function appIcon(key: string, label: string): HTMLElement {
+  const el = h("span", { class: "app-icon", "aria-hidden": "true", "data-icon-key": key, "data-icon-label": label });
+  paintIcon(el);
+  const exe = key.startsWith("app:") ? key.slice(4) : null;
+  if (exe && !icons.has(exe)) {
+    wantedIcons.add(exe);
+    window.clearTimeout(iconTimer);
+    iconTimer = window.setTimeout(fetchIcons, 20);
+  }
+  return el;
+}
+
+function paintIcon(el: HTMLElement) {
+  const key = el.dataset.iconKey ?? "";
+  const url = key.startsWith("app:") ? icons.get(key.slice(4)) : null;
+  el.classList.toggle("letter", !url);
+  if (url) el.replaceChildren(h("img", { src: url, alt: "" }));
+  else el.textContent = (el.dataset.iconLabel ?? "?").replace(/^www\./, "").charAt(0).toUpperCase();
+}
+
+async function fetchIcons() {
+  const exes = [...wantedIcons];
+  wantedIcons.clear();
+  if (!exes.length) return;
+  let found: Record<string, string> = {};
+  try {
+    found = await api.appIcons(exes);
+  } catch {
+    // Letter badges stay; nothing else depends on icons.
+  }
+  for (const exe of exes) icons.set(exe, found[exe] ?? null);
+  for (const el of document.querySelectorAll<HTMLElement>(".app-icon.letter")) paintIcon(el);
+}
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 /// Local `YYYY-MM-DD`; `toISOString` would give the UTC date instead.
@@ -364,7 +428,12 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
     ...items.map((u) => {
       const line = h("div", { class: `line ${u.category}` });
       line.style.width = `${Math.max((u.ms / max) * 100, 1)}%`;
-      const row = h("div", { class: "usage" }, h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, u.label), h("span", { class: "usage-value" }, fmtDur(u.ms))), line);
+      const row = h(
+        "div",
+        { class: "usage" },
+        h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, appIcon(u.key, u.label), u.label), h("span", { class: "usage-value" }, fmtDur(u.ms))),
+        line,
+      );
       tip(row, () => `<strong>${esc(u.label)}</strong><div>${dotHtml(u.category)}${LABELS[u.category]}<b>${fmtDur(u.ms)}</b></div>`);
       return row;
     }),
@@ -390,7 +459,13 @@ function renderGoals(g: DayGoals, isToday: boolean) {
       return h(
         "div",
         { class: `usage goal${over ? " over" : ""}` },
-        h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, p.label), h("span", { class: "usage-value" }, value)),
+        h(
+          "div",
+          { class: "usage-top" },
+          // Limits are for one app or site and get its icon; the day-wide goals don't.
+          h("span", { class: "usage-label" }, ...(p.kind === "limit" ? [appIcon(p.key, p.label)] : []), p.label),
+          h("span", { class: "usage-value" }, value),
+        ),
         h("div", { class: "track", role: "img", "aria-label": `${p.label}: ${value}` }, fill),
       );
     }),
@@ -535,7 +610,7 @@ function renderWeekApps(w: Week) {
         h(
           "div",
           { class: "usage-top" },
-          h("span", { class: "usage-label" }, a.label),
+          h("span", { class: "usage-label" }, appIcon(a.key, a.label), a.label),
           h("span", { class: "usage-delta", title: "Change from last week" }, delta),
           h("span", { class: "usage-value" }, fmtDur(a.ms)),
         ),
@@ -725,7 +800,7 @@ function paintCategories() {
     return h(
       "tr",
       {},
-      h("td", {}, dot, e.label),
+      h("td", {}, dot, appIcon(e.key, e.label), e.label),
       h("td", { class: "kind" }, e.kind),
       h("td", { class: "num" }, fmtDur(e.ms)),
       h("td", {}, select),
@@ -1223,6 +1298,7 @@ async function load(v: View = view) {
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
+      $<HTMLSelectElement>("#appearance").value = appearance;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1359,6 +1435,12 @@ $("#ext-open").addEventListener("click", async () => {
 
 $("#category-filter").addEventListener("input", paintCategories);
 
+$<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
+  const mode = (e.target as HTMLSelectElement).value as Appearance;
+  applyTheme(mode);
+  await api.setAppearance(mode);
+});
+
 for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
   $<HTMLInputElement>(id).addEventListener("change", async (e) => {
     const box = e.target as HTMLInputElement;
@@ -1474,3 +1556,4 @@ setInterval(paintStatus, 1000);
 renderLegends();
 refreshStatus();
 load();
+api.appearance().then(applyTheme, () => {});

@@ -64,6 +64,8 @@ pub struct DayLine {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppWeek {
+    /// `app:<exe>`, for the app's icon.
+    key: String,
     label: String,
     category: Category,
     ms: i64,
@@ -153,7 +155,13 @@ pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Week> {
 
     let mut top_apps: Vec<AppWeek> = apps
         .into_iter()
-        .map(|(exe, (label, category, ms))| AppWeek { label, category, ms, previous_ms: previous_apps.get(&exe).map_or(0, |a| a.2) })
+        .map(|(exe, (label, category, ms))| AppWeek {
+            key: format!("app:{exe}"),
+            label,
+            category,
+            ms,
+            previous_ms: previous_apps.get(&exe).map_or(0, |a| a.2),
+        })
         .collect();
     top_apps.sort_by_key(|a| std::cmp::Reverse(a.ms));
     top_apps.truncate(TOP_APPS);
