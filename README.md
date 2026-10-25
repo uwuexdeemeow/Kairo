@@ -29,3 +29,20 @@ cd src-tauri && cargo test
 Run builds from PowerShell or cmd. In Git Bash, `/usr/bin/link` shadows the MSVC linker.
 
 To try the insights without waiting weeks, go to **Categories → Load demo data**. Demo rows are flagged and can be cleared on their own.
+
+`tauri build` signs the update bundle, so a local build needs the signing key in the environment:
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw "$env:USERPROFILE\.tauri\kairo.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+```
+
+### Releasing
+
+Installed copies update themselves from GitHub Releases: they check a minute after launch and every 6 hours, and the tray has **Check for updates**. To ship a version, bump `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json`, then push a matching tag:
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+The Release workflow builds, signs and publishes the installer with the `latest.json` the app reads. It signs with the `TAURI_SIGNING_PRIVATE_KEY` repo secret, a copy of `%USERPROFILE%\.tauri\kairo.key`. Keep a backup of that key: without it, installed copies can't verify new updates and have to be reinstalled by hand.

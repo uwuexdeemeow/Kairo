@@ -7,6 +7,7 @@ mod demo;
 mod nudge;
 mod platform;
 mod startup;
+mod updater;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -37,6 +38,7 @@ pub fn run() {
             Some(vec![startup::MINIMIZED_ARG]),
         ))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -53,6 +55,7 @@ pub fn run() {
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState { db: Mutex::new(conn), paused: paused.clone(), window_cache });
             setup_tray(app, paused, nudges_on)?;
+            updater::spawn(app.handle().clone());
             // The window starts hidden; show it unless Windows launched us at sign-in.
             if !startup::launched_at_login() {
                 show_main(app.handle());
@@ -94,8 +97,9 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     let autostart_on = startup::is_enabled(app.handle());
     let autostart =
         CheckMenuItem::with_id(app, "autostart", "Start with Windows", startup::AVAILABLE, autostart_on, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &autostart, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &pause, &nudges, &autostart, &update, &quit])?;
     app.manage(NudgeToggle(nudges.clone()));
     app.manage(AutostartToggle(autostart.clone()));
 
@@ -126,6 +130,10 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
                     eprintln!("tray: {e}");
                     let _ = autostart.set_checked(startup::is_enabled(app));
                 }
+            }
+            "update" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
             }
             "quit" => app.exit(0),
             _ => {}
