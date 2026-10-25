@@ -41,7 +41,7 @@ Run builds from PowerShell or cmd. In Git Bash, `/usr/bin/link` shadows the MSVC
 
 Tracking, idle time, icons and focus blocking also work on a Mac (`platform::mac`); the command palette is Windows-only for now. Mac apps go by their bundle name and share categories with their Windows twins (Google Chrome.app counts as `chrome`). Window titles, and the sites guessed from them, need **Screen Recording** access, which Kairo asks for on first launch. Instead of being minimized, blocked apps are hidden.
 
-The macOS build workflow runs the tests on a Mac and keeps an unsigned `.dmg` with each run (Actions → macOS build → Artifacts). It's only ad-hoc signed, so after copying Kairo to Applications, run `xattr -cr /Applications/Kairo.app` once before opening it.
+The macOS build workflow runs the tests on a Mac and keeps a `.dmg` with each run (Actions → macOS build → Artifacts); releases include one too, and Mac copies update themselves like Windows ones. It's only ad-hoc signed, without an Apple Developer ID, so after copying Kairo to Applications, run `xattr -cr /Applications/Kairo.app` once before opening it.
 
 To try the insights without waiting weeks, go to **Categories → Load demo data**. Demo rows are flagged and can be cleared on their own.
 
@@ -60,4 +60,4 @@ Installed copies update themselves from GitHub Releases: they check a minute aft
 git tag v0.3.0 && git push origin v0.3.0
 ```
 
-The Release workflow builds, signs and publishes the installer with the `latest.json` the app reads. It signs with the `TAURI_SIGNING_PRIVATE_KEY` repo secret, a copy of `%USERPROFILE%\.tauri\kairo.key`. Keep a backup of that key: without it, installed copies can't verify new updates and have to be reinstalled by hand.
+The Release workflow builds, signs and publishes the Windows installer, then a universal Mac app (`.dmg`, plus the update bundle), with the `latest.json` the app reads. It signs with the `TAURI_SIGNING_PRIVATE_KEY` repo secret, a copy of `%USERPROFILE%\.tauri\kairo.key`. Keep a backup of that key: without it, installed copies can't verify new updates and have to be reinstalled by hand.

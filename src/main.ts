@@ -18,6 +18,9 @@ const HOUR_MS = 3_600_000;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
+/// Kairo also runs on a Mac, where a few things go by other names.
+const IS_MAC = navigator.userAgent.includes("Macintosh");
+
 function h(tag: string, attrs: Record<string, string> = {}, ...children: (Node | string)[]): HTMLElement {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
@@ -1260,6 +1263,16 @@ function paintStatus() {
 
 // ---------- wiring ----------
 
+if (IS_MAC) {
+  $("#appearance-system").textContent = "Match macOS";
+  $("#autostart-title").textContent = "Open at login";
+  $("#autostart-label").textContent = "Start Kairo quietly in the menu bar when I log in";
+  $("#block-explainer").textContent =
+    "Blocked apps are hidden behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
+  // The command palette is Windows-only for now.
+  $("#palette-settings").hidden = true;
+}
+
 type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
 /// In sidebar order, for Ctrl+1 to Ctrl+5.
 const VIEWS: View[] = ["today", "week", "focus", "patterns", "categories", "settings"];
@@ -1415,7 +1428,7 @@ function renderBrowsers(browsers: { id: string; name: string }[]) {
           const folder = await api.openExtensionsPage(b.id);
           try {
             await navigator.clipboard.writeText(folder);
-            note.textContent = `Opened ${b.name}. The folder location is copied: click Load unpacked and press Ctrl+V.`;
+            note.textContent = `Opened ${b.name}. The folder location is copied: click Load unpacked and press ${IS_MAC ? "⌘V" : "Ctrl+V"}.`;
           } catch {
             note.textContent = `Opened ${b.name}. Click Load unpacked and choose ${folder}`;
           }

@@ -26,6 +26,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use chrono::NaiveDate;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
+#[cfg(windows)]
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub struct AppState {
@@ -99,6 +100,7 @@ pub fn run() {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
             let nudges_on = nudge::enabled(&conn)?;
+            #[cfg(windows)]
             let palette_shortcut = palette::shortcut(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -131,6 +133,8 @@ pub fn run() {
             });
             setup_tray(app, paused, nudges_on)?;
             // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
+            // Only Windows has the palette, and on a Mac Ctrl+Space switches input sources.
+            #[cfg(windows)]
             if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                 eprintln!("palette: cannot use {palette_shortcut}: {e}");
             }
@@ -211,7 +215,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     let nudges = CheckMenuItem::with_id(app, "nudges", "Focus nudges", true, nudges_on, None::<&str>)?;
     let autostart_on = startup::is_enabled(app.handle());
     let autostart =
-        CheckMenuItem::with_id(app, "autostart", "Start with Windows", startup::AVAILABLE, autostart_on, None::<&str>)?;
+        CheckMenuItem::with_id(app, "autostart", startup::LABEL, startup::AVAILABLE, autostart_on, None::<&str>)?;
     let focus_menu = Submenu::with_items(
         app,
         "Focus session",

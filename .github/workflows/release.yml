@@ -1,5 +1,5 @@
 # Push a tag like v0.2.0 to build, sign and publish a release. Installed copies of Kairo pick it
-# up through latest.json, which tauri-action uploads alongside the installer.
+# up through latest.json, which tauri-action uploads alongside the installers.
 name: Release
 
 on:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -46,3 +46,40 @@ jobs:
           releaseName: Kairo ${{ github.ref_name }}
           releaseBody: Installed copies of Kairo update to this version on their own.
           releaseDraft: false
+
+  # After Windows, so the two jobs don't both create the release or overwrite each other's
+  # entries in latest.json.
+  macos:
+    needs: windows
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      # One app for both kinds of Mac: Apple silicon and Intel.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Ad-hoc signed (tauri.conf.json); the update itself is signed with the updater key.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Kairo ${{ github.ref_name }}
+          releaseBody: Installed copies of Kairo update to this version on their own.
+          releaseDraft: false
+          args: --target universal-apple-darwin --bundles app,dmg

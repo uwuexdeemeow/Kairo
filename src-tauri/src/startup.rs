@@ -1,4 +1,4 @@
-//! Starting Kairo when the user signs in to Windows.
+//! Starting Kairo when the user signs in.
 
 use rusqlite::Connection;
 use tauri::AppHandle;
@@ -9,6 +9,8 @@ use crate::db;
 /// Passed by the login entry so Kairo starts quietly in the tray instead of opening its window.
 pub const MINIMIZED_ARG: &str = "--minimized";
 const INITIALIZED_KEY: &str = "autostart_initialized";
+/// The tray menu's name for it.
+pub const LABEL: &str = if cfg!(target_os = "macos") { "Open at Login" } else { "Start with Windows" };
 
 /// Dev builds run from target\debug; registering that path at login would go stale on every rebuild.
 pub const AVAILABLE: bool = !cfg!(debug_assertions);
