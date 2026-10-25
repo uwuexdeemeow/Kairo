@@ -82,7 +82,30 @@ export interface CategoryEntry {
   kind: "app" | "site";
   category: Category;
   privacy: PrivacyMode;
+  /** Daily limit in minutes; 0 means none. */
+  limitMin: number;
   ms: number;
+}
+
+export interface GoalProgress {
+  key: string;
+  label: string;
+  /** "productive" is a target to reach; the others are caps not to pass. */
+  kind: "productive" | "distracting" | "limit";
+  usedMs: number;
+  targetMs: number;
+  met: boolean;
+}
+
+export interface DayGoals {
+  items: GoalProgress[];
+  /** Completed days in a row, before this one, with every goal met. */
+  streak: number;
+}
+
+export interface GoalSettings {
+  productiveMin: number;
+  distractingMaxMin: number;
 }
 
 export type DeleteRange = "hour" | "day" | "all";
@@ -94,7 +117,11 @@ export const api = {
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
-  setPrivacyRule: (key: string, mode: PrivacyMode) => invoke<void>("set_privacy_rule", { key, mode }),
+  goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
+  goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
+  setGoal: (kind: "productive" | "distracting", minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),
+  setPrivacyRule:(key: string, mode: PrivacyMode) => invoke<void>("set_privacy_rule", { key, mode }),
   applyPrivacyToPast: (key: string) => invoke<number>("apply_privacy_to_past", { key }),
   retention: () => invoke<number>("get_retention"),
   setRetention: (days: number) => invoke<number>("set_retention", { days }),

@@ -442,6 +442,22 @@ h2 {
   margin-top: 6px;
 }
 
+/* Goal bars run against a faint full-width track so the remaining share is visible. */
+.track {
+  height: 2px;
+  margin-top: 6px;
+  background: var(--rule);
+}
+
+.track .line {
+  height: 100%;
+  margin-top: 0;
+}
+
+.goal.over .usage-value {
+  color: var(--distracting);
+}
+
 .heads-up {
   display: flex;
   flex-wrap: wrap;

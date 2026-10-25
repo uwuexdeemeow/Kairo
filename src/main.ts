@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DaySummary, type DeleteRange, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -201,6 +201,32 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
   );
 }
 
+/// Goal amounts read "0m" rather than "<1m" when nothing has been used yet.
+const fmtGoal = (ms: number) => (ms < 30_000 ? "0m" : fmtDur(ms));
+
+function renderGoals(g: DayGoals, isToday: boolean) {
+  const box = $("#goals");
+  box.hidden = !g.items.length;
+  if (!g.items.length) return;
+  // The streak runs up to yesterday, so it only reads naturally next to today.
+  $("#goals-streak").textContent = isToday && g.streak ? `${g.streak}-day streak` : "";
+  $("#goals-list").replaceChildren(
+    ...g.items.map((p) => {
+      const over = !p.met && p.kind !== "productive";
+      const tone = p.kind === "productive" ? "productive" : over ? "distracting" : "neutral";
+      const fill = h("div", { class: `line ${tone}` });
+      fill.style.width = `${p.targetMs ? Math.min(p.usedMs / p.targetMs, 1) * 100 : 0}%`;
+      const value = over ? `${fmtGoal(p.usedMs)} · ${fmtDur(p.usedMs - p.targetMs)} over` : `${fmtGoal(p.usedMs)} of ${fmtDur(p.targetMs)}`;
+      return h(
+        "div",
+        { class: `usage goal${over ? " over" : ""}` },
+        h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, p.label), h("span", { class: "usage-value" }, value)),
+        h("div", { class: "track", role: "img", "aria-label": `${p.label}: ${value}` }, fill),
+      );
+    }),
+  );
+}
+
 async function renderHeadsUp() {
   const box = $("#heads-up");
   const h = await api.headsUp().catch(() => null);
@@ -354,16 +380,63 @@ function renderCategories(entries: CategoryEntry[]) {
       await api.setPrivacyRule(e.key, m);
       showPrivacyNotice(e, m);
     });
-    return h("tr", {}, h("td", {}, dot, e.label), h("td", { class: "kind" }, e.kind), h("td", { class: "num" }, fmtDur(e.ms)), h("td", {}, select), h("td", {}, recording));
+
+    const limit = minutesSelect(LIMIT_CHOICES, e.limitMin, `Daily limit for ${e.label}`);
+    limit.addEventListener("change", () => api.setLimit(e.key, Number(limit.value)));
+    return h(
+      "tr",
+      {},
+      h("td", {}, dot, e.label),
+      h("td", { class: "kind" }, e.kind),
+      h("td", { class: "num" }, fmtDur(e.ms)),
+      h("td", {}, select),
+      h("td", {}, limit),
+      h("td", {}, recording),
+    );
   });
   root.replaceChildren(
     h(
       "table",
       { class: "table" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"), h("th", {}, "Recording"))),
+      h(
+        "thead",
+        {},
+        h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"), h("th", {}, "Daily limit"), h("th", {}, "Recording")),
+      ),
       h("tbody", {}, ...rows),
     ),
   );
+}
+
+// ---------- goals ----------
+
+const LIMIT_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240];
+const PRODUCTIVE_CHOICES = [0, 60, 120, 180, 240, 300, 360, 480];
+const DISTRACTING_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180];
+
+/// A minutes picker where 0 is "off"; a saved value outside the presets is kept as an option.
+function minutesSelect(choices: number[], current: number, label: string, offText = "None"): HTMLSelectElement {
+  const select = h("select", { "aria-label": label }) as HTMLSelectElement;
+  const values = choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+  for (const m of values) {
+    const opt = h("option", { value: String(m) }, m ? fmtDur(m * 60_000) : offText) as HTMLOptionElement;
+    opt.selected = m === current;
+    select.append(opt);
+  }
+  return select;
+}
+
+function renderGoalSettings(s: GoalSettings) {
+  for (const [id, choices, current, kind] of [
+    ["#goal-productive", PRODUCTIVE_CHOICES, s.productiveMin, "productive"],
+    ["#goal-distracting", DISTRACTING_CHOICES, s.distractingMaxMin, "distracting"],
+  ] as const) {
+    const fresh = minutesSelect([...choices], current, "", "Off");
+    const select = $<HTMLSelectElement>(id);
+    select.replaceChildren(...fresh.children);
+    select.value = String(current);
+    select.onchange = () => api.setGoal(kind, Number(select.value));
+  }
 }
 
 // ---------- privacy ----------
@@ -546,12 +619,15 @@ async function load(v: View = view) {
   try {
     if (v === "today") {
       firstDay = await api.firstDay();
-      renderToday(await api.day(selectedDay ?? undefined));
+      const [day, goals] = await Promise.all([api.day(selectedDay ?? undefined), api.goals(selectedDay ?? undefined)]);
+      renderToday(day);
+      renderGoals(goals, selectedDay === null);
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") {
       renderCategories(await api.categories());
       renderRetention(await api.retention());
+      renderGoalSettings(await api.goalSettings());
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
       const auto = await api.autostart();
       const box = $<HTMLInputElement>("#autostart-enabled");

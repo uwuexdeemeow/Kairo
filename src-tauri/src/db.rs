@@ -40,6 +40,16 @@ pub fn open(path: &Path) -> Result<Connection> {
              key      TEXT PRIMARY KEY,
              mode     TEXT NOT NULL CHECK (mode IN ('track', 'hide_title', 'ignore')),
              user_set INTEGER NOT NULL DEFAULT 0
+         );
+         CREATE TABLE IF NOT EXISTS limits (
+             key     TEXT PRIMARY KEY,
+             minutes INTEGER NOT NULL CHECK (minutes > 0)
+         );
+         CREATE TABLE IF NOT EXISTS goal_alerts (
+             day   TEXT    NOT NULL,
+             key   TEXT    NOT NULL,
+             level INTEGER NOT NULL,
+             PRIMARY KEY (day, key)
          );",
     )?;
     // INSERT OR IGNORE keeps any category or rule the user has changed.

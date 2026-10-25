@@ -37,8 +37,18 @@ impl Category {
     }
 }
 
+fn local_midnight_ms(date: NaiveDate) -> Option<i64> {
+    date.and_hms_opt(0, 0, 0)?.and_local_timezone(Local).earliest().map(|t| t.timestamp_millis())
+}
+
+/// Local midnight to the next local midnight, so DST days come out 23 or 25 hours long.
+pub fn day_bounds(date: NaiveDate) -> Option<(i64, i64)> {
+    Some((local_midnight_ms(date)?, local_midnight_ms(date.succ_opt()?)?))
+}
+
 pub struct Row {
     pub app: String,
+    pub exe: String,
     pub site: Option<String>,
     pub start: i64,
     pub end: i64,
@@ -50,7 +60,7 @@ pub struct Row {
 }
 
 impl Row {
-    fn dur(&self) -> i64 {
+    pub fn dur(&self) -> i64 {
         self.end - self.start
     }
 
@@ -109,6 +119,7 @@ pub fn load_rows(conn: &Connection, from: i64, to: i64) -> Result<Vec<Row>> {
             category: resolve(&cats, &exe, site.as_deref()),
             app_category: resolve(&cats, &exe, None),
             app,
+            exe,
             site,
             start,
             end,
@@ -749,6 +760,7 @@ mod tests {
     fn row(label: &str, category: Category, start_min: i64, end_min: i64) -> Row {
         Row {
             app: label.into(),
+            exe: label.into(),
             site: None,
             start: start_min * MIN_MS,
             end: end_min * MIN_MS,

@@ -37,6 +37,14 @@
             <dl class="stats" id="today-stats"></dl>
           </section>
 
+          <section class="block goals" id="goals" aria-label="Goals" hidden>
+            <div class="section-head">
+              <h2>Goals</h2>
+              <span class="muted" id="goals-streak"></span>
+            </div>
+            <div id="goals-list"></div>
+          </section>
+
           <section class="block" aria-label="Timeline">
             <div id="today-timeline"></div>
             <div class="legend" data-legend></div>
@@ -105,6 +113,21 @@
             <span id="privacy-notice-text"></span>
             <button class="link-btn" id="privacy-notice-apply"></button>
           </div>
+
+          <section class="block">
+            <h2>Daily goals</h2>
+            <p class="muted">Progress shows on Today, and Kairo lets you know when you reach a target or get close to a limit. Limits for single apps and sites are in the table above.</p>
+            <div class="row-buttons">
+              <label class="field">
+                Productive time, at least
+                <select id="goal-productive"></select>
+              </label>
+              <label class="field">
+                Distracting time, at most
+                <select id="goal-distracting"></select>
+              </label>
+            </div>
+          </section>
 
           <section class="block">
             <h2>Privacy</h2>

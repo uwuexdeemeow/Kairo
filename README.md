@@ -13,6 +13,7 @@ collector thread ──► SQLite (sessions, categories) ──► analysis ─�
 
 - **Collector** (`src-tauri/src/collector.rs`): foreground app, window title and idle detection. Idle starts after 2 minutes without input (30 minutes on video sites, so watching isn't counted as being away). Sleep and lock screen end the current session.
 - **Classification** (`src-tauri/src/classify.rs`): readable app names, sites guessed from browser titles, and default productive, neutral and distracting categories. Users can override any category in the app. Games are named after their install folder (`steamapps\common\THE FINALS` → THE FINALS).
+- **Goals** (`src-tauri/src/goals.rs`): a daily productive target, a cap on distracting time and per-app or per-site limits, shown on Today with a streak. A notification goes out at 80% of a limit, when it's passed, and when a target is reached, each at most once a day.
 - **Privacy** (`src-tauri/src/privacy.rs`): per-app and per-site rules to record normally, hide window titles or not record at all (password managers are off by default, private browser windows never keep titles), deleting the last hour, a day or everything, and an optional history limit. Deleted rows are overwritten on disk (`secure_delete`).
 - **Analysis** (`src-tauri/src/analysis.rs`): focus blocks, context switches, an hour-of-day and weekday breakdown, and insights such as *"You lose focus most after 10pm"*, *"Your sharpest hours are 9–11am"* and *"Distractions often start right after Slack"*. Each insight only appears when there's enough data behind it.
 

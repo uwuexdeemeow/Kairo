@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 use chrono::{Local, NaiveDate, TimeZone};
@@ -5,9 +6,9 @@ use rusqlite::params;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::analysis::{self, Category, DaySummary, Patterns};
+use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{classify, db, demo, nudge, startup, AppState, AutostartToggle, NudgeToggle};
+use crate::{classify, db, demo, goals, nudge, startup, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -21,23 +22,18 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-fn local_midnight_ms(date: NaiveDate) -> Option<i64> {
-    date.and_hms_opt(0, 0, 0)?.and_local_timezone(Local).earliest().map(|t| t.timestamp_millis())
-}
-
-/// Local midnight to the next local midnight, so DST days come out 23 or 25 hours long.
-fn day_bounds(date: NaiveDate) -> Option<(i64, i64)> {
-    Some((local_midnight_ms(date)?, local_midnight_ms(date.succ_opt()?)?))
+/// A `YYYY-MM-DD` local date from the UI, defaulting to today.
+fn parse_day(date: Option<String>) -> CmdResult<NaiveDate> {
+    match date {
+        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(err),
+        None => Ok(Local::now().date_naive()),
+    }
 }
 
 /// One local day's summary; `date` is `YYYY-MM-DD` and defaults to today.
 #[tauri::command]
 pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySummary> {
-    let date = match date {
-        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(err)?,
-        None => Local::now().date_naive(),
-    };
-    let (from, to) = day_bounds(date).ok_or("that date has no local midnight")?;
+    let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
     let rows = analysis::load_rows(&conn, from, to.min(now_ms())).map_err(err)?;
     Ok(analysis::day_summary(&rows))
@@ -69,6 +65,8 @@ pub struct CategoryEntry {
     kind: &'static str,
     category: Category,
     privacy: Mode,
+    /// Daily limit in minutes; 0 means none.
+    limit_min: u32,
     ms: i64,
 }
 
@@ -79,6 +77,7 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
     let conn = state.db.lock().map_err(err)?;
     let cats = analysis::category_map(&conn).map_err(err)?;
     let rules = privacy::load(&conn).map_err(err)?;
+    let limits: HashMap<String, u32> = goals::load(&conn).map_err(err)?.limits.into_iter().collect();
     let since = now_ms() - 30 * DAY_MS;
 
     let mut out = Vec::new();
@@ -92,7 +91,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
             let key = format!("{kind}:{id}");
             let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
             let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
-            out.push(CategoryEntry { key, label, kind, category, privacy, ms });
+            let limit_min = limits.get(&key).copied().unwrap_or(0);
+            out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, ms });
         }
         Ok(())
     };
@@ -122,11 +122,53 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
         };
         let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
         let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
-        out.push(CategoryEntry { key, label, kind, category, privacy, ms: 0 });
+        let limit_min = limits.get(&key).copied().unwrap_or(0);
+        out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, ms: 0 });
     }
 
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
     Ok(out)
+}
+
+/// Progress on every goal and limit for one local day (default today), plus the streak before it.
+#[tauri::command]
+pub fn get_goals(state: State<AppState>, date: Option<String>) -> CmdResult<goals::DayGoals> {
+    let date = parse_day(date)?;
+    let conn = state.db.lock().map_err(err)?;
+    goals::for_day(&conn, date, now_ms()).map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalSettings {
+    productive_min: u32,
+    distracting_max_min: u32,
+}
+
+#[tauri::command]
+pub fn get_goal_settings(state: State<AppState>) -> CmdResult<GoalSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    let g = goals::load(&conn).map_err(err)?;
+    Ok(GoalSettings { productive_min: g.productive_min, distracting_max_min: g.distracting_max_min })
+}
+
+/// `kind` is "productive" (a daily target) or "distracting" (a daily cap); 0 minutes turns it off.
+#[tauri::command]
+pub fn set_goal(state: State<AppState>, kind: String, minutes: u32) -> CmdResult<()> {
+    let kind = match kind.as_str() {
+        "productive" => goals::Kind::Productive,
+        "distracting" => goals::Kind::Distracting,
+        other => return Err(format!("unknown goal: {other}")),
+    };
+    let conn = state.db.lock().map_err(err)?;
+    goals::set_goal(&conn, kind, minutes).map_err(err)
+}
+
+/// A daily limit for `app:<exe>` or `site:<name>`; 0 minutes removes it.
+#[tauri::command]
+pub fn set_limit(state: State<AppState>, key: String, minutes: u32) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    goals::set_limit(&conn, &key, minutes).map_err(err)
 }
 
 fn parse_mode(mode: &str) -> CmdResult<Mode> {
@@ -179,11 +221,7 @@ pub fn delete_history(state: State<AppState>, range: String, date: Option<String
             privacy::delete_between(&conn, now - 60 * 60 * 1000, i64::MAX)
         }
         "day" => {
-            let date = match date {
-                Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(err)?,
-                None => Local::now().date_naive(),
-            };
-            let (from, to) = day_bounds(date).ok_or("that date has no local midnight")?;
+            let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
             privacy::delete_between(&conn, from, to)
         }
         "all" => privacy::delete_all(&conn),

@@ -4,6 +4,7 @@ mod collector;
 mod commands;
 mod db;
 mod demo;
+mod goals;
 mod nudge;
 mod platform;
 mod privacy;
@@ -55,6 +56,7 @@ pub fn run() {
             let window_cache = nudge::SharedCache::default();
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone());
+            goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState { db: Mutex::new(conn), paused: paused.clone(), window_cache, privacy_rules });
             setup_tray(app, paused, nudges_on)?;
@@ -86,6 +88,10 @@ pub fn run() {
             commands::send_test_nudge,
             commands::get_autostart,
             commands::set_autostart,
+            commands::get_goals,
+            commands::get_goal_settings,
+            commands::set_goal,
+            commands::set_limit,
             commands::set_privacy_rule,
             commands::apply_privacy_to_past,
             commands::get_retention,
