@@ -709,6 +709,159 @@ html.palette-root {
   background: var(--rule);
 }
 
+/* An answer ("finals this week") and a focus session's plan, in the same card. */
+.palette-preview.answer,
+.palette-preview.focus {
+  gap: 14px;
+  padding: 18px 20px;
+}
+
+.palette-answer-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.palette-answer-head .app-icon {
+  width: 28px;
+  height: 28px;
+  margin: 0;
+}
+
+.palette-answer-head .app-icon img {
+  width: 24px;
+  height: 24px;
+}
+
+.palette-answer-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+}
+
+.palette-total {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.palette-total strong {
+  font-size: 40px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.palette-change {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.palette-change.good {
+  color: var(--good);
+}
+
+.palette-change.worse {
+  color: var(--warm);
+}
+
+.palette-chart {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.palette-bars,
+.palette-bar-labels {
+  display: grid;
+  gap: 8px;
+}
+
+.palette-bars.dense,
+.palette-bar-labels.dense {
+  gap: 3px;
+}
+
+.palette-bars {
+  position: relative;
+  height: 62px;
+  align-items: end;
+}
+
+.palette-bar {
+  border-radius: 3px;
+  background: var(--neutral);
+}
+
+.palette-bar.over {
+  background: var(--distracting);
+}
+
+.palette-bar.empty {
+  background: var(--line);
+}
+
+.palette-limit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--neutral);
+}
+
+.palette-bar-labels {
+  font-size: 11px;
+  text-align: center;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.palette-bar-labels.dense {
+  text-align: left;
+}
+
+.palette-note {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.palette-note.warm {
+  color: var(--warm);
+}
+
+.palette-plan {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.palette-plan-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.palette-plan-tile span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.palette-plan-tile strong {
+  font-size: 13px;
+  font-weight: 400;
+}
+
 .palette-results {
   flex: 1 1 auto;
   min-height: 0;

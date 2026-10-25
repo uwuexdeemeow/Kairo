@@ -9,7 +9,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{app_path, close_process, foreground, icon_pixels, icon_png, idle_ms, minimize, open_path, processes};
+pub use win::{app_path, close_process, foreground, icon_pixels, icon_png, idle_ms, minimize, open_path, processes, start_apps};
 
 #[cfg(windows)]
 mod win {
@@ -82,6 +82,9 @@ mod win {
     pub fn open_path(path: &str) -> bool {
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
         use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        if path.starts_with(START_APP) {
+            return unsafe { open_start_app(path) };
+        }
         let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
         let open: Vec<u16> = "open".encode_utf16().chain([0]).collect();
         // Values above 32 mean success.
@@ -92,11 +95,109 @@ mod win {
         }
     }
 
+    /// How an app in the Start menu's All apps list is named: Windows opens it from there.
+    pub const START_APP: &str = r"shell:AppsFolder\";
+
+    /// Every app the Start menu lists under All apps, as (name, `shell:AppsFolder\<id>`): desktop
+    /// programs, Store apps, and the games Steam, Epic and others add as links. Web links and
+    /// documents left there by installers are skipped. None when Windows won't give the list.
+    pub fn start_apps() -> Option<Vec<(String, String)>> {
+        use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, IBindCtx, COINIT_APARTMENTTHREADED};
+        use windows::Win32::UI::Shell::{
+            BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem, SHGetKnownFolderItem, KF_FLAG_DEFAULT, SIGDN, SIGDN_NORMALDISPLAY,
+            SIGDN_PARENTRELATIVEPARSING,
+        };
+        unsafe fn text(item: &IShellItem, kind: SIGDN) -> Option<String> {
+            let name = item.GetDisplayName(kind).ok()?;
+            let text = name.to_string().ok();
+            CoTaskMemFree(Some(name.0 as *const _));
+            text
+        }
+        const NOT_APPS: [&str; 9] = [".txt", ".pdf", ".chm", ".htm", ".html", ".rtf", ".url", ".ini", ".log"];
+        unsafe {
+            // The shell wants COM on the calling thread; already there, this changes nothing.
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let folder: IShellItem = SHGetKnownFolderItem(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT, None).ok()?;
+            let items: IEnumShellItems = folder.BindToHandler(None::<&IBindCtx>, &BHID_EnumItems).ok()?;
+            let mut apps = Vec::new();
+            loop {
+                let mut next = [None];
+                let mut fetched = 0;
+                if items.Next(&mut next, Some(&mut fetched)).is_err() || fetched == 0 {
+                    break;
+                }
+                let Some(item) = next[0].take() else { break };
+                let (Some(name), Some(id)) = (text(&item, SIGDN_NORMALDISPLAY), text(&item, SIGDN_PARENTRELATIVEPARSING)) else { continue };
+                let lower = id.to_lowercase();
+                if ["http:", "https:", "mailto:"].iter().any(|s| lower.starts_with(s)) || NOT_APPS.iter().any(|e| lower.ends_with(e)) {
+                    continue;
+                }
+                apps.push((name, format!("{START_APP}{id}")));
+            }
+            Some(apps)
+        }
+    }
+
+    /// Opens an app from the Start menu's list as clicking it there would, through the shell's
+    /// own item for it rather than its name, which for a game can be a `steam://` link.
+    unsafe fn open_start_app(path: &str) -> bool {
+        use windows::core::HSTRING;
+        use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, COINIT_APARTMENTTHREADED};
+        use windows::Win32::UI::Shell::Common::ITEMIDLIST;
+        use windows::Win32::UI::Shell::{SHParseDisplayName, ShellExecuteExW, SEE_MASK_IDLIST, SHELLEXECUTEINFOW};
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let mut item: *mut ITEMIDLIST = std::ptr::null_mut();
+        if SHParseDisplayName(&HSTRING::from(path), None, &mut item, 0, None).is_err() || item.is_null() {
+            return false;
+        }
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_IDLIST,
+            lpIDList: item.cast(),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+        let opened = ShellExecuteExW(&mut info).is_ok();
+        CoTaskMemFree(Some(item as *const _));
+        opened
+    }
+
+    /// An app's icon from the Start menu's list, as the shell draws it.
+    unsafe fn start_app_icon(path: &str) -> Option<(u32, u32, Vec<u8>)> {
+        use windows::core::HSTRING;
+        use windows::Win32::Foundation::SIZE;
+        use windows::Win32::Graphics::Gdi::{DeleteObject, GetObjectW, BITMAP};
+        use windows::Win32::System::Com::IBindCtx;
+        use windows::Win32::UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_ICONONLY};
+        let item: IShellItemImageFactory = SHCreateItemFromParsingName(&HSTRING::from(path), None::<&IBindCtx>).ok()?;
+        let bitmap = item.GetImage(SIZE { cx: 32, cy: 32 }, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK).ok()?;
+        let mut info = BITMAP::default();
+        let read = GetObjectW(bitmap.into(), std::mem::size_of::<BITMAP>() as i32, Some((&mut info as *mut BITMAP).cast()));
+        let pixels = if read == 0 { None } else { read_bits(bitmap.0, info.bmWidth, info.bmHeight) };
+        let _ = DeleteObject(bitmap.into());
+        let (w, h, mut px) = (info.bmWidth as u32, info.bmHeight as u32, pixels?);
+        // The shell hands back premultiplied BGRA; Kairo works in plain RGBA.
+        for p in px.chunks_exact_mut(4) {
+            let a = p[3] as u32;
+            if a > 0 && a < 255 {
+                for c in &mut p[..3] {
+                    *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+                }
+            }
+            p.swap(0, 2);
+        }
+        Some((w, h, px))
+    }
+
     /// A program's icon as Explorer shows it: (width, height, top-down RGBA). None when it has
     /// none to give.
     pub fn icon_pixels(path: &str) -> Option<(u32, u32, Vec<u8>)> {
         use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
         use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+        if path.starts_with(START_APP) {
+            return unsafe { start_app_icon(path) };
+        }
         let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
         unsafe {
             let mut info: SHFILEINFOW = std::mem::zeroed();

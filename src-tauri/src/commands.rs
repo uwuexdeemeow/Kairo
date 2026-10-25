@@ -596,12 +596,12 @@ pub fn palette_query(session: State<palette::Session>, query: String) -> palette
     session.query(&query)
 }
 
-/// Icons for listed apps, as data URLs by path, kept for the rest of the run.
+/// Icons for apps the palette shows, as data URLs by path, kept for the rest of the run.
 #[tauri::command]
-pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
+pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
     let mut cache = state.icons.lock().map_err(err)?;
     let mut out = HashMap::new();
-    for path in paths.into_iter().filter(|p| index.knows(p)) {
+    for path in paths.into_iter().filter(|p| index.knows(p) || session.shows_icon(p)) {
         // Shared with app icons, under a key that can't clash with a program's name.
         if let Some(url) = cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)) {
             out.insert(path, url.clone());
@@ -610,12 +610,13 @@ pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, paths
     Ok(out)
 }
 
-/// How a day went, for the card above a selected day.
+/// The card for item `at` of the results numbered `seq`: a day, an answer or a focus plan.
+/// None once newer results replaced them, or for an item without one.
 #[tauri::command]
-pub fn palette_preview(state: State<AppState>, date: String) -> CmdResult<palette::DayGlance> {
-    let day = NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(err)?;
+pub fn palette_card(state: State<AppState>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<Option<palette::cards::Card>> {
+    let Some(preview) = session.item(seq, at).and_then(|i| i.preview) else { return Ok(None) };
     let conn = state.db.lock().map_err(err)?;
-    Ok(palette::day_glance(&conn, day))
+    Ok(Some(palette::cards::card(&conn, &preview)))
 }
 
 /// Runs item `at` of the results numbered `seq`, then puts the palette away.

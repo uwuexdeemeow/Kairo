@@ -75,6 +75,8 @@ pub fn run() {
             Some(vec![startup::MINIMIZED_ARG]),
         ))
         .plugin(tauri_plugin_notification::init())
+        // The command palette copies its answers.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Size, position and maximized state come back as they were; visibility stays ours,
         // since Kairo starts hidden in the tray at sign-in.
@@ -204,7 +206,7 @@ pub fn run() {
             commands::palette_open,
             commands::palette_query,
             commands::palette_icons,
-            commands::palette_preview,
+            commands::palette_card,
             commands::palette_run,
             commands::palette_hide,
             commands::get_palette_settings,

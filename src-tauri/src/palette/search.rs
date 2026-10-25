@@ -1,9 +1,12 @@
 //! What the palette shows for what's typed: matching, the days people name, actions, and the
 //! suggestions before anything is typed. No drawing here, so all of it can be tested.
 
+use std::collections::HashMap;
+
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 use super::AppEntry;
+use crate::analysis::Category;
 
 const MAX_APPS: usize = 6;
 const RECENT_APPS: usize = 3;
@@ -99,6 +102,105 @@ pub fn parse_day(query: &str, today: NaiveDate) -> Option<NaiveDate> {
     }
 }
 
+/// A stretch of time an answer covers, the way people ask for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Period {
+    Today,
+    Yesterday,
+    ThisWeek,
+    LastWeek,
+    ThisMonth,
+    LastMonth,
+}
+
+/// Longest first, so "last week" isn't read as "week".
+const PERIODS: [(&str, Period); 8] = [
+    ("this month", Period::ThisMonth),
+    ("last month", Period::LastMonth),
+    ("this week", Period::ThisWeek),
+    ("last week", Period::LastWeek),
+    ("yesterday", Period::Yesterday),
+    ("today", Period::Today),
+    ("month", Period::ThisMonth),
+    ("week", Period::ThisWeek),
+];
+
+impl Period {
+    /// As said in a title: "THE FINALS this week".
+    pub fn label(self) -> &'static str {
+        match self {
+            Period::Today => "today",
+            Period::Yesterday => "yesterday",
+            Period::ThisWeek => "this week",
+            Period::LastWeek => "last week",
+            Period::ThisMonth => "this month",
+            Period::LastMonth => "last month",
+        }
+    }
+
+    /// The one before it, which the answer compares with.
+    pub fn before(self) -> &'static str {
+        match self {
+            Period::Today => "yesterday",
+            Period::Yesterday => "the day before",
+            Period::ThisWeek => "last week",
+            Period::LastWeek => "the week before",
+            Period::ThisMonth => "last month",
+            Period::LastMonth => "the month before",
+        }
+    }
+
+    /// The first and last day it covers.
+    pub fn days(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+        let monday = today - Duration::days(today.weekday().num_days_from_monday() as i64);
+        let first_of = |d: NaiveDate| d.with_day(1).unwrap_or(d);
+        match self {
+            Period::Today => (today, today),
+            Period::Yesterday => (today - Duration::days(1), today - Duration::days(1)),
+            Period::ThisWeek => (monday, monday + Duration::days(6)),
+            Period::LastWeek => (monday - Duration::days(7), monday - Duration::days(1)),
+            Period::ThisMonth => {
+                let start = first_of(today);
+                (start, first_of(start + Duration::days(32)) - Duration::days(1))
+            }
+            Period::LastMonth => {
+                let end = first_of(today) - Duration::days(1);
+                (first_of(end), end)
+            }
+        }
+    }
+
+    /// The same span just before it: yesterday for today, the week before for a week.
+    pub fn previous_days(self, today: NaiveDate) -> (NaiveDate, NaiveDate) {
+        let (first, last) = self.days(today);
+        match self {
+            Period::ThisMonth | Period::LastMonth => {
+                let end = first - Duration::days(1);
+                (end.with_day(1).unwrap_or(end), end)
+            }
+            _ => {
+                let len = (last - first).num_days() + 1;
+                (first - Duration::days(len), last - Duration::days(len))
+            }
+        }
+    }
+}
+
+/// A query ending in a period, as "finals this week": the rest, and the period. Without one, or
+/// with nothing before it, the whole query and None.
+pub fn split_period(query: &str) -> (String, Option<Period>) {
+    let q = query.trim().to_lowercase();
+    for (words, period) in PERIODS {
+        if let Some(rest) = q.strip_suffix(words).filter(|r| r.ends_with(' ')) {
+            let rest = rest.trim();
+            if !rest.is_empty() {
+                return (rest.to_string(), Some(period));
+            }
+        }
+    }
+    (query.trim().to_string(), None)
+}
+
 /// "tue" on a Tuesday is today; "last tue" is always one before today.
 fn last_weekday(today: NaiveDate, day: Weekday, before_today: bool) -> NaiveDate {
     let back = (today.weekday().num_days_from_monday() + 7 - day.num_days_from_monday()) % 7;
@@ -134,6 +236,19 @@ pub enum Icon {
     Glyph(Glyph, Tone),
 }
 
+/// Something Kairo has recorded time in, which can be asked about: an app or a site.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Subject {
+    pub name: String,
+    /// `app:<exe>` or `site:<name>`, as categories and limits know it.
+    pub key: String,
+    pub category: Category,
+    /// What to draw its icon from: an installed app's entry or its program, when known.
+    pub icon: Option<String>,
+    /// Time in it over the last 30 days, for picking between near matches.
+    pub used_ms: i64,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Launch(String),
@@ -141,6 +256,19 @@ pub enum Action {
     Go(&'static str, Option<NaiveDate>),
     StartFocus(u32, Option<String>),
     CheckUpdates,
+    /// Puts an answer's line on the clipboard.
+    CopyAnswer(Subject, Period),
+}
+
+/// The card shown above the results while an item is selected.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Preview {
+    /// How a day went.
+    Day(NaiveDate),
+    /// Time in something over a period, day by day.
+    Answer(Subject, Period),
+    /// What a focus session would do once started.
+    Focus(u32, Option<String>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -155,8 +283,8 @@ pub struct Item {
     pub score: f64,
     pub section: &'static str,
     pub action: Action,
-    /// A day to preview above the results while this item is selected.
-    pub preview: Option<NaiveDate>,
+    /// A card to show above the results while this item is selected.
+    pub preview: Option<Preview>,
 }
 
 impl Item {
@@ -176,6 +304,10 @@ pub struct Context {
     /// Limits passed today: (name, used, limit).
     pub over_limits: Vec<(String, i64, i64)>,
     pub suggestions: bool,
+    /// What Kairo has recorded lately, to answer questions about.
+    pub subjects: Vec<Subject>,
+    /// Daily limits by key, in milliseconds.
+    pub limits: HashMap<String, i64>,
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -215,8 +347,65 @@ fn day_item(ctx: &Context, d: NaiveDate, score: f64) -> Item {
         n => format!("{n} days ago"),
     });
     item.score = score;
-    item.preview = Some(d);
+    item.preview = Some(Preview::Day(d));
     item
+}
+
+/// The recorded app or site a query most likely means.
+fn best_subject<'a>(ctx: &'a Context, query: &str) -> Option<(&'a Subject, Match)> {
+    ctx.subjects
+        .iter()
+        .filter_map(|s| fuzzy(query, &s.name).map(|m| (s, m)))
+        .max_by(|(a, x), (b, y)| (x.score + (a.used_ms as f64 / HOUR_MS as f64).min(20.0)).total_cmp(&(y.score + (b.used_ms as f64 / HOUR_MS as f64).min(20.0))))
+}
+
+/// "THE FINALS’" or "Chrome’s".
+fn possessive(name: &str) -> String {
+    if name.ends_with(['s', 'S']) {
+        format!("{name}’")
+    } else {
+        format!("{name}’s")
+    }
+}
+
+/// How much time went to something over a period: the answer, which opens that stretch in
+/// Kairo, and when asked outright, rows to change its limit or copy the answer.
+fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, asked: bool) -> Vec<Item> {
+    let (first, _) = period.days(ctx.today);
+    let (go, place) = match period {
+        Period::Today | Period::Yesterday => (Action::Go("today", Some(first)), period.label()),
+        Period::ThisWeek | Period::LastWeek => (Action::Go("week", Some(first)), period.label()),
+        Period::ThisMonth | Period::LastMonth => (Action::Go("patterns", None), "Patterns"),
+    };
+    let preview = Some(Preview::Answer(subject.clone(), period));
+    let icon = Icon::App(subject.icon.clone().unwrap_or_else(|| subject.key.clone()));
+    let mut answer = Item::new(format!("{} {}", subject.name, period.label()), icon, "Answers", go);
+    answer.at = m.at;
+    answer.sub = Some(format!("Open {place} in Kairo"));
+    answer.preview = preview.clone();
+    if !asked {
+        // A name alone most likely means the app; the answer waits below it.
+        answer.score = m.score - 20.0;
+        return vec![answer];
+    }
+    answer.score = 950.0;
+    let limit = ctx.limits.get(&subject.key).copied();
+    let mut change = Item::new(
+        match limit {
+            Some(_) => format!("Change {} daily limit", possessive(&subject.name)),
+            None => format!("Set a daily limit for {}", subject.name),
+        },
+        Icon::Glyph(Glyph::Tag, Tone::Plain),
+        "Answers",
+        Action::Go("categories", None),
+    );
+    change.detail = limit.map(fmt_dur);
+    change.score = 949.0;
+    change.preview = preview.clone();
+    let mut copy = Item::new("Copy the answer", Icon::Glyph(Glyph::Chart, Tone::Plain), "Answers", Action::CopyAnswer(subject.clone(), period));
+    copy.score = 948.0;
+    copy.preview = preview;
+    vec![answer, change, copy]
 }
 
 fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
@@ -239,9 +428,23 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
 
     if let Some((minutes, label)) = focus_command(query) {
         let mut item = Item::new(format!("Start a {minutes}-minute focus session"), Icon::Glyph(Glyph::Focus, Tone::Accent), "Focus", Action::StartFocus(minutes, label.clone()));
-        item.sub = Some(label.map_or("No label".into(), |l| format!("Labelled “{l}”")));
+        item.sub = Some(label.as_ref().map_or("No label".into(), |l| format!("Labelled “{l}”")));
         item.score = 1000.0;
+        item.preview = Some(Preview::Focus(minutes, label));
         items.push(item);
+    }
+    // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
+    match split_period(query) {
+        (asked, Some(period)) => {
+            if let Some((subject, m)) = best_subject(ctx, &asked) {
+                items.extend(answer_items(ctx, subject, m, period, true));
+            }
+        }
+        (_, None) => {
+            if let Some((subject, m)) = best_subject(ctx, query).filter(|(_, m)| m.score >= 100.0) {
+                items.extend(answer_items(ctx, subject, m, Period::ThisWeek, false));
+            }
+        }
     }
     if let Some(d) = parse_day(query, ctx.today) {
         items.push(day_item(ctx, d, 900.0));
@@ -280,6 +483,9 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         let mut item = Item::new(title.clone(), Icon::Glyph(glyph, Tone::Accent), "Actions", action);
         item.at = fuzzy(query, &title).map(|m| m.at).unwrap_or_default();
         item.score = m.score - 8.0;
+        if let Action::StartFocus(minutes, None) = item.action {
+            item.preview = Some(Preview::Focus(minutes, None));
+        }
         items.push(item);
     }
 
@@ -371,7 +577,13 @@ mod tests {
             today_apps: vec![("Cursor".into(), 2 * HOUR_MS), ("THE FINALS".into(), HOUR_MS), ("Brave".into(), HOUR_MS / 2)],
             over_limits: vec![("THE FINALS".into(), 132 * 60_000, 120 * 60_000)],
             suggestions: true,
+            subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
+            limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
         }
+    }
+
+    fn subject(name: &str, key: &str, hours: i64) -> Subject {
+        Subject { name: name.into(), key: key.into(), category: Category::Distracting, icon: None, used_ms: hours * HOUR_MS }
     }
 
     fn titles(items: &[Item]) -> Vec<&str> {
@@ -407,9 +619,10 @@ mod tests {
     #[test]
     fn search_leads_with_the_best_match_and_groups_the_rest() {
         let c = ctx();
-        assert_eq!(titles(&search(&c, "cur")), ["Cursor", "CurseForge"]);
+        // Apps first; what Cursor took this week comes after them.
+        assert_eq!(titles(&search(&c, "cur")), ["Cursor", "CurseForge", "Cursor this week"]);
         assert_eq!(titles(&search(&c, "vsc")), ["Visual Studio Code"]);
-        assert_eq!(search(&c, "last tue")[0].preview, NaiveDate::from_ymd_opt(2026, 10, 20));
+        assert_eq!(search(&c, "last tue")[0].preview, Some(Preview::Day(NaiveDate::from_ymd_opt(2026, 10, 20).unwrap())));
         let focus = &search(&c, "focus 50 essay")[0];
         assert_eq!(focus.action, Action::StartFocus(50, Some("essay".into())));
         let found = search(&c, "foc");
@@ -427,5 +640,37 @@ mod tests {
         assert_eq!(titles(&s.chips), ["Today", "Yesterday", "This week", "Focus", "Settings"]);
         let quiet = suggestions(&Context { suggestions: false, ..ctx() });
         assert!(quiet.rows.is_empty() && quiet.tiles.is_empty() && quiet.chips.len() == 5);
+    }
+
+    #[test]
+    fn periods_end_a_question() {
+        assert_eq!(split_period("finals this week"), ("finals".into(), Some(Period::ThisWeek)));
+        assert_eq!(split_period("youtube last week"), ("youtube".into(), Some(Period::LastWeek)));
+        assert_eq!(split_period("cursor today"), ("cursor".into(), Some(Period::Today)));
+        assert_eq!(split_period("today"), ("today".into(), None));
+        assert_eq!(split_period("homeweek"), ("homeweek".into(), None));
+        let today = ctx().today;
+        let d = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        assert_eq!(Period::ThisWeek.days(today), (d(10, 26), d(11, 1)));
+        assert_eq!(Period::LastWeek.days(today), (d(10, 19), d(10, 25)));
+        assert_eq!(Period::ThisMonth.days(today), (d(10, 1), d(10, 31)));
+        assert_eq!(Period::LastMonth.days(today), (d(9, 1), d(9, 30)));
+        assert_eq!(Period::ThisMonth.previous_days(today), (d(9, 1), d(9, 30)));
+        assert_eq!(Period::Today.previous_days(today), (d(10, 25), d(10, 25)));
+    }
+
+    #[test]
+    fn questions_get_answers_with_their_follow_ups() {
+        let c = ctx();
+        let found = search(&c, "finals this week");
+        assert_eq!(titles(&found), ["THE FINALS this week", "Change THE FINALS’ daily limit", "Copy the answer"]);
+        assert_eq!(found[0].action, Action::Go("week", NaiveDate::from_ymd_opt(2026, 10, 26)));
+        assert_eq!(found[1].detail.as_deref(), Some("2h 00m"));
+        assert!(matches!(&found[2].preview, Some(Preview::Answer(s, Period::ThisWeek)) if s.key == "app:discovery"));
+        assert_eq!(titles(&search(&c, "youtube today"))[1], "Set a daily limit for YouTube");
+        // A name alone opens the app first; the answer comes after.
+        let cursor = search(&c, "cursor");
+        assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
+        assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
     }
 }
