@@ -28,6 +28,12 @@ export interface DaySummary {
   timeline: Segment[];
 }
 
+export interface DayTotal {
+  date: string;
+  activeMs: number;
+  productiveMs: number;
+}
+
 export interface HourStat {
   hour: number;
   activeMs: number;
@@ -114,6 +120,8 @@ export const api = {
   /** `date` is a local `YYYY-MM-DD`; omit it for today. */
   day: (date?: string) => invoke<DaySummary>("get_day", { date }),
   firstDay: () => invoke<string | null>("get_first_day"),
+  /** Days with tracked time between two local `YYYY-MM-DD` dates, inclusive. */
+  dayTotals: (from: string, to: string) => invoke<DayTotal[]>("get_day_totals", { from, to }),
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),

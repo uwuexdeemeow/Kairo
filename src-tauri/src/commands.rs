@@ -39,6 +39,38 @@ pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySum
     Ok(analysis::day_summary(&rows))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayTotal {
+    date: String,
+    active_ms: i64,
+    productive_ms: i64,
+}
+
+/// Time tracked on each local day from `from` to `to` (inclusive, at most 62 days), for the calendar.
+#[tauri::command]
+pub fn get_day_totals(state: State<AppState>, from: String, to: String) -> CmdResult<Vec<DayTotal>> {
+    let (from, to) = (parse_day(Some(from))?, parse_day(Some(to))?);
+    let conn = state.db.lock().map_err(err)?;
+    let now = now_ms();
+    let mut out = Vec::new();
+    for date in from.iter_days().take_while(|d| *d <= to).take(62) {
+        let Some((start, end)) = day_bounds(date) else { continue };
+        if start > now {
+            break;
+        }
+        let rows = analysis::load_rows(&conn, start, end.min(now)).map_err(err)?;
+        let active = rows.iter().filter(|r| !r.idle);
+        let (active_ms, productive_ms) = active.fold((0, 0), |(a, p), r| {
+            (a + r.dur(), p + if r.category == Category::Productive { r.dur() } else { 0 })
+        });
+        if active_ms > 0 {
+            out.push(DayTotal { date: date.to_string(), active_ms, productive_ms });
+        }
+    }
+    Ok(out)
+}
+
 /// The local date of the earliest recorded session, so the day picker knows where history starts.
 #[tauri::command]
 pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {

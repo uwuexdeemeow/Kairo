@@ -77,6 +77,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_day,
             commands::get_first_day,
+            commands::get_day_totals,
             commands::get_patterns,
             commands::get_categories,
             commands::set_category,

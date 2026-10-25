@@ -23,9 +23,8 @@
           <section class="summary" aria-label="Summary">
             <nav class="day-nav" aria-label="Day">
               <button class="day-step" id="day-prev" aria-label="Previous day" title="Previous day (←)">‹</button>
-              <span class="day-pick">
-                <button class="eyebrow day-label" id="today-date" title="Pick a date" aria-live="polite"></button>
-                <input type="date" id="day-picker" tabindex="-1" aria-hidden="true" />
+              <span class="day-pick" id="today-date-pick">
+                <button class="eyebrow day-label" id="today-date" title="Pick a date" aria-haspopup="dialog" aria-live="polite"></button>
               </span>
               <button class="day-step" id="day-next" aria-label="Next day" title="Next day (→)">›</button>
               <button class="link-btn day-today" id="day-today" title="Back to today (T)" hidden>Today</button>
@@ -155,7 +154,9 @@
                   <option value="all">everything</option>
                 </select>
               </label>
-              <input type="date" id="delete-date" aria-label="Day to delete" hidden />
+              <span class="day-pick" id="delete-date-pick" hidden>
+                <button class="link-btn" id="delete-date" aria-haspopup="dialog"></button>
+              </span>
               <button class="link-btn" id="delete-run">Delete</button>
               <span class="muted" id="delete-status" aria-live="polite"></span>
             </div>
