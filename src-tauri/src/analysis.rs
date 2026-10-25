@@ -297,17 +297,25 @@ pub struct DaySummary {
     timeline: Vec<Segment>,
 }
 
-pub fn day_summary(rows: &[Row]) -> DaySummary {
-    let mut acc = Acc::default();
+/// The apps and sites that took the most time in `rows`, `n` of each.
+fn top_apps_and_sites(rows: &[Row], n: usize) -> (Vec<Usage>, Vec<Usage>) {
     let mut apps: HashMap<&str, (Category, i64)> = HashMap::new();
     let mut sites: HashMap<&str, (Category, i64)> = HashMap::new();
     for r in rows.iter().filter(|r| !r.idle) {
-        acc.add(r.category, r.dur());
         apps.entry(&r.app).or_insert((r.app_category, 0)).1 += r.dur();
         if let Some(site) = &r.site {
             sites.entry(site).or_insert((r.category, 0)).1 += r.dur();
         }
     }
+    (top_usage(apps, n), top_usage(sites, n))
+}
+
+pub fn day_summary(rows: &[Row]) -> DaySummary {
+    let mut acc = Acc::default();
+    for r in rows.iter().filter(|r| !r.idle) {
+        acc.add(r.category, r.dur());
+    }
+    let (top_apps, top_sites) = top_apps_and_sites(rows, 8);
 
     let blocks = focus_blocks(rows);
     DaySummary {
@@ -318,8 +326,8 @@ pub fn day_summary(rows: &[Row]) -> DaySummary {
         switches: switch_times(rows).len(),
         longest_focus_ms: blocks.iter().map(|b| b.productive_ms).max().unwrap_or(0),
         deep_blocks: blocks.iter().filter(|b| b.productive_ms >= DEEP_BLOCK_MS).count(),
-        top_apps: top_usage(apps, 8),
-        top_sites: top_usage(sites, 8),
+        top_apps,
+        top_sites,
         timeline: timeline(rows),
     }
 }
@@ -403,15 +411,26 @@ pub struct Insight {
 }
 
 impl Insight {
-    fn new(kind: InsightKind, title: impl Into<String>, detail: impl Into<String>) -> Self {
+    pub fn new(kind: InsightKind, title: impl Into<String>, detail: impl Into<String>) -> Self {
         Insight { kind, title: title.into(), detail: detail.into(), metric: String::new(), unit: String::new() }
     }
 
-    fn with_metric(mut self, metric: impl Into<String>, unit: impl Into<String>) -> Self {
+    pub fn with_metric(mut self, metric: impl Into<String>, unit: impl Into<String>) -> Self {
         self.metric = metric.into();
         self.unit = unit.into();
         self
     }
+}
+
+/// Averages per day with meaningful activity, so quiet days don't drag them down.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PatternSummary {
+    avg_active_ms: i64,
+    avg_productive_ms: i64,
+    avg_distracting_ms: i64,
+    focus_sessions: usize,
+    avg_focus_ms: i64,
 }
 
 #[derive(Serialize)]
@@ -419,10 +438,26 @@ impl Insight {
 pub struct Patterns {
     /// Days in the range with meaningful activity; the hourly totals cover these.
     days_with_data: usize,
+    summary: PatternSummary,
     hourly: Vec<HourStat>,
     /// Monday-first, 7 x 24.
     heatmap: Vec<Vec<Cell>>,
+    top_apps: Vec<Usage>,
+    top_sites: Vec<Usage>,
     insights: Vec<Insight>,
+}
+
+impl Patterns {
+    /// Folds in focus sessions from the same range, which live outside the activity rows.
+    pub fn with_focus(mut self, sessions: usize, focused_ms: i64, insights: Vec<Insight>) -> Self {
+        self.summary.focus_sessions = sessions;
+        self.summary.avg_focus_ms = focused_ms / self.days_with_data.max(1) as i64;
+        // Focus insights only join a page that already has real ones, not the "still learning" note.
+        if self.days_with_data >= MIN_DAYS_FOR_INSIGHTS {
+            self.insights.extend(insights);
+        }
+        self
+    }
 }
 
 /// Per-hour totals, the weekday x hour grid, and the days with meaningful activity.
@@ -461,9 +496,20 @@ fn accumulate(rows: &[Row]) -> (Vec<Acc>, Vec<Vec<Cell>>, Vec<NaiveDate>) {
 pub fn patterns(rows: &[Row]) -> Patterns {
     let (hourly, grid, active_days) = accumulate(rows);
     let insights = insights(rows, &hourly, &grid, &active_days);
+    let total = sum_hours(&hourly, 0..24);
+    let days = active_days.len().max(1) as i64;
+    let (top_apps, top_sites) = top_apps_and_sites(rows, 6);
 
     Patterns {
         days_with_data: active_days.len(),
+        summary: PatternSummary {
+            avg_active_ms: total.active / days,
+            avg_productive_ms: total.productive / days,
+            avg_distracting_ms: total.distracting / days,
+            ..PatternSummary::default()
+        },
+        top_apps,
+        top_sites,
         hourly: hourly
             .iter()
             .enumerate()

@@ -12,6 +12,9 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
+use chrono::Timelike;
+
+use crate::analysis::{Insight, InsightKind};
 use crate::goals::fmt_dur;
 use crate::{classify, db, nudge, platform};
 
@@ -193,6 +196,86 @@ pub fn stats(conn: &Connection, from: i64, to: i64, now: i64) -> Result<Stats> {
     Ok(Stats::of(&blocks(conn, from, to, now)?))
 }
 
+// ---------- insights ----------
+
+/// Below these, a finish rate says more about chance than habit.
+const MIN_SESSIONS_FOR_INSIGHTS: usize = 6;
+const MIN_PER_GROUP: usize = 3;
+/// How far apart two finish rates have to be before the difference is worth a sentence.
+const NOTABLE_GAP: f64 = 0.2;
+
+/// (key, phrase) for each part of the day a session can start in.
+fn part_of_day(ms: i64) -> (&'static str, &'static str) {
+    let hour = chrono::DateTime::from_timestamp_millis(ms).unwrap_or_default().with_timezone(&chrono::Local).hour();
+    match hour {
+        5..=11 => ("morning", "in the morning"),
+        12..=16 => ("afternoon", "in the afternoon"),
+        17..=21 => ("evening", "in the evening"),
+        _ => ("night", "late at night"),
+    }
+}
+
+/// (order, phrase, short label) for a session's planned length.
+fn length_bucket(planned_ms: i64) -> (u8, &'static str, &'static str) {
+    match planned_ms / MIN_MS {
+        ..=30 => (0, "sessions of 30 minutes or less", "of short sessions"),
+        31..=60 => (1, "sessions of 30 to 60 minutes", "of 30–60 min sessions"),
+        _ => (2, "sessions over an hour", "of long sessions"),
+    }
+}
+
+/// The groups with the highest and lowest finish rates, given enough sessions in each.
+fn extremes<K: Copy + PartialEq>(blocks: &[&Block], key: impl Fn(&Block) -> K) -> Option<((K, f64), (K, f64))> {
+    let mut groups: Vec<(K, usize, usize)> = Vec::new();
+    for b in blocks {
+        let k = key(b);
+        match groups.iter_mut().find(|g| g.0 == k) {
+            Some(g) => {
+                g.1 += 1;
+                g.2 += usize::from(b.completed);
+            }
+            None => groups.push((k, 1, usize::from(b.completed))),
+        }
+    }
+    let rated: Vec<(K, f64)> =
+        groups.into_iter().filter(|g| g.1 >= MIN_PER_GROUP).map(|(k, n, done)| (k, done as f64 / n as f64)).collect();
+    let best = rated.iter().copied().max_by(|a, b| a.1.total_cmp(&b.1))?;
+    let worst = rated.iter().copied().min_by(|a, b| a.1.total_cmp(&b.1))?;
+    (best.1 - worst.1 >= NOTABLE_GAP).then_some((best, worst))
+}
+
+fn pct(share: f64) -> u32 {
+    (share * 100.0).round() as u32
+}
+
+/// What focus sessions in a range say: when they stick, and what length suits.
+pub fn insights(blocks: &[Block], now: i64) -> Vec<Insight> {
+    // A session still running hasn't had its chance to finish.
+    let finished: Vec<&Block> = blocks.iter().filter(|b| b.completed || b.end < now).collect();
+    if finished.len() < MIN_SESSIONS_FOR_INSIGHTS {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if let Some(((best, b), (worst, w))) = extremes(&finished, |b| part_of_day(b.start)) {
+        out.push(
+            Insight::new(
+                InsightKind::Positive,
+                format!("Your focus sessions stick best {}", best.1),
+                format!("You finish {}% of the sessions you start {}, against {}% {}.", pct(b), best.1, pct(w), worst.1),
+            )
+            .with_metric(format!("{}%", pct(b)), format!("finished {}", best.1)),
+        );
+    }
+    if let Some(((best, b), (worst, w))) = extremes(&finished, |b| length_bucket(b.planned_ms)) {
+        let title = if best.0 < worst.0 { "Shorter focus sessions are the ones you finish" } else { "Longer focus sessions are the ones you finish" };
+        out.push(
+            Insight::new(InsightKind::Info, title, format!("You finish {}% of {}, but only {}% of {}.", pct(b), best.1, pct(w), worst.1))
+                .with_metric(format!("{}%", pct(b)), best.2),
+        );
+    }
+    out
+}
+
 /// Minutes of unbroken screen time before a break reminder; 0 turns them off.
 pub fn break_minutes(conn: &Connection) -> Result<u32> {
     Ok(db::get_setting(conn, BREAK_KEY)?.and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_BREAK_MIN))
@@ -347,6 +430,38 @@ mod tests {
         start(&conn, 239, None, t + 80 * M).unwrap();
         extend(&conn, 30).unwrap();
         assert_eq!(active(&conn).unwrap().unwrap().planned_ms, MAX_MINUTES as i64 * M);
+    }
+
+    #[test]
+    fn insights_compare_finish_rates_by_time_of_day_and_length() {
+        use chrono::TimeZone;
+        let at = |hour| chrono::Local.with_ymd_and_hms(2026, 10, 20, hour, 0, 0).unwrap().timestamp_millis();
+        let block = |hour, minutes: i64, completed| Block {
+            start: at(hour),
+            end: at(hour) + minutes * M,
+            planned_ms: minutes * M,
+            paused_ms: 0,
+            completed,
+            label: None,
+        };
+        // Mornings: 25-minute sessions, all finished. Evenings: 90-minute ones, mostly not.
+        let blocks = vec![
+            block(9, 25, true),
+            block(10, 25, true),
+            block(11, 25, true),
+            block(18, 90, false),
+            block(19, 90, true),
+            block(20, 90, false),
+        ];
+        let now = at(23);
+        let found = serde_json::to_value(insights(&blocks, now)).unwrap();
+        assert_eq!(found[0]["title"], "Your focus sessions stick best in the morning");
+        assert_eq!(found[0]["detail"], "You finish 100% of the sessions you start in the morning, against 33% in the evening.");
+        assert_eq!(found[1]["title"], "Shorter focus sessions are the ones you finish");
+        // Too few sessions, or no real difference, and there's nothing to say.
+        assert!(insights(&blocks[..5], now).is_empty());
+        let even: Vec<Block> = (9..15).map(|h| block(h, 25, true)).collect();
+        assert!(insights(&even, now).is_empty());
     }
 
     #[test]

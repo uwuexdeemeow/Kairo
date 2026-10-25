@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kairo",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Tells the Kairo desktop app which site is in front, so it can track sites exactly and block distracting ones during focus sessions. Only the domain is sent, and only to Kairo on this computer.",
   "permissions": ["tabs", "alarms"],
   "host_permissions": ["http://127.0.0.1:47613/*"],

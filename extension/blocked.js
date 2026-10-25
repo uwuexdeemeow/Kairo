@@ -21,13 +21,35 @@ document.getElementById("close").addEventListener("click", async () => {
   if (tab?.id !== undefined) chrome.tabs.remove(tab.id);
 });
 
-document.getElementById("allow").addEventListener("click", async () => {
+const allow = document.getElementById("allow");
+const allowLabel = allow.textContent;
+let holdTimer = 0;
+
+// Kairo's strict mode answers "allow" with a time to come back: count down to it, then ask for
+// the confirming click.
+function hold(readyAt) {
+  clearInterval(holdTimer);
+  const tick = () => {
+    const left = readyAt - Date.now();
+    allow.disabled = left > 0;
+    allow.textContent = left > 0 ? `Strict mode: wait ${Math.ceil(left / 1000)}s` : `Confirm: ${allowLabel.toLowerCase()}`;
+    if (left <= 0) clearInterval(holdTimer);
+  };
+  holdTimer = setInterval(tick, 500);
+  tick();
+}
+
+allow.addEventListener("click", async () => {
   try {
     const response = await fetch("http://127.0.0.1:47613/allow", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ site: new URL(original).hostname }),
     });
+    if (response.status === 423) {
+      hold((await response.json()).readyAt);
+      return;
+    }
     if (!response.ok) throw new Error(String(response.status));
     location.replace(original);
   } catch {

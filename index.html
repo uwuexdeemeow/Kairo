@@ -217,6 +217,8 @@
             </div>
           </section>
 
+          <dl class="stats" id="patterns-stats"></dl>
+
           <section id="insights" class="insights" aria-label="Insights"></section>
 
           <section class="block">
@@ -234,6 +236,17 @@
             </div>
             <div id="heatmap"></div>
           </section>
+
+          <div class="columns">
+            <section>
+              <h2>Top apps</h2>
+              <div id="patterns-apps"></div>
+            </section>
+            <section>
+              <h2>Top sites</h2>
+              <div id="patterns-sites"></div>
+            </section>
+          </div>
         </section>
 
         <section id="view-categories" class="view" hidden>
@@ -359,6 +372,11 @@
               <input type="checkbox" id="block-launchers" />
               Close game launchers (Steam, Epic, Riot, Battle.net, EA, Ubisoft, GOG) during focus sessions
             </label>
+            <label class="toggle">
+              <input type="checkbox" id="block-strict" />
+              Strict mode: ending a session early or allowing something blocked takes a 30-second wait
+            </label>
+            <p class="muted" id="block-note" aria-live="polite"></p>
             <p class="muted">Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Windows doesn't let Kairo minimize games that run with anti-cheat, like THE FINALS, so those still get the focus nudge, and closing the launchers stops new ones from starting.</p>
           </section>
 

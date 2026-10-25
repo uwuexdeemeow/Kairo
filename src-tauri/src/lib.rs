@@ -31,6 +31,8 @@ pub struct AppState {
     pub browser_tab: browser::SharedTab,
     /// "Allow 5 minutes" exceptions during focus sessions, shared with the extension's listener.
     pub allowances: blocking::Allowances,
+    /// Strict mode's pending "end early" and "allow" requests, shared with the extension's listener.
+    pub strict_waits: blocking::Waits,
     /// False when another program holds the extension's port.
     pub browser_listening: bool,
 }
@@ -73,7 +75,8 @@ pub fn run() {
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
             let browser_tab = browser::SharedTab::default();
             let allowances = blocking::Allowances::default();
-            let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone());
+            let strict_waits = blocking::Waits::default();
+            let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone(), strict_waits.clone());
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
@@ -87,6 +90,7 @@ pub fn run() {
                 browser_tab,
                 browser_listening,
                 allowances,
+                strict_waits,
             });
             setup_tray(app, paused, nudges_on)?;
             updater::spawn(app.handle().clone());
@@ -210,6 +214,14 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
                 let state = app.state::<AppState>();
                 let Ok(conn) = state.db.lock() else { return };
                 let now = chrono::Utc::now().timestamp_millis();
+                // The tray can't show strict mode's countdown, and starting anew would end the
+                // running session, so both go through Kairo's own window instead.
+                if blocking::strict_now(&conn).unwrap_or(false) {
+                    drop(conn);
+                    blocking::notify(app, "Strict mode is on", "End the focus session from Kairo's Focus page, after a short wait.");
+                    show_main(app);
+                    return;
+                }
                 let result = match id.trim_start_matches("focus:") {
                     "stop" => focus::stop(&conn, now),
                     minutes => minutes.parse().map_or(Ok(()), |m| focus::start(&conn, m, None, now).map(|_| ())),

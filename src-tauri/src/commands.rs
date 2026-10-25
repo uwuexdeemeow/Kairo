@@ -85,8 +85,11 @@ pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {
 pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
-    let rows = analysis::load_rows(&conn, now - days as i64 * DAY_MS, now).map_err(err)?;
-    Ok(analysis::patterns(&rows))
+    let from = now - days as i64 * DAY_MS;
+    let rows = analysis::load_rows(&conn, from, now).map_err(err)?;
+    let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
+    let focused_ms = blocks.iter().map(focus::Block::ms).sum();
+    Ok(analysis::patterns(&rows).with_focus(blocks.len(), focused_ms, focus::insights(&blocks, now)))
 }
 
 #[derive(Serialize)]
@@ -182,14 +185,24 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>) 
         return Err(format!("a focus session runs 1 to {} minutes, not {minutes}", focus::MAX_MINUTES));
     }
     let conn = state.db.lock().map_err(err)?;
+    // Starting anew ends the running session, which strict mode only allows after its wait.
+    if blocking::strict_now(&conn).map_err(err)? {
+        return Err("Strict mode is on: end the current session first.".into());
+    }
     focus::start(&conn, minutes, label.as_deref(), now_ms()).map_err(err)
 }
 
 /// Ends, pauses, resumes or extends the running session, then returns it as it now stands.
 #[tauri::command]
-pub fn control_focus(state: State<AppState>, action: String, minutes: Option<u32>) -> CmdResult<Option<focus::Active>> {
+pub fn control_focus(state: State<AppState>, action: String, minutes: Option<u32>) -> CmdResult<FocusControl> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
+    // Strict mode makes ending early wait; the caller shows the countdown and asks again.
+    if action == "stop" {
+        if let Err(ready) = blocking::strict_gate(&conn, &state.strict_waits, "stop", now).map_err(err)? {
+            return Ok(FocusControl { session: focus::active(&conn).map_err(err)?, wait_until: Some(ready) });
+        }
+    }
     match action.as_str() {
         "stop" => focus::stop(&conn, now),
         "pause" => focus::pause(&conn, now),
@@ -198,7 +211,16 @@ pub fn control_focus(state: State<AppState>, action: String, minutes: Option<u32
         other => return Err(format!("unknown focus action: {other}")),
     }
     .map_err(err)?;
-    focus::active(&conn).map_err(err)
+    Ok(FocusControl { session: focus::active(&conn).map_err(err)?, wait_until: None })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusControl {
+    /// The session as it now stands; None once it has ended.
+    session: Option<focus::Active>,
+    /// Set when strict mode held the action back: ask again at this time to confirm it.
+    wait_until: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -471,9 +493,16 @@ pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
 
 /// "Allow 5 minutes" from the blocked window.
 #[tauri::command]
-pub fn allow_blocked(app: AppHandle, state: State<AppState>, key: String) {
-    blocking::allow(&state.allowances, &key, now_ms());
+pub fn allow_blocked(app: AppHandle, state: State<AppState>, key: String) -> CmdResult<Option<i64>> {
+    let conn = state.db.lock().map_err(err)?;
+    let now = now_ms();
+    // In strict mode this waits first; the window counts down and asks again.
+    if let Err(ready) = blocking::strict_gate(&conn, &state.strict_waits, &format!("allow:{key}"), now).map_err(err)? {
+        return Ok(Some(ready));
+    }
+    blocking::allow(&state.allowances, &key, now);
     blocking::close_window(&app);
+    Ok(None)
 }
 
 #[tauri::command]
@@ -491,6 +520,10 @@ pub fn get_focus_blocking(state: State<AppState>) -> CmdResult<blocking::Setting
 #[tauri::command]
 pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
+    // Otherwise switching blocking off would be the easy way around strict mode.
+    if blocking::strict_now(&conn).map_err(err)? {
+        return Err("Strict mode is on, so these stay as they are until the focus session ends.".into());
+    }
     match blocking::set_setting(&conn, &which, on).map_err(err)? {
         true => Ok(()),
         false => Err(format!("unknown blocking setting: {which}")),

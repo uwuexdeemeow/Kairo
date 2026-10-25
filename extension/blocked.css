@@ -73,6 +73,10 @@ button:hover {
   background: var(--raised);
 }
 
+button:disabled {
+  opacity: 0.5;
+}
+
 button.primary {
   border-color: var(--productive);
   background: var(--productive);

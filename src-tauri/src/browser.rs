@@ -10,7 +10,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Response, Server};
 
-use crate::blocking::{self, Allowances};
+use crate::blocking::{self, Allowances, Waits};
 use crate::db;
 
 /// Fixed so the extension knows where to find Kairo; only this computer can reach it.
@@ -134,7 +134,7 @@ fn from_extension(origin: Option<&str>) -> bool {
 }
 
 /// Starts the listener; false when the port is taken, e.g. by another program.
-pub fn spawn(shared: SharedTab, db_path: PathBuf, allowances: Allowances) -> bool {
+pub fn spawn(shared: SharedTab, db_path: PathBuf, allowances: Allowances, waits: Waits) -> bool {
     let server = match Server::http(ADDR) {
         Ok(server) => server,
         Err(e) => {
@@ -145,7 +145,7 @@ pub fn spawn(shared: SharedTab, db_path: PathBuf, allowances: Allowances) -> boo
     thread::Builder::new()
         .name("kairo-browser".into())
         .spawn(move || match db::open(&db_path) {
-            Ok(conn) => serve(&server, &shared, &conn, &allowances),
+            Ok(conn) => serve(&server, &shared, &conn, &allowances, &waits),
             Err(e) => eprintln!("browser: cannot open database: {e}"),
         })
         .expect("failed to start browser listener");
@@ -172,7 +172,14 @@ fn read_json<T: serde::de::DeserializeOwned>(request: &mut tiny_http::Request) -
     serde_json::from_str(&body).ok()
 }
 
-fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Allowances) {
+/// Strict mode's answer to "Allow 5 minutes": ask again at this time.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Wait {
+    ready_at: i64,
+}
+
+fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Allowances, waits: &Waits) {
     for mut request in server.incoming_requests() {
         let origin = request.headers().iter().find(|h| h.field.equiv("Origin")).map(|h| h.value.as_str().to_string());
         let now = chrono::Utc::now().timestamp_millis();
@@ -195,11 +202,22 @@ fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Al
                 }
                 None => (400, None),
             },
-            // "Allow 5 minutes" on the extension's blocked page.
+            // "Allow 5 minutes" on the extension's blocked page; strict mode answers 423 with
+            // when to ask again.
             "/allow" if post => match read_json::<Allow>(&mut request).and_then(|a| site_for_host(&a.site)) {
                 Some(site) => {
-                    blocking::allow(allowances, &format!("site:{site}"), now);
-                    (204, None)
+                    let key = format!("site:{site}");
+                    match blocking::strict_gate(conn, waits, &format!("allow:{key}"), now) {
+                        Ok(Ok(())) => {
+                            blocking::allow(allowances, &key, now);
+                            (204, None)
+                        }
+                        Ok(Err(ready_at)) => (423, serde_json::to_string(&Wait { ready_at }).ok()),
+                        Err(e) => {
+                            eprintln!("browser: cannot check strict mode: {e}");
+                            (500, None)
+                        }
+                    }
                 }
                 None => (400, None),
             },
@@ -271,7 +289,7 @@ mod tests {
         let shared = SharedTab::default();
         let allowances = Allowances::default();
         let (s, t, a, p) = (server.clone(), shared.clone(), allowances.clone(), path.clone());
-        thread::spawn(move || serve(&s, &t, &db::open(&p).unwrap(), &a));
+        thread::spawn(move || serve(&s, &t, &db::open(&p).unwrap(), &a, &Waits::default()));
 
         let ext = Some("chrome-extension://kairo");
         let youtube = r#"{"host":"www.youtube.com","incognito":false}"#;
@@ -290,6 +308,12 @@ mod tests {
         assert!(body.starts_with(r#"{"block":true,"site":"youtube","untilMs":"#), "{body}");
         assert_eq!(post(addr, "/allow", ext, r#"{"site":"www.youtube.com"}"#).0, 204);
         assert!(post(addr, "/tab", ext, youtube).1.starts_with(r#"{"block":false"#));
+
+        // In strict mode, allowing waits first and the listener says when to ask again.
+        blocking::set_setting(&conn, "strict", true).unwrap();
+        let (code, body) = post(addr, "/allow", ext, r#"{"site":"reddit.com"}"#);
+        assert_eq!(code, 423);
+        assert!(body.starts_with(r#"{"readyAt":"#), "{body}");
 
         assert_eq!(post(addr, "/tab", ext, r#"{"host":null}"#).0, 200);
         assert_eq!(shared.lock().unwrap().as_ref().unwrap().site, None);

@@ -23,6 +23,10 @@ const TICK: Duration = Duration::from_millis(500);
 const LAUNCHER_EVERY_TICKS: u64 = 4;
 const ENABLED_KEY: &str = "focus_block_enabled";
 const LAUNCHERS_KEY: &str = "focus_block_launchers";
+const STRICT_KEY: &str = "focus_strict";
+pub const STRICT_WAIT_MS: i64 = 30_000;
+/// How long a finished wait stays good for its confirming click.
+const STRICT_CONFIRM_MS: i64 = 2 * 60_000;
 pub const ALLOW_MINUTES: i64 = 5;
 const MIN_MS: i64 = 60_000;
 pub const WINDOW_LABEL: &str = "blocked";
@@ -68,25 +72,66 @@ impl Rule {
 pub struct Settings {
     pub enabled: bool,
     pub launchers: bool,
+    /// Ending a session early or allowing something blocked takes a wait first.
+    pub strict: bool,
 }
 
-fn flag(conn: &Connection, key: &str) -> Result<bool> {
-    Ok(db::get_setting(conn, key)?.as_deref() != Some("0"))
+/// On unless turned off; strict mode is the one setting that starts off.
+fn flag(conn: &Connection, key: &str, default: bool) -> Result<bool> {
+    Ok(match db::get_setting(conn, key)?.as_deref() {
+        Some("1") => true,
+        Some("0") => false,
+        _ => default,
+    })
 }
 
 pub fn settings(conn: &Connection) -> Result<Settings> {
-    Ok(Settings { enabled: flag(conn, ENABLED_KEY)?, launchers: flag(conn, LAUNCHERS_KEY)? })
+    Ok(Settings {
+        enabled: flag(conn, ENABLED_KEY, true)?,
+        launchers: flag(conn, LAUNCHERS_KEY, true)?,
+        strict: flag(conn, STRICT_KEY, false)?,
+    })
 }
 
-/// `which` is "enabled" (blocking as a whole) or "launchers".
+/// `which` is "enabled" (blocking as a whole), "launchers" or "strict". False for anything else.
 pub fn set_setting(conn: &Connection, which: &str, on: bool) -> Result<bool> {
     let key = match which {
         "enabled" => ENABLED_KEY,
         "launchers" => LAUNCHERS_KEY,
+        "strict" => STRICT_KEY,
         _ => return Ok(false),
     };
     db::set_setting(conn, key, if on { "1" } else { "0" })?;
     Ok(true)
+}
+
+/// Strict mode only bites while a session is on, paused or not.
+pub fn strict_now(conn: &Connection) -> Result<bool> {
+    Ok(settings(conn)?.strict && focus::active(conn)?.is_some())
+}
+
+/// Strict mode's pending requests: action to when it was first asked for.
+pub type Waits = Arc<Mutex<HashMap<String, i64>>>;
+
+/// Whether an action may go ahead. In strict mode during a session, the first request starts a
+/// wait and is turned down with the time it's ready; asking again once ready lets it through.
+/// A request left unconfirmed for long lapses, so a later one starts a fresh wait.
+pub fn strict_gate(conn: &Connection, waits: &Waits, action: &str, now: i64) -> Result<std::result::Result<(), i64>> {
+    if !strict_now(conn)? {
+        return Ok(Ok(()));
+    }
+    let mut waits = waits.lock().unwrap_or_else(|e| e.into_inner());
+    match waits.get(action).copied() {
+        Some(asked) if now < asked + STRICT_WAIT_MS => Ok(Err(asked + STRICT_WAIT_MS)),
+        Some(asked) if now <= asked + STRICT_WAIT_MS + STRICT_CONFIRM_MS => {
+            waits.remove(action);
+            Ok(Ok(()))
+        }
+        _ => {
+            waits.insert(action.to_string(), now);
+            Ok(Err(now + STRICT_WAIT_MS))
+        }
+    }
 }
 
 pub fn rules(conn: &Connection) -> Result<HashMap<String, Rule>> {
@@ -190,7 +235,7 @@ pub fn close_window(app: &AppHandle) {
     }
 }
 
-fn notify(app: &AppHandle, title: &str, body: &str) {
+pub fn notify(app: &AppHandle, title: &str, body: &str) {
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         eprintln!("blocking: cannot notify: {e}");
     }
@@ -294,6 +339,29 @@ mod tests {
         assert!(decide(&r, &cats, None, Some("github")));
         set_rule(&conn, "app:discord", Rule::Auto).unwrap();
         assert!(decide(&rules(&conn).unwrap(), &cats, Some("discord"), None));
+    }
+
+    #[test]
+    fn strict_mode_makes_ending_early_wait_then_confirm() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let waits = Waits::default();
+        let t = 1_000 * MIN_MS;
+        focus::start(&conn, 25, None, t).unwrap();
+        // Off by default: everything goes ahead at once.
+        assert_eq!(strict_gate(&conn, &waits, "stop", t).unwrap(), Ok(()));
+
+        set_setting(&conn, "strict", true).unwrap();
+        assert_eq!(strict_gate(&conn, &waits, "stop", t).unwrap(), Err(t + STRICT_WAIT_MS));
+        // Asking again too soon keeps the same deadline rather than restarting it.
+        assert_eq!(strict_gate(&conn, &waits, "stop", t + 10_000).unwrap(), Err(t + STRICT_WAIT_MS));
+        assert_eq!(strict_gate(&conn, &waits, "stop", t + STRICT_WAIT_MS).unwrap(), Ok(()));
+        // Each action waits on its own, and an unconfirmed wait lapses.
+        assert!(strict_gate(&conn, &waits, "allow:app:discord", t).unwrap().is_err());
+        let late = t + STRICT_WAIT_MS + STRICT_CONFIRM_MS + 1;
+        assert_eq!(strict_gate(&conn, &waits, "allow:app:discord", late).unwrap(), Err(late + STRICT_WAIT_MS));
+        // With no session on, strict mode has nothing to guard.
+        focus::stop(&conn, t + 20 * MIN_MS).unwrap();
+        assert_eq!(strict_gate(&conn, &waits, "stop", t + 21 * MIN_MS).unwrap(), Ok(()));
     }
 
     #[test]

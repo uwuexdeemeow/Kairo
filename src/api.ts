@@ -59,9 +59,26 @@ export interface Insight {
 
 export interface Patterns {
   daysWithData: number;
+  /** Averages per day with meaningful activity. */
+  summary: {
+    avgActiveMs: number;
+    avgProductiveMs: number;
+    avgDistractingMs: number;
+    focusSessions: number;
+    avgFocusMs: number;
+  };
   hourly: HourStat[];
   heatmap: Cell[][];
+  topApps: Usage[];
+  topSites: Usage[];
   insights: Insight[];
+}
+
+export interface FocusControl {
+  /** The session as it now stands; null once it has ended. */
+  session: FocusSession | null;
+  /** Set when strict mode held "end early" back: ask again from this time to confirm. */
+  waitUntil: number | null;
 }
 
 export interface Status {
@@ -192,10 +209,11 @@ export const api = {
   focus: () => invoke<FocusSession | null>("get_focus"),
   startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
   /** Returns the session as it stands afterwards; null once it has ended. */
-  controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusSession | null>("control_focus", { action, minutes }),
+  controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusControl>("control_focus", { action, minutes }),
   focusOverview: () => invoke<FocusOverview>("get_focus_overview"),
-  focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean }>("get_focus_blocking"),
-  setFocusBlocking: (which: "enabled" | "launchers", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),
+  focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean; strict: boolean }>("get_focus_blocking"),
+  /** Refused while strict mode guards a running session. */
+  setFocusBlocking: (which: "enabled" | "launchers" | "strict", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),
   setFocusRule: (key: string, rule: FocusRule) => invoke<void>("set_focus_rule", { key, rule }),
   /** Focus sessions on one local day (`YYYY-MM-DD`; default today). */
   focusBlocks: (date?: string) => invoke<FocusBlock[]>("get_focus_blocks", { date }),

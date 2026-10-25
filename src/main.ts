@@ -553,6 +553,15 @@ let lastPatterns: Patterns | null = null;
 function renderPatterns(p: Patterns) {
   lastPatterns = p;
   $("#patterns-days").textContent = `Last ${rangeDays} days · ${p.daysWithData} active`;
+  const s = p.summary;
+  $("#patterns-stats").replaceChildren(
+    stat("On screen, per day", fmtGoal(s.avgActiveMs)),
+    stat("Productive", `${pct(s.avgProductiveMs, s.avgActiveMs)}%`, fmtGoal(s.avgProductiveMs)),
+    stat("Distracted, per day", fmtGoal(s.avgDistractingMs)),
+    stat("Focus sessions", String(s.focusSessions), s.focusSessions ? `${fmtGoal(s.avgFocusMs)}/day` : ""),
+  );
+  renderUsage($("#patterns-apps"), p.topApps, "No app activity in this range.");
+  renderUsage($("#patterns-sites"), p.topSites, "No recognised sites in this range.");
   $("#insights").replaceChildren(
     ...p.insights.map((i) =>
       h(
@@ -988,12 +997,54 @@ function focusChanged(s: FocusSession | null) {
 }
 
 const startFocus = async (minutes: number, label?: string) => focusChanged(await api.startFocus(minutes, label));
-const controlFocus = async (action: FocusAction, minutes?: number) => focusChanged(await api.controlFocus(action, minutes));
+const controlFocus = async (action: FocusAction, minutes?: number) => focusChanged((await api.controlFocus(action, minutes)).session);
+
+/// How long a finished strict-mode wait stays good for its confirming click (matches Kairo's).
+const STRICT_CONFIRM_MS = 2 * 60_000;
+
+/// Strict mode answers "end early" with a time to come back. The button counts down to it, then
+/// asks for the confirming click, then goes back to normal if that never comes.
+function holdButton(btn: HTMLButtonElement, readyAt: number) {
+  const label = btn.dataset.label ?? btn.textContent ?? "";
+  btn.dataset.label = label;
+  window.clearInterval(Number(btn.dataset.timer));
+  const tick = () => {
+    const left = readyAt - Date.now();
+    if (left > 0) {
+      btn.disabled = true;
+      btn.textContent = `Strict mode: wait ${Math.ceil(left / 1000)}s`;
+    } else if (left > -STRICT_CONFIRM_MS) {
+      btn.disabled = false;
+      btn.textContent = `Confirm: ${label.toLowerCase()}`;
+    } else {
+      releaseButton(btn);
+    }
+  };
+  btn.dataset.timer = String(window.setInterval(tick, 500));
+  tick();
+}
+
+function releaseButton(btn: HTMLButtonElement) {
+  window.clearInterval(Number(btn.dataset.timer));
+  if (btn.dataset.label !== undefined) btn.textContent = btn.dataset.label;
+  delete btn.dataset.label;
+  btn.disabled = false;
+}
+
+async function endEarly(btn: HTMLButtonElement) {
+  const result = await api.controlFocus("stop");
+  if (result.waitUntil) {
+    holdButton(btn, result.waitUntil);
+    return;
+  }
+  releaseButton(btn);
+  focusChanged(result.session);
+}
 
 for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
   btn.addEventListener("click", () => startFocus(Number(btn.dataset.focus)));
 }
-$("#focus-stop").addEventListener("click", () => controlFocus("stop"));
+$<HTMLButtonElement>("#focus-stop").addEventListener("click", (e) => endEarly(e.currentTarget as HTMLButtonElement));
 $("#focus-left").addEventListener("click", () => $<HTMLButtonElement>('[data-view="focus"]').click());
 
 // ---------- focus page ----------
@@ -1114,7 +1165,7 @@ $<HTMLInputElement>("#timer-label").addEventListener("keydown", (e) => {
 });
 $("#timer-pause").addEventListener("click", () => controlFocus(runningFocus()?.pausedAt != null ? "resume" : "pause"));
 $("#timer-extend").addEventListener("click", () => controlFocus("extend", TIMER_STEP_MIN));
-$("#timer-stop").addEventListener("click", () => controlFocus("stop"));
+$<HTMLButtonElement>("#timer-stop").addEventListener("click", (e) => endEarly(e.currentTarget as HTMLButtonElement));
 
 function paintStatus() {
   paintFocus();
@@ -1171,6 +1222,7 @@ async function load(v: View = view) {
       await refreshExtension();
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
+      $<HTMLInputElement>("#block-strict").checked = blocking.strict;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1307,8 +1359,18 @@ $("#ext-open").addEventListener("click", async () => {
 
 $("#category-filter").addEventListener("input", paintCategories);
 
-for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"]] as const) {
-  $<HTMLInputElement>(id).addEventListener("change", (e) => api.setFocusBlocking(which, (e.target as HTMLInputElement).checked));
+for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
+  $<HTMLInputElement>(id).addEventListener("change", async (e) => {
+    const box = e.target as HTMLInputElement;
+    try {
+      await api.setFocusBlocking(which, box.checked);
+      $("#block-note").textContent = "";
+    } catch (err) {
+      // Strict mode keeps these as they are mid-session.
+      box.checked = !box.checked;
+      $("#block-note").textContent = String(err);
+    }
+  });
 }
 
 /// Welcome links open another view and bring the relevant control into sight.
