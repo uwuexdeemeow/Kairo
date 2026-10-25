@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DaySummary, type Patterns, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DaySummary, type DeleteRange, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -342,12 +342,175 @@ function renderCategories(entries: CategoryEntry[]) {
       await api.setCategory(e.key, c);
       dot.className = `dot ${c}`;
     });
-    return h("tr", {}, h("td", {}, dot, e.label), h("td", { class: "kind" }, e.kind), h("td", { class: "num" }, fmtDur(e.ms)), h("td", {}, select));
+
+    const recording = h("select", { "aria-label": `What Kairo records for ${e.label}` }) as HTMLSelectElement;
+    for (const m of PRIVACY_MODES) {
+      const opt = h("option", { value: m }, RECORDING[m]) as HTMLOptionElement;
+      opt.selected = m === e.privacy;
+      recording.append(opt);
+    }
+    recording.addEventListener("change", async () => {
+      const m = recording.value as PrivacyMode;
+      await api.setPrivacyRule(e.key, m);
+      showPrivacyNotice(e, m);
+    });
+    return h("tr", {}, h("td", {}, dot, e.label), h("td", { class: "kind" }, e.kind), h("td", { class: "num" }, fmtDur(e.ms)), h("td", {}, select), h("td", {}, recording));
   });
   root.replaceChildren(
-    h("table", { class: "table" }, h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"))), h("tbody", {}, ...rows)),
+    h(
+      "table",
+      { class: "table" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"), h("th", {}, "Recording"))),
+      h("tbody", {}, ...rows),
+    ),
   );
 }
+
+// ---------- privacy ----------
+
+const PRIVACY_MODES: PrivacyMode[] = ["track", "hide_title", "ignore"];
+const RECORDING: Record<PrivacyMode, string> = { track: "Record", hide_title: "Hide titles", ignore: "Don't record" };
+const RETENTION_LABELS: Record<string, string> = { "0": "forever", "365": "1 year", "90": "90 days", "30": "30 days" };
+const ARMED_FOR_MS = 5000;
+
+/// Destructive buttons take a second click within a few seconds instead of a confirm dialog.
+function confirmTwice(btn: HTMLButtonElement, armedText: () => string, action: () => Promise<void>) {
+  let resting = "";
+  let timer = 0;
+  const disarm = () => {
+    if (!btn.classList.contains("armed")) return;
+    clearTimeout(timer);
+    btn.classList.remove("armed");
+    btn.textContent = resting;
+  };
+  btn.addEventListener("click", async () => {
+    if (!btn.classList.contains("armed")) {
+      resting = btn.textContent ?? "";
+      btn.classList.add("armed");
+      btn.textContent = armedText();
+      timer = window.setTimeout(disarm, ARMED_FOR_MS);
+      return;
+    }
+    disarm();
+    await action();
+  });
+  return disarm;
+}
+
+let noticeKey = "";
+
+function showPrivacyNotice(e: CategoryEntry, mode: PrivacyMode) {
+  const box = $("#privacy-notice");
+  const btn = $<HTMLButtonElement>("#privacy-notice-apply");
+  disarmNotice();
+  noticeKey = e.key;
+  box.hidden = mode === "track";
+  btn.hidden = false;
+  if (mode === "hide_title") {
+    $("#privacy-notice-text").textContent = `Kairo won't save window titles from ${e.label} from now on.`;
+    btn.textContent = "Also clear titles already saved";
+  } else if (mode === "ignore") {
+    $("#privacy-notice-text").textContent = `Kairo won't record ${e.label} from now on.`;
+    btn.textContent = "Also delete what's already recorded";
+  }
+}
+
+const disarmNotice = confirmTwice(
+  $<HTMLButtonElement>("#privacy-notice-apply"),
+  () => "Click again to confirm",
+  async () => {
+    const text = $("#privacy-notice-text");
+    try {
+      const n = await api.applyPrivacyToPast(noticeKey);
+      text.textContent = n ? `Done. ${n} recorded ${n === 1 ? "session" : "sessions"} changed.` : "Nothing already recorded needed changing.";
+      $("#privacy-notice-apply").hidden = true;
+      renderCategories(await api.categories());
+    } catch (err) {
+      text.textContent = `Couldn't change past data: ${err}`;
+    }
+  },
+);
+
+let savedRetention = "0";
+
+function renderRetention(days: number) {
+  savedRetention = String(days);
+  $<HTMLSelectElement>("#retention").value = savedRetention;
+  $("#retention-apply").hidden = true;
+}
+
+/// Keeping history for less time deletes the overflow, so that waits for a confirmed click.
+$<HTMLSelectElement>("#retention").addEventListener("change", async (e) => {
+  const value = (e.target as HTMLSelectElement).value;
+  const shorter = value !== "0" && (savedRetention === "0" || Number(value) < Number(savedRetention));
+  const apply = $<HTMLButtonElement>("#retention-apply");
+  $("#retention-status").textContent = "";
+  disarmRetention();
+  if (shorter) {
+    apply.textContent = `Save and delete history older than ${RETENTION_LABELS[value]}`;
+    apply.hidden = false;
+    return;
+  }
+  await saveRetention(Number(value));
+});
+
+async function saveRetention(days: number) {
+  const out = $("#retention-status");
+  try {
+    const n = await api.setRetention(days);
+    renderRetention(days);
+    out.textContent = n ? `Saved. Older history deleted.` : "Saved.";
+  } catch (err) {
+    out.textContent = `Couldn't save: ${err}`;
+  }
+}
+
+const disarmRetention = confirmTwice(
+  $<HTMLButtonElement>("#retention-apply"),
+  () => "Click again to delete older history",
+  () => saveRetention(Number($<HTMLSelectElement>("#retention").value)),
+);
+
+function deleteTarget(): { range: DeleteRange; date?: string; what: string } | null {
+  const choice = $<HTMLSelectElement>("#delete-range").value;
+  if (choice === "hour") return { range: "hour", what: "the last hour" };
+  if (choice === "today") return { range: "day", what: "today" };
+  if (choice === "all") return { range: "all", what: "all history" };
+  const date = $<HTMLInputElement>("#delete-date").value;
+  if (!date) return null;
+  return { range: "day", date, what: parseDate(date).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) };
+}
+
+$<HTMLSelectElement>("#delete-range").addEventListener("change", (e) => {
+  const picker = $<HTMLInputElement>("#delete-date");
+  picker.hidden = (e.target as HTMLSelectElement).value !== "day";
+  picker.max = todayIso();
+  if (!picker.value) picker.value = shiftDate(todayIso(), -1);
+  disarmDelete();
+  $("#delete-status").textContent = "";
+});
+
+const disarmDelete = confirmTwice(
+  $<HTMLButtonElement>("#delete-run"),
+  () => `Click again to delete ${deleteTarget()?.what ?? "it"}`,
+  async () => {
+    const out = $("#delete-status");
+    const target = deleteTarget();
+    if (!target) {
+      out.textContent = "Pick a day first.";
+      return;
+    }
+    try {
+      const n = await api.deleteHistory(target.range, target.date);
+      out.textContent = n ? `Deleted ${target.what}.` : `Nothing was recorded for ${target.what}.`;
+      if (selectedDay && (target.range === "all" || target.date === selectedDay)) selectedDay = null;
+      renderCategories(await api.categories());
+      refreshStatus();
+    } catch (err) {
+      out.textContent = `Couldn't delete: ${err}`;
+    }
+  },
+);
 
 // ---------- status ----------
 
@@ -388,6 +551,7 @@ async function load(v: View = view) {
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") {
       renderCategories(await api.categories());
+      renderRetention(await api.retention());
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
       const auto = await api.autostart();
       const box = $<HTMLInputElement>("#autostart-enabled");

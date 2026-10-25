@@ -6,7 +6,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, Category, DaySummary, Patterns};
-use crate::{db, demo, nudge, startup, AppState, AutostartToggle, NudgeToggle};
+use crate::privacy::{self, Mode};
+use crate::{classify, db, demo, nudge, startup, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -67,14 +68,17 @@ pub struct CategoryEntry {
     label: String,
     kind: &'static str,
     category: Category,
+    privacy: Mode,
     ms: i64,
 }
 
-/// Every app and site seen in the last 30 days, with its current category.
+/// Every app and site seen in the last 30 days, with its current category and recording rule,
+/// plus anything the user stopped recording, so it can be turned back on.
 #[tauri::command]
 pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
     let conn = state.db.lock().map_err(err)?;
     let cats = analysis::category_map(&conn).map_err(err)?;
+    let rules = privacy::load(&conn).map_err(err)?;
     let since = now_ms() - 30 * DAY_MS;
 
     let mut out = Vec::new();
@@ -87,7 +91,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
             let (id, label, ms) = row?;
             let key = format!("{kind}:{id}");
             let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
-            out.push(CategoryEntry { key, label, kind, category, ms });
+            let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
+            out.push(CategoryEntry { key, label, kind, category, privacy, ms });
         }
         Ok(())
     };
@@ -104,8 +109,89 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
     )
     .map_err(err)?;
 
+    let mut user_rules = conn.prepare("SELECT key FROM privacy_rules WHERE user_set = 1 AND mode != 'track'").map_err(err)?;
+    let keys: Vec<String> = user_rules.query_map([], |r| r.get(0)).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
+    for key in keys {
+        if out.iter().any(|e| e.key == key) {
+            continue;
+        }
+        let (kind, label) = match key.split_once(':') {
+            Some(("app", exe)) => ("app", classify::display_name(exe, "")),
+            Some(("site", site)) => ("site", site.to_string()),
+            _ => continue,
+        };
+        let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
+        let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
+        out.push(CategoryEntry { key, label, kind, category, privacy, ms: 0 });
+    }
+
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
     Ok(out)
+}
+
+fn parse_mode(mode: &str) -> CmdResult<Mode> {
+    Mode::parse(mode).ok_or_else(|| format!("unknown recording mode: {mode}"))
+}
+
+/// Takes effect on the collector's next tick.
+#[tauri::command]
+pub fn set_privacy_rule(state: State<AppState>, key: String, mode: String) -> CmdResult<()> {
+    let mode = parse_mode(&mode)?;
+    let conn = state.db.lock().map_err(err)?;
+    privacy::set_rule(&conn, &key, mode).map_err(err)?;
+    privacy::refresh(&conn, &state.privacy_rules).map_err(err)
+}
+
+/// Applies the current rule for `key` to history already recorded; returns sessions changed.
+#[tauri::command]
+pub fn apply_privacy_to_past(state: State<AppState>, key: String) -> CmdResult<usize> {
+    let conn = state.db.lock().map_err(err)?;
+    let mode = privacy::load(&conn).map_err(err)?.get(&key).copied().unwrap_or(Mode::Track);
+    let changed = privacy::apply_to_past(&conn, &key, mode).map_err(err)?;
+    nudge::invalidate(&state.window_cache);
+    Ok(changed)
+}
+
+/// Days of history kept; 0 means forever.
+#[tauri::command]
+pub fn get_retention(state: State<AppState>) -> CmdResult<u32> {
+    let conn = state.db.lock().map_err(err)?;
+    privacy::retention_days(&conn).map_err(err)
+}
+
+/// Saves the setting and clears anything already past it; returns sessions changed.
+#[tauri::command]
+pub fn set_retention(state: State<AppState>, days: u32) -> CmdResult<usize> {
+    let conn = state.db.lock().map_err(err)?;
+    privacy::set_retention_days(&conn, days).map_err(err)?;
+    let changed = privacy::prune(&conn, now_ms()).map_err(err)?;
+    nudge::invalidate(&state.window_cache);
+    Ok(changed)
+}
+
+/// `range` is "hour" (the last 60 minutes), "day" (`date`, default today) or "all".
+#[tauri::command]
+pub fn delete_history(state: State<AppState>, range: String, date: Option<String>) -> CmdResult<usize> {
+    let conn = state.db.lock().map_err(err)?;
+    let changed = match range.as_str() {
+        "hour" => {
+            let now = now_ms();
+            privacy::delete_between(&conn, now - 60 * 60 * 1000, i64::MAX)
+        }
+        "day" => {
+            let date = match date {
+                Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(err)?,
+                None => Local::now().date_naive(),
+            };
+            let (from, to) = day_bounds(date).ok_or("that date has no local midnight")?;
+            privacy::delete_between(&conn, from, to)
+        }
+        "all" => privacy::delete_all(&conn),
+        other => return Err(format!("unknown range: {other}")),
+    }
+    .map_err(err)?;
+    nudge::invalidate(&state.window_cache);
+    Ok(changed)
 }
 
 #[tauri::command]

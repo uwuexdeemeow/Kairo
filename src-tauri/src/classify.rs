@@ -201,6 +201,12 @@ fn is_browser_suffix(part: &str) -> bool {
         || ["brave", "opera", "vivaldi", "arc"].contains(&part)
 }
 
+/// Incognito, InPrivate and private browsing windows, as far as their titles give them away.
+pub fn is_private_window(title: &str) -> bool {
+    let title = title.to_lowercase();
+    ["incognito", "inprivate", "private browsing", "private window"].iter().any(|m| title.contains(m))
+}
+
 pub fn is_passive(exe: &str, site: Option<&str>) -> bool {
     PASSIVE.contains(&exe) || site.is_some_and(|s| PASSIVE.contains(&s))
 }
@@ -234,6 +240,14 @@ mod tests {
         assert_eq!(game_name(r"C:\Program Files (x86)\Steam\steam.exe"), None);
         assert!(is_game("overwatch", r"C:\Program Files (x86)\Overwatch\_retail_\Overwatch.exe"));
         assert!(!is_game("cursor", r"C:\Users\me\AppData\Local\Programs\cursor\Cursor.exe"));
+    }
+
+    #[test]
+    fn private_browser_windows_are_recognised() {
+        assert!(is_private_window("New Tab - Google Chrome (Incognito)"));
+        assert!(is_private_window("[InPrivate] Bing - Microsoft Edge"));
+        assert!(is_private_window("Mozilla Firefox Private Browsing"));
+        assert!(!is_private_window("Privacy policy - Google Chrome"));
     }
 
     #[test]

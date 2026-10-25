@@ -101,6 +101,42 @@
           </section>
           <p class="muted lede">Changes apply to past and future data. A browser's own category only counts for sites Kairo can't recognise.</p>
           <div id="categories"></div>
+          <div class="row-buttons privacy-notice" id="privacy-notice" aria-live="polite" hidden>
+            <span id="privacy-notice-text"></span>
+            <button class="link-btn" id="privacy-notice-apply"></button>
+          </div>
+
+          <section class="block">
+            <h2>Privacy</h2>
+            <p class="muted">Everything stays on this computer. Private browser windows are recorded without titles or sites, and password managers aren't recorded at all. Choose what's recorded for each app or site in the table above.</p>
+            <div class="row-buttons">
+              <label class="field">
+                Keep history for
+                <select id="retention">
+                  <option value="0">Forever</option>
+                  <option value="365">1 year</option>
+                  <option value="90">90 days</option>
+                  <option value="30">30 days</option>
+                </select>
+              </label>
+              <button class="link-btn" id="retention-apply" hidden></button>
+              <span class="muted" id="retention-status"></span>
+            </div>
+            <div class="row-buttons">
+              <label class="field">
+                Delete
+                <select id="delete-range">
+                  <option value="hour">the last hour</option>
+                  <option value="today">today</option>
+                  <option value="day">a specific day</option>
+                  <option value="all">everything</option>
+                </select>
+              </label>
+              <input type="date" id="delete-date" aria-label="Day to delete" hidden />
+              <button class="link-btn" id="delete-run">Delete</button>
+              <span class="muted" id="delete-status" aria-live="polite"></span>
+            </div>
+          </section>
 
           <section class="block">
             <h2>Start with Windows</h2>

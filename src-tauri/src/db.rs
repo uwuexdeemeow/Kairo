@@ -3,6 +3,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, Result};
 
 use crate::classify::DEFAULT_CATEGORIES;
+use crate::privacy::DEFAULT_RULES as DEFAULT_PRIVACY_RULES;
 
 /// One row per uninterrupted stretch in the same window. Times are unix milliseconds.
 pub fn open(path: &Path) -> Result<Connection> {
@@ -11,6 +12,8 @@ pub fn open(path: &Path) -> Result<Connection> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    // Deleted history is overwritten on disk instead of lingering in free pages.
+    conn.pragma_update(None, "secure_delete", "ON")?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS sessions (
              id       INTEGER PRIMARY KEY,
@@ -32,14 +35,23 @@ pub fn open(path: &Path) -> Result<Connection> {
          CREATE TABLE IF NOT EXISTS settings (
              key   TEXT PRIMARY KEY,
              value TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS privacy_rules (
+             key      TEXT PRIMARY KEY,
+             mode     TEXT NOT NULL CHECK (mode IN ('track', 'hide_title', 'ignore')),
+             user_set INTEGER NOT NULL DEFAULT 0
          );",
     )?;
-    // INSERT OR IGNORE keeps any category the user has changed.
-    let mut stmt = conn.prepare("INSERT OR IGNORE INTO categories (key, category) VALUES (?1, ?2)")?;
-    for (key, category) in DEFAULT_CATEGORIES {
-        stmt.execute(params![key, category])?;
+    // INSERT OR IGNORE keeps any category or rule the user has changed.
+    for (sql, defaults) in [
+        ("INSERT OR IGNORE INTO categories (key, category) VALUES (?1, ?2)", DEFAULT_CATEGORIES),
+        ("INSERT OR IGNORE INTO privacy_rules (key, mode) VALUES (?1, ?2)", DEFAULT_PRIVACY_RULES),
+    ] {
+        let mut stmt = conn.prepare(sql)?;
+        for (key, value) in defaults {
+            stmt.execute(params![key, value])?;
+        }
     }
-    drop(stmt);
     Ok(conn)
 }
 
@@ -63,9 +75,9 @@ pub fn insert_session(conn: &Connection, s: &NewSession) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
-pub fn set_session_end(conn: &Connection, id: i64, end_ms: i64) -> Result<()> {
-    conn.execute("UPDATE sessions SET end_ms = ?1 WHERE id = ?2", params![end_ms, id])?;
-    Ok(())
+/// False when the session no longer exists, e.g. the user just deleted that stretch of history.
+pub fn set_session_end(conn: &Connection, id: i64, end_ms: i64) -> Result<bool> {
+    Ok(conn.execute("UPDATE sessions SET end_ms = ?1 WHERE id = ?2", params![end_ms, id])? > 0)
 }
 
 /// First sighting of a game: file it under distracting unless the user already chose, and relabel

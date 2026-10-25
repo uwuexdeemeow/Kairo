@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
+use crate::privacy::{self, Mode, Rules, SharedRules};
 use crate::{classify, db, platform};
 
 const TICK: Duration = Duration::from_secs(1);
@@ -19,6 +20,8 @@ const SLEEP_GAP_MS: i64 = 15_000;
 const IDLE_AFTER_MS: i64 = 2 * 60_000;
 /// Watching a video without touching the mouse is not being away.
 const PASSIVE_IDLE_AFTER_MS: i64 = 30 * 60_000;
+/// History older than the retention setting is cleared at launch and then hourly.
+const PRUNE_EVERY_MS: i64 = 60 * 60_000;
 
 #[derive(PartialEq)]
 struct Sample {
@@ -43,7 +46,7 @@ struct Open {
     flushed_ms: i64,
 }
 
-pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>) {
+pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules) {
     thread::Builder::new()
         .name("kairo-collector".into())
         .spawn(move || {
@@ -54,19 +57,24 @@ pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>) {
                     return;
                 }
             };
-            run(&conn, &paused);
+            run(&conn, &paused, &rules);
         })
         .expect("failed to start collector thread");
 }
 
-fn run(conn: &Connection, paused: &AtomicBool) {
+fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules) {
     let mut open: Option<Open> = None;
     let mut last_tick = now_ms();
     let mut adopted_games: HashSet<String> = HashSet::new();
+    let mut pruned_ms = i64::MIN;
 
     loop {
         thread::sleep(TICK);
         let now = now_ms();
+        if now.saturating_sub(pruned_ms) >= PRUNE_EVERY_MS {
+            log(privacy::prune(conn, now));
+            pruned_ms = now;
+        }
 
         if now - last_tick > SLEEP_GAP_MS || paused.load(Ordering::Relaxed) {
             close(conn, open.take(), last_tick.min(now));
@@ -76,12 +84,19 @@ fn run(conn: &Connection, paused: &AtomicBool) {
             continue;
         }
 
-        let (sample, since) = capture(now);
+        let captured = capture(now, &rules.read().unwrap_or_else(|e| e.into_inner()));
+        let Some((sample, since)) = captured else {
+            close(conn, open.take(), now);
+            continue;
+        };
         match open.as_mut() {
             Some(cur) if cur.sample == sample => {
                 if now - cur.flushed_ms >= FLUSH_MS {
-                    log(db::set_session_end(conn, cur.id, now));
-                    cur.flushed_ms = now;
+                    match db::set_session_end(conn, cur.id, now) {
+                        // Deleted from the UI; the next tick starts a fresh session.
+                        Ok(false) => open = None,
+                        result => log(result.map(|_| cur.flushed_ms = now)),
+                    }
                 }
             }
             _ => {
@@ -111,27 +126,37 @@ fn run(conn: &Connection, paused: &AtomicBool) {
 }
 
 /// What the user is doing right now, and when that started (earlier than now only for idle).
-fn capture(now: i64) -> (Sample, i64) {
+/// None while something the user excluded from recording is in front.
+fn capture(now: i64, rules: &Rules) -> Option<(Sample, i64)> {
     let Some(fg) = platform::foreground() else {
-        return (Sample::idle(), now);
+        return Some((Sample::idle(), now));
     };
     let exe = classify::exe_stem(&fg.exe_path);
     if exe == "lockapp" {
-        return (Sample::idle(), now);
+        return Some((Sample::idle(), now));
     }
 
-    let title = classify::clean_title(&fg.title);
-    let site = if classify::is_browser(&exe) { classify::site_from_title(&title) } else { None };
+    let mut title = classify::clean_title(&fg.title);
+    let private = classify::is_browser(&exe) && classify::is_private_window(&title);
+    let site = if classify::is_browser(&exe) && !private { classify::site_from_title(&title) } else { None };
+    let mode = privacy::resolve(rules, &exe, site.as_deref());
+    if mode == Mode::Ignore {
+        return None;
+    }
     let game = classify::is_game(&exe, &fg.exe_path);
     let idle_for = platform::idle_ms();
     // Controller input never reaches the idle timer, so games get the long threshold too.
     let threshold = if game || classify::is_passive(&exe, site.as_deref()) { PASSIVE_IDLE_AFTER_MS } else { IDLE_AFTER_MS };
     if idle_for >= threshold {
-        return (Sample::idle(), now - idle_for);
+        return Some((Sample::idle(), now - idle_for));
     }
 
+    // Named before the title goes, since some app names come from it.
     let app = classify::game_name(&fg.exe_path).unwrap_or_else(|| classify::display_name(&exe, &title));
-    (Sample { app, exe, title, site, idle: false, game }, now)
+    if private || mode == Mode::HideTitle {
+        title.clear();
+    }
+    Some((Sample { app, exe, title, site, idle: false, game }, now))
 }
 
 fn close(conn: &Connection, open: Option<Open>, end: i64) {
@@ -141,7 +166,7 @@ fn close(conn: &Connection, open: Option<Open>, end: i64) {
     }
 }
 
-fn log(result: rusqlite::Result<()>) {
+fn log<T>(result: rusqlite::Result<T>) {
     if let Err(e) = result {
         eprintln!("collector: write failed: {e}");
     }

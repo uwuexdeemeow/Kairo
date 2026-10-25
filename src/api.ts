@@ -74,13 +74,18 @@ export interface Autostart {
   enabled: boolean;
 }
 
+export type PrivacyMode = "track" | "hide_title" | "ignore";
+
 export interface CategoryEntry {
   key: string;
   label: string;
   kind: "app" | "site";
   category: Category;
+  privacy: PrivacyMode;
   ms: number;
 }
+
+export type DeleteRange = "hour" | "day" | "all";
 
 export const api = {
   /** `date` is a local `YYYY-MM-DD`; omit it for today. */
@@ -89,6 +94,12 @@ export const api = {
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
+  setPrivacyRule: (key: string, mode: PrivacyMode) => invoke<void>("set_privacy_rule", { key, mode }),
+  applyPrivacyToPast: (key: string) => invoke<number>("apply_privacy_to_past", { key }),
+  retention: () => invoke<number>("get_retention"),
+  setRetention: (days: number) => invoke<number>("set_retention", { days }),
+  /** For "day", `date` is a local `YYYY-MM-DD`; omit it for today. */
+  deleteHistory: (range: DeleteRange, date?: string) => invoke<number>("delete_history", { range, date }),
   status: () => invoke<Status>("get_status"),
   headsUp: () => invoke<HeadsUp | null>("get_heads_up"),
   dismissHeadsUp: () => invoke<void>("dismiss_heads_up"),

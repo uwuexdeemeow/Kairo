@@ -710,6 +710,34 @@ select {
   color: var(--productive);
 }
 
+.field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+
+input[type="date"] {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  padding: 4px 2px;
+  color-scheme: dark light;
+}
+
+.privacy-notice {
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+/* Destructive buttons ask twice; the armed state reads as a warning. */
+.link-btn.armed,
+.link-btn.armed:hover {
+  color: var(--distracting);
+}
+
 .toggle {
   display: flex;
   align-items: center;
