@@ -1,6 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
+import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -1299,6 +1300,9 @@ async function load(v: View = view) {
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
       $<HTMLSelectElement>("#appearance").value = appearance;
+      const palette = await api.paletteSettings();
+      showShortcut(palette.shortcut);
+      $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1434,6 +1438,85 @@ $("#ext-open").addEventListener("click", async () => {
 });
 
 $("#category-filter").addEventListener("input", paintCategories);
+
+// ---------- command palette ----------
+
+/// Kairo's palette asks Kairo to show a view, and for Today or Week a date, after putting
+/// itself away.
+listen<{ view: View; date: string | null }>("kairo:navigate", ({ payload }) => {
+  const { view: target, date } = payload;
+  if (target === "today") selectedDay = date && date < todayIso() ? date : null;
+  if (target === "week") selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
+  $<HTMLButtonElement>(`[data-view="${target}"]`).click();
+});
+
+let savedShortcut = "";
+
+function showShortcut(shortcut: string) {
+  savedShortcut = shortcut;
+  $("#palette-keys").replaceChildren(...shortcut.split("+").map((k) => h("kbd", {}, k)));
+}
+
+/// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
+/// own and keys it can't use give nothing.
+function shortcutKey(e: KeyboardEvent): string | null {
+  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
+  if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
+  if (/^F([1-9]|1[0-2])$/.test(e.code)) return e.code;
+  if (e.code === "Space") return "Space";
+  return null;
+}
+
+let recording = false;
+
+function stopRecording(note: string) {
+  recording = false;
+  document.removeEventListener("keydown", recordKeys, true);
+  $("#palette-keys").classList.remove("recording");
+  $("#palette-record").textContent = "Change";
+  showShortcut(savedShortcut);
+  $("#palette-note").textContent = note;
+}
+
+/// While recording, the next key press with a modifier becomes the shortcut.
+async function recordKeys(e: KeyboardEvent) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.key === "Escape") {
+    stopRecording("Kept as it was.");
+    return;
+  }
+  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
+  const key = shortcutKey(e);
+  $("#palette-keys").replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, k)));
+  if (!key) return;
+  if (!mods.length) {
+    $("#palette-note").textContent = "Hold Ctrl, Alt, Shift or the Windows key with it, so typing elsewhere doesn't set it off.";
+    return;
+  }
+  const shortcut = [...mods, key].join("+");
+  try {
+    await api.setPaletteShortcut(shortcut);
+    savedShortcut = shortcut;
+    stopRecording(`Saved. ${shortcut} opens the palette from anywhere.`);
+  } catch (err) {
+    stopRecording(String(err));
+  }
+}
+
+$("#palette-record").addEventListener("click", () => {
+  if (recording) {
+    stopRecording("Kept as it was.");
+    return;
+  }
+  recording = true;
+  $("#palette-keys").classList.add("recording");
+  $("#palette-record").textContent = "Cancel";
+  $("#palette-note").textContent = "Press the keys you want, or Esc to keep the current ones.";
+  document.addEventListener("keydown", recordKeys, true);
+});
+
+$<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
 
 $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
   const mode = (e.target as HTMLSelectElement).value as Appearance;

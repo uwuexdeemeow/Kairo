@@ -296,6 +296,20 @@
           </section>
 
           <section class="block">
+            <h2>Command palette</h2>
+            <div class="row-buttons">
+              <span>Open it with</span>
+              <span class="shortcut-keys" id="palette-keys" aria-live="polite"></span>
+              <button class="btn" id="palette-record">Change</button>
+            </div>
+            <p class="muted" id="palette-note" aria-live="polite">Works everywhere, even with Kairo's window closed. Press it again, or Esc, to put it away.</p>
+            <label class="toggle">
+              <input type="checkbox" id="palette-suggestions" />
+              Show suggestions when it opens (focus sessions, limits passed, recent apps)
+            </label>
+          </section>
+
+          <section class="block">
             <h2>Daily goals</h2>
             <p class="muted">Progress shows on Today, and Kairo lets you know when you reach a target or get close to a limit. Limits for single apps and sites are set in Categories.</p>
             <div class="row-buttons">

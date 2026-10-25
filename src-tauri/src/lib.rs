@@ -10,6 +10,7 @@ mod demo;
 mod focus;
 mod goals;
 mod nudge;
+mod palette;
 mod platform;
 mod privacy;
 mod recap;
@@ -23,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent, Wry};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub struct AppState {
     /// Connection used by UI commands; the collector thread has its own.
@@ -62,6 +64,17 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
+                // These place themselves each time they open.
+                .with_denylist(&[palette::LABEL, blocking::WINDOW_LABEL])
+                .build(),
+        )
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        palette::toggle(app);
+                    }
+                })
                 .build(),
         )
         .setup(|app| {
@@ -75,6 +88,7 @@ pub fn run() {
             }
             let nudges_on = nudge::enabled(&conn)?;
             let appearance_mode = appearance::get(&conn)?;
+            let palette_shortcut = palette::shortcut(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
@@ -101,6 +115,11 @@ pub fn run() {
             setup_tray(app, paused, nudges_on)?;
             // Before the window first shows, so it opens in the chosen colors.
             appearance::apply(app.handle(), &appearance_mode);
+            app.manage(palette::Index::default());
+            // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
+            if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
+                eprintln!("palette: cannot use {palette_shortcut}: {e}");
+            }
             updater::spawn(app.handle().clone());
             // The window starts hidden; show it unless Windows launched us at sign-in.
             if !startup::launched_at_login() {
@@ -108,12 +127,17 @@ pub fn run() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
             // Closing the window keeps Kairo tracking in the tray; "Quit" in the tray menu exits.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            WindowEvent::CloseRequested { api, .. } => {
                 let _ = window.hide();
                 api.prevent_close();
             }
+            // The palette is a glance: clicking anywhere else puts it away.
+            WindowEvent::Focused(false) if window.label() == palette::LABEL => {
+                let _ = window.hide();
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_day,
@@ -156,6 +180,14 @@ pub fn run() {
             commands::delete_history,
             commands::get_extension_status,
             commands::open_extension_folder,
+            commands::palette_apps,
+            commands::palette_icons,
+            commands::palette_launch,
+            commands::palette_go,
+            commands::palette_hide,
+            commands::get_palette_settings,
+            commands::set_palette_shortcut,
+            commands::set_palette_suggestions,
             commands::get_appearance,
             commands::set_appearance,
             commands::get_app_icons,
@@ -257,7 +289,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     Ok(())
 }
 
-fn show_main(app: &AppHandle) {
+pub(crate) fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

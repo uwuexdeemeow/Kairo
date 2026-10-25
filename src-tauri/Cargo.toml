@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.2.0"
+version = "1.3.0"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -18,6 +18,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-global-shortcut = "2"
 tiny_http = "0.12"
 png = "0.18"
 base64 = "0.22"

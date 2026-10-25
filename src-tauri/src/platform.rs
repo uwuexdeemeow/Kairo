@@ -9,7 +9,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{app_path, close_process, foreground, icon_png, idle_ms, minimize, processes};
+pub use win::{app_path, close_process, foreground, icon_png, idle_ms, minimize, open_path, processes};
 
 #[cfg(windows)]
 mod win {
@@ -74,6 +74,21 @@ mod win {
         unsafe {
             ShowWindow(hwnd, SW_MINIMIZE);
             IsIconic(hwnd) != 0
+        }
+    }
+
+    /// Opens a file the way double-clicking it in Explorer would; for a Start menu shortcut, that
+    /// starts the app. False when Windows couldn't.
+    pub fn open_path(path: &str) -> bool {
+        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
+        let open: Vec<u16> = "open".encode_utf16().chain([0]).collect();
+        // Values above 32 mean success.
+        unsafe {
+            ShellExecuteW(std::ptr::null_mut(), open.as_ptr(), wide.as_ptr(), std::ptr::null(), std::ptr::null(), SW_SHOWNORMAL)
+                as isize
+                > 32
         }
     }
 
@@ -327,6 +342,11 @@ pub fn app_path(_exe: &str) -> Option<String> {
 #[cfg(not(windows))]
 pub fn icon_png(_path: &str) -> Option<Vec<u8>> {
     None
+}
+
+#[cfg(not(windows))]
+pub fn open_path(_path: &str) -> bool {
+    false
 }
 
 #[cfg(not(windows))]
