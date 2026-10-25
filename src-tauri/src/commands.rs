@@ -571,6 +571,82 @@ pub fn take_navigation(state: State<AppState>) -> CmdResult<Option<Navigation>> 
     Ok(state.navigation.lock().map_err(err)?.take())
 }
 
+// The web palette, on macOS and Linux; Windows draws its own (palette::native).
+
+#[derive(Serialize)]
+pub struct PaletteOpening {
+    /// Today so far, for the footer.
+    footer: String,
+    /// "system", "light" or "dark".
+    appearance: String,
+}
+
+/// Starts a fresh palette from what's known now.
+#[tauri::command]
+pub fn palette_open(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>) -> CmdResult<PaletteOpening> {
+    let conn = state.db.lock().map_err(err)?;
+    let (ctx, footer) = palette::context(&conn, &index);
+    session.open(ctx);
+    Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
+}
+
+/// What a query finds; with nothing typed, the suggestions.
+#[tauri::command]
+pub fn palette_query(session: State<palette::Session>, query: String) -> palette::Results {
+    session.query(&query)
+}
+
+/// Icons for listed apps, as data URLs by path, kept for the rest of the run.
+#[tauri::command]
+pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
+    let mut cache = state.icons.lock().map_err(err)?;
+    let mut out = HashMap::new();
+    for path in paths.into_iter().filter(|p| index.knows(p)) {
+        // Shared with app icons, under a key that can't clash with a program's name.
+        if let Some(url) = cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)) {
+            out.insert(path, url.clone());
+        }
+    }
+    Ok(out)
+}
+
+/// How a day went, for the card above a selected day.
+#[tauri::command]
+pub fn palette_preview(state: State<AppState>, date: String) -> CmdResult<palette::DayGlance> {
+    let day = NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(err)?;
+    let conn = state.db.lock().map_err(err)?;
+    Ok(palette::day_glance(&conn, day))
+}
+
+/// Runs item `at` of the results numbered `seq`, then puts the palette away.
+#[tauri::command]
+pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+    let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    // Kairo's window opens over where the palette was, and keeps the keyboard.
+    let go = matches!(item.action, palette::search::Action::Go(..));
+    if go {
+        palette_hide_window(&app, false);
+    }
+    let conn = state.db.lock().map_err(err)?;
+    palette::perform(&app, &conn, &index, &item.action)?;
+    if !go {
+        palette_hide_window(&app, true);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn palette_hide(app: AppHandle) {
+    palette_hide_window(&app, true);
+}
+
+fn palette_hide_window(app: &AppHandle, give_back: bool) {
+    #[cfg(not(windows))]
+    palette::web::hide(app, give_back);
+    #[cfg(windows)]
+    let _ = (app, give_back);
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PaletteSettings {

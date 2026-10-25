@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use chrono::{Local, NaiveDate};
+use chrono::NaiveDate;
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 use windows::core::{w, Interface, Result, PCWSTR};
@@ -53,9 +53,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_numerics::Vector2;
 
 use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
+use super::{DayGlance, Segment};
 use crate::analysis::Category;
-use crate::goals::Kind;
-use crate::{db, focus, goals, platform};
+use crate::{db, platform};
 
 /// The window, once its thread has made it; the shortcut posts to it from Tauri's thread.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
@@ -171,14 +171,6 @@ struct Placed {
     rect: D2D_RECT_F,
 }
 
-struct Preview {
-    active_ms: i64,
-    productive_pct: i64,
-    focus: (usize, i64),
-    /// Each stretch of the day as a share of it: (from, to, category).
-    segments: Vec<(f32, f32, Category)>,
-}
-
 struct Formats {
     title: IDWriteTextFormat,
     sub: IDWriteTextFormat,
@@ -223,7 +215,7 @@ struct Palette {
     content_h: f32,
     selected: usize,
     scroll: f32,
-    preview: Option<(NaiveDate, Preview)>,
+    preview: Option<(NaiveDate, DayGlance)>,
     error: Option<String>,
 }
 
@@ -239,19 +231,6 @@ fn with<R>(f: impl FnOnce(&mut Palette) -> R) -> Option<R> {
     PALETTE.with(|p| p.try_borrow_mut().ok().and_then(|mut p| p.as_mut().map(f)))
 }
 
-fn now_ms() -> i64 {
-    chrono::Utc::now().timestamp_millis()
-}
-
-/// `part` as a rounded percentage of `whole`.
-fn percent(part: i64, whole: i64) -> i64 {
-    if whole > 0 {
-        (part * 100 + whole / 2) / whole
-    } else {
-        0
-    }
-}
-
 /// Opens the palette, or puts it away if it's open. Safe from any thread.
 pub fn toggle() {
     let hwnd = WINDOW.load(Ordering::Acquire);
@@ -262,8 +241,8 @@ pub fn toggle() {
     }
 }
 
-/// Starts the palette's thread and window, hidden until the shortcut.
-pub fn spawn(app: AppHandle, db_path: PathBuf) {
+/// Starts the palette's thread and window, hidden until the shortcut unless `open`.
+pub fn spawn(app: AppHandle, db_path: PathBuf, open: bool) {
     std::thread::Builder::new()
         .name("kairo-palette".into())
         .spawn(move || {
@@ -277,7 +256,12 @@ pub fn spawn(app: AppHandle, db_path: PathBuf) {
                 }
             };
             match unsafe { create(app, conn) } {
-                Ok(()) => unsafe { pump() },
+                Ok(()) => {
+                    if open {
+                        toggle();
+                    }
+                    unsafe { pump() }
+                }
                 Err(e) => eprintln!("palette: cannot create the window: {e}"),
             }
         })
@@ -705,29 +689,9 @@ impl Palette {
 
     /// What's known when it opens: apps, the focus session, today's apps and limits.
     fn load(&mut self) {
-        let now = now_ms();
-        let today = Local::now().date_naive();
-        let index = self.app.state::<super::Index>();
-        let apps = super::apps(&self.conn, &index, now).unwrap_or_default();
-        let session = focus::active(&self.conn).ok().flatten().map(|a| a.label().map(str::to_string));
-        let rows = goals::rows_for(&self.conn, today, now).unwrap_or_default();
-        let glance = crate::analysis::glance(&rows);
-        let over_limits = goals::load(&self.conn)
-            .map(|g| goals::progress(&g, &rows, &HashMap::new()))
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|p| p.kind != Kind::Productive && !p.met)
-            .map(|p| (p.label.clone(), p.used_ms, p.target_ms))
-            .collect();
-        self.footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
-        self.ctx = Some(Context {
-            today,
-            apps,
-            session,
-            today_apps: glance.top_apps,
-            over_limits,
-            suggestions: super::suggestions(&self.conn).unwrap_or(true),
-        });
+        let (ctx, footer) = super::context(&self.conn, &self.app.state::<super::Index>());
+        self.ctx = Some(ctx);
+        self.footer = footer;
     }
 
     fn refresh(&mut self) {
@@ -764,21 +728,7 @@ impl Palette {
         if self.preview.as_ref().is_some_and(|(d, _)| *d == day) {
             return;
         }
-        let now = now_ms();
-        let rows = goals::rows_for(&self.conn, day, now).unwrap_or_default();
-        let glance = crate::analysis::glance(&rows);
-        let (from, to) = crate::analysis::day_bounds(day).unwrap_or((0, 0));
-        let blocks = focus::blocks(&self.conn, from, to, now).unwrap_or_default();
-        let share = |ms: i64| ((ms - from) as f32 / (to - from).max(1) as f32).clamp(0.0, 1.0);
-        self.preview = Some((
-            day,
-            Preview {
-                active_ms: glance.active_ms,
-                productive_pct: percent(glance.productive_ms, glance.active_ms),
-                focus: (blocks.len(), blocks.iter().map(focus::Block::ms).sum()),
-                segments: glance.segments.iter().map(|&(s, e, c)| (share(s), share(e), c)).collect(),
-            },
-        ));
+        self.preview = Some((day, super::day_glance(&self.conn, day)));
     }
 
     fn measure(&self, text: &str, format: &IDWriteTextFormat) -> f32 {
@@ -908,25 +858,11 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned() else { return };
-        let result = match item.action {
-            Action::Launch(path) => super::launch(&self.app.state::<super::Index>(), &path),
-            Action::Go(view, date) => {
-                self.hide();
-                crate::open_main_at(&self.app, view, date);
-                return;
-            }
-            // Starting anew ends the running session, which strict mode only allows after its wait.
-            Action::StartFocus(..) if crate::blocking::strict_now(&self.conn).unwrap_or(false) => {
-                Err("Strict mode is on: end the current session from Kairo's Focus page first.".into())
-            }
-            Action::StartFocus(minutes, label) => focus::start(&self.conn, minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
-            Action::CheckUpdates => {
-                let app = self.app.clone();
-                tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
-                Ok(())
-            }
-        };
-        match result {
+        // Kairo's window opens over where the palette was.
+        if matches!(item.action, Action::Go(..)) {
+            self.hide();
+        }
+        match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), &item.action) {
             Ok(()) => self.hide(),
             Err(e) => {
                 self.error = Some(e);
@@ -1264,14 +1200,14 @@ impl Palette {
         Ok(())
     }
 
-    fn draw_preview(&self, rt: &ID2D1RenderTarget, p: &Preview) -> Result<()> {
+    fn draw_preview(&self, rt: &ID2D1RenderTarget, p: &DayGlance) -> Result<()> {
         let t = self.theme;
         let card = D2D1_ROUNDED_RECT { rect: rect(10.0, HEADER + 10.0, W - 10.0, HEADER + PREVIEW_H), radiusX: 10.0, radiusY: 10.0 };
         unsafe { rt.FillRoundedRectangle(&card, &self.brush(rt, t.bg, 1.0)?) };
         let stats = [
             ("On screen", fmt_dur(p.active_ms)),
             ("Productive", format!("{}%", p.productive_pct)),
-            ("Focus sessions", if p.focus.0 > 0 { format!("{} · {}", p.focus.0, fmt_dur(p.focus.1)) } else { "0".into() }),
+            ("Focus sessions", if p.focus_count > 0 { format!("{} · {}", p.focus_count, fmt_dur(p.focus_ms)) } else { "0".into() }),
         ];
         let mut x = 26.0;
         for (name, value) in stats {
@@ -1282,7 +1218,7 @@ impl Palette {
         let strip = rect(26.0, HEADER + 68.0, W - 26.0, HEADER + 78.0);
         unsafe {
             rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: strip, radiusX: 3.0, radiusY: 3.0 }, &self.brush(rt, t.rule, 1.0)?);
-            for &(from, to, category) in &p.segments {
+            for &Segment { from, to, category } in &p.segments {
                 let hex = match category {
                     Category::Productive => t.productive,
                     Category::Neutral => t.neutral,

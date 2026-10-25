@@ -3,11 +3,11 @@ import { defineConfig } from "vite";
 // Tauri expects a fixed dev port and handles its own console output.
 export default defineConfig({
   clearScreen: false,
-  // The main window, and the small window a focus session shows over a blocked app. The command
-  // palette is drawn natively (src-tauri/src/palette/native.rs).
+  // The main window, the small window a focus session shows over a blocked app, and the command
+  // palette on macOS and Linux (Windows draws its own: src-tauri/src/palette/native.rs).
   build: {
     rollupOptions: {
-      input: { main: "index.html", blocked: "blocked.html" },
+      input: { main: "index.html", blocked: "blocked.html", palette: "palette.html" },
     },
   },
   server: {

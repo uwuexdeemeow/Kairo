@@ -1,81 +1,147 @@
 //! The command palette: a small window a global shortcut brings up over whatever you're doing, to
-//! open apps, jump around Kairo and run its actions. It's drawn natively (see `native`); this is
-//! what it knows: the Start menu's apps and its settings.
+//! open apps, jump around Kairo and run its actions. Windows draws it natively (`native`); macOS
+//! and Linux show a small page in a web view (`web`, `src/palette.ts`). Both show what `search`
+//! finds in what's gathered here: the installed apps, today so far, and the settings.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use chrono::{Local, NaiveDate};
 use rusqlite::{Connection, Result};
 use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::db;
+use crate::analysis::Category;
+use crate::goals::Kind;
+use crate::{db, focus, goals};
+use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
 #[cfg(windows)]
 pub mod native;
 pub mod search;
+#[cfg(not(windows))]
+pub mod web;
 
-pub const DEFAULT_SHORTCUT: &str = "Ctrl+Space";
+/// The web palette's window; Windows has none of these.
+pub const LABEL: &str = "palette";
+/// On a Mac, Ctrl+Space switches input sources, and Option+Space is where launchers live.
+pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
-/// The Start menu is read again after this long, so new installs show up.
+/// The installed apps are read again after this long, so new installs show up.
 const INDEX_FOR_MS: i64 = 5 * 60_000;
 /// Usage counts toward an app's rank over this window.
 const USAGE_WINDOW_MS: i64 = 30 * 24 * 60 * 60_000;
-/// Shortcuts that aren't apps: uninstallers, readmes, links to websites.
+/// Entries that aren't apps: uninstallers, readmes, links to websites.
 const NOISE: &[&str] = &["uninstall", "readme", "read me", "release notes", "website", "documentation", "license", "help", "manual"];
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppEntry {
     name: String,
-    /// The Start menu shortcut, which is what gets opened.
+    /// What gets opened: a Start menu shortcut, an app bundle or a desktop entry.
     path: String,
     /// Time spent in an app of the same name over the last 30 days, for ranking.
     used_ms: i64,
 }
 
-/// The Start menu's apps, kept a few minutes between reads.
+/// The installed apps, kept a few minutes between reads.
 #[derive(Default)]
 pub struct Index(Mutex<Option<(i64, Vec<AppEntry>)>>);
 
-fn start_menu_dirs() -> Vec<PathBuf> {
-    let programs = |base: Option<std::ffi::OsString>| base.map(|b| PathBuf::from(b).join(r"Microsoft\Windows\Start Menu\Programs"));
-    // Your own shortcuts first, so they win over machine-wide ones of the same name.
-    [programs(std::env::var_os("APPDATA")), programs(std::env::var_os("ProgramData"))].into_iter().flatten().collect()
+impl Index {
+    /// Whether `path` is one of the apps last listed.
+    pub fn knows(&self, path: &str) -> bool {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(_, apps)| apps.iter().any(|a| a.path == path))
+    }
 }
 
-fn walk(dir: &Path, depth: u32, out: &mut Vec<(String, String)>) {
+/// Opens the palette, or puts it away if it's open.
+pub fn toggle(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        let _ = app;
+        native::toggle();
+    }
+    #[cfg(not(windows))]
+    web::toggle(app);
+}
+
+// ---------- the installed apps ----------
+
+/// Files under `dir`, `depth` folders down at most, whose names end in `extension`, by name.
+/// Folders that end in it count as files: a Mac app is a folder.
+fn walk(dir: &Path, depth: u32, extension: &str, out: &mut Vec<(String, PathBuf)>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            if depth < 4 {
-                walk(&path, depth + 1, out);
-            }
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("lnk")) {
+        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case(extension)) {
             if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                out.push((name.to_string(), path.display().to_string()));
+                out.push((name.to_string(), path));
             }
+        } else if depth > 0 && path.is_dir() {
+            walk(&path, depth - 1, extension, out);
         }
     }
 }
 
-/// Every app shortcut in the Start menu, by name, without the noise.
-pub fn start_menu_apps() -> Vec<(String, String)> {
+/// The Start menu's shortcuts, yours before the machine's so yours win on a shared name.
+#[cfg(windows)]
+fn app_files() -> Vec<(String, PathBuf)> {
+    let programs = |base: Option<std::ffi::OsString>| base.map(|b| PathBuf::from(b).join(r"Microsoft\Windows\Start Menu\Programs"));
     let mut found = Vec::new();
-    for dir in start_menu_dirs() {
-        walk(&dir, 0, &mut found);
+    for dir in [programs(std::env::var_os("APPDATA")), programs(std::env::var_os("ProgramData"))].into_iter().flatten() {
+        walk(&dir, 4, "lnk", &mut found);
     }
-    let mut seen = std::collections::HashSet::new();
     found
+}
+
+/// App bundles where a Mac keeps them, one folder down for the likes of Utilities.
+#[cfg(target_os = "macos")]
+fn app_files() -> Vec<(String, PathBuf)> {
+    let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
+    let dirs = [Some(PathBuf::from("/Applications")), Some(PathBuf::from("/System/Applications")), home];
+    let mut found = Vec::new();
+    for dir in dirs.into_iter().flatten() {
+        walk(&dir, 1, "app", &mut found);
+    }
+    found
+}
+
+/// Desktop entries, as a Linux app menu lists them: yours first, then each data folder's, and an
+/// entry yours hides or overrides stays that way.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn app_files() -> Vec<(String, PathBuf)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut found = Vec::new();
+    for dir in linux::data_dirs() {
+        let mut files = Vec::new();
+        walk(&dir.join("applications"), 3, "desktop", &mut files);
+        for (_, path) in files {
+            let Some(id) = path.file_name().map(|n| n.to_os_string()) else { continue };
+            if !seen.insert(id) {
+                continue;
+            }
+            if let Some(entry) = std::fs::read_to_string(&path).ok().and_then(|text| linux::DesktopEntry::parse(&text)) {
+                found.push((entry.name, path));
+            }
+        }
+    }
+    found
+}
+
+/// Every app the palette can open, by name, without the noise or repeats.
+pub fn installed_apps() -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    app_files()
         .into_iter()
         .filter(|(name, _)| {
             let lower = name.to_lowercase();
             !NOISE.iter().any(|n| lower.contains(n)) && seen.insert(lower)
         })
+        .map(|(name, path)| (name, path.display().to_string()))
         .collect()
 }
 
@@ -97,7 +163,7 @@ pub fn apps(conn: &Connection, index: &Index, now: i64) -> Result<Vec<AppEntry>>
         }
     }
     let used = usage(conn, now)?;
-    let mut apps: Vec<AppEntry> = start_menu_apps()
+    let mut apps: Vec<AppEntry> = installed_apps()
         .into_iter()
         .map(|(name, path)| {
             let used_ms = used.get(&name.to_lowercase()).copied().unwrap_or(0);
@@ -111,16 +177,27 @@ pub fn apps(conn: &Connection, index: &Index, now: i64) -> Result<Vec<AppEntry>>
 
 /// Opens an app, but only one the palette listed, never an arbitrary path.
 pub fn launch(index: &Index, path: &str) -> std::result::Result<(), String> {
-    let known = index.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(_, apps)| apps.iter().any(|a| a.path == path));
-    if !known {
-        return Err("That isn't one of the apps Kairo found in the Start menu.".into());
+    if !index.knows(path) {
+        return Err("That isn't one of the apps Kairo found installed.".into());
     }
     if crate::platform::open_path(path) {
         Ok(())
     } else {
-        Err("Windows couldn't open it.".into())
+        Err("It couldn't be opened.".into())
     }
 }
+
+/// An app's icon for the web palette, as a data URL; None leaves its letter.
+pub fn icon_url(path: &str) -> Option<String> {
+    use base64::Engine;
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let (mime, data) = linux::icon(path)?;
+    #[cfg(any(windows, target_os = "macos"))]
+    let (mime, data) = ("image/png", crate::platform::icon_png(path)?);
+    Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(data)))
+}
+
+// ---------- settings ----------
 
 pub fn shortcut(conn: &Connection) -> Result<String> {
     Ok(db::get_setting(conn, SHORTCUT_KEY)?.unwrap_or_else(|| DEFAULT_SHORTCUT.to_string()))
@@ -134,7 +211,7 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
 }
 
-/// Swaps the global shortcut. If the new one can't be had (another app holds it, or Windows
+/// Swaps the global shortcut. If the new one can't be had (another app holds it, or the system
 /// doesn't know the keys), the old one stays and the reason comes back.
 pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::result::Result<(), String> {
     let old = shortcut(conn).map_err(|e| e.to_string())?;
@@ -147,20 +224,318 @@ pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::re
     db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string())
 }
 
+// ---------- what both palettes show ----------
+
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+/// `part` as a rounded percentage of `whole`.
+pub fn percent(part: i64, whole: i64) -> i64 {
+    if whole > 0 {
+        (part * 100 + whole / 2) / whole
+    } else {
+        0
+    }
+}
+
+/// What's known as the palette opens (apps, the focus session, today's apps and limits), and
+/// the footer's line about today.
+pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
+    let now = now_ms();
+    let today = Local::now().date_naive();
+    let apps = apps(conn, index, now).unwrap_or_default();
+    let session = focus::active(conn).ok().flatten().map(|a| a.label().map(str::to_string));
+    let rows = goals::rows_for(conn, today, now).unwrap_or_default();
+    let glance = crate::analysis::glance(&rows);
+    let over_limits = goals::load(conn)
+        .map(|g| goals::progress(&g, &rows, &HashMap::new()))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| p.kind != Kind::Productive && !p.met)
+        .map(|p| (p.label.clone(), p.used_ms, p.target_ms))
+        .collect();
+    let footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
+    let ctx = Context { today, apps, session, today_apps: glance.top_apps, over_limits, suggestions: suggestions(conn).unwrap_or(true) };
+    (ctx, footer)
+}
+
+/// A stretch of a day, as shares of it from midnight.
+#[derive(Serialize, Clone, Copy)]
+pub struct Segment {
+    pub from: f32,
+    pub to: f32,
+    pub category: Category,
+}
+
+/// How a day went, for the card above a selected day.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayGlance {
+    pub active_ms: i64,
+    pub productive_pct: i64,
+    pub focus_count: usize,
+    pub focus_ms: i64,
+    pub segments: Vec<Segment>,
+}
+
+pub fn day_glance(conn: &Connection, day: NaiveDate) -> DayGlance {
+    let now = now_ms();
+    let rows = goals::rows_for(conn, day, now).unwrap_or_default();
+    let glance = crate::analysis::glance(&rows);
+    let (from, to) = crate::analysis::day_bounds(day).unwrap_or((0, 0));
+    let blocks = focus::blocks(conn, from, to, now).unwrap_or_default();
+    let share = |ms: i64| ((ms - from) as f32 / (to - from).max(1) as f32).clamp(0.0, 1.0);
+    DayGlance {
+        active_ms: glance.active_ms,
+        productive_pct: percent(glance.productive_ms, glance.active_ms),
+        focus_count: blocks.len(),
+        focus_ms: blocks.iter().map(focus::Block::ms).sum(),
+        segments: glance.segments.iter().map(|&(s, e, category)| Segment { from: share(s), to: share(e), category }).collect(),
+    }
+}
+
+/// Does what an item says. A move to Kairo's window wants the palette out of the way first,
+/// which is the caller's to do.
+pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Action) -> std::result::Result<(), String> {
+    match action {
+        Action::Launch(path) => launch(index, path),
+        Action::Go(view, date) => {
+            crate::open_main_at(app, view, *date);
+            Ok(())
+        }
+        // Starting anew ends the running session, which strict mode only allows after its wait.
+        Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
+            Err("Strict mode is on: end the current session from Kairo's Focus page first.".into())
+        }
+        Action::StartFocus(minutes, label) => focus::start(conn, *minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
+        Action::CheckUpdates => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
+            Ok(())
+        }
+    }
+}
+
+// ---------- the web palette's side ----------
+
+/// An item as the web palette draws it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemView {
+    title: String,
+    /// Characters of the title to underline.
+    at: Vec<usize>,
+    sub: Option<String>,
+    detail: Option<String>,
+    icon: IconView,
+    section: &'static str,
+    /// A day to preview while it's selected, as `YYYY-MM-DD`.
+    preview: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum IconView {
+    App { path: String },
+    Glyph { glyph: &'static str, tone: &'static str },
+}
+
+impl From<&Item> for ItemView {
+    fn from(item: &Item) -> Self {
+        let icon = match &item.icon {
+            Icon::App(path) => IconView::App { path: path.clone() },
+            Icon::Glyph(glyph, tone) => IconView::Glyph {
+                glyph: match glyph {
+                    Glyph::Focus => "focus",
+                    Glyph::Day => "day",
+                    Glyph::Chart => "chart",
+                    Glyph::Tag => "tag",
+                    Glyph::Settings => "settings",
+                    Glyph::Today => "today",
+                    Glyph::Alert => "alert",
+                    Glyph::Update => "update",
+                },
+                tone: match tone {
+                    Tone::Plain => "",
+                    Tone::Accent => "accent",
+                    Tone::Warm => "warm",
+                },
+            },
+        };
+        ItemView {
+            title: item.title.clone(),
+            at: item.at.clone(),
+            sub: item.sub.clone(),
+            detail: item.detail.clone(),
+            icon,
+            section: item.section,
+            preview: item.preview.map(|d| d.format("%Y-%m-%d").to_string()),
+        }
+    }
+}
+
+/// Results for the web palette: rows, then (with nothing typed) recent apps as tiles and places
+/// as chips. Items are numbered across all three, in that order.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Results {
+    /// Which query these answer; running an item names it, so it's always one on screen.
+    seq: u64,
+    rows: Vec<ItemView>,
+    tiles: Vec<ItemView>,
+    chips: Vec<ItemView>,
+}
+
+#[derive(Default)]
+struct SessionState {
+    ctx: Option<Context>,
+    items: Vec<Item>,
+    seq: u64,
+}
+
+/// The web palette between keystrokes: what was known when it opened, and what it last showed.
+#[derive(Default)]
+pub struct Session(Mutex<SessionState>);
+
+impl Session {
+    pub fn open(&self, ctx: Context) {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        s.ctx = Some(ctx);
+        s.items.clear();
+    }
+
+    pub fn query(&self, query: &str) -> Results {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        s.seq += 1;
+        let (rows, tiles, chips) = match &s.ctx {
+            None => (Vec::new(), Vec::new(), Vec::new()),
+            Some(ctx) if query.trim().is_empty() => {
+                let found = search::suggestions(ctx);
+                (found.rows, found.tiles, found.chips)
+            }
+            Some(ctx) => (search::search(ctx, query), Vec::new(), Vec::new()),
+        };
+        let view = |items: &[Item]| items.iter().map(ItemView::from).collect();
+        let results = Results { seq: s.seq, rows: view(&rows), tiles: view(&tiles), chips: view(&chips) };
+        s.items = rows.into_iter().chain(tiles).chain(chips).collect();
+        results
+    }
+
+    /// The item at `index` in the results numbered `seq`; None once newer ones replaced them.
+    pub fn item(&self, seq: u64, index: usize) -> Option<Item> {
+        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        (s.seq == seq).then(|| s.items.get(index).cloned()).flatten()
+    }
+}
+
+// ---------- Linux ----------
+
+#[cfg(not(any(windows, target_os = "macos")))]
+mod linux {
+    use std::path::{Path, PathBuf};
+
+    /// Where desktop entries and icons live, most personal first (the XDG base directories).
+    pub fn data_dirs() -> Vec<PathBuf> {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let own = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|p| p.is_absolute()).or_else(|| home.map(|h| h.join(".local/share")));
+        let shared = std::env::var("XDG_DATA_DIRS").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "/usr/local/share:/usr/share".into());
+        let mut dirs: Vec<PathBuf> = own.into_iter().chain(shared.split(':').map(PathBuf::from)).collect();
+        // Snap and Flatpak apps, where the session didn't add their folders.
+        for extra in ["/var/lib/snapd/desktop", "/var/lib/flatpak/exports/share"] {
+            if !dirs.iter().any(|d| d == Path::new(extra)) {
+                dirs.push(extra.into());
+            }
+        }
+        dirs
+    }
+
+    pub struct DesktopEntry {
+        pub name: String,
+        pub icon: Option<String>,
+    }
+
+    impl DesktopEntry {
+        /// An app's entry, or None for one that isn't an app or asks not to be shown.
+        pub fn parse(text: &str) -> Option<Self> {
+            let mut in_entry = false;
+            let (mut name, mut icon, mut app, mut shown) = (None, None, false, true);
+            for line in text.lines().map(str::trim) {
+                if line.starts_with('[') {
+                    in_entry = line == "[Desktop Entry]";
+                    continue;
+                }
+                let Some((key, value)) = line.split_once('=').filter(|_| in_entry) else { continue };
+                match (key.trim(), value.trim()) {
+                    ("Name", v) => name = Some(v.to_string()),
+                    ("Icon", v) if !v.is_empty() => icon = Some(v.to_string()),
+                    ("Type", v) => app = v == "Application",
+                    ("NoDisplay" | "Hidden", "true") => shown = false,
+                    _ => {}
+                }
+            }
+            if !app || !shown {
+                return None;
+            }
+            Some(DesktopEntry { name: name.filter(|n| !n.is_empty())?, icon })
+        }
+    }
+
+    /// A desktop entry's icon from the shared icon theme, which every Linux desktop has, or the
+    /// older pixmaps folder: (media type, file contents).
+    pub fn icon(entry: &str) -> Option<(&'static str, Vec<u8>)> {
+        let icon = DesktopEntry::parse(&std::fs::read_to_string(entry).ok()?)?.icon?;
+        let typed = |path: &Path| {
+            let mime = match path.extension()?.to_str()? {
+                "png" => "image/png",
+                "svg" => "image/svg+xml",
+                _ => return None,
+            };
+            Some((mime, std::fs::read(path).ok()?))
+        };
+        if icon.starts_with('/') {
+            return typed(Path::new(&icon));
+        }
+        for dir in data_dirs() {
+            for size in ["48x48", "64x64", "128x128", "256x256", "32x32", "scalable"] {
+                for ext in ["png", "svg"] {
+                    if let Some(found) = typed(&dir.join(format!("icons/hicolor/{size}/apps/{icon}.{ext}"))) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        ["png", "svg"].iter().find_map(|ext| typed(&PathBuf::from(format!("/usr/share/pixmaps/{icon}.{ext}"))))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn desktop_entries_name_apps_and_skip_hidden_ones() {
+            let app = DesktopEntry::parse("[Desktop Entry]\nType=Application\nName=Firefox\nName[de]=Firefox\nIcon=firefox\n\n[Desktop Action new]\nName=New Window").unwrap();
+            assert_eq!((app.name.as_str(), app.icon.as_deref()), ("Firefox", Some("firefox")));
+            assert!(DesktopEntry::parse("[Desktop Entry]\nType=Application\nName=Helper\nNoDisplay=true").is_none());
+            assert!(DesktopEntry::parse("[Desktop Entry]\nType=Link\nName=Docs").is_none());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(windows)]
-    fn the_start_menu_lists_apps_without_uninstallers() {
-        let apps = start_menu_apps();
-        // Every Windows install has some Start menu shortcuts.
-        assert!(!apps.is_empty());
-        assert!(apps.iter().all(|(name, path)| !name.to_lowercase().contains("uninstall") && path.ends_with(".lnk")));
+    fn installed_apps_come_without_uninstallers_or_repeats() {
+        let apps = installed_apps();
+        // Windows and macOS always have some; a bare Linux build machine may have none.
+        if cfg!(any(windows, target_os = "macos")) {
+            assert!(!apps.is_empty());
+        }
+        assert!(apps.iter().all(|(name, _)| !name.to_lowercase().contains("uninstall")));
         let mut names: Vec<String> = apps.iter().map(|(n, _)| n.to_lowercase()).collect();
         let count = names.len();
-        names.dedup();
         names.sort();
         names.dedup();
         assert_eq!(names.len(), count, "names are unique");
@@ -170,5 +545,19 @@ mod tests {
     fn only_listed_apps_can_be_launched() {
         let index = Index::default();
         assert!(launch(&index, r"C:\Windows\System32\cmd.exe").is_err());
+    }
+
+    #[test]
+    fn results_number_items_for_running_them() {
+        let session = Session::default();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        session.open(Context { today, apps: Vec::new(), session: None, today_apps: Vec::new(), over_limits: Vec::new(), suggestions: true });
+        let first = session.query("");
+        assert!(!first.chips.is_empty());
+        let second = session.query("yesterday");
+        assert_eq!(second.rows[0].preview.as_deref(), Some("2026-10-25"));
+        // An item from results that have been replaced isn't run.
+        assert!(session.item(first.seq, 0).is_none());
+        assert_eq!(session.item(second.seq, 0).map(|i| i.action), Some(Action::Go("today", Some(today.pred_opt().unwrap()))));
     }
 }

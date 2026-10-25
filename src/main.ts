@@ -18,8 +18,9 @@ const HOUR_MS = 3_600_000;
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 
-/// Kairo also runs on a Mac, where a few things go by other names.
+/// Kairo also runs on a Mac and on Linux, where a few things go by other names.
 const IS_MAC = navigator.userAgent.includes("Macintosh");
+const IS_LINUX = !IS_MAC && navigator.userAgent.includes("Linux");
 
 function h(tag: string, attrs: Record<string, string> = {}, ...children: (Node | string)[]): HTMLElement {
   const el = document.createElement(tag);
@@ -1269,8 +1270,17 @@ if (IS_MAC) {
   $("#autostart-label").textContent = "Start Kairo quietly in the menu bar when I log in";
   $("#block-explainer").textContent =
     "Blocked apps are hidden behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
-  // The command palette is Windows-only for now.
-  $("#palette-settings").hidden = true;
+}
+if (IS_LINUX) {
+  $("#appearance-system").textContent = "Match the system";
+  $("#autostart-title").textContent = "Start at login";
+  $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
+  // Kairo can't see other apps on Linux yet, so only the extension's sites are blocked.
+  $("#block-explainer").textContent =
+    "With the browser extension, blocked sites show a Kairo page instead. Kairo can't see or hide other apps on Linux yet. Pausing a session pauses blocking. Choose what's blocked for each site in Categories.";
+  // Wayland keeps keys from apps; the desktop's own shortcut settings can run Kairo instead.
+  $("#palette-note").textContent =
+    "Works everywhere, even with Kairo's window closed. On Wayland, where apps can't listen for keys, add a shortcut in your desktop's keyboard settings that runs kairo --palette.";
 }
 
 type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
@@ -1469,9 +1479,17 @@ listen("kairo:navigate", () => followNavigation());
 
 let savedShortcut = "";
 
+/// A key as this computer's keyboard labels it; the saved shortcut keeps the names the shortcut
+/// parser knows.
+function keyName(key: string): string {
+  if (IS_MAC) return { Ctrl: "Control", Alt: "Option", Super: "Command" }[key] ?? key;
+  if (!IS_LINUX && key === "Super") return "Win";
+  return key;
+}
+
 function showShortcut(shortcut: string) {
   savedShortcut = shortcut;
-  $("#palette-keys").replaceChildren(...shortcut.split("+").map((k) => h("kbd", {}, k)));
+  $("#palette-keys").replaceChildren(...shortcut.split("+").map((k) => h("kbd", {}, keyName(k))));
 }
 
 /// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
@@ -1505,17 +1523,18 @@ async function recordKeys(e: KeyboardEvent) {
   }
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
   const key = shortcutKey(e);
-  $("#palette-keys").replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, k)));
+  $("#palette-keys").replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
   if (!key) return;
   if (!mods.length) {
-    $("#palette-note").textContent = "Hold Ctrl, Alt, Shift or the Windows key with it, so typing elsewhere doesn't set it off.";
+    const hold = IS_MAC ? "Control, Option, Shift or Command" : IS_LINUX ? "Ctrl, Alt, Shift or Super" : "Ctrl, Alt, Shift or the Windows key";
+    $("#palette-note").textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
     return;
   }
   const shortcut = [...mods, key].join("+");
   try {
     await api.setPaletteShortcut(shortcut);
     savedShortcut = shortcut;
-    stopRecording(`Saved. ${shortcut} opens the palette from anywhere.`);
+    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens the palette from anywhere.`);
   } catch (err) {
     stopRecording(String(err));
   }

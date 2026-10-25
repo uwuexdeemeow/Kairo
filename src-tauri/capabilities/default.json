@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for Kairo's windows: the main one and the focus-session blocked window",
-  "windows": ["main", "blocked"],
-  "permissions": ["core:default"]
+  "description": "Permissions for Kairo's windows: the main one, the focus-session blocked window and the command palette on macOS and Linux",
+  "windows": ["main", "blocked", "palette"],
+  "permissions": ["core:default", "core:window:allow-set-size"]
 }

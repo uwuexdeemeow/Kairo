@@ -26,7 +26,6 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use chrono::NaiveDate;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
-#[cfg(windows)]
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub struct AppState {
@@ -63,8 +62,14 @@ pub struct AutostartToggle(pub CheckMenuItem<Wry>);
 pub fn run() {
     tauri::Builder::default()
         // Must be first: a second launch (e.g. from Start while Kairo sits in the tray) just
-        // focuses the running copy instead of starting another collector.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+        // focuses the running copy instead of starting another collector, or opens its palette.
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|a| a == startup::PALETTE_ARG) {
+                palette::toggle(app);
+            } else {
+                show_main(app);
+            }
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec![startup::MINIMIZED_ARG]),
@@ -76,16 +81,15 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
-                // It places itself each time it opens.
-                .with_denylist(&[blocking::WINDOW_LABEL])
+                // These place themselves each time they open.
+                .with_denylist(&[palette::LABEL, blocking::WINDOW_LABEL])
                 .build(),
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|_app, _shortcut, event| {
+                .with_handler(|app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        #[cfg(windows)]
-                        palette::native::toggle();
+                        palette::toggle(app);
                     }
                 })
                 .build(),
@@ -100,7 +104,6 @@ pub fn run() {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
             let nudges_on = nudge::enabled(&conn)?;
-            #[cfg(windows)]
             let palette_shortcut = palette::shortcut(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -111,8 +114,9 @@ pub fn run() {
             let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone(), strict_waits.clone());
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
             app.manage(palette::Index::default());
+            app.manage(palette::Session::default());
             #[cfg(windows)]
-            palette::native::spawn(app.handle().clone(), db_path.clone());
+            palette::native::spawn(app.handle().clone(), db_path.clone(), startup::launched_for_palette());
             #[cfg(target_os = "macos")]
             platform::request_window_titles();
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
@@ -133,17 +137,27 @@ pub fn run() {
             });
             setup_tray(app, paused, nudges_on)?;
             // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
-            // Only Windows has the palette, and on a Mac Ctrl+Space switches input sources.
-            #[cfg(windows)]
             if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                 eprintln!("palette: cannot use {palette_shortcut}: {e}");
             }
             updater::spawn(app.handle().clone());
             // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.
-            if !startup::launched_at_login() {
+            if startup::launched_for_palette() {
+                // Windows' palette opens itself once its window exists.
+                #[cfg(not(windows))]
+                palette::toggle(app.handle());
+            } else if !startup::launched_at_login() {
                 show_main(app.handle());
             }
             Ok(())
+        })
+        // On macOS and Linux the palette is a web page, which goes away when something else
+        // takes the keyboard; Windows' own palette watches for that itself.
+        .on_window_event(|window, event| {
+            #[cfg(not(windows))]
+            palette::web::on_window_event(window, event);
+            #[cfg(windows)]
+            let _ = (window, event);
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_day,
@@ -187,6 +201,12 @@ pub fn run() {
             commands::get_extension_status,
             commands::open_extension_folder,
             commands::take_navigation,
+            commands::palette_open,
+            commands::palette_query,
+            commands::palette_icons,
+            commands::palette_preview,
+            commands::palette_run,
+            commands::palette_hide,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
             commands::set_palette_suggestions,

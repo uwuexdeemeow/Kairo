@@ -541,7 +541,8 @@ mod tests {
     }
 }
 
-// Other platforms are not supported yet; the collector simply records nothing.
+// Linux and others: tracking isn't supported yet, so the collector records nothing; opening
+// files works, for the command palette.
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn foreground() -> Option<Foreground> {
     None
@@ -568,9 +569,25 @@ pub fn icon_pixels(_path: &str) -> Option<(u32, u32, Vec<u8>)> {
     None
 }
 
+/// Opens a file as the desktop would. A desktop entry (an installed app) goes through GLib's
+/// launcher, which every GNOME, KDE and most other desktops have, or its older GTK cousin.
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn open_path(_path: &str) -> bool {
-    false
+pub fn open_path(path: &str) -> bool {
+    use std::process::{Command, Stdio};
+    let run = |program: &str, args: &[&str]| {
+        Command::new(program).args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok_and(|s| s.success())
+    };
+    if let Some(id) = path.strip_suffix(".desktop").and_then(|p| p.rsplit('/').next()) {
+        return run("gio", &["launch", path]) || run("gtk-launch", &[id]);
+    }
+    // xdg-open can wait on what it opened, so it's left to finish on its own.
+    match Command::new("xdg-open").arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
