@@ -124,8 +124,8 @@ export interface PaletteItem {
   detail: string | null;
   icon: { kind: "app"; path: string } | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
   section: string;
-  /** A day (`YYYY-MM-DD`) to preview while it's selected. */
-  preview: string | null;
+  /** Whether it has a card to show while it's selected (`paletteCard`). */
+  preview: boolean;
 }
 
 /** Items are numbered across rows, tiles and chips, in that order. */
@@ -136,14 +136,50 @@ export interface PaletteResults {
   chips: PaletteItem[];
 }
 
-export interface PaletteDay {
-  activeMs: number;
-  productivePct: number;
-  focusCount: number;
-  focusMs: number;
-  /** Stretches of the day as shares of it from midnight. */
-  segments: { from: number; to: number; category: Category }[];
-}
+/** The card above the results for a selected item: how a day went, time in an app or site over
+ *  a period, or what a focus session would do. */
+export type PaletteCard =
+  | {
+      kind: "day";
+      activeMs: number;
+      productivePct: number;
+      focusCount: number;
+      focusMs: number;
+      /** Stretches of the day as shares of it from midnight. */
+      segments: { from: number; to: number; category: Category }[];
+    }
+  | {
+      kind: "answer";
+      /** "THE FINALS this week". */
+      title: string;
+      /** What to draw its icon from, as for an app in the results. */
+      icon: string | null;
+      /** "Mon 19 – Sun 25 October · distracting". */
+      range: string;
+      category: Category;
+      totalMs: number;
+      /** "−1h 30m vs last week". */
+      change: string | null;
+      /** Whether the change is for the better. */
+      better: boolean | null;
+      /** A bar a day, or an hour for a single day. */
+      bars: { label: string; ms: number; over: boolean }[];
+      /** The daily limit, when the bars are days and there is one. */
+      limitMs: number | null;
+      note: string;
+      text: string;
+    }
+  | {
+      kind: "focus";
+      title: string;
+      /** "Labelled “essay” · ends at 4:20 pm". */
+      sub: string;
+      blocking: string;
+      launchers: string;
+      strict: string;
+      /** A session is running, which this one would end. */
+      replaces: boolean;
+    };
 
 /** "system" follows Windows' light or dark setting. */
 export type Appearance = "system" | "light" | "dark";
@@ -286,7 +322,8 @@ export const api = {
   paletteQuery: (query: string) => invoke<PaletteResults>("palette_query", { query }),
   /** Icons for listed apps, as data URLs by path. */
   paletteIcons: (paths: string[]) => invoke<Record<string, string>>("palette_icons", { paths }),
-  paletteDay: (date: string) => invoke<PaletteDay>("palette_preview", { date }),
+  /** The card for item `at` of the results numbered `seq`; null for one without. */
+  paletteCard: (seq: number, at: number) => invoke<PaletteCard | null>("palette_card", { seq, at }),
   /** Runs item `at` of the results numbered `seq`, then puts the palette away. */
   paletteRun: (seq: number, at: number) => invoke<void>("palette_run", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),

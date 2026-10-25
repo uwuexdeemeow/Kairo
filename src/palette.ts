@@ -9,7 +9,7 @@ import "./styles.css";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type Appearance, type PaletteItem, type PaletteResults } from "./api";
+import { api, type Appearance, type PaletteCard, type PaletteItem, type PaletteResults } from "./api";
 
 const MIN_MS = 60_000;
 /// The window's width, and the room around the panel for its shadow (`.palette-page`).
@@ -194,21 +194,11 @@ function select(index: number) {
   renderPreview();
 }
 
-/// A selected day gets a glance at how it went, above the results.
-async function renderPreview() {
-  const box = $("#palette-preview");
-  const iso = shown[selected]?.preview;
-  const token = ++previewToken;
-  if (!iso) {
-    if (!box.hidden) {
-      box.hidden = true;
-      fit();
-    }
-    return;
-  }
-  const day = await api.paletteDay(iso).catch(() => null);
-  if (token !== previewToken || !day) return;
-  const stat = (name: string, value: string) => h("div", { class: "palette-stat" }, h("span", {}, name), h("strong", {}, value));
+const stat = (name: string, value: string) => h("div", { class: "palette-stat" }, h("span", {}, name), h("strong", {}, value));
+
+/// How a day went: time on screen, the share that was productive, focus sessions, and the day
+/// as a strip.
+function dayCard(day: Extract<PaletteCard, { kind: "day" }>): Node[] {
   const strip = h("div", { class: "palette-strip", role: "img", "aria-label": "The day’s activity from midnight to midnight" });
   for (const seg of day.segments) {
     const el = h("span", { class: `seg ${seg.category}` });
@@ -217,8 +207,67 @@ async function renderPreview() {
     strip.append(el);
   }
   const focus = day.focusCount ? `${day.focusCount} · ${fmtDur(day.focusMs)}` : "0";
-  box.replaceChildren(h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus)), strip);
+  return [h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus)), strip];
+}
+
+/// Time in an app or site over a period: the total and its change, a bar a day (or an hour)
+/// against the daily limit, and what stands out.
+function answerCard(a: Extract<PaletteCard, { kind: "answer" }>): Node[] {
+  const head = h(
+    "div",
+    { class: "palette-answer-head" },
+    a.icon ? appIcon(a.icon, a.title) : h("span", { class: "app-icon palette-app letter", "aria-hidden": "true" }, [...a.title][0]?.toUpperCase() ?? "?"),
+    h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, a.title), h("span", { class: "palette-sub" }, a.range)),
+  );
+  const tone = a.better === true ? " good" : a.better === false ? " worse" : "";
+  const total = h("div", { class: "palette-total" }, h("strong", {}, fmtDur(a.totalMs)), ...(a.change ? [h("span", { class: `palette-change${tone}` }, a.change)] : []));
+  const most = Math.max(1, ...a.bars.map((b) => b.ms), a.limitMs ? a.limitMs * 1.2 : 0);
+  const described = a.bars.map((b) => `${b.label || "·"} ${fmtDur(b.ms)}`).join(", ");
+  const columns = `repeat(${a.bars.length}, minmax(0, 1fr))`;
+  const bars = h("div", { class: `palette-bars${a.bars.length > 7 ? " dense" : ""}`, role: "img", "aria-label": `${a.title}: ${described}` });
+  const labels = h("div", { class: `palette-bar-labels${a.bars.length > 7 ? " dense" : ""}`, "aria-hidden": "true" });
+  bars.style.gridTemplateColumns = labels.style.gridTemplateColumns = columns;
+  for (const b of a.bars) {
+    const bar = h("span", { class: `palette-bar${b.over ? " over" : b.ms ? "" : " empty"}` });
+    bar.style.height = b.ms ? `max(${(b.ms / most) * 100}%, 3px)` : "2px";
+    bars.append(bar);
+    labels.append(h("span", {}, b.label));
+  }
+  if (a.limitMs) {
+    const line = h("span", { class: "palette-limit", "aria-hidden": "true" });
+    line.style.bottom = `${(a.limitMs / most) * 100}%`;
+    bars.append(line);
+  }
+  const chart = h("div", { class: "palette-chart" }, bars, labels);
+  return [head, h("div", { class: "palette-answer-body" }, total, chart), h("p", { class: "palette-note" }, a.note)];
+}
+
+/// What a focus session would do once started.
+function focusCard(f: Extract<PaletteCard, { kind: "focus" }>): Node[] {
+  const head = h("div", { class: "palette-answer-head" }, strokeIcon("focus", "accent"), h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, f.title), h("span", { class: "palette-sub" }, f.sub)));
+  const tile = (name: string, value: string) => h("div", { class: "palette-plan-tile" }, h("span", {}, name), h("strong", {}, value));
+  const out: Node[] = [head, h("div", { class: "palette-plan" }, tile("Blocking", f.blocking), tile("Launchers", f.launchers), tile("Strict mode", f.strict))];
+  if (f.replaces) out.push(h("p", { class: "palette-note warm" }, "Starting it ends the session that's running."));
+  return out;
+}
+
+/// The selected item's card above the results: a day, an answer or a focus plan.
+async function renderPreview() {
+  const box = $("#palette-preview");
+  const token = ++previewToken;
+  if (!shown[selected]?.preview) {
+    if (!box.hidden) {
+      box.hidden = true;
+      fit();
+    }
+    return;
+  }
+  const card = await api.paletteCard(results.seq, selected).catch(() => null);
+  if (token !== previewToken || !card) return;
+  box.className = `palette-preview ${card.kind}`;
+  box.replaceChildren(...(card.kind === "day" ? dayCard(card) : card.kind === "answer" ? answerCard(card) : focusCard(card)));
   box.hidden = false;
+  loadIcons();
   fit();
 }
 

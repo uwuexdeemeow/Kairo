@@ -18,6 +18,7 @@ use crate::goals::Kind;
 use crate::{db, focus, goals};
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
+pub mod cards;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
@@ -87,33 +88,38 @@ fn walk(dir: &Path, depth: u32, extension: &str, out: &mut Vec<(String, PathBuf)
     }
 }
 
-/// The Start menu's shortcuts, yours before the machine's so yours win on a shared name.
+/// The Start menu's All apps list, the way Windows shows it: programs, Store apps, and games
+/// that launchers like Steam add as links. Should Windows not give it, its shortcut folders,
+/// yours before the machine's so yours win on a shared name.
 #[cfg(windows)]
-fn app_files() -> Vec<(String, PathBuf)> {
+fn app_files() -> Vec<(String, String)> {
+    if let Some(apps) = crate::platform::start_apps().filter(|a| !a.is_empty()) {
+        return apps;
+    }
     let programs = |base: Option<std::ffi::OsString>| base.map(|b| PathBuf::from(b).join(r"Microsoft\Windows\Start Menu\Programs"));
     let mut found = Vec::new();
     for dir in [programs(std::env::var_os("APPDATA")), programs(std::env::var_os("ProgramData"))].into_iter().flatten() {
         walk(&dir, 4, "lnk", &mut found);
     }
-    found
+    found.into_iter().map(|(name, path)| (name, path.display().to_string())).collect()
 }
 
 /// App bundles where a Mac keeps them, one folder down for the likes of Utilities.
 #[cfg(target_os = "macos")]
-fn app_files() -> Vec<(String, PathBuf)> {
+fn app_files() -> Vec<(String, String)> {
     let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
     let dirs = [Some(PathBuf::from("/Applications")), Some(PathBuf::from("/System/Applications")), home];
     let mut found = Vec::new();
     for dir in dirs.into_iter().flatten() {
         walk(&dir, 1, "app", &mut found);
     }
-    found
+    found.into_iter().map(|(name, path)| (name, path.display().to_string())).collect()
 }
 
 /// Desktop entries, as a Linux app menu lists them: yours first, then each data folder's, and an
 /// entry yours hides or overrides stays that way.
 #[cfg(not(any(windows, target_os = "macos")))]
-fn app_files() -> Vec<(String, PathBuf)> {
+fn app_files() -> Vec<(String, String)> {
     let mut seen = std::collections::HashSet::new();
     let mut found = Vec::new();
     for dir in linux::data_dirs() {
@@ -125,7 +131,7 @@ fn app_files() -> Vec<(String, PathBuf)> {
                 continue;
             }
             if let Some(entry) = std::fs::read_to_string(&path).ok().and_then(|text| linux::DesktopEntry::parse(&text)) {
-                found.push((entry.name, path));
+                found.push((entry.name, path.display().to_string()));
             }
         }
     }
@@ -141,7 +147,6 @@ pub fn installed_apps() -> Vec<(String, String)> {
             let lower = name.to_lowercase();
             !NOISE.iter().any(|n| lower.contains(n)) && seen.insert(lower)
         })
-        .map(|(name, path)| (name, path.display().to_string()))
         .collect()
 }
 
@@ -239,8 +244,8 @@ pub fn percent(part: i64, whole: i64) -> i64 {
     }
 }
 
-/// What's known as the palette opens (apps, the focus session, today's apps and limits), and
-/// the footer's line about today.
+/// What's known as the palette opens (apps, the focus session, today's apps and limits, what
+/// can be asked about), and the footer's line about today.
 pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
     let now = now_ms();
     let today = Local::now().date_naive();
@@ -256,7 +261,17 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         .map(|p| (p.label.clone(), p.used_ms, p.target_ms))
         .collect();
     let footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
-    let ctx = Context { today, apps, session, today_apps: glance.top_apps, over_limits, suggestions: suggestions(conn).unwrap_or(true) };
+    let subjects = cards::subjects(conn, &apps).unwrap_or_default();
+    let ctx = Context {
+        today,
+        apps,
+        session,
+        today_apps: glance.top_apps,
+        over_limits,
+        suggestions: suggestions(conn).unwrap_or(true),
+        subjects,
+        limits: cards::limits(conn),
+    };
     (ctx, footer)
 }
 
@@ -314,6 +329,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
             Ok(())
         }
+        Action::CopyAnswer(subject, period) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            app.clipboard().write_text(cards::answer(conn, subject, *period).text).map_err(|e| e.to_string())
+        }
     }
 }
 
@@ -330,8 +349,8 @@ pub struct ItemView {
     detail: Option<String>,
     icon: IconView,
     section: &'static str,
-    /// A day to preview while it's selected, as `YYYY-MM-DD`.
-    preview: Option<String>,
+    /// Whether it has a card to show while it's selected (`palette_card`).
+    preview: bool,
 }
 
 #[derive(Serialize)]
@@ -370,7 +389,7 @@ impl From<&Item> for ItemView {
             detail: item.detail.clone(),
             icon,
             section: item.section,
-            preview: item.preview.map(|d| d.format("%Y-%m-%d").to_string()),
+            preview: item.preview.is_some(),
         }
     }
 }
@@ -426,6 +445,13 @@ impl Session {
     pub fn item(&self, seq: u64, index: usize) -> Option<Item> {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         (s.seq == seq).then(|| s.items.get(index).cloned()).flatten()
+    }
+
+    /// Whether `path` is an icon the palette is showing: an installed app's, or the program of
+    /// something it answers about.
+    pub fn shows_icon(&self, path: &str) -> bool {
+        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)))
     }
 }
 
@@ -551,11 +577,20 @@ mod tests {
     fn results_number_items_for_running_them() {
         let session = Session::default();
         let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
-        session.open(Context { today, apps: Vec::new(), session: None, today_apps: Vec::new(), over_limits: Vec::new(), suggestions: true });
+        session.open(Context {
+            today,
+            apps: Vec::new(),
+            session: None,
+            today_apps: Vec::new(),
+            over_limits: Vec::new(),
+            suggestions: true,
+            subjects: Vec::new(),
+            limits: HashMap::new(),
+        });
         let first = session.query("");
         assert!(!first.chips.is_empty());
         let second = session.query("yesterday");
-        assert_eq!(second.rows[0].preview.as_deref(), Some("2026-10-25"));
+        assert!(second.rows[0].preview);
         // An item from results that have been replaced isn't run.
         assert!(session.item(first.seq, 0).is_none());
         assert_eq!(session.item(second.seq, 0).map(|i| i.action), Some(Action::Go("today", Some(today.pred_opt().unwrap()))));

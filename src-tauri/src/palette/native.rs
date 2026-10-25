@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
-use chrono::NaiveDate;
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 use windows::core::{w, Interface, Result, PCWSTR};
@@ -18,14 +17,14 @@ use windows::Win32::Graphics::Direct2D::Common::{
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_ROUND, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
     D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1, DWRITE_CONTAINER_TYPE_WOFF2,
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_NORMAL,
     DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_HIT_TEST_METRICS, DWRITE_LINE_METRICS, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_TRIMMING,
     DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
@@ -53,6 +52,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_numerics::Vector2;
 
 use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
+use super::cards::{self, Answer, Card, FocusPlan};
+use super::search::Preview;
 use super::{DayGlance, Segment};
 use crate::analysis::Category;
 use crate::{db, platform};
@@ -73,7 +74,10 @@ const ROW_H: f32 = 44.0;
 const TILE_H: f32 = 42.0;
 const CHIP_H: f32 = 32.0;
 const LABEL_H: f32 = 26.0;
-const PREVIEW_H: f32 = 92.0;
+/// The card above the results, by what it shows, counting the gap above it.
+const DAY_CARD_H: f32 = 92.0;
+const ANSWER_CARD_H: f32 = 200.0;
+const FOCUS_CARD_H: f32 = 140.0;
 /// From the top of the screen to the palette, as a share of the screen's height.
 const FROM_TOP: f32 = 0.16;
 
@@ -93,6 +97,8 @@ struct Theme {
     neutral: u32,
     distracting: u32,
     warm: u32,
+    /// A change for the better, in an answer.
+    good: u32,
 }
 
 const DARK: Theme = Theme {
@@ -106,6 +112,7 @@ const DARK: Theme = Theme {
     neutral: 0x4a505c,
     distracting: 0xd95926,
     warm: 0xf0a27c,
+    good: 0x7fd18b,
 };
 
 const LIGHT: Theme = Theme {
@@ -119,6 +126,7 @@ const LIGHT: Theme = Theme {
     neutral: 0xa9aeb6,
     distracting: 0xcf5220,
     warm: 0xb95420,
+    good: 0x2b8a3e,
 };
 
 fn color(hex: u32, alpha: f32) -> D2D1_COLOR_F {
@@ -181,6 +189,8 @@ struct Formats {
     stat_label: IDWriteTextFormat,
     letter: IDWriteTextFormat,
     chip: IDWriteTextFormat,
+    /// An answer's total.
+    big: IDWriteTextFormat,
 }
 
 struct Palette {
@@ -192,6 +202,8 @@ struct Palette {
     dwrite: IDWriteFactory,
     formats: Formats,
     stroke: ID2D1StrokeStyle,
+    /// For an answer's limit line.
+    dash: ID2D1StrokeStyle,
     target: Option<ID2D1HwndRenderTarget>,
     /// Icons as premultiplied BGRA, kept across openings; their bitmaps go with the target.
     pixels: HashMap<String, Option<(u32, u32, Vec<u8>)>>,
@@ -215,7 +227,7 @@ struct Palette {
     content_h: f32,
     selected: usize,
     scroll: f32,
-    preview: Option<(NaiveDate, DayGlance)>,
+    preview: Option<(Preview, Card)>,
     error: Option<String>,
 }
 
@@ -398,9 +410,14 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
         stat_label: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 11.0)?,
         letter: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_SEMI_BOLD, 10.0)?,
         chip: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 13.0)?,
+        big: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_LIGHT, 40.0)?,
     };
     let stroke = d2d.CreateStrokeStyle(
         &D2D1_STROKE_STYLE_PROPERTIES { startCap: D2D1_CAP_STYLE_ROUND, endCap: D2D1_CAP_STYLE_ROUND, lineJoin: D2D1_LINE_JOIN_ROUND, ..Default::default() },
+        None,
+    )?;
+    let dash = d2d.CreateStrokeStyle(
+        &D2D1_STROKE_STYLE_PROPERTIES { startCap: D2D1_CAP_STYLE_FLAT, endCap: D2D1_CAP_STYLE_FLAT, dashStyle: D2D1_DASH_STYLE_DASH, ..Default::default() },
         None,
     )?;
 
@@ -414,6 +431,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             dwrite,
             formats,
             stroke,
+            dash,
             target: None,
             pixels: HashMap::new(),
             bitmaps: HashMap::new(),
@@ -562,7 +580,16 @@ impl Palette {
     }
 
     fn results_top(&self) -> f32 {
-        HEADER + if self.preview.is_some() { PREVIEW_H } else { 0.0 }
+        HEADER + self.card_h()
+    }
+
+    fn card_h(&self) -> f32 {
+        match &self.preview {
+            None => 0.0,
+            Some((_, Card::Day(_))) => DAY_CARD_H,
+            Some((_, Card::Answer(_))) => ANSWER_CARD_H,
+            Some((_, Card::Focus(f))) => FOCUS_CARD_H + if f.replaces { 20.0 } else { 0.0 },
+        }
     }
 
     fn results_h(&self) -> f32 {
@@ -721,14 +748,15 @@ impl Palette {
 
     /// A selected day gets a glance at how it went, above the results.
     fn update_preview(&mut self) {
-        let Some(day) = self.items.get(self.selected).and_then(|i| i.preview) else {
+        let Some(wanted) = self.items.get(self.selected).and_then(|i| i.preview.clone()) else {
             self.preview = None;
             return;
         };
-        if self.preview.as_ref().is_some_and(|(d, _)| *d == day) {
+        if self.preview.as_ref().is_some_and(|(p, _)| *p == wanted) {
             return;
         }
-        self.preview = Some((day, super::day_glance(&self.conn, day)));
+        let card = cards::card(&self.conn, &wanted);
+        self.preview = Some((wanted, card));
     }
 
     fn measure(&self, text: &str, format: &IDWriteTextFormat) -> f32 {
@@ -811,7 +839,7 @@ impl Palette {
         if index == self.selected {
             return;
         }
-        let had_preview = self.preview.is_some();
+        let card_h = self.card_h();
         self.selected = index;
         self.update_preview();
         // Keep the selection in view.
@@ -823,7 +851,7 @@ impl Palette {
                 self.scroll = p.rect.bottom + 8.0 - view;
             }
         }
-        if had_preview != self.preview.is_some() {
+        if card_h != self.card_h() {
             self.resize();
         } else {
             self.repaint();
@@ -1095,6 +1123,11 @@ impl Palette {
 
     /// An app's icon as a bitmap for this target, read from Windows the first time it's shown.
     fn bitmap(&mut self, rt: &ID2D1RenderTarget, path: &str) -> Result<Option<ID2D1Bitmap>> {
+        // Only a file or a Start menu entry has one; asked for anything else, Windows gives a
+        // folder. A site, or an app whose program Kairo hasn't found, gets its letter.
+        if !path.contains('\\') {
+            return Ok(None);
+        }
         if let Some(b) = self.bitmaps.get(path) {
             return Ok(Some(b.clone()));
         }
@@ -1147,9 +1180,16 @@ impl Palette {
         self.kbd(rt, "Esc", W - 18.0, HEADER / 2.0)?;
         unsafe { rt.DrawLine(v(0.0, HEADER - 0.5), v(W, HEADER - 0.5), &rule, 1.0, None) };
 
-        if let Some((_, p)) = &self.preview {
-            self.draw_preview(rt, p)?;
-        }
+        // Out while it's drawn, since drawing an icon may keep its bitmap.
+        let preview = self.preview.take();
+        let drawn = match preview.as_ref().map(|(_, c)| c) {
+            Some(Card::Day(day)) => self.draw_day(rt, day),
+            Some(Card::Answer(answer)) => self.draw_answer(rt, answer),
+            Some(Card::Focus(plan)) => self.draw_focus(rt, plan),
+            None => Ok(()),
+        };
+        self.preview = preview;
+        drawn?;
 
         // Results, clipped to their area and scrolled.
         let top = self.results_top();
@@ -1200,10 +1240,97 @@ impl Palette {
         Ok(())
     }
 
-    fn draw_preview(&self, rt: &ID2D1RenderTarget, p: &DayGlance) -> Result<()> {
+    /// The card's ground, from under the search row to `height` below it.
+    fn card(&self, rt: &ID2D1RenderTarget, height: f32) -> Result<()> {
+        let card = D2D1_ROUNDED_RECT { rect: rect(10.0, HEADER + 10.0, W - 10.0, HEADER + height), radiusX: 10.0, radiusY: 10.0 };
+        unsafe { rt.FillRoundedRectangle(&card, &self.brush(rt, self.theme.bg, 1.0)?) };
+        Ok(())
+    }
+
+    /// Time in an app or site over a period: its total, the change, a bar a day (or an hour)
+    /// against its limit, and what stands out.
+    fn draw_answer(&mut self, rt: &ID2D1RenderTarget, a: &Answer) -> Result<()> {
         let t = self.theme;
-        let card = D2D1_ROUNDED_RECT { rect: rect(10.0, HEADER + 10.0, W - 10.0, HEADER + PREVIEW_H), radiusX: 10.0, radiusY: 10.0 };
-        unsafe { rt.FillRoundedRectangle(&card, &self.brush(rt, t.bg, 1.0)?) };
+        self.card(rt, ANSWER_CARD_H)?;
+        let top = HEADER + 10.0;
+        let x = 30.0;
+        let icon = Icon::App(a.icon.clone().unwrap_or_default());
+        self.icon(rt, &icon, &a.title, x, top + 34.0, 28.0)?;
+        self.text(rt, &a.title, &self.formats.title, x + 42.0, top + 17.0, W - 72.0 - x, t.ink, &[], false)?;
+        self.text(rt, &a.range, &self.formats.sub, x + 42.0, top + 36.0, W - 72.0 - x, t.muted, &[], false)?;
+
+        self.text(rt, &fmt_dur(a.total_ms), &self.formats.big, x - 2.0, top + 62.0, 200.0, t.ink, &[], false)?;
+        if let Some(change) = &a.change {
+            let hex = match a.better {
+                Some(true) => t.good,
+                Some(false) => t.warm,
+                None => t.muted,
+            };
+            self.text(rt, change, &self.formats.mono, x, top + 114.0, 200.0, hex, &[], false)?;
+        }
+
+        // The bars, scaled to the busiest one or a little over the limit line.
+        let (left, right, floor, height) = (x + 210.0, W - 30.0, top + 124.0, 62.0);
+        let n = a.bars.len().max(1) as f32;
+        let gap = if n > 7.0 { 3.0 } else { 8.0 };
+        let width = ((right - left) - gap * (n - 1.0)) / n;
+        let most = a.bars.iter().map(|b| b.ms).max().unwrap_or(0).max(a.limit_ms.map_or(0, |l| l * 6 / 5)).max(1) as f32;
+        for (i, bar) in a.bars.iter().enumerate() {
+            let bx = left + i as f32 * (width + gap);
+            let h = if bar.ms > 0 { (bar.ms as f32 / most * height).max(3.0) } else { 2.0 };
+            let hex = if bar.over {
+                t.distracting
+            } else if bar.ms > 0 {
+                t.neutral
+            } else {
+                t.line
+            };
+            let shape = D2D1_ROUNDED_RECT { rect: rect(bx, floor - h, bx + width, floor), radiusX: 3.0_f32.min(width / 2.0), radiusY: 3.0_f32.min(width / 2.0) };
+            unsafe { rt.FillRoundedRectangle(&shape, &self.brush(rt, hex, 1.0)?) };
+            if !bar.label.is_empty() {
+                let lw = self.measure(&bar.label, &self.formats.stat_label);
+                let lx = if n > 7.0 { bx } else { bx + (width - lw) / 2.0 };
+                self.text(rt, &bar.label, &self.formats.stat_label, lx, floor + 4.0, 40.0, t.muted, &[], false)?;
+            }
+        }
+        if let Some(limit) = a.limit_ms {
+            let y = (floor - limit as f32 / most * height).round() + 0.5;
+            unsafe { rt.DrawLine(v(left, y), v(right, y), &self.brush(rt, t.neutral, 1.0)?, 1.0, &self.dash) };
+        }
+
+        self.text(rt, &a.note, &self.formats.chip, x, top + 152.0, W - 2.0 * x, t.muted, &[], false)?;
+        Ok(())
+    }
+
+    /// What a focus session would do once started: when it ends, what's blocked, the
+    /// launchers, strict mode.
+    fn draw_focus(&mut self, rt: &ID2D1RenderTarget, f: &FocusPlan) -> Result<()> {
+        let t = self.theme;
+        // Its height from the plan itself: the card is out of `self.preview` while drawn.
+        self.card(rt, FOCUS_CARD_H + if f.replaces { 20.0 } else { 0.0 })?;
+        let top = HEADER + 10.0;
+        let x = 30.0;
+        self.icon(rt, &Icon::Glyph(Glyph::Focus, Tone::Accent), "", x, top + 34.0, 28.0)?;
+        self.text(rt, &f.title, &self.formats.title, x + 42.0, top + 17.0, W - 72.0 - x, t.ink, &[], false)?;
+        self.text(rt, &f.sub, &self.formats.sub, x + 42.0, top + 36.0, W - 72.0 - x, t.muted, &[], false)?;
+        let tiles = [("Blocking", &f.blocking), ("Launchers", &f.launchers), ("Strict mode", &f.strict)];
+        let width = (W - 2.0 * x - 20.0) / 3.0;
+        for (i, (name, value)) in tiles.into_iter().enumerate() {
+            let tx = x + i as f32 * (width + 10.0);
+            let tile = D2D1_ROUNDED_RECT { rect: rect(tx, top + 62.0, tx + width, top + 112.0), radiusX: 8.0, radiusY: 8.0 };
+            unsafe { rt.DrawRoundedRectangle(&tile, &self.brush(rt, t.line, 1.0)?, 1.0, None) };
+            self.text(rt, name, &self.formats.stat_label, tx + 12.0, top + 70.0, width - 24.0, t.muted, &[], false)?;
+            self.text(rt, value, &self.formats.chip, tx + 12.0, top + 87.0, width - 24.0, t.ink, &[], false)?;
+        }
+        if f.replaces {
+            self.text(rt, "Starting it ends the session that's running.", &self.formats.chip, x, top + 122.0, W - 2.0 * x, t.warm, &[], false)?;
+        }
+        Ok(())
+    }
+
+    fn draw_day(&self, rt: &ID2D1RenderTarget, p: &DayGlance) -> Result<()> {
+        let t = self.theme;
+        self.card(rt, DAY_CARD_H)?;
         let stats = [
             ("On screen", fmt_dur(p.active_ms)),
             ("Productive", format!("{}%", p.productive_pct)),
