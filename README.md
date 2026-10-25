@@ -37,6 +37,12 @@ cd src-tauri && cargo test
 
 Run builds from PowerShell or cmd. In Git Bash, `/usr/bin/link` shadows the MSVC linker.
 
+#### macOS (preview)
+
+Tracking, idle time, icons and focus blocking also work on a Mac (`platform::mac`); the command palette is Windows-only for now. Mac apps go by their bundle name and share categories with their Windows twins (Google Chrome.app counts as `chrome`). Window titles, and the sites guessed from them, need **Screen Recording** access, which Kairo asks for on first launch. Instead of being minimized, blocked apps are hidden.
+
+The macOS build workflow runs the tests on a Mac and keeps an unsigned `.dmg` with each run (Actions → macOS build → Artifacts). It's only ad-hoc signed, so after copying Kairo to Applications, run `xattr -cr /Applications/Kairo.app` once before opening it.
+
 To try the insights without waiting weeks, go to **Categories → Load demo data**. Demo rows are flagged and can be cleared on their own.
 
 `tauri build` signs the update bundle, so a local build needs the signing key in the environment:

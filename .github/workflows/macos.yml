@@ -1,0 +1,52 @@
+# Tests Kairo on a Mac and builds an unsigned .dmg, kept with the run for 14 days, for trying a
+# macOS build before releases include one.
+name: macOS build
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/macos.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      # Both kinds of Mac: Apple silicon and Intel.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      # Ad-hoc signed only, and without updater files, which need the release signing key.
+      - name: Build
+        run: >
+          npm run tauri -- build --target universal-apple-darwin --bundles dmg
+          --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kairo-macos
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 14
+          if-no-files-found: error

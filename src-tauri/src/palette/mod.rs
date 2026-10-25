@@ -152,6 +152,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(windows)]
     fn the_start_menu_lists_apps_without_uninstallers() {
         let apps = start_menu_apps();
         // Every Windows install has some Start menu shortcuts.

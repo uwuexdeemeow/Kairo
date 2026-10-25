@@ -139,7 +139,8 @@ fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sam
         return Some((Sample::idle(), now));
     };
     let exe = classify::exe_stem(&fg.exe_path);
-    if exe == "lockapp" {
+    // The lock screen on Windows; the login window and screen saver on a Mac.
+    if matches!(exe.as_str(), "lockapp" | "loginwindow" | "screensaverengine") {
         return Some((Sample::idle(), now));
     }
 
@@ -167,7 +168,7 @@ fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sam
     }
 
     // Named before the title goes, since some app names come from it.
-    let app = classify::game_name(&fg.exe_path).unwrap_or_else(|| classify::display_name(&exe, &title));
+    let app = classify::app_name(&fg.exe_path, &exe, &title);
     if private || mode == Mode::HideTitle {
         title.clear();
     }

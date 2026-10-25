@@ -1,6 +1,34 @@
 //! Turning raw window data into something a person recognises: app names, websites, default categories.
 
-const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc"];
+const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "safari"];
+
+/// Mac apps known by the Windows program they match, so both share categories, limits and
+/// blocking rules: (app bundle name, Windows exe stem).
+pub const MAC_APPS: &[(&str, &str)] = &[
+    ("Google Chrome", "chrome"),
+    ("Microsoft Edge", "msedge"),
+    ("Brave Browser", "brave"),
+    ("Vivaldi", "vivaldi"),
+    ("Visual Studio Code", "code"),
+    ("Sublime Text", "sublime_text"),
+    ("IntelliJ IDEA", "idea64"),
+    ("IntelliJ IDEA CE", "idea64"),
+    ("PyCharm", "pycharm64"),
+    ("PyCharm CE", "pycharm64"),
+    ("WebStorm", "webstorm64"),
+    ("Rider", "rider64"),
+    ("Microsoft Word", "winword"),
+    ("Microsoft Excel", "excel"),
+    ("Microsoft PowerPoint", "powerpnt"),
+    ("Microsoft OneNote", "onenote"),
+    ("Microsoft Outlook", "outlook"),
+    ("Microsoft Teams", "teams"),
+    ("Epic Games Launcher", "epicgameslauncher"),
+    ("Riot Client", "riotclientux"),
+    ("Ubisoft Connect", "upc"),
+    ("GOG Galaxy", "galaxyclient"),
+    ("Roblox", "robloxplayerbeta"),
+];
 
 /// Sites recognised from browser window titles: (text to look for, canonical name).
 const KNOWN_SITES: &[(&str, &str)] = &[
@@ -57,6 +85,9 @@ pub const DEFAULT_CATEGORIES: &[(&str, &str)] = &[
     ("app:notion", "productive"),
     ("app:figma", "productive"),
     ("app:postman", "productive"),
+    ("app:terminal", "productive"),
+    ("app:iterm", "productive"),
+    ("app:xcode", "productive"),
     ("app:steam", "distracting"),
     ("app:epicgameslauncher", "distracting"),
     ("app:discord", "distracting"),
@@ -127,7 +158,38 @@ pub fn clean_title(title: &str) -> String {
         .to_string()
 }
 
+/// What to call the program at `exe_path` when it isn't a game in a library folder: on a Mac,
+/// the name Finder shows, unless it's an app Kairo knows from Windows.
+pub fn app_name(exe_path: &str, exe: &str, title: &str) -> String {
+    if let Some(game) = game_name(exe_path) {
+        return game;
+    }
+    match bundle_name(exe_path) {
+        Some(bundle) if !MAC_APPS.iter().any(|(b, _)| b.eq_ignore_ascii_case(bundle)) => bundle.to_string(),
+        _ => display_name(exe, title),
+    }
+}
+
+/// The outermost `.app` bundle in a Mac program's path, e.g. `/Applications/Google Chrome.app`
+/// for `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`.
+pub fn bundle_path(exe_path: &str) -> Option<&str> {
+    let end = exe_path.find(".app/").map(|i| i + 4).or_else(|| exe_path.ends_with(".app").then_some(exe_path.len()))?;
+    Some(&exe_path[..end])
+}
+
+fn bundle_name(exe_path: &str) -> Option<&str> {
+    let name = bundle_path(exe_path)?.rsplit('/').next()?.strip_suffix(".app")?;
+    (!name.is_empty()).then_some(name)
+}
+
 pub fn exe_stem(exe_path: &str) -> String {
+    // A Mac program goes by its app bundle, since the file inside is often generic ("Electron").
+    if let Some(bundle) = bundle_name(exe_path) {
+        return MAC_APPS
+            .iter()
+            .find(|(b, _)| b.eq_ignore_ascii_case(bundle))
+            .map_or_else(|| bundle.to_lowercase(), |(_, stem)| stem.to_string());
+    }
     let file = exe_path.rsplit(['\\', '/']).next().unwrap_or(exe_path);
     let stem = file.strip_suffix(".exe").or_else(|| file.strip_suffix(".EXE")).unwrap_or(file);
     stem.to_lowercase()
@@ -228,6 +290,28 @@ mod tests {
         assert_eq!(exe_stem(r"C:\Program Files\Google\Chrome\Application\chrome.exe"), "chrome");
         assert_eq!(display_name("code", ""), "VS Code");
         assert_eq!(display_name("obsidian", ""), "Obsidian");
+    }
+
+    #[test]
+    fn mac_apps_go_by_their_bundle_and_match_their_windows_twins() {
+        let chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+        assert_eq!(exe_stem(chrome), "chrome");
+        assert!(is_browser(&exe_stem(chrome)));
+        assert_eq!(app_name(chrome, "chrome", ""), "Chrome");
+        // VS Code's executable is called Electron; the bundle is what counts.
+        assert_eq!(exe_stem("/Applications/Visual Studio Code.app/Contents/MacOS/Electron"), "code");
+        // Helpers nested inside an app belong to the app.
+        let helper = "/Applications/Steam.app/Contents/MacOS/Frameworks/Steam Helper.app/Contents/MacOS/Steam Helper";
+        assert_eq!(exe_stem(helper), "steam");
+        assert_eq!(bundle_path(helper), Some("/Applications/Steam.app"));
+        let settings = "/System/Applications/System Settings.app/Contents/MacOS/System Settings";
+        assert_eq!(exe_stem(settings), "system settings");
+        assert_eq!(app_name(settings, "system settings", ""), "System Settings");
+        let game = "/Users/me/Library/Application Support/Steam/steamapps/common/Hades/Hades.app/Contents/MacOS/Hades";
+        assert_eq!(app_name(game, &exe_stem(game), ""), "Hades");
+        assert!(is_game(&exe_stem(game), game));
+        // Windows paths are untouched.
+        assert_eq!(bundle_path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"), None);
     }
 
     #[test]

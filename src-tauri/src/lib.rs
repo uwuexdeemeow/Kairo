@@ -111,6 +111,8 @@ pub fn run() {
             app.manage(palette::Index::default());
             #[cfg(windows)]
             palette::native::spawn(app.handle().clone(), db_path.clone());
+            #[cfg(target_os = "macos")]
+            platform::request_window_titles();
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());

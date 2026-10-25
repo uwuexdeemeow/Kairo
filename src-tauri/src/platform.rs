@@ -4,7 +4,7 @@ pub struct Foreground {
     /// Full path of the process that owns the foreground window.
     pub exe_path: String,
     pub title: String,
-    /// The window itself, for minimizing it during a focus session.
+    /// The window itself, for minimizing it during a focus session (on a Mac, the app's process id).
     pub window: usize,
 }
 
@@ -331,48 +331,259 @@ mod tests {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub use mac::{app_path, close_process, foreground, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
+
+/// On a Mac, `Foreground::window` holds the app's process id: apps are hidden as a whole, and
+/// `processes` gives full paths, which `classify::exe_stem` reads by their app bundle.
+#[cfg(target_os = "macos")]
+mod mac {
+    use std::ffi::{c_void, CStr};
+    use std::path::{Path, PathBuf};
+
+    use objc2::rc::autoreleasepool;
+    use objc2::AnyThread;
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSRunningApplication, NSWorkspace};
+    use objc2_foundation::{NSDictionary, NSPoint, NSRect, NSSize, NSString};
+
+    use super::Foreground;
+    use crate::classify;
+
+    type CFTypeRef = *const c_void;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFArrayGetCount(array: CFTypeRef) -> isize;
+        fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
+        fn CFDictionaryGetValue(dict: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+        fn CFNumberGetValue(number: CFTypeRef, kind: isize, out: *mut c_void) -> u8;
+        fn CFStringGetLength(string: CFTypeRef) -> isize;
+        fn CFStringGetMaximumSizeForEncoding(length: isize, encoding: u32) -> isize;
+        fn CFStringGetCString(string: CFTypeRef, buf: *mut std::ffi::c_char, size: isize, encoding: u32) -> u8;
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        static kCGWindowOwnerPID: CFTypeRef;
+        static kCGWindowLayer: CFTypeRef;
+        static kCGWindowName: CFTypeRef;
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFTypeRef;
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    const ON_SCREEN_ONLY: u32 = 1 << 0;
+    const EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
+    const COMBINED_SESSION_STATE: i32 = 0;
+    const ANY_INPUT_EVENT: u32 = !0;
+    const NUMBER_SINT64: isize = 4;
+    const UTF8: u32 = 0x0800_0100;
+    /// Icon size in points; Retina screens get twice the pixels.
+    const ICON_POINTS: f64 = 32.0;
+
+    pub fn foreground() -> Option<Foreground> {
+        autoreleasepool(|_| {
+            let app = NSWorkspace::sharedWorkspace().frontmostApplication()?;
+            let pid = app.processIdentifier();
+            Some(Foreground { exe_path: process_path(pid)?, title: window_title(pid).unwrap_or_default(), window: pid as usize })
+        })
+    }
+
+    /// Window titles of other apps need Screen Recording access. Asks once; macOS remembers the
+    /// answer, and without it Kairo still tracks apps, just not titles or sites guessed from them.
+    pub fn request_window_titles() {
+        unsafe {
+            if !CGPreflightScreenCaptureAccess() {
+                CGRequestScreenCaptureAccess();
+            }
+        }
+    }
+
+    /// The title of an app's frontmost window. The window list runs front to back, and layer 0
+    /// holds ordinary windows; menus, the Dock and overlays sit above it.
+    fn window_title(pid: i32) -> Option<String> {
+        unsafe {
+            let list = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0);
+            if list.is_null() {
+                return None;
+            }
+            let mut title = None;
+            for i in 0..CFArrayGetCount(list) {
+                let window = CFArrayGetValueAtIndex(list, i);
+                if number(window, kCGWindowOwnerPID) == Some(pid as i64) && number(window, kCGWindowLayer) == Some(0) {
+                    title = string(CFDictionaryGetValue(window, kCGWindowName));
+                    break;
+                }
+            }
+            CFRelease(list);
+            title
+        }
+    }
+
+    unsafe fn number(dict: CFTypeRef, key: CFTypeRef) -> Option<i64> {
+        let value = CFDictionaryGetValue(dict, key);
+        let mut out = 0i64;
+        (!value.is_null() && CFNumberGetValue(value, NUMBER_SINT64, (&mut out as *mut i64).cast()) != 0).then_some(out)
+    }
+
+    unsafe fn string(value: CFTypeRef) -> Option<String> {
+        if value.is_null() {
+            return None;
+        }
+        let size = CFStringGetMaximumSizeForEncoding(CFStringGetLength(value), UTF8) + 1;
+        let mut buf = vec![0u8; size as usize];
+        if CFStringGetCString(value, buf.as_mut_ptr().cast(), size, UTF8) == 0 {
+            return None;
+        }
+        CStr::from_bytes_until_nul(&buf).ok().map(|s| s.to_string_lossy().into_owned())
+    }
+
+    fn process_path(pid: i32) -> Option<String> {
+        let mut buf = [0u8; 4096];
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        (len > 0).then(|| String::from_utf8_lossy(&buf[..len as usize]).into_owned())
+    }
+
+    /// Hides the app, which is as close as a Mac comes to minimizing it; false when it's gone.
+    pub fn minimize(window: usize) -> bool {
+        autoreleasepool(|_| {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(window as i32).is_some_and(|app| app.hide())
+        })
+    }
+
+    /// Opens a file the way double-clicking it in Finder would; for an app, that starts it.
+    pub fn open_path(path: &str) -> bool {
+        std::process::Command::new("/usr/bin/open").arg(path).status().is_ok_and(|s| s.success())
+    }
+
+    /// An app's icon as Finder shows it, as PNG bytes. None when the program is gone.
+    pub fn icon_png(path: &str) -> Option<Vec<u8>> {
+        // Inside a bundle, the executable only has the generic icon; the bundle has the real one.
+        let target = classify::bundle_path(path).unwrap_or(path);
+        if !Path::new(target).exists() {
+            return None;
+        }
+        autoreleasepool(|_| unsafe {
+            let icon = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(target));
+            let mut rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(ICON_POINTS, ICON_POINTS));
+            let image = icon.CGImageForProposedRect_context_hints(&mut rect, None, None)?;
+            let bitmap = NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &image);
+            let png = bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())?;
+            Some(png.to_vec())
+        })
+    }
+
+    /// Every running process: (process id, full path of its program).
+    pub fn processes() -> Vec<(u32, String)> {
+        let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        if count <= 0 {
+            return Vec::new();
+        }
+        // Room for processes that start between the two calls.
+        let mut pids = vec![0 as libc::pid_t; count as usize + 64];
+        let size = (pids.len() * std::mem::size_of::<libc::pid_t>()) as i32;
+        let count = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
+        pids.truncate(count.max(0) as usize);
+        pids.into_iter().filter(|&pid| pid > 0).filter_map(|pid| Some((pid as u32, process_path(pid)?))).collect()
+    }
+
+    /// Ends a process outright; false when it's gone already or macOS won't allow it.
+    pub fn close_process(pid: u32) -> bool {
+        // 0 would mean Kairo's own process group to kill().
+        pid != 0 && i32::try_from(pid).is_ok_and(|pid| unsafe { libc::kill(pid, libc::SIGKILL) } == 0)
+    }
+
+    /// Time since the last keyboard, mouse or trackpad input.
+    pub fn idle_ms() -> i64 {
+        let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION_STATE, ANY_INPUT_EVENT) };
+        (seconds * 1000.0).max(0.0) as i64
+    }
+
+    /// Where an installed app's program lives, for a Windows exe name such as `brave.exe`; looks
+    /// in /Applications, then in the user's own Applications folder.
+    pub fn app_path(exe: &str) -> Option<String> {
+        let stem = exe.strip_suffix(".exe").unwrap_or(exe);
+        let &(name, _) = classify::MAC_APPS.iter().find(|(_, s)| *s == stem)?;
+        let home = std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Applications"));
+        [Some(PathBuf::from("/Applications")), home]
+            .into_iter()
+            .flatten()
+            .map(|dir| dir.join(format!("{name}.app/Contents/MacOS/{name}")))
+            .find(|path| path.is_file())
+            .map(|path| path.display().to_string())
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    #[test]
+    fn idle_time_is_never_negative() {
+        assert!(super::idle_ms() >= 0);
+    }
+
+    #[test]
+    fn app_icons_come_out_as_png() {
+        // Finder is on every Mac and has a color icon.
+        let png = super::icon_png("/System/Library/CoreServices/Finder.app/Contents/MacOS/Finder").expect("Finder has an icon");
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+        assert!(super::icon_png("/Applications/No Such App.app/Contents/MacOS/No Such App").is_none());
+    }
+
+    #[test]
+    fn the_process_list_includes_this_test_and_unknown_processes_cant_be_closed() {
+        let me = std::process::id();
+        assert!(super::processes().iter().any(|(pid, path)| *pid == me && path.starts_with('/')));
+        assert!(!super::close_process(0));
+        // launchd belongs to root; nothing else gets to end it.
+        assert!(!super::close_process(1));
+    }
+}
+
 // Other platforms are not supported yet; the collector simply records nothing.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn foreground() -> Option<Foreground> {
     None
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn idle_ms() -> i64 {
     0
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn app_path(_exe: &str) -> Option<String> {
     None
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn icon_png(_path: &str) -> Option<Vec<u8>> {
     None
 }
 
+/// Only the Windows command palette draws icons from pixels.
 #[cfg(not(windows))]
 pub fn icon_pixels(_path: &str) -> Option<(u32, u32, Vec<u8>)> {
     None
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn open_path(_path: &str) -> bool {
     false
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn minimize(_window: usize) -> bool {
     false
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn processes() -> Vec<(u32, String)> {
     Vec::new()
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 pub fn close_process(_pid: u32) -> bool {
     false
 }

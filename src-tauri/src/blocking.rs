@@ -45,7 +45,11 @@ pub const LAUNCHERS: &[(&str, &str)] = &[
 
 /// Never blocked, whatever the rules say: Kairo itself and the parts of Windows you need to get
 /// around.
-const NEVER: &[&str] = &["kairo", "explorer", "lockapp", "searchhost", "shellexperiencehost", "startmenuexperiencehost", "taskmgr"];
+const NEVER: &[&str] = &[
+    "kairo", "explorer", "lockapp", "searchhost", "shellexperiencehost", "startmenuexperiencehost", "taskmgr",
+    // Their Mac counterparts.
+    "finder", "loginwindow", "activity monitor",
+];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -293,7 +297,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
             // with anti-cheat; the focus session's nudge still speaks up for those.
             && platform::minimize(fg.window)
         {
-            let label = classify::game_name(&fg.exe_path).unwrap_or_else(|| classify::display_name(&exe, &classify::clean_title(&fg.title)));
+            let label = classify::app_name(&fg.exe_path, &exe, &classify::clean_title(&fg.title));
             show_blocked(app, &Blocked { label, key, until_ms: until }, &crate::appearance::get(conn)?)?;
         }
     }
