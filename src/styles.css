@@ -244,9 +244,15 @@ h2 {
 .focus-left {
   display: block;
   margin-top: 2px;
+  padding: 0;
+  text-align: left;
   font-family: var(--mono);
   font-size: 18px;
   font-variant-numeric: tabular-nums;
+}
+
+.focus-left:hover {
+  color: var(--productive);
 }
 
 .focus-active .track {
@@ -498,6 +504,198 @@ h2 {
 
 .usage-value.over {
   color: var(--distracting);
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--neutral);
+  background: var(--raised);
+}
+
+.btn.primary {
+  border-color: var(--productive);
+  background: var(--productive);
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #4a95ec;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- focus page ---------- */
+
+.timer {
+  margin-top: 28px;
+  max-width: 560px;
+}
+
+.timer-face {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+}
+
+.timer-time {
+  font-size: 96px;
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A paused clock dims, so it reads as stopped at a glance. */
+.timer-time.paused {
+  color: var(--faint);
+}
+
+.timer-sub {
+  color: var(--muted);
+}
+
+.timer-track {
+  margin-top: 20px;
+  height: 3px;
+}
+
+.timer-setup,
+.timer-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 28px;
+}
+
+.timer-presets {
+  display: flex;
+  gap: 4px;
+}
+
+.timer-presets button {
+  min-width: 52px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.timer-presets button:hover {
+  color: var(--ink);
+}
+
+.timer-presets button[aria-pressed="true"] {
+  border-color: var(--productive);
+  color: var(--ink);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.stepper span {
+  min-width: 64px;
+  text-align: center;
+}
+
+.stepper button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.stepper button:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--ink);
+}
+
+.stepper button:disabled {
+  opacity: 0.3;
+}
+
+.timer-label {
+  flex: 1 1 100%;
+  width: auto;
+}
+
+.focus-stats {
+  margin-top: 56px;
+}
+
+.history-day h3 {
+  margin: 28px 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--faint);
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr) 72px 96px;
+  gap: 16px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.history-time,
+.history-len {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.history-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-len {
+  text-align: right;
+}
+
+.history-state {
+  font-size: 12px;
+  text-align: right;
+}
+
+.history-state.done {
+  color: var(--good);
+}
+
+.history-state.cut {
+  color: var(--faint);
+}
+
+.history-state.live {
+  color: var(--productive);
+}
+
+.ext-browsers {
+  margin-top: 6px;
 }
 
 /* ---------- calendar ---------- */

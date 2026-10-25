@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusBlock, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -307,6 +307,7 @@ function renderToday(d: DaySummary) {
     stat("Deep-work blocks", String(d.deepBlocks)),
     stat("Distracted", fmtDur(d.distractingMs)),
     stat("Switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
+    stat("Focus sessions", String(shownFocus.length), shownFocus.length ? fmtDur(shownFocus.reduce((ms, b) => ms + focusedMs(b), 0)) : ""),
   );
   renderTimeline(d, isToday);
   if (isToday) renderHeadsUp();
@@ -941,31 +942,167 @@ async function refreshStatus() {
   paintStatus();
 }
 
+/// Time left in a session; a pause holds it still.
+function focusLeft(s: FocusSession, now = Date.now()): number {
+  const pausedNow = s.pausedAt === null ? 0 : now - s.pausedAt;
+  return s.startMs + s.plannedMs + s.pausedMs + pausedNow - now;
+}
+
+/// Kairo closes a finished session within seconds; until the next poll, treat it as over here.
+const runningFocus = () => (focusSession && (focusSession.pausedAt !== null || focusLeft(focusSession) > 0) ? focusSession : null);
+
 /// The sidebar's focus box: start buttons when idle, a countdown while a session runs.
 function paintFocus() {
-  const running = focusSession && Date.now() < focusSession.startMs + focusSession.plannedMs ? focusSession : null;
+  const running = runningFocus();
   $("#focus-idle").hidden = !!running;
   $("#focus-active").hidden = !running;
-  if (!running) return;
-  const left = running.startMs + running.plannedMs - Date.now();
-  $("#focus-left").textContent = `${fmtElapsed(left)} left`;
-  $("#focus-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
+  if (running) {
+    const left = focusLeft(running);
+    const paused = running.pausedAt !== null;
+    // "Paused" rides in the small label so the countdown stays on one line.
+    $("#focus-active-label").textContent = paused ? "Focus session · paused" : "Focus session";
+    $("#focus-left").textContent = paused ? fmtElapsed(left) : `${fmtElapsed(left)} left`;
+    $("#focus-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
+  }
+  if (view === "focus") paintTimer();
 }
 
-for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
-  btn.addEventListener("click", async () => {
-    focusSession = await api.startFocus(Number(btn.dataset.focus));
-    paintFocus();
-    if (view === "today" && selectedDay === null) load("today");
-  });
-}
-
-$("#focus-stop").addEventListener("click", async () => {
-  await api.stopFocus();
-  focusSession = null;
+/// After any change to the session: repaint, and reload the views that list sessions.
+function focusChanged(s: FocusSession | null) {
+  focusSession = s;
   paintFocus();
   if (view === "today" && selectedDay === null) load("today");
+  if (view === "focus") load("focus");
+}
+
+const startFocus = async (minutes: number, label?: string) => focusChanged(await api.startFocus(minutes, label));
+const controlFocus = async (action: FocusAction, minutes?: number) => focusChanged(await api.controlFocus(action, minutes));
+
+for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
+  btn.addEventListener("click", () => startFocus(Number(btn.dataset.focus)));
+}
+$("#focus-stop").addEventListener("click", () => controlFocus("stop"));
+$("#focus-left").addEventListener("click", () => $<HTMLButtonElement>('[data-view="focus"]').click());
+
+// ---------- focus page ----------
+
+const TIMER_STEP_MIN = 5;
+const TIMER_MAX_MIN = 240;
+const TIMER_KEY = "kairo.timerMinutes";
+
+/// The length picked for the next session, remembered between visits when storage allows.
+let timerMinutes = (() => {
+  try {
+    const saved = Number(localStorage.getItem(TIMER_KEY));
+    return saved >= TIMER_STEP_MIN && saved <= TIMER_MAX_MIN ? saved : 25;
+  } catch {
+    return 25;
+  }
+})();
+
+function setTimerMinutes(minutes: number) {
+  timerMinutes = Math.min(TIMER_MAX_MIN, Math.max(TIMER_STEP_MIN, minutes));
+  try {
+    localStorage.setItem(TIMER_KEY, String(timerMinutes));
+  } catch {
+    // Not remembered this time; nothing else depends on it.
+  }
+  paintTimer();
+}
+
+/// The big timer: the chosen length while idle, the countdown and controls while running.
+function paintTimer() {
+  const running = runningFocus();
+  $("#timer-setup").hidden = !!running;
+  $("#timer-run").hidden = !running;
+  const time = $("#timer-time");
+  if (!running) {
+    $("#timer-eyebrow").textContent = "Focus";
+    $("#timer-title").textContent = "Start a focus session";
+    time.textContent = fmtElapsed(timerMinutes * 60_000);
+    time.classList.remove("paused");
+    $("#timer-sub").textContent = "";
+    $("#timer-minutes").textContent = `${timerMinutes} min`;
+    $("#timer-progress").style.width = "0%";
+    for (const b of document.querySelectorAll<HTMLButtonElement>("[data-minutes]")) b.setAttribute("aria-pressed", String(Number(b.dataset.minutes) === timerMinutes));
+    $<HTMLButtonElement>("#timer-less").disabled = timerMinutes <= TIMER_STEP_MIN;
+    $<HTMLButtonElement>("#timer-more").disabled = timerMinutes >= TIMER_MAX_MIN;
+    return;
+  }
+  const left = focusLeft(running);
+  const paused = running.pausedAt !== null;
+  $("#timer-eyebrow").textContent = paused ? "Focus · paused" : "Focus · in progress";
+  $("#timer-title").textContent = running.label ?? "Focusing";
+  time.textContent = fmtElapsed(left);
+  time.classList.toggle("paused", paused);
+  $("#timer-sub").textContent = paused ? "Paused. Distraction nudges are off until you resume." : `Ends at ${fmtClock(Date.now() + left)}`;
+  $("#timer-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
+  $("#timer-pause").textContent = paused ? "Resume" : "Pause";
+  $<HTMLButtonElement>("#timer-extend").disabled = running.plannedMs >= TIMER_MAX_MIN * 60_000;
+}
+
+const focusedMs = (b: FocusBlock) => Math.max(0, b.end - b.start - b.pausedMs);
+
+function renderFocusPage(o: FocusOverview) {
+  const finished = o.all.sessions ? `${Math.round((o.all.completed / o.all.sessions) * 100)}%` : "—";
+  $("#focus-stats").replaceChildren(
+    stat("Today", String(o.today.sessions), o.today.sessions ? fmtDur(o.today.focusedMs) : ""),
+    stat("This week", String(o.week.sessions), o.week.sessions ? fmtDur(o.week.focusedMs) : ""),
+    stat("All time", String(o.all.sessions), o.all.sessions ? fmtDur(o.all.focusedMs) : ""),
+    stat("Finished", finished, o.all.sessions ? `${o.all.completed} of ${o.all.sessions}` : ""),
+  );
+
+  const root = $("#focus-history");
+  if (!o.recent.length) {
+    root.replaceChildren(h("p", { class: "empty" }, "No focus sessions yet. Pick a length above and press Start focus."));
+    return;
+  }
+  const today = todayIso();
+  const days = new Map<string, FocusBlock[]>();
+  for (const b of o.recent) {
+    const day = isoDate(new Date(b.start));
+    days.set(day, [...(days.get(day) ?? []), b]);
+  }
+  const live = runningFocus();
+  root.replaceChildren(
+    ...[...days].map(([day, blocks]) =>
+      h(
+        "div",
+        { class: "history-day" },
+        h("h3", {}, day === today ? "Today" : day === shiftDate(today, -1) ? "Yesterday" : longDate(day)),
+        ...blocks.map((b) => {
+          const inProgress = !!live && b.start === live.startMs;
+          const state = inProgress ? "In progress" : b.completed ? "Finished" : "Ended early";
+          return h(
+            "div",
+            { class: "history-row" },
+            h("span", { class: "history-time" }, `${fmtClock(b.start)}–${inProgress ? "now" : fmtClock(b.end)}`),
+            h("span", { class: `history-label${b.label ? "" : " muted"}` }, b.label ?? "Focus session"),
+            h("span", { class: "history-len" }, fmtGoal(focusedMs(b))),
+            h("span", { class: `history-state ${inProgress ? "live" : b.completed ? "done" : "cut"}` }, state),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>("[data-minutes]")) {
+  b.addEventListener("click", () => setTimerMinutes(Number(b.dataset.minutes)));
+}
+$("#timer-less").addEventListener("click", () => setTimerMinutes(timerMinutes - TIMER_STEP_MIN));
+$("#timer-more").addEventListener("click", () => setTimerMinutes(timerMinutes + TIMER_STEP_MIN));
+$("#timer-start").addEventListener("click", async () => {
+  const label = $<HTMLInputElement>("#timer-label");
+  await startFocus(timerMinutes, label.value.trim() || undefined);
+  label.value = "";
 });
+$<HTMLInputElement>("#timer-label").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $<HTMLButtonElement>("#timer-start").click();
+});
+$("#timer-pause").addEventListener("click", () => controlFocus(runningFocus()?.pausedAt != null ? "resume" : "pause"));
+$("#timer-extend").addEventListener("click", () => controlFocus("extend", TIMER_STEP_MIN));
+$("#timer-stop").addEventListener("click", () => controlFocus("stop"));
 
 function paintStatus() {
   paintFocus();
@@ -984,9 +1121,9 @@ function paintStatus() {
 
 // ---------- wiring ----------
 
-type View = "today" | "week" | "patterns" | "categories" | "settings";
+type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
 /// In sidebar order, for Ctrl+1 to Ctrl+5.
-const VIEWS: View[] = ["today", "week", "patterns", "categories", "settings"];
+const VIEWS: View[] = ["today", "week", "focus", "patterns", "categories", "settings"];
 let view: View = "today";
 
 async function load(v: View = view) {
@@ -1010,8 +1147,13 @@ async function load(v: View = view) {
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") renderCategories(await api.categories());
+    if (v === "focus") {
+      paintTimer();
+      renderFocusPage(await api.focusOverview());
+    }
     if (v === "settings") {
       $("#settings-version").textContent = `Kairo ${await api.version()}`;
+      renderBrowsers(await api.browsers());
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
       await refreshExtension();
@@ -1026,7 +1168,7 @@ async function load(v: View = view) {
       if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
     }
   } catch (e) {
-    const target = { today: "#today-timeline", week: "#week-chart", patterns: "#insights", categories: "#categories", settings: "#update-status" }[v];
+    const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#update-status" }[v];
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
   }
 }
@@ -1110,6 +1252,34 @@ async function refreshExtension() {
 }
 
 const fmtAgo = (ms: number) => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))}s ago` : `${fmtDur(ms)} ago`);
+
+/// One button per installed browser: it opens the extensions page and copies the folder's location.
+function renderBrowsers(browsers: { id: string; name: string }[]) {
+  const note = $("#ext-note");
+  if (!browsers.length) {
+    $("#ext-browsers").replaceChildren(h("span", { class: "muted" }, "No Brave, Chrome, Edge or Vivaldi found. Use the folder below with any Chromium browser."));
+    return;
+  }
+  $("#ext-browsers").replaceChildren(
+    ...browsers.map((b) => {
+      const btn = h("button", { class: "btn" }, `Open ${b.name} extensions`);
+      btn.addEventListener("click", async () => {
+        try {
+          const folder = await api.openExtensionsPage(b.id);
+          try {
+            await navigator.clipboard.writeText(folder);
+            note.textContent = `Opened ${b.name}. The folder location is copied: click Load unpacked and press Ctrl+V.`;
+          } catch {
+            note.textContent = `Opened ${b.name}. Click Load unpacked and choose ${folder}`;
+          }
+        } catch (err) {
+          note.textContent = `Couldn't open ${b.name}: ${err}`;
+        }
+      });
+      return btn;
+    }),
+  );
+}
 
 $("#ext-open").addEventListener("click", async () => {
   try {

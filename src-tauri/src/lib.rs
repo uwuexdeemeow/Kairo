@@ -115,7 +115,10 @@ pub fn run() {
             commands::get_week,
             commands::get_focus,
             commands::start_focus,
-            commands::stop_focus,
+            commands::control_focus,
+            commands::get_focus_overview,
+            commands::get_browsers,
+            commands::open_extensions_page,
             commands::get_focus_blocks,
             commands::get_break_minutes,
             commands::set_break_minutes,
@@ -198,7 +201,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
                 let now = chrono::Utc::now().timestamp_millis();
                 let result = match id.trim_start_matches("focus:") {
                     "stop" => focus::stop(&conn, now),
-                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start(&conn, m, now).map(|_| ())),
+                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start(&conn, m, None, now).map(|_| ())),
                 };
                 if let Err(e) = result {
                     eprintln!("tray: focus session: {e}");

@@ -43,6 +43,14 @@ const DOMAINS: &[(&str, &str)] = &[
     ("developer.mozilla.org", "mdn"),
 ];
 
+/// Browsers the extension runs in: (id, name, executable, extensions page).
+pub const BROWSERS: &[(&str, &str, &str, &str)] = &[
+    ("brave", "Brave", "brave.exe", "brave://extensions"),
+    ("chrome", "Chrome", "chrome.exe", "chrome://extensions"),
+    ("edge", "Edge", "msedge.exe", "edge://extensions"),
+    ("vivaldi", "Vivaldi", "vivaldi.exe", "vivaldi://extensions"),
+];
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Report {
     /// None for pages without a web address, like a new tab or browser settings.

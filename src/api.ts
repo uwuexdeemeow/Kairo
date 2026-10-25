@@ -134,14 +134,38 @@ export interface Week {
 export interface FocusSession {
   startMs: number;
   plannedMs: number;
+  /** Time paused so far, not counting a pause still in progress. */
+  pausedMs: number;
+  /** Set while paused. */
+  pausedAt: number | null;
+  label: string | null;
 }
 
 export interface FocusBlock {
   start: number;
   end: number;
+  plannedMs: number;
+  pausedMs: number;
   /** False when the session was ended early. */
   completed: boolean;
+  label: string | null;
 }
+
+export interface FocusStats {
+  sessions: number;
+  completed: number;
+  focusedMs: number;
+}
+
+export interface FocusOverview {
+  today: FocusStats;
+  week: FocusStats;
+  all: FocusStats;
+  /** Newest first. */
+  recent: FocusBlock[];
+}
+
+export type FocusAction = "stop" | "pause" | "resume" | "extend";
 
 export interface GoalSettings {
   productiveMin: number;
@@ -162,8 +186,10 @@ export const api = {
   /** The Monday-to-Sunday week containing `date` (a local `YYYY-MM-DD`; default today). */
   week: (date?: string) => invoke<Week>("get_week", { date }),
   focus: () => invoke<FocusSession | null>("get_focus"),
-  startFocus: (minutes: number) => invoke<FocusSession>("start_focus", { minutes }),
-  stopFocus: () => invoke<void>("stop_focus"),
+  startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
+  /** Returns the session as it stands afterwards; null once it has ended. */
+  controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusSession | null>("control_focus", { action, minutes }),
+  focusOverview: () => invoke<FocusOverview>("get_focus_overview"),
   /** Focus sessions on one local day (`YYYY-MM-DD`; default today). */
   focusBlocks: (date?: string) => invoke<FocusBlock[]>("get_focus_blocks", { date }),
   breakMinutes: () => invoke<number>("get_break_minutes"),
@@ -188,6 +214,10 @@ export const api = {
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   extensionStatus: () => invoke<{ listening: boolean; lastReportMs: number | null }>("get_extension_status"),
   openExtensionFolder: () => invoke<void>("open_extension_folder"),
+  /** Installed browsers the extension can go into. */
+  browsers: () => invoke<{ id: string; name: string }[]>("get_browsers"),
+  /** Opens that browser's extensions page; returns the extension folder's path to paste. */
+  openExtensionsPage: (id: string) => invoke<string>("open_extensions_page", { id }),
   version: () => invoke<string>("get_version"),
   /** The result arrives as a notification, like the tray's "Check for updates". */
   checkForUpdates: () => invoke<void>("check_for_updates"),

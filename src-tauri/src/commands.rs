@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{browser, classify, db, demo, focus, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{browser, classify, db, demo, focus, goals, nudge, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -171,18 +171,52 @@ pub fn get_focus(state: State<AppState>) -> CmdResult<Option<focus::Active>> {
 
 /// Starts a focus session of `minutes`, ending any that is running.
 #[tauri::command]
-pub fn start_focus(state: State<AppState>, minutes: u32) -> CmdResult<focus::Active> {
-    if !(1..=240).contains(&minutes) {
-        return Err(format!("a focus session runs 1 to 240 minutes, not {minutes}"));
+pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>) -> CmdResult<focus::Active> {
+    if !(1..=focus::MAX_MINUTES).contains(&minutes) {
+        return Err(format!("a focus session runs 1 to {} minutes, not {minutes}", focus::MAX_MINUTES));
     }
     let conn = state.db.lock().map_err(err)?;
-    focus::start(&conn, minutes, now_ms()).map_err(err)
+    focus::start(&conn, minutes, label.as_deref(), now_ms()).map_err(err)
 }
 
+/// Ends, pauses, resumes or extends the running session, then returns it as it now stands.
 #[tauri::command]
-pub fn stop_focus(state: State<AppState>) -> CmdResult<()> {
+pub fn control_focus(state: State<AppState>, action: String, minutes: Option<u32>) -> CmdResult<Option<focus::Active>> {
     let conn = state.db.lock().map_err(err)?;
-    focus::stop(&conn, now_ms()).map_err(err)
+    let now = now_ms();
+    match action.as_str() {
+        "stop" => focus::stop(&conn, now),
+        "pause" => focus::pause(&conn, now),
+        "resume" => focus::resume(&conn, now),
+        "extend" => focus::extend(&conn, minutes.unwrap_or(5)),
+        other => return Err(format!("unknown focus action: {other}")),
+    }
+    .map_err(err)?;
+    focus::active(&conn).map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FocusOverview {
+    today: focus::Stats,
+    week: focus::Stats,
+    all: focus::Stats,
+    recent: Vec<focus::Block>,
+}
+
+/// Session counts and focused time for today, this week and ever, plus the latest sessions.
+#[tauri::command]
+pub fn get_focus_overview(state: State<AppState>) -> CmdResult<FocusOverview> {
+    let today = Local::now().date_naive();
+    let day_start = |d| day_bounds(d).map_or(0, |b| b.0);
+    let conn = state.db.lock().map_err(err)?;
+    let now = now_ms();
+    Ok(FocusOverview {
+        today: focus::stats(&conn, day_start(today), now, now).map_err(err)?,
+        week: focus::stats(&conn, day_start(recap::week_start(today)), now, now).map_err(err)?,
+        all: focus::stats(&conn, 0, now, now).map_err(err)?,
+        recent: focus::recent(&conn, 40, now).map_err(err)?,
+    })
 }
 
 /// Focus sessions on one local day (default today), for the timeline.
@@ -414,15 +448,46 @@ pub fn get_extension_status(state: State<AppState>) -> browser::Status {
     browser::status(&state.browser_tab, state.browser_listening)
 }
 
-/// Shows the browser extension's folder, bundled with Kairo, for "Load unpacked".
-#[tauri::command]
-pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
+/// The browser extension's folder, bundled with Kairo, for "Load unpacked".
+fn extension_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
     let dir = app.path().resource_dir().map_err(err)?.join("extension");
     if !dir.is_dir() {
         return Err(format!("the extension folder is missing: {}", dir.display()));
     }
-    std::process::Command::new("explorer").arg(&dir).spawn().map_err(err)?;
+    Ok(dir)
+}
+
+#[tauri::command]
+pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
+    std::process::Command::new("explorer").arg(extension_dir(&app)?).spawn().map_err(err)?;
     Ok(())
+}
+
+#[derive(Serialize)]
+pub struct BrowserEntry {
+    id: &'static str,
+    name: &'static str,
+}
+
+/// Installed browsers the extension can go into.
+#[tauri::command]
+pub fn get_browsers() -> Vec<BrowserEntry> {
+    browser::BROWSERS
+        .iter()
+        .filter(|(_, _, exe, _)| platform::app_path(exe).is_some())
+        .map(|&(id, name, _, _)| BrowserEntry { id, name })
+        .collect()
+}
+
+/// Opens a browser on its extensions page and returns the extension folder's path, for pasting
+/// into "Load unpacked".
+#[tauri::command]
+pub fn open_extensions_page(app: AppHandle, id: String) -> CmdResult<String> {
+    let dir = extension_dir(&app)?;
+    let &(_, name, exe, page) = browser::BROWSERS.iter().find(|b| b.0 == id).ok_or_else(|| format!("unknown browser: {id}"))?;
+    let path = platform::app_path(exe).ok_or_else(|| format!("{name} isn't installed"))?;
+    std::process::Command::new(path).arg(page).spawn().map_err(err)?;
+    Ok(dir.display().to_string())
 }
 
 #[tauri::command]

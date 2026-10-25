@@ -7,7 +7,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{foreground, idle_ms};
+pub use win::{app_path, foreground, idle_ms};
 
 #[cfg(windows)]
 mod win {
@@ -83,6 +83,31 @@ mod win {
         }
     }
 
+    /// Where an installed program lives, from the "App Paths" Windows keeps for `Start`-style
+    /// launching, e.g. `brave.exe`. Per-user installs come first.
+    pub fn app_path(exe: &str) -> Option<String> {
+        use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+        let key: Vec<u16> =
+            format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}").encode_utf16().chain([0]).collect();
+        for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+            let mut buf = [0u16; 1024];
+            let mut size = (buf.len() * 2) as u32;
+            let rc = unsafe {
+                RegGetValueW(root, key.as_ptr(), std::ptr::null(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr().cast(), &mut size)
+            };
+            if rc != ERROR_SUCCESS {
+                continue;
+            }
+            // `size` is in bytes and includes the terminating null.
+            let len = (size as usize / 2).saturating_sub(1);
+            let path = String::from_utf16_lossy(&buf[..len]).trim_matches('"').to_string();
+            if std::path::Path::new(&path).is_file() {
+                return Some(path);
+            }
+        }
+        None
+    }
+
     const PAD_SLOTS: usize = 4;
     /// Asking about an empty slot is slow, so unplugged ones are only rechecked this often.
     const EMPTY_SLOT_RECHECK_MS: u32 = 5_000;
@@ -143,4 +168,9 @@ pub fn foreground() -> Option<Foreground> {
 #[cfg(not(windows))]
 pub fn idle_ms() -> i64 {
     0
+}
+
+#[cfg(not(windows))]
+pub fn app_path(_exe: &str) -> Option<String> {
+    None
 }

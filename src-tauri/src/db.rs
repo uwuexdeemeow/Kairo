@@ -51,7 +51,11 @@ pub fn open(path: &Path) -> Result<Connection> {
              planned_ms INTEGER NOT NULL,
              -- NULL while the session is running.
              end_ms     INTEGER,
-             completed  INTEGER NOT NULL DEFAULT 0
+             completed  INTEGER NOT NULL DEFAULT 0,
+             paused_ms  INTEGER NOT NULL DEFAULT 0,
+             -- Set while paused.
+             paused_at  INTEGER,
+             label      TEXT
          );
          CREATE TABLE IF NOT EXISTS goal_alerts (
              day   TEXT    NOT NULL,
@@ -60,6 +64,17 @@ pub fn open(path: &Path) -> Result<Connection> {
              PRIMARY KEY (day, key)
          );",
     )?;
+    // Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.
+    for (table, column, decl) in [
+        ("focus_sessions", "paused_ms", "INTEGER NOT NULL DEFAULT 0"),
+        ("focus_sessions", "paused_at", "INTEGER"),
+        ("focus_sessions", "label", "TEXT"),
+    ] {
+        let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
+        if !exists {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"))?;
+        }
+    }
     // INSERT OR IGNORE keeps any category or rule the user has changed.
     for (sql, defaults) in [
         ("INSERT OR IGNORE INTO categories (key, category) VALUES (?1, ?2)", DEFAULT_CATEGORIES),

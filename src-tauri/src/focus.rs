@@ -28,16 +28,26 @@ const BREAK_RESETS_AFTER_MS: i64 = 5 * MIN_MS;
 /// A tick gap this large means the machine slept, which is a break too.
 const SLEEP_GAP_MS: i64 = 30_000;
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq)]
+/// Sessions run 1 to 240 minutes, and labels are short notes, not documents.
+pub const MAX_MINUTES: u32 = 240;
+pub const MAX_LABEL_CHARS: usize = 80;
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Active {
     start_ms: i64,
     planned_ms: i64,
+    /// Time spent paused so far, not counting a pause still in progress.
+    paused_ms: i64,
+    /// Set while paused.
+    paused_at: Option<i64>,
+    label: Option<String>,
 }
 
 impl Active {
-    fn ends_ms(&self) -> i64 {
-        self.start_ms + self.planned_ms
+    /// When the session will end, given that a pause in progress pushes the end back.
+    fn ends_ms(&self, now: i64) -> i64 {
+        self.start_ms + self.planned_ms + self.paused_ms + self.paused_at.map_or(0, |p| now - p)
     }
 }
 
@@ -46,12 +56,34 @@ impl Active {
 pub struct Block {
     start: i64,
     end: i64,
+    planned_ms: i64,
+    paused_ms: i64,
     completed: bool,
+    label: Option<String>,
 }
 
 impl Block {
+    /// Time actually spent focused: the session less its pauses.
     pub fn ms(&self) -> i64 {
-        self.end - self.start
+        (self.end - self.start - self.paused_ms).max(0)
+    }
+}
+
+#[derive(Serialize, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Stats {
+    sessions: usize,
+    completed: usize,
+    focused_ms: i64,
+}
+
+impl Stats {
+    fn of(blocks: &[Block]) -> Stats {
+        Stats {
+            sessions: blocks.len(),
+            completed: blocks.iter().filter(|b| b.completed).count(),
+            focused_ms: blocks.iter().map(Block::ms).sum(),
+        }
     }
 }
 
@@ -59,46 +91,100 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
+const BLOCK_COLUMNS: &str = "start_ms, COALESCE(end_ms, ?1), planned_ms, paused_ms + COALESCE(?1 - paused_at, 0), completed, label";
+
+fn block(r: &rusqlite::Row) -> Result<Block> {
+    Ok(Block { start: r.get(0)?, end: r.get(1)?, planned_ms: r.get(2)?, paused_ms: r.get(3)?, completed: r.get(4)?, label: r.get(5)? })
+}
+
 /// The running session, if any; an unfinished one survives a restart.
 pub fn active(conn: &Connection) -> Result<Option<Active>> {
-    conn.query_row("SELECT start_ms, planned_ms FROM focus_sessions WHERE end_ms IS NULL ORDER BY id DESC LIMIT 1", [], |r| {
-        Ok(Active { start_ms: r.get(0)?, planned_ms: r.get(1)? })
-    })
+    conn.query_row(
+        "SELECT start_ms, planned_ms, paused_ms, paused_at, label FROM focus_sessions WHERE end_ms IS NULL ORDER BY id DESC LIMIT 1",
+        [],
+        |r| Ok(Active { start_ms: r.get(0)?, planned_ms: r.get(1)?, paused_ms: r.get(2)?, paused_at: r.get(3)?, label: r.get(4)? }),
+    )
     .optional()
 }
 
 /// Starts a session now, ending any that is running.
-pub fn start(conn: &Connection, minutes: u32, now: i64) -> Result<Active> {
+pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
     stop(conn, now)?;
-    let a = Active { start_ms: now, planned_ms: minutes as i64 * MIN_MS };
-    conn.execute("INSERT INTO focus_sessions (start_ms, planned_ms) VALUES (?1, ?2)", params![a.start_ms, a.planned_ms])?;
+    let label = label.map(str::trim).filter(|l| !l.is_empty()).map(|l| l.chars().take(MAX_LABEL_CHARS).collect::<String>());
+    let a = Active { start_ms: now, planned_ms: minutes.min(MAX_MINUTES) as i64 * MIN_MS, paused_ms: 0, paused_at: None, label };
+    conn.execute(
+        "INSERT INTO focus_sessions (start_ms, planned_ms, label) VALUES (?1, ?2, ?3)",
+        params![a.start_ms, a.planned_ms, a.label],
+    )?;
     Ok(a)
 }
 
-/// Ends the running session early.
+/// Ends the running session early, folding a pause in progress into its paused time.
 pub fn stop(conn: &Connection, now: i64) -> Result<()> {
-    conn.execute("UPDATE focus_sessions SET end_ms = MAX(?1, start_ms), completed = 0 WHERE end_ms IS NULL", [now])?;
+    conn.execute(
+        "UPDATE focus_sessions SET paused_ms = paused_ms + COALESCE(?1 - paused_at, 0), paused_at = NULL,
+             end_ms = MAX(?1, start_ms), completed = 0
+         WHERE end_ms IS NULL",
+        [now],
+    )?;
     Ok(())
 }
 
-/// Closes a session whose time is up, returning it when that just happened.
+pub fn pause(conn: &Connection, now: i64) -> Result<()> {
+    conn.execute("UPDATE focus_sessions SET paused_at = ?1 WHERE end_ms IS NULL AND paused_at IS NULL", [now])?;
+    Ok(())
+}
+
+pub fn resume(conn: &Connection, now: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE focus_sessions SET paused_ms = paused_ms + (?1 - paused_at), paused_at = NULL
+         WHERE end_ms IS NULL AND paused_at IS NOT NULL",
+        [now],
+    )?;
+    Ok(())
+}
+
+/// Adds time to the running session, up to the usual maximum length.
+pub fn extend(conn: &Connection, minutes: u32) -> Result<()> {
+    conn.execute(
+        "UPDATE focus_sessions SET planned_ms = MIN(planned_ms + ?1, ?2) WHERE end_ms IS NULL",
+        params![minutes as i64 * MIN_MS, MAX_MINUTES as i64 * MIN_MS],
+    )?;
+    Ok(())
+}
+
+/// Closes a session whose time is up, returning it when that just happened. A paused session
+/// never runs out.
 fn complete_if_due(conn: &Connection, now: i64) -> Result<Option<Active>> {
     let Some(a) = active(conn)? else { return Ok(None) };
-    if now < a.ends_ms() {
+    if a.paused_at.is_some() || now < a.ends_ms(now) {
         return Ok(None);
     }
-    conn.execute("UPDATE focus_sessions SET end_ms = start_ms + planned_ms, completed = 1 WHERE end_ms IS NULL", [])?;
+    conn.execute(
+        "UPDATE focus_sessions SET end_ms = start_ms + planned_ms + paused_ms, completed = 1 WHERE end_ms IS NULL",
+        [],
+    )?;
     Ok(Some(a))
 }
 
 /// Sessions overlapping [from, to); a running one reaches to `now`.
 pub fn blocks(conn: &Connection, from: i64, to: i64, now: i64) -> Result<Vec<Block>> {
-    let mut stmt = conn.prepare(
-        "SELECT start_ms, COALESCE(end_ms, ?3), completed FROM focus_sessions
-         WHERE start_ms < ?2 AND COALESCE(end_ms, ?3) > ?1 ORDER BY start_ms",
-    )?;
-    let rows = stmt.query_map(params![from, to, now], |r| Ok(Block { start: r.get(0)?, end: r.get(1)?, completed: r.get(2)? }))?;
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {BLOCK_COLUMNS} FROM focus_sessions WHERE start_ms < ?3 AND COALESCE(end_ms, ?1) > ?2 ORDER BY start_ms"
+    ))?;
+    let rows = stmt.query_map(params![now, from, to], block)?;
     rows.collect()
+}
+
+/// The most recent sessions, newest first.
+pub fn recent(conn: &Connection, limit: usize, now: i64) -> Result<Vec<Block>> {
+    let mut stmt = conn.prepare(&format!("SELECT {BLOCK_COLUMNS} FROM focus_sessions ORDER BY start_ms DESC LIMIT ?2"))?;
+    let rows = stmt.query_map(params![now, limit as i64], block)?;
+    rows.collect()
+}
+
+pub fn stats(conn: &Connection, from: i64, to: i64, now: i64) -> Result<Stats> {
+    Ok(Stats::of(&blocks(conn, from, to, now)?))
 }
 
 /// Minutes of unbroken screen time before a break reminder; 0 turns them off.
@@ -181,8 +267,8 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         w.breaks_sent += 1;
     }
 
-    // Focus sessions: speak up when a distraction holds the screen.
-    let Some(session) = session else {
+    // Focus sessions: speak up when a distraction holds the screen, unless the session is paused.
+    let Some(session) = session.filter(|s| s.paused_at.is_none()) else {
         w.distracted_since = None;
         return Ok(());
     };
@@ -190,7 +276,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         Some(label) => {
             let since = *w.distracted_since.get_or_insert(now);
             if now - since >= DISTRACTION_GRACE_MS && now - w.last_distraction_nudge >= DISTRACTION_REPEAT_MS {
-                let left = fmt_dur((session.ends_ms() - now).max(MIN_MS));
+                let left = fmt_dur((session.ends_ms(now) - now).max(MIN_MS));
                 notify(app, &format!("Focus session: {left} left"), &format!("{label} can wait until it's done."));
                 w.last_distraction_nudge = now;
             }
@@ -204,26 +290,77 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
 mod tests {
     use super::*;
 
+    const M: i64 = MIN_MS;
+
     #[test]
     fn sessions_start_stop_complete_and_survive_as_blocks() {
         let conn = db::open(std::path::Path::new(":memory:")).unwrap();
-        let t = 1_000 * MIN_MS;
-        start(&conn, 25, t).unwrap();
+        let t = 1_000 * M;
+        start(&conn, 25, None, t).unwrap();
         // Starting another ends the first early.
-        let a = start(&conn, 50, t + 10 * MIN_MS).unwrap();
-        assert_eq!(active(&conn).unwrap(), Some(a));
-        assert!(complete_if_due(&conn, t + 30 * MIN_MS).unwrap().is_none());
-        assert_eq!(complete_if_due(&conn, t + 61 * MIN_MS).unwrap(), Some(a));
+        let a = start(&conn, 50, Some("  Write the report  "), t + 10 * M).unwrap();
+        assert_eq!(active(&conn).unwrap(), Some(a.clone()));
+        assert!(complete_if_due(&conn, t + 30 * M).unwrap().is_none());
+        assert_eq!(complete_if_due(&conn, t + 61 * M).unwrap(), Some(a));
         assert!(active(&conn).unwrap().is_none());
+        let label = Some("Write the report".to_string());
         assert_eq!(
-            blocks(&conn, t, t + 120 * MIN_MS, t + 120 * MIN_MS).unwrap(),
+            blocks(&conn, t, t + 120 * M, t + 120 * M).unwrap(),
             vec![
-                Block { start: t, end: t + 10 * MIN_MS, completed: false },
-                Block { start: t + 10 * MIN_MS, end: t + 60 * MIN_MS, completed: true },
+                Block { start: t, end: t + 10 * M, planned_ms: 25 * M, paused_ms: 0, completed: false, label: None },
+                Block { start: t + 10 * M, end: t + 60 * M, planned_ms: 50 * M, paused_ms: 0, completed: true, label },
             ]
         );
         assert_eq!(break_minutes(&conn).unwrap(), DEFAULT_BREAK_MIN);
         set_break_minutes(&conn, 0).unwrap();
         assert_eq!(break_minutes(&conn).unwrap(), 0);
+    }
+
+    #[test]
+    fn pauses_push_the_end_back_and_dont_count_as_focus() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let t = 1_000 * M;
+        start(&conn, 25, None, t).unwrap();
+        pause(&conn, t + 10 * M).unwrap();
+        // Paused sessions never run out, however long the pause.
+        assert!(complete_if_due(&conn, t + 60 * M).unwrap().is_none());
+        resume(&conn, t + 20 * M).unwrap();
+        extend(&conn, 5).unwrap();
+        // 25 + 5 minutes of focus plus a 10-minute pause ends at 40.
+        assert!(complete_if_due(&conn, t + 39 * M).unwrap().is_none());
+        assert!(complete_if_due(&conn, t + 40 * M).unwrap().is_some());
+        let s = stats(&conn, t, t + 120 * M, t + 120 * M).unwrap();
+        assert_eq!(s, Stats { sessions: 1, completed: 1, focused_ms: 30 * M });
+
+        // Ending early mid-pause still leaves the pause out of the focused time.
+        start(&conn, 25, None, t + 60 * M).unwrap();
+        pause(&conn, t + 65 * M).unwrap();
+        stop(&conn, t + 75 * M).unwrap();
+        assert_eq!(recent(&conn, 1, t + 120 * M).unwrap()[0].ms(), 5 * M);
+        extend(&conn, 500).unwrap();
+        start(&conn, 239, None, t + 80 * M).unwrap();
+        extend(&conn, 30).unwrap();
+        assert_eq!(active(&conn).unwrap().unwrap().planned_ms, MAX_MINUTES as i64 * M);
+    }
+
+    #[test]
+    fn an_older_database_gains_the_new_columns() {
+        let path = std::env::temp_dir().join(format!("kairo-focus-{}.db", std::process::id()));
+        {
+            let old = Connection::open(&path).unwrap();
+            old.execute_batch(
+                "CREATE TABLE focus_sessions (id INTEGER PRIMARY KEY, start_ms INTEGER NOT NULL,
+                     planned_ms INTEGER NOT NULL, end_ms INTEGER, completed INTEGER NOT NULL DEFAULT 0);
+                 INSERT INTO focus_sessions (start_ms, planned_ms, end_ms, completed) VALUES (0, 1500000, 1500000, 1);",
+            )
+            .unwrap();
+        }
+        let conn = db::open(&path).unwrap();
+        let old = &recent(&conn, 5, 0).unwrap()[0];
+        assert_eq!((old.ms(), old.label.as_deref()), (25 * M, None));
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 }

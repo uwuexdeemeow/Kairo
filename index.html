@@ -19,15 +19,19 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
             Week
           </button>
-          <button role="tab" data-view="patterns" aria-selected="false" title="Patterns (Ctrl+3)">
+          <button role="tab" data-view="focus" aria-selected="false" title="Focus (Ctrl+3)">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" /><path d="M12 9v4l2.5 2.5M9.5 2h5" /></svg>
+            Focus
+          </button>
+          <button role="tab" data-view="patterns" aria-selected="false" title="Patterns (Ctrl+4)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M6 17v-5M11 17V6M16 17v-8M21 17v-3" /></svg>
             Patterns
           </button>
-          <button role="tab" data-view="categories" aria-selected="false" title="Categories (Ctrl+4)">
+          <button role="tab" data-view="categories" aria-selected="false" title="Categories (Ctrl+5)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" /><circle cx="7.5" cy="7.5" r="1.5" /></svg>
             Categories
           </button>
-          <button role="tab" data-view="settings" aria-selected="false" title="Settings (Ctrl+5)" class="tab-settings">
+          <button role="tab" data-view="settings" aria-selected="false" title="Settings (Ctrl+6)" class="tab-settings">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
             Settings
           </button>
@@ -42,8 +46,8 @@
             </div>
           </div>
           <div class="focus-active" id="focus-active" hidden>
-            <span class="focus-label">Focus session</span>
-            <span class="focus-left" id="focus-left" aria-live="off"></span>
+            <span class="focus-label" id="focus-active-label">Focus session</span>
+            <button class="focus-left" id="focus-left" title="Open the focus timer"></button>
             <div class="track"><div class="line productive" id="focus-progress"></div></div>
             <button class="link-btn focus-stop" id="focus-stop">End early</button>
           </div>
@@ -152,6 +156,52 @@
               <div id="week-limits"></div>
             </section>
           </div>
+        </section>
+
+        <section id="view-focus" class="view" hidden>
+          <section class="page-head">
+            <div>
+              <p class="eyebrow" id="timer-eyebrow">Focus</p>
+              <h1 id="timer-title">Start a focus session</h1>
+            </div>
+          </section>
+
+          <section class="timer" aria-label="Focus timer">
+            <div class="timer-face">
+              <span class="timer-time" id="timer-time" role="timer" aria-live="off"></span>
+              <span class="timer-sub" id="timer-sub"></span>
+            </div>
+            <div class="track timer-track"><div class="line productive" id="timer-progress"></div></div>
+
+            <div class="timer-setup" id="timer-setup">
+              <div class="timer-presets" role="group" aria-label="Session length">
+                <button data-minutes="15">15m</button>
+                <button data-minutes="25">25m</button>
+                <button data-minutes="50">50m</button>
+                <button data-minutes="90">90m</button>
+              </div>
+              <div class="stepper" role="group" aria-label="Fine-tune the length">
+                <button id="timer-less" aria-label="5 minutes shorter">−</button>
+                <span id="timer-minutes" aria-live="polite"></span>
+                <button id="timer-more" aria-label="5 minutes longer">+</button>
+              </div>
+              <input class="filter timer-label" id="timer-label" maxlength="80" placeholder="What are you working on? (optional)" aria-label="What are you working on" autocomplete="off" />
+              <button class="btn primary" id="timer-start">Start focus</button>
+            </div>
+
+            <div class="timer-run" id="timer-run" hidden>
+              <button class="btn primary" id="timer-pause"></button>
+              <button class="btn" id="timer-extend">+5 min</button>
+              <button class="link-btn" id="timer-stop">End early</button>
+            </div>
+          </section>
+
+          <dl class="stats focus-stats" id="focus-stats"></dl>
+
+          <section class="block" aria-label="Recent sessions">
+            <h2>Recent sessions</h2>
+            <div id="focus-history"></div>
+          </section>
         </section>
 
         <section id="view-patterns" class="view" hidden>
@@ -267,12 +317,13 @@
             <p class="muted">Without it, Kairo guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Kairo the exact site instead. It sends only the domain, never the page or what you type, and only to Kairo on this computer.</p>
             <p class="ext-status" id="ext-status" aria-live="polite"></p>
             <ol class="steps">
-              <li>Open <span class="mono">brave://extensions</span> or <span class="mono">chrome://extensions</span> and turn on <strong>Developer mode</strong>.</li>
-              <li>Click <strong>Load unpacked</strong> and pick Kairo's extension folder.</li>
+              <li>Pick your browser below. Kairo opens its extensions page and copies the extension folder's location.</li>
+              <li>Turn on <strong>Developer mode</strong>, click <strong>Load unpacked</strong>, and paste the location (<span class="mono">Ctrl+V</span>) into the folder box.</li>
             </ol>
+            <div class="row-buttons ext-browsers" id="ext-browsers"></div>
             <div class="row-buttons">
-              <button class="link-btn" id="ext-open">Open the extension folder</button>
-              <span class="muted" id="ext-note"></span>
+              <button class="link-btn" id="ext-open">Show the extension folder instead</button>
+              <span class="muted" id="ext-note" aria-live="polite"></span>
             </div>
           </section>
 
