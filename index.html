@@ -21,7 +21,15 @@
       <main>
         <section id="view-today" class="view">
           <section class="summary" aria-label="Summary">
-            <p class="eyebrow" id="today-date"></p>
+            <nav class="day-nav" aria-label="Day">
+              <button class="day-step" id="day-prev" aria-label="Previous day" title="Previous day (←)">‹</button>
+              <span class="day-pick">
+                <button class="eyebrow day-label" id="today-date" title="Pick a date" aria-live="polite"></button>
+                <input type="date" id="day-picker" tabindex="-1" aria-hidden="true" />
+              </span>
+              <button class="day-step" id="day-next" aria-label="Next day" title="Next day (→)">›</button>
+              <button class="link-btn day-today" id="day-today" title="Back to today (T)" hidden>Today</button>
+            </nav>
             <div class="hero">
               <span class="hero-value" id="today-active"></span>
               <span class="hero-sub" id="today-sub"></span>

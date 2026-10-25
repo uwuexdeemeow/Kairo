@@ -61,7 +61,19 @@ const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) 
 // Labels come from window titles, which any web page controls, so escape before using innerHTML.
 const esc = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-const midnight = () => new Date().setHours(0, 0, 0, 0);
+const pad2 = (n: number) => String(n).padStart(2, "0");
+/// Local `YYYY-MM-DD`; `toISOString` would give the UTC date instead.
+const isoDate = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseDate = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+const todayIso = () => isoDate(new Date());
+const shiftDate = (iso: string, days: number) => {
+  const d = parseDate(iso);
+  d.setDate(d.getDate() + days);
+  return isoDate(d);
+};
 
 // ---------- tooltip ----------
 
@@ -98,11 +110,42 @@ function stat(label: string, value: string, extra = ""): HTMLElement {
   return h("div", {}, h("dt", {}, label), dd);
 }
 
+/// The day shown on the Today view; null follows the current day, including across midnight.
+let selectedDay: string | null = null;
+/// Earliest day with any recorded session, or null before anything is tracked.
+let firstDay: string | null = null;
+
+const shownDay = () => selectedDay ?? todayIso();
+
+function renderDayNav() {
+  const day = shownDay();
+  const today = todayIso();
+  const isToday = day === today;
+  const date = parseDate(day);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  $("#today-date").textContent = date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }) });
+  $<HTMLButtonElement>("#day-prev").disabled = !firstDay || day <= firstDay;
+  $<HTMLButtonElement>("#day-next").disabled = isToday;
+  $("#day-today").hidden = isToday;
+  const picker = $<HTMLInputElement>("#day-picker");
+  picker.value = day;
+  picker.max = today;
+  picker.min = firstDay ?? today;
+}
+
+function goToDay(iso: string | null) {
+  const today = todayIso();
+  if (iso && firstDay && iso < firstDay) iso = firstDay;
+  selectedDay = !iso || iso >= today ? null : iso;
+  load("today");
+}
+
 function renderToday(d: DaySummary) {
-  $("#today-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  const isToday = selectedDay === null;
+  renderDayNav();
   $("#today-active").textContent = d.activeMs ? fmtDur(d.activeMs) : "0m";
   const sub = $("#today-sub");
-  sub.replaceChildren(d.activeMs ? "on screen, " : "on screen so far", ...(d.activeMs ? [h("strong", {}, `${pct(d.productiveMs, d.activeMs)}% productive`)] : []));
+  sub.replaceChildren(d.activeMs ? "on screen, " : isToday ? "on screen so far" : "on screen", ...(d.activeMs ? [h("strong", {}, `${pct(d.productiveMs, d.activeMs)}% productive`)] : []));
 
   const perHour = d.activeMs ? Math.round(d.switches / (d.activeMs / HOUR_MS)) : 0;
   $("#today-stats").replaceChildren(
@@ -111,16 +154,17 @@ function renderToday(d: DaySummary) {
     stat("Distracted", fmtDur(d.distractingMs)),
     stat("Switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
   );
-  renderTimeline(d);
-  renderHeadsUp();
-  renderUsage($("#today-apps"), d.topApps, "No app activity yet today.");
-  renderUsage($("#today-sites"), d.topSites, "No recognised sites yet today.");
+  renderTimeline(d, isToday);
+  if (isToday) renderHeadsUp();
+  else $("#heads-up").hidden = true;
+  renderUsage($("#today-apps"), d.topApps, isToday ? "No app activity yet today." : "No app activity this day.");
+  renderUsage($("#today-sites"), d.topSites, isToday ? "No recognised sites yet today." : "No recognised sites this day.");
 }
 
-function renderTimeline(d: DaySummary) {
-  const t0 = midnight();
+function renderTimeline(d: DaySummary, isToday: boolean) {
+  const t0 = parseDate(shownDay()).getTime();
   const span = 24 * HOUR_MS;
-  const strip = h("div", { class: "timeline", role: "img", "aria-label": "Today's activity from midnight to midnight" });
+  const strip = h("div", { class: "timeline", role: "img", "aria-label": `Activity on ${$("#today-date").textContent} from midnight to midnight` });
   for (const seg of d.timeline) {
     const el = h("span", { class: `seg ${seg.category}` });
     el.style.left = `${((seg.start - t0) / span) * 100}%`;
@@ -128,13 +172,15 @@ function renderTimeline(d: DaySummary) {
     tip(el, () => `<strong>${esc(seg.label)}</strong><div>${dotHtml(seg.category)}${LABELS[seg.category]}</div><div class="muted">${fmtClock(seg.start)}–${fmtClock(seg.end)} · ${fmtDur(seg.end - seg.start)}</div>`);
     strip.append(el);
   }
-  const now = h("span", { class: "now", "aria-hidden": "true" });
-  now.style.left = `${((Date.now() - t0) / span) * 100}%`;
-  strip.append(now);
+  if (isToday) {
+    const now = h("span", { class: "now", "aria-hidden": "true" });
+    now.style.left = `${((Date.now() - t0) / span) * 100}%`;
+    strip.append(now);
+  }
 
   const axis = h("div", { class: "axis", "aria-hidden": "true" }, ...["00", "06", "12", "18", "24"].map((t) => h("span", {}, t)));
   const parts: Node[] = [strip, axis];
-  if (!d.timeline.length) parts.push(h("p", { class: "empty" }, "Nothing tracked yet today. Kairo records in the background while it runs."));
+  if (!d.timeline.length) parts.push(h("p", { class: "empty" }, isToday ? "Nothing tracked yet today. Kairo records in the background while it runs." : "Nothing was tracked this day."));
   $("#today-timeline").replaceChildren(...parts);
 }
 
@@ -335,7 +381,10 @@ let view: View = "today";
 
 async function load(v: View = view) {
   try {
-    if (v === "today") renderToday(await api.today());
+    if (v === "today") {
+      firstDay = await api.firstDay();
+      renderToday(await api.day(selectedDay ?? undefined));
+    }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") {
       renderCategories(await api.categories());
@@ -368,6 +417,32 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>("#range button"))
     load("patterns");
   });
 }
+
+$("#day-prev").addEventListener("click", () => goToDay(shiftDate(shownDay(), -1)));
+$("#day-next").addEventListener("click", () => goToDay(shiftDate(shownDay(), 1)));
+$("#day-today").addEventListener("click", () => goToDay(null));
+$("#today-date").addEventListener("click", () => {
+  const picker = $<HTMLInputElement>("#day-picker");
+  try {
+    picker.showPicker();
+  } catch {
+    picker.focus();
+  }
+});
+$<HTMLInputElement>("#day-picker").addEventListener("change", (e) => {
+  const value = (e.target as HTMLInputElement).value;
+  if (value) goToDay(value);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (view !== "today" || e.altKey || e.ctrlKey || e.metaKey) return;
+  if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+  if (e.key === "ArrowLeft") goToDay(shiftDate(shownDay(), -1));
+  else if (e.key === "ArrowRight") goToDay(shiftDate(shownDay(), 1));
+  else if (e.key === "t" || e.key === "T") goToDay(null);
+  else return;
+  e.preventDefault();
+});
 
 $("#heads-up-dismiss").addEventListener("click", async () => {
   await api.dismissHeadsUp();
@@ -416,7 +491,8 @@ window.addEventListener("resize", () => {
 });
 
 setInterval(() => {
-  if (view === "today") load("today");
+  // Past days don't change, so only the live day needs refreshing.
+  if (view === "today" && selectedDay === null) load("today");
 }, REFRESH_MS);
 setInterval(refreshStatus, STATUS_POLL_MS);
 // The elapsed counter ticks locally between polls.

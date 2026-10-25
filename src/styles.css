@@ -213,6 +213,55 @@ h2 {
   margin-top: 72px;
 }
 
+.day-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: -10px;
+}
+
+.day-step {
+  min-width: 32px;
+  min-height: 40px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--faint);
+}
+
+.day-step:hover:not(:disabled),
+.day-label:hover {
+  color: var(--ink);
+}
+
+.day-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.day-pick {
+  position: relative;
+}
+
+.day-label {
+  min-height: 40px;
+  padding: 0 2px;
+}
+
+/* Kept in the layout, but invisible, so its native popup anchors under the date. */
+.day-pick input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.day-today {
+  margin-left: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
 .hero {
   display: flex;
   flex-wrap: wrap;

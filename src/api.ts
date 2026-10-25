@@ -83,7 +83,9 @@ export interface CategoryEntry {
 }
 
 export const api = {
-  today: () => invoke<DaySummary>("get_today"),
+  /** `date` is a local `YYYY-MM-DD`; omit it for today. */
+  day: (date?: string) => invoke<DaySummary>("get_day", { date }),
+  firstDay: () => invoke<string | null>("get_first_day"),
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),

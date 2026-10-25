@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use chrono::Local;
+use chrono::{Local, NaiveDate, TimeZone};
 use rusqlite::params;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -20,20 +20,36 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-fn local_midnight_ms() -> i64 {
-    Local::now()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .and_then(|t| t.and_local_timezone(Local).earliest())
-        .map(|t| t.timestamp_millis())
-        .unwrap_or_else(|| now_ms() - DAY_MS)
+fn local_midnight_ms(date: NaiveDate) -> Option<i64> {
+    date.and_hms_opt(0, 0, 0)?.and_local_timezone(Local).earliest().map(|t| t.timestamp_millis())
 }
 
+/// Local midnight to the next local midnight, so DST days come out 23 or 25 hours long.
+fn day_bounds(date: NaiveDate) -> Option<(i64, i64)> {
+    Some((local_midnight_ms(date)?, local_midnight_ms(date.succ_opt()?)?))
+}
+
+/// One local day's summary; `date` is `YYYY-MM-DD` and defaults to today.
 #[tauri::command]
-pub fn get_today(state: State<AppState>) -> CmdResult<DaySummary> {
+pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySummary> {
+    let date = match date {
+        Some(d) => NaiveDate::parse_from_str(&d, "%Y-%m-%d").map_err(err)?,
+        None => Local::now().date_naive(),
+    };
+    let (from, to) = day_bounds(date).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
-    let rows = analysis::load_rows(&conn, local_midnight_ms(), now_ms()).map_err(err)?;
+    let rows = analysis::load_rows(&conn, from, to.min(now_ms())).map_err(err)?;
     Ok(analysis::day_summary(&rows))
+}
+
+/// The local date of the earliest recorded session, so the day picker knows where history starts.
+#[tauri::command]
+pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {
+    let conn = state.db.lock().map_err(err)?;
+    let first: Option<i64> = conn.query_row("SELECT MIN(start_ms) FROM sessions", [], |r| r.get(0)).map_err(err)?;
+    Ok(first
+        .and_then(|ms| Local.timestamp_millis_opt(ms).single())
+        .map(|t| t.date_naive().to_string()))
 }
 
 #[tauri::command]
@@ -197,4 +213,18 @@ pub fn clear_demo_data(state: State<AppState>) -> CmdResult<usize> {
     let conn = state.db.lock().map_err(err)?;
     nudge::invalidate(&state.window_cache);
     demo::clear(&conn).map_err(err)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn day_bounds_span_one_local_day() {
+        let date = NaiveDate::from_ymd_opt(2026, 3, 29).unwrap();
+        let (from, to) = day_bounds(date).unwrap();
+        assert!((23..=25).contains(&((to - from) / (60 * 60 * 1000))));
+        assert_eq!(Local.timestamp_millis_opt(from).unwrap().date_naive(), date);
+        assert_eq!(Local.timestamp_millis_opt(to).unwrap().date_naive(), date.succ_opt().unwrap());
+    }
 }
