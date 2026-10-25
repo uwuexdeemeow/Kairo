@@ -43,6 +43,13 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Size, position and maximized state come back as they were; visibility stays ours,
+        // since Kairo starts hidden in the tray at sign-in.
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
+                .build(),
+        )
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -100,6 +107,8 @@ pub fn run() {
             commands::get_retention,
             commands::set_retention,
             commands::delete_history,
+            commands::get_version,
+            commands::check_for_updates,
             commands::seed_demo_data,
             commands::clear_demo_data,
         ])

@@ -165,6 +165,9 @@ export const api = {
   testNudge: () => invoke<void>("send_test_nudge"),
   autostart: () => invoke<Autostart>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
+  version: () => invoke<string>("get_version"),
+  /** The result arrives as a notification, like the tray's "Check for updates". */
+  checkForUpdates: () => invoke<void>("check_for_updates"),
   seedDemo: () => invoke<number>("seed_demo_data"),
   clearDemo: () => invoke<number>("clear_demo_data"),
 };

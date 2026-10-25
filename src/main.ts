@@ -927,7 +927,9 @@ function paintStatus() {
 
 // ---------- wiring ----------
 
-type View = "today" | "week" | "patterns" | "categories";
+type View = "today" | "week" | "patterns" | "categories" | "settings";
+/// In sidebar order, for Ctrl+1 to Ctrl+5.
+const VIEWS: View[] = ["today", "week", "patterns", "categories", "settings"];
 let view: View = "today";
 
 async function load(v: View = view) {
@@ -943,8 +945,9 @@ async function load(v: View = view) {
       renderWeek(await api.week(selectedWeek ?? undefined));
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
-    if (v === "categories") {
-      renderCategories(await api.categories());
+    if (v === "categories") renderCategories(await api.categories());
+    if (v === "settings") {
+      $("#settings-version").textContent = `Kairo ${await api.version()}`;
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
@@ -955,7 +958,7 @@ async function load(v: View = view) {
       if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
     }
   } catch (e) {
-    const target = { today: "#today-timeline", week: "#week-chart", patterns: "#insights", categories: "#categories" }[v];
+    const target = { today: "#today-timeline", week: "#week-chart", patterns: "#insights", categories: "#categories", settings: "#update-status" }[v];
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
   }
 }
@@ -993,7 +996,39 @@ const dayCalendar = calendar({
 });
 $("#today-date").addEventListener("click", () => dayCalendar.toggle());
 
-$("#week-prev").addEventListener("click", () => goToWeek(shiftDate(shownWeek(), -7)));
+// Kairo is an app, not a page: no browser menu on right-click, and no reload, find, print or
+// view-source shortcuts. Development builds keep them for debugging.
+const BROWSER_KEYS = new Set(["r", "f", "g", "p", "u", "j", "h", "s"]);
+if (import.meta.env.PROD) {
+  document.addEventListener("contextmenu", (e) => {
+    if (!(e.target as HTMLElement).closest("input, textarea")) e.preventDefault();
+  });
+  document.addEventListener("keydown", (e) => {
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (e.key === "F5" || e.key === "F7" || (ctrl && BROWSER_KEYS.has(e.key.toLowerCase()))) e.preventDefault();
+  });
+}
+
+/// Ctrl+1 to Ctrl+5 open the views in sidebar order.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  const next = VIEWS[Number(e.key) - 1];
+  if (!next) return;
+  e.preventDefault();
+  $<HTMLButtonElement>(`[data-view="${next}"]`).click();
+});
+
+$("#update-check").addEventListener("click", async () => {
+  const out = $("#update-status");
+  try {
+    await api.checkForUpdates();
+    out.textContent = "Checking… the result shows as a notification.";
+  } catch (err) {
+    out.textContent = `Couldn't check: ${err}`;
+  }
+});
+
+$("#week-prev").addEventListener("click",() => goToWeek(shiftDate(shownWeek(), -7)));
 $("#week-next").addEventListener("click", () => goToWeek(shiftDate(shownWeek(), 7)));
 $("#week-this").addEventListener("click", () => goToWeek(null));
 

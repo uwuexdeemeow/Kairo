@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{classify, db, demo, goals, nudge, recap, startup, AppState, AutostartToggle, NudgeToggle};
+use crate::{classify, db, demo, goals, nudge, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -363,6 +363,17 @@ pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
         let _ = toggle.0.set_checked(enabled);
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+/// Same as the tray's "Check for updates": the result arrives as a notification.
+#[tauri::command]
+pub fn check_for_updates(app: AppHandle) {
+    tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
 }
 
 #[tauri::command]

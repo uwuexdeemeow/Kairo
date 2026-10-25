@@ -48,12 +48,47 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Desktop conventions: the arrow cursor on controls (the hand is for links) and no text
+   selection outside of inputs, so dragging across the window doesn't highlight the page. */
+body {
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea {
+  user-select: text;
+}
+
 button {
   font: inherit;
   color: inherit;
   background: none;
   border: 0;
-  cursor: pointer;
+  cursor: default;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid var(--bg);
+  border-radius: 12px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 button:focus-visible,
@@ -135,6 +170,7 @@ h2 {
 }
 
 .tabs {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -162,12 +198,20 @@ h2 {
   color: var(--ink);
 }
 
-.tabs button[aria-selected="true"]::before {
-  content: "";
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--ink);
+.icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Settings sits apart at the foot of the list, above the live status. */
+.tab-settings {
+  margin-top: auto;
 }
 
 .status {
@@ -214,10 +258,29 @@ h2 {
 
 .view {
   display: block;
+  animation: view-in 160ms ease-out;
 }
 
 .view[hidden] {
   display: none;
+}
+
+/* A short settle as a view appears, so switching reads as a change rather than a flicker. */
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view {
+    animation: none;
+  }
+}
+
+.settings-first {
+  margin-top: 40px;
 }
 
 .block {
@@ -940,7 +1003,6 @@ select {
   border: 0;
   border-bottom: 1px solid var(--line);
   padding: 4px 2px;
-  cursor: pointer;
 }
 
 .row-buttons {
@@ -956,6 +1018,7 @@ select {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 4px;
+  cursor: pointer;
 }
 
 .link-btn:hover {
@@ -995,7 +1058,6 @@ input[type="date"] {
   align-items: center;
   gap: 10px;
   min-height: 40px;
-  cursor: pointer;
 }
 
 .toggle input {
@@ -1003,7 +1065,6 @@ input[type="date"] {
   height: 16px;
   margin: 0;
   accent-color: var(--productive);
-  cursor: pointer;
 }
 
 /* ---------- tooltip ---------- */
@@ -1077,7 +1138,11 @@ input[type="date"] {
     background: var(--bg);
   }
   .tabs {
+    flex: none;
     flex-direction: row;
+  }
+  .tab-settings {
+    margin-top: 0;
   }
   .status {
     margin: 0 0 0 auto;
