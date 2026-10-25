@@ -7,18 +7,18 @@
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
-    <div class="wrap">
-      <header class="topbar">
+    <div class="app">
+      <aside class="sidebar">
         <span class="wordmark">kairo</span>
-        <nav class="tabs" role="tablist" aria-label="Main">
+        <nav class="tabs" role="tablist" aria-label="Main" aria-orientation="vertical">
           <button role="tab" data-view="today" aria-selected="true">Today</button>
           <button role="tab" data-view="patterns" aria-selected="false">Patterns</button>
           <button role="tab" data-view="categories" aria-selected="false">Categories</button>
         </nav>
         <span id="status" class="status"></span>
-      </header>
+      </aside>
 
-      <main>
+      <main class="wrap">
         <section id="view-today" class="view">
           <section class="summary" aria-label="Summary">
             <nav class="day-nav" aria-label="Day">

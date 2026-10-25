@@ -35,6 +35,11 @@
   box-sizing: border-box;
 }
 
+/* Layout classes set display, which would otherwise beat the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -97,20 +102,33 @@ h2 {
 
 /* ---------- layout ---------- */
 
+/* The sidebar stays put while the page scrolls beside it. */
+.app {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 16px 24px 24px;
+  border-right: 1px solid var(--rule);
+}
+
 .wrap {
+  width: 100%;
   max-width: 1040px;
   margin: 0 auto;
   padding: 28px 40px 64px;
 }
 
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 36px;
-}
-
 .wordmark {
+  padding: 0 10px;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -118,6 +136,7 @@ h2 {
 
 .tabs {
   display: flex;
+  flex-direction: column;
   gap: 2px;
 }
 
@@ -127,7 +146,12 @@ h2 {
   gap: 8px;
   min-height: 40px;
   padding: 0 10px;
+  border-radius: 6px;
   color: var(--muted);
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--raised);
 }
 
 .tabs button:hover {
@@ -147,17 +171,37 @@ h2 {
 }
 
 .status {
-  margin-left: auto;
+  margin-top: auto;
+  padding: 0 10px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  line-height: 1.5;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--faint);
 }
 
+.status-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.status-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-text span:first-child {
+  color: var(--muted);
+}
+
 .status::before {
   content: "";
+  flex: none;
+  margin-top: 6px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -194,7 +238,7 @@ h2 {
 }
 
 .page-head {
-  margin-top: 72px;
+  margin-top: 14px;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -210,7 +254,7 @@ h2 {
 /* ---------- today ---------- */
 
 .summary {
-  margin-top: 72px;
+  margin-top: 4px;
 }
 
 .day-nav {
@@ -660,6 +704,11 @@ h2 {
 
 /* ---------- categories ---------- */
 
+/* Six columns don't fit a narrow window; the table scrolls rather than the page. */
+#categories {
+  overflow-x: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -811,7 +860,41 @@ input[type="date"] {
   color: var(--faint);
 }
 
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 168px minmax(0, 1fr);
+  }
+  .sidebar {
+    padding-left: 16px;
+  }
+  .wrap {
+    padding: 28px 28px 56px;
+  }
+}
+
+/* Too narrow for a column: the sidebar becomes a bar that sticks to the top. */
 @media (max-width: 640px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sidebar {
+    z-index: 10;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 16px;
+    padding: 12px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    background: var(--bg);
+  }
+  .tabs {
+    flex-direction: row;
+  }
+  .status {
+    margin: 0 0 0 auto;
+  }
   .wrap {
     padding: 20px 16px 48px;
   }

@@ -607,7 +607,9 @@ function paintStatus() {
   }
   const live = status.tracking && status.app && status.sinceMs;
   el.className = live ? "status live" : "status";
-  el.textContent = !status.tracking ? "Paused" : live ? `${status.app} · ${fmtElapsed(Date.now() - status.sinceMs!)}` : "Idle";
+  // The app name gets its own line so long names truncate instead of wrapping into the timer.
+  const lines = !status.tracking ? ["Paused"] : live ? [status.app!, fmtElapsed(Date.now() - status.sinceMs!)] : ["Idle"];
+  el.replaceChildren(h("span", { class: "status-text" }, ...lines.map((l) => h("span", { title: l }, l))));
 }
 
 // ---------- wiring ----------
@@ -646,6 +648,8 @@ for (const tab of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
     view = tab.dataset.view as View;
     for (const t of document.querySelectorAll<HTMLButtonElement>("[data-view]")) t.setAttribute("aria-selected", String(t === tab));
     for (const sec of document.querySelectorAll<HTMLElement>(".view")) sec.hidden = sec.id !== `view-${view}`;
+    // Each view starts at its top, not wherever the last one was scrolled to.
+    window.scrollTo(0, 0);
     load();
   });
 }
