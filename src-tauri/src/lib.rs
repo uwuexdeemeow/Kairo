@@ -1,4 +1,5 @@
 mod analysis;
+mod blocking;
 mod browser;
 mod classify;
 mod collector;
@@ -28,6 +29,8 @@ pub struct AppState {
     pub window_cache: nudge::SharedCache,
     pub privacy_rules: privacy::SharedRules,
     pub browser_tab: browser::SharedTab,
+    /// "Allow 5 minutes" exceptions during focus sessions, shared with the extension's listener.
+    pub allowances: blocking::Allowances,
     /// False when another program holds the extension's port.
     pub browser_listening: bool,
 }
@@ -69,7 +72,9 @@ pub fn run() {
             let window_cache = nudge::SharedCache::default();
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
             let browser_tab = browser::SharedTab::default();
-            let browser_listening = browser::spawn(browser_tab.clone());
+            let allowances = blocking::Allowances::default();
+            let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone());
+            blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
@@ -81,6 +86,7 @@ pub fn run() {
                 privacy_rules,
                 browser_tab,
                 browser_listening,
+                allowances,
             });
             setup_tray(app, paused, nudges_on)?;
             updater::spawn(app.handle().clone());
@@ -118,6 +124,11 @@ pub fn run() {
             commands::control_focus,
             commands::get_focus_overview,
             commands::get_browsers,
+            commands::allow_blocked,
+            commands::close_blocked,
+            commands::get_focus_blocking,
+            commands::set_focus_blocking,
+            commands::set_focus_rule,
             commands::open_extensions_page,
             commands::get_focus_blocks,
             commands::get_break_minutes,

@@ -90,8 +90,12 @@ export interface CategoryEntry {
   privacy: PrivacyMode;
   /** Daily limit in minutes; 0 means none. */
   limitMin: number;
+  /** During focus sessions: "auto" blocks it when its category is distracting. */
+  focus: FocusRule;
   ms: number;
 }
+
+export type FocusRule = "auto" | "block" | "allow";
 
 export interface GoalProgress {
   key: string;
@@ -190,6 +194,9 @@ export const api = {
   /** Returns the session as it stands afterwards; null once it has ended. */
   controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusSession | null>("control_focus", { action, minutes }),
   focusOverview: () => invoke<FocusOverview>("get_focus_overview"),
+  focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean }>("get_focus_blocking"),
+  setFocusBlocking: (which: "enabled" | "launchers", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),
+  setFocusRule: (key: string, rule: FocusRule) => invoke<void>("set_focus_rule", { key, rule }),
   /** Focus sessions on one local day (`YYYY-MM-DD`; default today). */
   focusBlocks: (date?: string) => invoke<FocusBlock[]>("get_focus_blocks", { date }),
   breakMinutes: () => invoke<number>("get_break_minutes"),

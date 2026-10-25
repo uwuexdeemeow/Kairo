@@ -2,11 +2,16 @@
 //! localhost, so sites are known exactly instead of guessed from window titles.
 
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Response, Server};
+
+use crate::blocking::{self, Allowances};
+use crate::db;
 
 /// Fixed so the extension knows where to find Kairo; only this computer can reach it.
 pub const ADDR: &str = "127.0.0.1:47613";
@@ -129,7 +134,7 @@ fn from_extension(origin: Option<&str>) -> bool {
 }
 
 /// Starts the listener; false when the port is taken, e.g. by another program.
-pub fn spawn(shared: SharedTab) -> bool {
+pub fn spawn(shared: SharedTab, db_path: PathBuf, allowances: Allowances) -> bool {
     let server = match Server::http(ADDR) {
         Ok(server) => server,
         Err(e) => {
@@ -139,43 +144,77 @@ pub fn spawn(shared: SharedTab) -> bool {
     };
     thread::Builder::new()
         .name("kairo-browser".into())
-        .spawn(move || serve(&server, &shared))
+        .spawn(move || match db::open(&db_path) {
+            Ok(conn) => serve(&server, &shared, &conn, &allowances),
+            Err(e) => eprintln!("browser: cannot open database: {e}"),
+        })
         .expect("failed to start browser listener");
     true
 }
 
-fn serve(server: &Server, shared: &SharedTab) {
+/// The answer to a report: whether to swap the tab for the blocked page, and until when.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Verdict {
+    block: bool,
+    site: Option<String>,
+    until_ms: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct Allow {
+    site: String,
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(request: &mut tiny_http::Request) -> Option<T> {
+    let mut body = String::new();
+    request.as_reader().take(MAX_BODY).read_to_string(&mut body).ok()?;
+    serde_json::from_str(&body).ok()
+}
+
+fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Allowances) {
     for mut request in server.incoming_requests() {
-        let origin = request
-            .headers()
-            .iter()
-            .find(|h| h.field.equiv("Origin"))
-            .map(|h| h.value.as_str().to_string());
-        let code = if !from_extension(origin.as_deref()) {
-            403
-        } else if *request.method() == Method::Post && request.url() == "/tab" {
-            let mut body = String::new();
-            let read = request.as_reader().take(MAX_BODY).read_to_string(&mut body);
-            match read
-                .ok()
-                .and_then(|_| serde_json::from_str::<Payload>(&body).ok())
-            {
+        let origin = request.headers().iter().find(|h| h.field.equiv("Origin")).map(|h| h.value.as_str().to_string());
+        let now = chrono::Utc::now().timestamp_millis();
+        let post = *request.method() == Method::Post;
+        let (code, body) = match request.url() {
+            _ if !from_extension(origin.as_deref()) => (403, None),
+            "/tab" if post => match read_json::<Payload>(&mut request) {
                 Some(p) => {
                     let site = p.host.as_deref().and_then(site_for_host);
-                    let report = Report {
-                        site,
-                        incognito: p.incognito,
-                        at_ms: chrono::Utc::now().timestamp_millis(),
+                    let until = match &site {
+                        Some(s) if !p.incognito => blocking::site_blocked_until(conn, allowances, s, now).unwrap_or_else(|e| {
+                            eprintln!("browser: cannot check blocking: {e}");
+                            None
+                        }),
+                        _ => None,
                     };
-                    *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(report);
-                    204
+                    let verdict = Verdict { block: until.is_some(), site: site.clone(), until_ms: until };
+                    *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(Report { site, incognito: p.incognito, at_ms: now });
+                    (200, serde_json::to_string(&verdict).ok())
                 }
-                None => 400,
-            }
-        } else {
-            404
+                None => (400, None),
+            },
+            // "Allow 5 minutes" on the extension's blocked page.
+            "/allow" if post => match read_json::<Allow>(&mut request).and_then(|a| site_for_host(&a.site)) {
+                Some(site) => {
+                    blocking::allow(allowances, &format!("site:{site}"), now);
+                    (204, None)
+                }
+                None => (400, None),
+            },
+            _ => (404, None),
         };
-        let mut response = Response::empty(code);
+        let mut response = match body {
+            Some(json) => {
+                let mut r = Response::from_string(json).with_status_code(code);
+                if let Ok(h) = Header::from_bytes("Content-Type", "application/json") {
+                    r.add_header(h);
+                }
+                r.boxed()
+            }
+            None => Response::empty(code).boxed(),
+        };
         if let Ok(h) = Header::from_bytes("Cache-Control", "no-store") {
             response.add_header(h);
         }
@@ -210,50 +249,55 @@ mod tests {
         assert_eq!(site_for_host("bad host/<script>"), None);
     }
 
-    /// Sends a raw request to the listener and returns the status code.
-    fn post(addr: std::net::SocketAddr, origin: Option<&str>, body: &str) -> u16 {
+    /// Sends a raw request to the listener; returns the status code and body.
+    fn post(addr: std::net::SocketAddr, path: &str, origin: Option<&str>, body: &str) -> (u16, String) {
         use std::io::Write;
         let mut stream = std::net::TcpStream::connect(addr).unwrap();
-        let origin = origin
-            .map(|o| format!("Origin: {o}\r\n"))
-            .unwrap_or_default();
-        write!(stream, "POST /tab HTTP/1.1\r\nHost: {addr}\r\n{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        let origin = origin.map(|o| format!("Origin: {o}\r\n")).unwrap_or_default();
+        write!(stream, "POST {path} HTTP/1.1\r\nHost: {addr}\r\n{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
         let mut response = String::new();
         stream.read_to_string(&mut response).unwrap();
-        response
-            .split(' ')
-            .nth(1)
-            .and_then(|c| c.parse().ok())
-            .unwrap()
+        let code = response.split(' ').nth(1).and_then(|c| c.parse().ok()).unwrap();
+        let body = response.split("\r\n\r\n").nth(1).unwrap_or_default().to_string();
+        (code, body)
     }
 
     #[test]
-    fn the_listener_takes_reports_from_extensions_only() {
+    fn the_listener_takes_reports_from_extensions_only_and_says_what_to_block() {
+        let path = std::env::temp_dir().join(format!("kairo-browser-{}.db", std::process::id()));
+        let conn = db::open(&path).unwrap();
         let server = Arc::new(Server::http("127.0.0.1:0").unwrap());
         let addr = server.server_addr().to_ip().unwrap();
         let shared = SharedTab::default();
-        let (s, t) = (server.clone(), shared.clone());
-        thread::spawn(move || serve(&s, &t));
+        let allowances = Allowances::default();
+        let (s, t, a, p) = (server.clone(), shared.clone(), allowances.clone(), path.clone());
+        thread::spawn(move || serve(&s, &t, &db::open(&p).unwrap(), &a));
 
         let ext = Some("chrome-extension://kairo");
-        assert_eq!(
-            post(addr, Some("https://evil.example"), r#"{"host":"x.com"}"#),
-            403
-        );
+        let youtube = r#"{"host":"www.youtube.com","incognito":false}"#;
+        assert_eq!(post(addr, "/tab", Some("https://evil.example"), r#"{"host":"x.com"}"#).0, 403);
         assert!(shared.lock().unwrap().is_none());
-        assert_eq!(post(addr, ext, "not json"), 400);
-        assert_eq!(
-            post(addr, ext, r#"{"host":"www.youtube.com","incognito":false}"#),
-            204
-        );
+        assert_eq!(post(addr, "/tab", ext, "not json").0, 400);
+        assert_eq!(post(addr, "/tab", ext, youtube), (200, r#"{"block":false,"site":"youtube","untilMs":null}"#.into()));
         let report = shared.lock().unwrap().clone().unwrap();
-        assert_eq!(
-            (report.site.as_deref(), report.incognito),
-            (Some("youtube"), false)
-        );
-        assert_eq!(post(addr, ext, r#"{"host":null}"#), 204);
+        assert_eq!((report.site.as_deref(), report.incognito), (Some("youtube"), false));
+
+        // During a focus session, a distracting site comes back blocked until "Allow 5 minutes".
+        let now = chrono::Utc::now().timestamp_millis();
+        crate::focus::start(&conn, 25, None, now).unwrap();
+        let (code, body) = post(addr, "/tab", ext, youtube);
+        assert_eq!(code, 200);
+        assert!(body.starts_with(r#"{"block":true,"site":"youtube","untilMs":"#), "{body}");
+        assert_eq!(post(addr, "/allow", ext, r#"{"site":"www.youtube.com"}"#).0, 204);
+        assert!(post(addr, "/tab", ext, youtube).1.starts_with(r#"{"block":false"#));
+
+        assert_eq!(post(addr, "/tab", ext, r#"{"host":null}"#).0, 200);
         assert_eq!(shared.lock().unwrap().as_ref().unwrap().site, None);
         server.unblock();
+        drop(conn);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
     }
 
     #[test]

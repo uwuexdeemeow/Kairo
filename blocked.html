@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blocked during focus</title>
+    <script type="module" src="/src/blocked.ts" defer></script>
+  </head>
+  <body class="blocked-page">
+    <main class="blocked">
+      <p class="eyebrow">Focus session</p>
+      <h1 id="blocked-title"></h1>
+      <p class="muted" id="blocked-detail"></p>
+      <div class="blocked-actions">
+        <button class="btn primary" id="blocked-back">Back to work</button>
+        <button class="btn" id="blocked-allow">Allow 5 minutes</button>
+        <button class="link-btn" id="blocked-end">End session</button>
+      </div>
+    </main>
+  </body>
+</html>

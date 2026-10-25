@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -682,10 +682,21 @@ function paintCategories() {
       select.append(opt);
     }
     const dot = h("span", { class: `dot ${e.category}` });
+    // During focus: "Auto" follows the category, so its wording shows what that means right now.
+    const focus = h("select", { "aria-label": `During focus sessions, ${e.label} is` }) as HTMLSelectElement;
+    const autoText = (c: Category) => (c === "distracting" ? "Auto · blocked" : "Auto · allowed");
+    for (const [rule, text] of [["auto", autoText(e.category)], ["block", "Always block"], ["allow", "Never block"]] as const) {
+      const opt = h("option", { value: rule }, text) as HTMLOptionElement;
+      opt.selected = rule === e.focus;
+      focus.append(opt);
+    }
+    focus.addEventListener("change", () => api.setFocusRule(e.key, focus.value as FocusRule));
+
     select.addEventListener("change", async () => {
       const c = select.value as Category;
       await api.setCategory(e.key, c);
       dot.className = `dot ${c}`;
+      focus.options[0].textContent = autoText(c);
     });
 
     const recording = h("select", { "aria-label": `What Kairo records for ${e.label}` }) as HTMLSelectElement;
@@ -710,6 +721,7 @@ function paintCategories() {
       h("td", { class: "num" }, fmtDur(e.ms)),
       h("td", {}, select),
       h("td", {}, limit),
+      h("td", {}, focus),
       h("td", {}, recording),
     );
   });
@@ -720,7 +732,7 @@ function paintCategories() {
       h(
         "thead",
         {},
-        h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"), h("th", {}, "Daily limit"), h("th", {}, "Recording")),
+        h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", { class: "num" }, "Time"), h("th", {}, "Category"), h("th", {}, "Daily limit"), h("th", {}, "During focus"), h("th", {}, "Recording")),
       ),
       h("tbody", {}, ...rows),
     ),
@@ -1157,6 +1169,9 @@ async function load(v: View = view) {
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
       await refreshExtension();
+      const blocking = await api.focusBlocking();
+      $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
+      $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
       breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
@@ -1291,6 +1306,10 @@ $("#ext-open").addEventListener("click", async () => {
 });
 
 $("#category-filter").addEventListener("input", paintCategories);
+
+for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"]] as const) {
+  $<HTMLInputElement>(id).addEventListener("change", (e) => api.setFocusBlocking(which, (e.target as HTMLInputElement).checked));
+}
 
 /// Welcome links open another view and bring the relevant control into sight.
 for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) {

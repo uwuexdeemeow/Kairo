@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{browser, classify, db, demo, focus, goals, nudge, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{blocking, browser, classify, db, demo, focus, goals, nudge, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -99,6 +99,8 @@ pub struct CategoryEntry {
     privacy: Mode,
     /// Daily limit in minutes; 0 means none.
     limit_min: u32,
+    /// Whether focus sessions block it.
+    focus: blocking::Rule,
     ms: i64,
 }
 
@@ -110,6 +112,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
     let cats = analysis::category_map(&conn).map_err(err)?;
     let rules = privacy::load(&conn).map_err(err)?;
     let limits: HashMap<String, u32> = goals::load(&conn).map_err(err)?.limits.into_iter().collect();
+    let focus_rules = blocking::rules(&conn).map_err(err)?;
+    let focus_rule = |key: &str| focus_rules.get(key).copied().unwrap_or(blocking::Rule::Auto);
     let since = now_ms() - 30 * DAY_MS;
 
     let mut out = Vec::new();
@@ -124,7 +128,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
             let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
             let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
             let limit_min = limits.get(&key).copied().unwrap_or(0);
-            out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, ms });
+            let focus = focus_rule(&key);
+            out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, focus, ms });
         }
         Ok(())
     };
@@ -155,7 +160,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
         let category = cats.get(&key).copied().unwrap_or(Category::Neutral);
         let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
         let limit_min = limits.get(&key).copied().unwrap_or(0);
-        out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, ms: 0 });
+        let focus = focus_rule(&key);
+        out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, focus, ms: 0 });
     }
 
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
@@ -461,6 +467,42 @@ fn extension_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
 pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
     std::process::Command::new("explorer").arg(extension_dir(&app)?).spawn().map_err(err)?;
     Ok(())
+}
+
+/// "Allow 5 minutes" from the blocked window.
+#[tauri::command]
+pub fn allow_blocked(app: AppHandle, state: State<AppState>, key: String) {
+    blocking::allow(&state.allowances, &key, now_ms());
+    blocking::close_window(&app);
+}
+
+#[tauri::command]
+pub fn close_blocked(app: AppHandle) {
+    blocking::close_window(&app);
+}
+
+#[tauri::command]
+pub fn get_focus_blocking(state: State<AppState>) -> CmdResult<blocking::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    blocking::settings(&conn).map_err(err)
+}
+
+/// `which` is "enabled" (blocking during focus sessions) or "launchers" (closing game launchers).
+#[tauri::command]
+pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    match blocking::set_setting(&conn, &which, on).map_err(err)? {
+        true => Ok(()),
+        false => Err(format!("unknown blocking setting: {which}")),
+    }
+}
+
+/// "auto" (follow the category), "block" or "allow" during focus sessions.
+#[tauri::command]
+pub fn set_focus_rule(state: State<AppState>, key: String, rule: String) -> CmdResult<()> {
+    let rule = blocking::Rule::parse(&rule).ok_or_else(|| format!("unknown focus rule: {rule}"))?;
+    let conn = state.db.lock().map_err(err)?;
+    blocking::set_rule(&conn, &key, rule).map_err(err)
 }
 
 #[derive(Serialize)]

@@ -107,6 +107,12 @@ pub fn active(conn: &Connection) -> Result<Option<Active>> {
     .optional()
 }
 
+/// When the running session ends; None with no session, or while it's paused (a pause is a
+/// break, so nothing is blocked).
+pub fn running_until(conn: &Connection, now: i64) -> Result<Option<i64>> {
+    Ok(active(conn)?.filter(|a| a.paused_at.is_none()).map(|a| a.ends_ms(now)))
+}
+
 /// Starts a session now, ending any that is running.
 pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
     stop(conn, now)?;

@@ -57,6 +57,10 @@ pub fn open(path: &Path) -> Result<Connection> {
              paused_at  INTEGER,
              label      TEXT
          );
+         CREATE TABLE IF NOT EXISTS focus_rules (
+             key  TEXT PRIMARY KEY,
+             rule TEXT NOT NULL CHECK (rule IN ('block', 'allow'))
+         );
          CREATE TABLE IF NOT EXISTS goal_alerts (
              day   TEXT    NOT NULL,
              key   TEXT    NOT NULL,

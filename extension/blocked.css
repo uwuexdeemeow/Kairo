@@ -1,0 +1,86 @@
+/* Matches Kairo's dark "Quiet" look without loading its fonts. */
+:root {
+  color-scheme: dark;
+  --bg: #0e0f12;
+  --ink: #e8e9ec;
+  --muted: #9399a4;
+  --faint: #7a808c;
+  --line: #2a2d34;
+  --raised: #17191e;
+  --productive: #3987e5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+
+main {
+  max-width: 520px;
+  padding: 32px;
+}
+
+.eyebrow {
+  margin: 0;
+  font: 12px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+h1 {
+  margin: 10px 0 0;
+  font-size: 40px;
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+button {
+  min-height: 38px;
+  padding: 0 16px;
+  font: inherit;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+button:hover {
+  background: var(--raised);
+}
+
+button.primary {
+  border-color: var(--productive);
+  background: var(--productive);
+  color: #fff;
+  font-weight: 500;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--productive);
+  outline-offset: 2px;
+}
