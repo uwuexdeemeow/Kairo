@@ -109,6 +109,26 @@ export interface DayGoals {
   streak: number;
 }
 
+export interface WeekTotals {
+  activeMs: number;
+  productiveMs: number;
+  neutralMs: number;
+  distractingMs: number;
+}
+
+export interface Week {
+  /** Monday, as a local `YYYY-MM-DD`. */
+  start: string;
+  totals: WeekTotals;
+  previous: WeekTotals;
+  days: { date: string; totals: WeekTotals; goalsMet: boolean | null }[];
+  bestDay: string | null;
+  goalDaysMet: number;
+  goalDays: number;
+  topApps: { label: string; category: Category; ms: number; previousMs: number }[];
+  limitsOver: { label: string; overMs: number; daysOver: number }[];
+}
+
 export interface GoalSettings {
   productiveMin: number;
   distractingMaxMin: number;
@@ -125,6 +145,8 @@ export const api = {
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
+  /** The Monday-to-Sunday week containing `date` (a local `YYYY-MM-DD`; default today). */
+  week: (date?: string) => invoke<Week>("get_week", { date }),
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: "productive" | "distracting", minutes: number) => invoke<void>("set_goal", { kind, minutes }),

@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{classify, db, demo, goals, nudge, startup, AppState, AutostartToggle, NudgeToggle};
+use crate::{classify, db, demo, goals, nudge, recap, startup, AppState, AutostartToggle, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -160,6 +160,14 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
 
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
     Ok(out)
+}
+
+/// The Monday-to-Sunday week containing `date` (default today), against the week before.
+#[tauri::command]
+pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Week> {
+    let start = recap::week_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    recap::week(&conn, start, now_ms()).map_err(err)
 }
 
 /// Progress on every goal and limit for one local day (default today), plus the streak before it.

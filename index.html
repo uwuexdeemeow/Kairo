@@ -12,6 +12,7 @@
         <span class="wordmark">kairo</span>
         <nav class="tabs" role="tablist" aria-label="Main" aria-orientation="vertical">
           <button role="tab" data-view="today" aria-selected="true">Today</button>
+          <button role="tab" data-view="week" aria-selected="false">Week</button>
           <button role="tab" data-view="patterns" aria-selected="false">Patterns</button>
           <button role="tab" data-view="categories" aria-selected="false">Categories</button>
         </nav>
@@ -63,6 +64,41 @@
             <section>
               <h2>Sites</h2>
               <div id="today-sites"></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="view-week" class="view" hidden>
+          <section class="page-head">
+            <div>
+              <nav class="day-nav" aria-label="Week">
+                <button class="day-step" id="week-prev" aria-label="Previous week" title="Previous week (←)">‹</button>
+                <p class="eyebrow week-range" id="week-range" aria-live="polite"></p>
+                <button class="day-step" id="week-next" aria-label="Next week" title="Next week (→)">›</button>
+                <button class="link-btn day-today" id="week-this" title="Back to this week (T)" hidden>This week</button>
+              </nav>
+              <h1 id="week-title"></h1>
+            </div>
+          </section>
+          <dl class="stats" id="week-stats"></dl>
+          <p class="muted week-compare" id="week-compare"></p>
+
+          <section class="block" aria-label="Each day">
+            <div class="section-head">
+              <h2>Each day</h2>
+              <div class="legend" data-legend></div>
+            </div>
+            <div class="week-chart" id="week-chart"></div>
+          </section>
+
+          <div class="columns">
+            <section>
+              <h2>Top apps</h2>
+              <div id="week-apps"></div>
+            </section>
+            <section>
+              <h2>Limits passed</h2>
+              <div id="week-limits"></div>
             </section>
           </div>
         </section>

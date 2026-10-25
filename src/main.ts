@@ -1,7 +1,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
-import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -389,6 +389,143 @@ async function renderHeadsUp() {
   $("#heads-up-time").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   $("#heads-up-title").textContent = h.title;
   $("#heads-up-detail").textContent = h.detail;
+}
+
+// ---------- week ----------
+
+/// The Monday of the week shown; null follows the current week.
+let selectedWeek: string | null = null;
+
+const mondayOf = (iso: string) => shiftDate(iso, -weekdayIndex(iso));
+const shownWeek = () => selectedWeek ?? mondayOf(todayIso());
+const TOTAL_KEYS = { productive: "productiveMs", neutral: "neutralMs", distracting: "distractingMs" } as const;
+
+/// "+12%" against the week before, or nothing when that week had no time to compare with.
+function vsLastWeek(current: number, previous: number): string {
+  if (!previous) return "";
+  const change = Math.round(((current - previous) / previous) * 100);
+  return `${change >= 0 ? "+" : "−"}${Math.abs(change)}%`;
+}
+
+function goToWeek(monday: string | null) {
+  const current = mondayOf(todayIso());
+  if (monday && firstDay && monday < mondayOf(firstDay)) monday = mondayOf(firstDay);
+  selectedWeek = !monday || monday >= current ? null : monday;
+  load("week");
+}
+
+/// Opens a day from the week chart on the Today view.
+function openDay(iso: string) {
+  selectedDay = iso >= todayIso() ? null : iso;
+  $<HTMLButtonElement>('[data-view="today"]').click();
+}
+
+function renderWeek(w: Week) {
+  const isThisWeek = selectedWeek === null;
+  const start = parseDate(w.start);
+  const end = parseDate(shiftDate(w.start, 6));
+  const otherYear = end.getFullYear() !== new Date().getFullYear();
+  const from = start.toLocaleDateString([], start.getMonth() === end.getMonth() ? { day: "numeric" } : { day: "numeric", month: "long" });
+  $("#week-range").textContent = `${from} – ${end.toLocaleDateString([], { day: "numeric", month: "long", ...(otherYear ? { year: "numeric" } : {}) })}`;
+  $("#week-title").textContent = isThisWeek ? "This week so far" : `Week of ${start.toLocaleDateString([], { day: "numeric", month: "long" })}`;
+  $<HTMLButtonElement>("#week-prev").disabled = !firstDay || w.start <= mondayOf(firstDay);
+  $<HTMLButtonElement>("#week-next").disabled = isThisWeek;
+  $("#week-this").hidden = isThisWeek;
+
+  const [t, p] = [w.totals, w.previous];
+  $("#week-stats").replaceChildren(
+    stat("Productive", fmtGoal(t.productiveMs), vsLastWeek(t.productiveMs, p.productiveMs)),
+    stat("Distracting", fmtGoal(t.distractingMs), vsLastWeek(t.distractingMs, p.distractingMs)),
+    stat("On screen", fmtGoal(t.activeMs), vsLastWeek(t.activeMs, p.activeMs)),
+    stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
+    stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], { weekday: "long" }) : "—"),
+  );
+  const before = parseDate(shiftDate(w.start, -7));
+  const beforeEnd = parseDate(shiftDate(w.start, -1));
+  $("#week-compare").textContent = p.activeMs
+    ? `Changes compare with ${before.toLocaleDateString([], { day: "numeric", month: "long" })} – ${beforeEnd.toLocaleDateString([], { day: "numeric", month: "long" })}.`
+    : "";
+  renderWeekChart(w);
+  renderWeekApps(w);
+
+  $("#week-limits").replaceChildren(
+    ...(w.limitsOver.length
+      ? w.limitsOver.map((l) =>
+          h(
+            "div",
+            { class: "usage" },
+            h(
+              "div",
+              { class: "usage-top" },
+              h("span", { class: "usage-label" }, l.label),
+              h("span", { class: "usage-value over" }, `${fmtDur(l.overMs)} over · ${l.daysOver} ${l.daysOver === 1 ? "day" : "days"}`),
+            ),
+          ),
+        )
+      : [h("p", { class: "empty" }, "No limits passed. Daily limits are set in Categories.")]),
+  );
+}
+
+function renderWeekChart(w: Week) {
+  const max = Math.max(HOUR_MS, ...w.days.map((d) => d.totals.activeMs));
+  const today = todayIso();
+  $("#week-chart").replaceChildren(
+    ...w.days.map((d) => {
+      const date = parseDate(d.date);
+      const name = date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+      // Productive sits at the bottom of each bar, distracting on top.
+      const bar = h("div", { class: "wk-bar" });
+      for (const c of ["distracting", "neutral", "productive"] as const) {
+        const ms = d.totals[TOTAL_KEYS[c]];
+        if (!ms) continue;
+        const part = h("span", { class: `wk-part ${c}` });
+        part.style.height = `${(ms / max) * 100}%`;
+        bar.append(part);
+      }
+      const goal = d.goalsMet === null ? "" : d.goalsMet ? "✓" : "×";
+      const col = h(
+        "button",
+        { class: `wk-day${d.date === today ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(d.totals.activeMs)} on screen` },
+        h("span", { class: "wk-value" }, d.totals.activeMs ? fmtDur(d.totals.activeMs) : ""),
+        bar,
+        h("span", { class: "wk-label" }, date.toLocaleDateString([], { weekday: "short" })),
+        h("span", { class: `wk-goal${d.goalsMet === false ? " missed" : ""}`, title: d.goalsMet === null ? "" : d.goalsMet ? "Goals met" : "Goals missed" }, goal),
+      ) as HTMLButtonElement;
+      col.disabled = d.date > today;
+      tip(col, () => `<strong>${esc(name)}</strong>${CATEGORIES.map((c) => `<div>${dotHtml(c)}${LABELS[c]}<b>${fmtGoal(d.totals[TOTAL_KEYS[c]])}</b></div>`).join("")}`);
+      col.addEventListener("click", () => openDay(d.date));
+      return col;
+    }),
+  );
+}
+
+function renderWeekApps(w: Week) {
+  const root = $("#week-apps");
+  if (!w.topApps.length) {
+    root.replaceChildren(h("p", { class: "empty" }, "Nothing tracked this week."));
+    return;
+  }
+  const top = w.topApps[0].ms;
+  root.replaceChildren(
+    ...w.topApps.map((a) => {
+      const line = h("div", { class: `line ${a.category}` });
+      line.style.width = `${Math.max((a.ms / top) * 100, 1)}%`;
+      const diff = a.ms - a.previousMs;
+      const delta = !a.previousMs ? "new" : `${diff >= 0 ? "+" : "−"}${fmtGoal(Math.abs(diff))}`;
+      return h(
+        "div",
+        { class: "usage" },
+        h(
+          "div",
+          { class: "usage-top" },
+          h("span", { class: "usage-label" }, a.label),
+          h("span", { class: "usage-delta", title: "Change from last week" }, delta),
+          h("span", { class: "usage-value" }, fmtDur(a.ms)),
+        ),
+        line,
+      );
+    }),
+  );
 }
 
 // ---------- patterns ----------
@@ -790,7 +927,7 @@ function paintStatus() {
 
 // ---------- wiring ----------
 
-type View = "today" | "patterns" | "categories";
+type View = "today" | "week" | "patterns" | "categories";
 let view: View = "today";
 
 async function load(v: View = view) {
@@ -800,6 +937,10 @@ async function load(v: View = view) {
       const [day, goals] = await Promise.all([api.day(selectedDay ?? undefined), api.goals(selectedDay ?? undefined)]);
       renderToday(day);
       renderGoals(goals, selectedDay === null);
+    }
+    if (v === "week") {
+      firstDay ??= await api.firstDay();
+      renderWeek(await api.week(selectedWeek ?? undefined));
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") {
@@ -814,7 +955,7 @@ async function load(v: View = view) {
       if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
     }
   } catch (e) {
-    const target = v === "today" ? "#today-timeline" : v === "patterns" ? "#insights" : "#categories";
+    const target = { today: "#today-timeline", week: "#week-chart", patterns: "#insights", categories: "#categories" }[v];
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
   }
 }
@@ -852,12 +993,18 @@ const dayCalendar = calendar({
 });
 $("#today-date").addEventListener("click", () => dayCalendar.toggle());
 
+$("#week-prev").addEventListener("click", () => goToWeek(shiftDate(shownWeek(), -7)));
+$("#week-next").addEventListener("click", () => goToWeek(shiftDate(shownWeek(), 7)));
+$("#week-this").addEventListener("click", () => goToWeek(null));
+
+/// ←/→ step a day on Today and a week on Week; T jumps back to the present.
 document.addEventListener("keydown", (e) => {
-  if (view !== "today" || e.altKey || e.ctrlKey || e.metaKey) return;
+  if ((view !== "today" && view !== "week") || e.altKey || e.ctrlKey || e.metaKey) return;
   if ((e.target as HTMLElement).closest("input, select, textarea")) return;
-  if (e.key === "ArrowLeft") goToDay(shiftDate(shownDay(), -1));
-  else if (e.key === "ArrowRight") goToDay(shiftDate(shownDay(), 1));
-  else if (e.key === "t" || e.key === "T") goToDay(null);
+  const step = (n: number) => (view === "today" ? goToDay(shiftDate(shownDay(), n)) : goToWeek(shiftDate(shownWeek(), 7 * n)));
+  if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowRight") step(1);
+  else if (e.key === "t" || e.key === "T") (view === "today" ? goToDay : goToWeek)(null);
   else return;
   e.preventDefault();
 });

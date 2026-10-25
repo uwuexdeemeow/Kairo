@@ -8,6 +8,7 @@ mod goals;
 mod nudge;
 mod platform;
 mod privacy;
+mod recap;
 mod startup;
 mod updater;
 
@@ -89,6 +90,7 @@ pub fn run() {
             commands::send_test_nudge,
             commands::get_autostart,
             commands::set_autostart,
+            commands::get_week,
             commands::get_goals,
             commands::get_goal_settings,
             commands::set_goal,

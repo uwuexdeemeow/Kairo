@@ -13,7 +13,7 @@ jobs:
   release:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Tag matches app version
         shell: pwsh
@@ -23,7 +23,7 @@ jobs:
             throw "Tag ${{ github.ref_name }} doesn't match version $version in tauri.conf.json"
           }
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm

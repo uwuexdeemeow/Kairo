@@ -15,7 +15,7 @@ use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::analysis::{self, Category, Row};
-use crate::{classify, db};
+use crate::{classify, db, recap};
 
 const PRODUCTIVE_KEY: &str = "goal_productive_min";
 const DISTRACTING_KEY: &str = "goal_distracting_max_min";
@@ -50,7 +50,7 @@ pub struct Goals {
 }
 
 impl Goals {
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.productive_min == 0 && self.distracting_max_min == 0 && self.limits.is_empty()
     }
 }
@@ -89,12 +89,12 @@ pub fn set_limit(conn: &Connection, key: &str, minutes: u32) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     key: String,
-    label: String,
-    kind: Kind,
-    used_ms: i64,
-    target_ms: i64,
+    pub label: String,
+    pub kind: Kind,
+    pub used_ms: i64,
+    pub target_ms: i64,
     /// A target is met once reached; a cap or limit while it isn't passed.
-    met: bool,
+    pub met: bool,
 }
 
 #[derive(Serialize)]
@@ -115,7 +115,7 @@ fn item(key: &str, label: String, kind: Kind, used_ms: i64, minutes: u32) -> Pro
 }
 
 /// Progress on every goal over `rows`; `labels` names app limits with no time in `rows`.
-fn progress(goals: &Goals, rows: &[Row], labels: &HashMap<String, String>) -> Vec<Progress> {
+pub fn progress(goals: &Goals, rows: &[Row], labels: &HashMap<String, String>) -> Vec<Progress> {
     let used = |matches: &dyn Fn(&Row) -> bool| rows.iter().filter(|r| !r.idle && matches(r)).map(Row::dur).sum::<i64>();
     let mut out = Vec::new();
     if goals.productive_min > 0 {
@@ -155,7 +155,7 @@ fn labels(conn: &Connection, goals: &Goals) -> Result<HashMap<String, String>> {
     Ok(out)
 }
 
-fn rows_for(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
+pub fn rows_for(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
     match analysis::day_bounds(date) {
         Some((from, to)) => analysis::load_rows(conn, from, to.min(now_ms)),
         None => Ok(Vec::new()),
@@ -190,7 +190,7 @@ pub fn for_day(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<DayGoa
     Ok(DayGoals { items, streak: streak(conn, &goals, date, now_ms)? })
 }
 
-fn fmt_dur(ms: i64) -> String {
+pub fn fmt_dur(ms: i64) -> String {
     let minutes = (ms.max(0) + MIN_MS / 2) / MIN_MS;
     match (minutes / 60, minutes % 60) {
         (0, m) => format!("{m}m"),
@@ -237,6 +237,9 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
                 if !paused.load(Ordering::Relaxed) {
                     if let Err(e) = check(&app, &conn) {
                         eprintln!("goals: {e}");
+                    }
+                    if let Err(e) = recap::maybe_notify(&app, &conn) {
+                        eprintln!("recap: {e}");
                     }
                 }
             }

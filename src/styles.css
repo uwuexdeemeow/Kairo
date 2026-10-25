@@ -291,6 +291,102 @@ h2 {
   padding: 0 2px;
 }
 
+/* ---------- week ---------- */
+
+.week-compare {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+.week-chart {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wk-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0;
+  border-radius: 8px;
+}
+
+.wk-day:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+.wk-day:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Parts stack from the bottom; the faint track shows the week's busiest day as full. */
+.wk-bar {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  width: 28px;
+  height: 160px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--rule);
+}
+
+.wk-part {
+  display: block;
+  width: 100%;
+}
+
+.wk-part.productive {
+  background: var(--productive);
+}
+
+.wk-part.neutral {
+  background: var(--neutral);
+}
+
+.wk-part.distracting {
+  background: var(--distracting);
+}
+
+.wk-value {
+  min-height: 16px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.wk-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wk-day.today .wk-label {
+  color: var(--ink);
+}
+
+.wk-goal {
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--good);
+}
+
+.wk-goal.missed {
+  color: var(--distracting);
+}
+
+.usage-delta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.usage-value.over {
+  color: var(--distracting);
+}
+
 /* ---------- calendar ---------- */
 
 .calendar {
