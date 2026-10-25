@@ -48,6 +48,10 @@ pub struct Active {
 }
 
 impl Active {
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
     /// When the session will end, given that a pause in progress pushes the end back.
     fn ends_ms(&self, now: i64) -> i64 {
         self.start_ms + self.planned_ms + self.paused_ms + self.paused_at.map_or(0, |p| now - p)

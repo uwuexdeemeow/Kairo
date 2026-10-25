@@ -4,11 +4,11 @@ use std::sync::atomic::Ordering;
 use chrono::{Local, NaiveDate, TimeZone};
 use rusqlite::params;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, updater, AppState, AutostartToggle, NudgeToggle};
+use crate::{appearance, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -565,59 +565,10 @@ pub fn open_extensions_page(app: AppHandle, id: String) -> CmdResult<String> {
     Ok(dir.display().to_string())
 }
 
-/// The apps in the Start menu, most used first.
+/// Where the palette last asked this window to go, once; None when it hasn't.
 #[tauri::command]
-pub fn palette_apps(state: State<AppState>, index: State<palette::Index>) -> CmdResult<Vec<palette::AppEntry>> {
-    let conn = state.db.lock().map_err(err)?;
-    palette::apps(&conn, &index, now_ms()).map_err(err)
-}
-
-/// Icons for Start menu shortcuts, as PNG data URLs by path, kept for the rest of the run.
-#[tauri::command]
-pub fn palette_icons(state: State<AppState>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
-    use base64::Engine;
-    let mut cache = state.icons.lock().map_err(err)?;
-    let mut out = HashMap::new();
-    for path in paths {
-        // Shortcuts share the icon cache with apps, under a key that can't clash with an exe name.
-        let key = format!("path:{path}");
-        let icon = cache.entry(key).or_insert_with(|| {
-            platform::icon_png(&path).map(|png| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)))
-        });
-        if let Some(url) = icon {
-            out.insert(path, url.clone());
-        }
-    }
-    Ok(out)
-}
-
-#[tauri::command]
-pub fn palette_launch(app: AppHandle, index: State<palette::Index>, path: String) -> CmdResult<()> {
-    palette::launch(&index, &path)?;
-    palette::hide(&app);
-    Ok(())
-}
-
-#[derive(Serialize, Clone)]
-pub struct Navigate {
-    view: String,
-    date: Option<String>,
-}
-
-/// Puts the palette away and opens Kairo on a view, and for Today or Week, a date.
-#[tauri::command]
-pub fn palette_go(app: AppHandle, view: String, date: Option<String>) -> CmdResult<()> {
-    if let Some(d) = &date {
-        NaiveDate::parse_from_str(d, "%Y-%m-%d").map_err(err)?;
-    }
-    palette::hide(&app);
-    crate::show_main(&app);
-    app.emit_to("main", "kairo:navigate", Navigate { view, date }).map_err(err)
-}
-
-#[tauri::command]
-pub fn palette_hide(app: AppHandle) {
-    palette::hide(&app);
+pub fn take_navigation(state: State<AppState>) -> CmdResult<Option<Navigation>> {
+    Ok(state.navigation.lock().map_err(err)?.take())
 }
 
 #[derive(Serialize)]

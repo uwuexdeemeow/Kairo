@@ -116,14 +116,6 @@ export interface CategoryEntry {
 
 export type FocusRule = "auto" | "block" | "allow";
 
-export interface PaletteApp {
-  name: string;
-  /** The Start menu shortcut that opens it. */
-  path: string;
-  /** Time in an app of this name over the last 30 days. */
-  usedMs: number;
-}
-
 /** "system" follows Windows' light or dark setting. */
 export type Appearance = "system" | "light" | "dark";
 
@@ -256,14 +248,9 @@ export const api = {
   browsers: () => invoke<{ id: string; name: string }[]>("get_browsers"),
   /** Opens that browser's extensions page; returns the extension folder's path to paste. */
   openExtensionsPage: (id: string) => invoke<string>("open_extensions_page", { id }),
-  /** Start menu apps, most used first. */
-  paletteApps: () => invoke<PaletteApp[]>("palette_apps"),
-  /** PNG data URLs by shortcut path, for those with an icon. */
-  paletteIcons: (paths: string[]) => invoke<Record<string, string>>("palette_icons", { paths }),
-  paletteLaunch: (path: string) => invoke<void>("palette_launch", { path }),
-  /** Puts the palette away and opens Kairo on a view; `date` (local `YYYY-MM-DD`) for Today or Week. */
-  paletteGo: (view: string, date?: string) => invoke<void>("palette_go", { view, date }),
-  paletteHide: () => invoke<void>("palette_hide"),
+  /** Where the command palette last asked this window to go, once; null when it hasn't. `date`
+   *  (local `YYYY-MM-DD`) is for Today or Week. */
+  takeNavigation: () => invoke<{ view: string; date: string | null } | null>("take_navigation"),
   paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),

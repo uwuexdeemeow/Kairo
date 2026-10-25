@@ -9,7 +9,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{app_path, close_process, foreground, icon_png, idle_ms, minimize, open_path, processes};
+pub use win::{app_path, close_process, foreground, icon_pixels, icon_png, idle_ms, minimize, open_path, processes};
 
 #[cfg(windows)]
 mod win {
@@ -92,8 +92,9 @@ mod win {
         }
     }
 
-    /// A program's icon as Explorer shows it, as PNG bytes. None when it has none to give.
-    pub fn icon_png(path: &str) -> Option<Vec<u8>> {
+    /// A program's icon as Explorer shows it: (width, height, top-down RGBA). None when it has
+    /// none to give.
+    pub fn icon_pixels(path: &str) -> Option<(u32, u32, Vec<u8>)> {
         use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON};
         use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
         let wide: Vec<u16> = path.encode_utf16().chain([0]).collect();
@@ -105,7 +106,14 @@ mod win {
             }
             let pixels = icon_rgba(info.hIcon);
             DestroyIcon(info.hIcon);
-            let (width, height, rgba) = pixels?;
+            pixels
+        }
+    }
+
+    /// A program's icon as Explorer shows it, as PNG bytes. None when it has none to give.
+    pub fn icon_png(path: &str) -> Option<Vec<u8>> {
+        let (width, height, rgba) = icon_pixels(path)?;
+        {
             let mut png = Vec::new();
             let mut encoder = png::Encoder::new(&mut png, width, height);
             encoder.set_color(png::ColorType::Rgba);
@@ -341,6 +349,11 @@ pub fn app_path(_exe: &str) -> Option<String> {
 
 #[cfg(not(windows))]
 pub fn icon_png(_path: &str) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(not(windows))]
+pub fn icon_pixels(_path: &str) -> Option<(u32, u32, Vec<u8>)> {
     None
 }
 

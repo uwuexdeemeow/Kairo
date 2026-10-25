@@ -1441,14 +1441,18 @@ $("#category-filter").addEventListener("input", paintCategories);
 
 // ---------- command palette ----------
 
-/// Kairo's palette asks Kairo to show a view, and for Today or Week a date, after putting
-/// itself away.
-listen<{ view: View; date: string | null }>("kairo:navigate", ({ payload }) => {
-  const { view: target, date } = payload;
-  if (target === "today") selectedDay = date && date < todayIso() ? date : null;
-  if (target === "week") selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
-  $<HTMLButtonElement>(`[data-view="${target}"]`).click();
-});
+/// Shows the view, and for Today or Week the date, the command palette asked for. The request
+/// waits in Kairo until taken: a window opened for it is still loading when it's made.
+async function followNavigation() {
+  const target = await api.takeNavigation().catch(() => null);
+  if (!target) return;
+  const { view: next, date } = target;
+  if (next === "today") selectedDay = date && date < todayIso() ? date : null;
+  if (next === "week") selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
+  $<HTMLButtonElement>(`[data-view="${next}"]`).click();
+}
+
+listen("kairo:navigate", () => followNavigation());
 
 let savedShortcut = "";
 
@@ -1639,4 +1643,5 @@ setInterval(paintStatus, 1000);
 renderLegends();
 refreshStatus();
 load();
+followNavigation();
 api.appearance().then(applyTheme, () => {});

@@ -13,6 +13,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Kairo",
         "visible": false,
         "width": 1120,
@@ -20,23 +21,6 @@
         "minWidth": 720,
         "minHeight": 520,
         "backgroundColor": "#0e0f12",
-        "dragDropEnabled": false
-      },
-      {
-        "label": "palette",
-        "title": "Kairo",
-        "url": "palette.html",
-        "visible": false,
-        "width": 680,
-        "height": 580,
-        "resizable": false,
-        "maximizable": false,
-        "minimizable": false,
-        "decorations": false,
-        "transparent": true,
-        "shadow": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
         "dragDropEnabled": false
       }
     ],

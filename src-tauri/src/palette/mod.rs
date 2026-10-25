@@ -1,5 +1,6 @@
 //! The command palette: a small window a global shortcut brings up over whatever you're doing, to
-//! open apps, jump around Kairo and run its actions.
+//! open apps, jump around Kairo and run its actions. It's drawn natively (see `native`); this is
+//! what it knows: the Start menu's apps and its settings.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -7,12 +8,15 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, Result};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+use tauri::AppHandle;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 use crate::db;
 
-pub const LABEL: &str = "palette";
+#[cfg(windows)]
+pub mod native;
+pub mod search;
+
 pub const DEFAULT_SHORTCUT: &str = "Ctrl+Space";
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
@@ -22,8 +26,6 @@ const INDEX_FOR_MS: i64 = 5 * 60_000;
 const USAGE_WINDOW_MS: i64 = 30 * 24 * 60 * 60_000;
 /// Shortcuts that aren't apps: uninstallers, readmes, links to websites.
 const NOISE: &[&str] = &["uninstall", "readme", "read me", "release notes", "website", "documentation", "license", "help", "manual"];
-/// From the top of the screen to the palette, as a share of the screen's height.
-const FROM_TOP: f64 = 0.16;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -107,7 +109,7 @@ pub fn apps(conn: &Connection, index: &Index, now: i64) -> Result<Vec<AppEntry>>
     Ok(apps)
 }
 
-/// Opens an app, but only one the palette listed: the page can't have Kairo open anything else.
+/// Opens an app, but only one the palette listed, never an arbitrary path.
 pub fn launch(index: &Index, path: &str) -> std::result::Result<(), String> {
     let known = index.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(_, apps)| apps.iter().any(|a| a.path == path));
     if !known {
@@ -143,45 +145,6 @@ pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::re
         return Err(format!("{new} can't be used: {e}. Another app may already use it."));
     }
     db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string())
-}
-
-/// Over the middle of the screen the mouse is on, in its upper part, like Spotlight.
-fn place(window: &WebviewWindow) {
-    let monitor = window
-        .cursor_position()
-        .ok()
-        .and_then(|p| window.monitor_from_point(p.x, p.y).ok().flatten())
-        .or_else(|| window.primary_monitor().ok().flatten());
-    let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) else { return };
-    let (origin, screen) = (monitor.position(), monitor.size());
-    let x = origin.x + (screen.width as i32 - size.width as i32) / 2;
-    let y = origin.y + (screen.height as f64 * FROM_TOP) as i32;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
-}
-
-pub fn show(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(LABEL) else { return };
-    place(&window);
-    let _ = window.show();
-    let _ = window.set_focus();
-    // The page clears the last search and loads fresh suggestions.
-    let _ = window.emit("palette:open", ());
-}
-
-pub fn hide(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(LABEL) {
-        let _ = window.hide();
-    }
-}
-
-/// The shortcut opens the palette, and pressing it again closes it.
-pub fn toggle(app: &AppHandle) {
-    let open = app.get_webview_window(LABEL).is_some_and(|w| w.is_visible().unwrap_or(false));
-    if open {
-        hide(app);
-    } else {
-        show(app);
-    }
 }
 
 #[cfg(test)]

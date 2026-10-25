@@ -299,6 +299,28 @@ pub struct DaySummary {
     timeline: Vec<Segment>,
 }
 
+/// A day at a glance, for the command palette: totals, the busiest apps and the timeline.
+pub struct Glance {
+    pub active_ms: i64,
+    pub productive_ms: i64,
+    pub top_apps: Vec<(String, i64)>,
+    pub segments: Vec<(i64, i64, Category)>,
+}
+
+pub fn glance(rows: &[Row]) -> Glance {
+    let mut acc = Acc::default();
+    for r in rows.iter().filter(|r| !r.idle) {
+        acc.add(r.category, r.dur());
+    }
+    let (apps, _) = top_apps_and_sites(rows, 8);
+    Glance {
+        active_ms: acc.active,
+        productive_ms: acc.productive,
+        top_apps: apps.into_iter().map(|u| (u.label, u.ms)).collect(),
+        segments: timeline(rows).into_iter().map(|s| (s.start, s.end, s.category)).collect(),
+    }
+}
+
 /// The apps and sites that took the most time in `rows`, `n` of each.
 fn top_apps_and_sites(rows: &[Row], n: usize) -> (Vec<Usage>, Vec<Usage>) {
     // Apps group by name, since Windows Store apps all share one host program.

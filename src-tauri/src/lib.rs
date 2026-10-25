@@ -23,7 +23,9 @@ use std::sync::{Arc, Mutex};
 
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent, Wry};
+use chrono::NaiveDate;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 pub struct AppState {
@@ -41,6 +43,15 @@ pub struct AppState {
     pub icons: Mutex<HashMap<String, Option<String>>>,
     /// False when another program holds the extension's port.
     pub browser_listening: bool,
+    /// Where the palette last asked Kairo's window to go, until the page takes it.
+    pub navigation: Mutex<Option<Navigation>>,
+}
+
+/// A view, and for Today or Week a local `YYYY-MM-DD` date.
+#[derive(Serialize, Clone)]
+pub struct Navigation {
+    view: String,
+    date: Option<String>,
 }
 
 /// The tray's checkboxes, kept so the in-app toggles can update them.
@@ -64,15 +75,16 @@ pub fn run() {
         .plugin(
             tauri_plugin_window_state::Builder::new()
                 .with_state_flags(tauri_plugin_window_state::StateFlags::all() - tauri_plugin_window_state::StateFlags::VISIBLE)
-                // These place themselves each time they open.
-                .with_denylist(&[palette::LABEL, blocking::WINDOW_LABEL])
+                // It places itself each time it opens.
+                .with_denylist(&[blocking::WINDOW_LABEL])
                 .build(),
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|_app, _shortcut, event| {
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        palette::toggle(app);
+                        #[cfg(windows)]
+                        palette::native::toggle();
                     }
                 })
                 .build(),
@@ -87,7 +99,6 @@ pub fn run() {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
             let nudges_on = nudge::enabled(&conn)?;
-            let appearance_mode = appearance::get(&conn)?;
             let palette_shortcut = palette::shortcut(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -97,6 +108,9 @@ pub fn run() {
             let strict_waits = blocking::Waits::default();
             let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone(), strict_waits.clone());
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
+            app.manage(palette::Index::default());
+            #[cfg(windows)]
+            palette::native::spawn(app.handle().clone(), db_path.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
@@ -111,33 +125,19 @@ pub fn run() {
                 allowances,
                 strict_waits,
                 icons: Mutex::default(),
+                navigation: Mutex::default(),
             });
             setup_tray(app, paused, nudges_on)?;
-            // Before the window first shows, so it opens in the chosen colors.
-            appearance::apply(app.handle(), &appearance_mode);
-            app.manage(palette::Index::default());
             // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
             if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                 eprintln!("palette: cannot use {palette_shortcut}: {e}");
             }
             updater::spawn(app.handle().clone());
-            // The window starts hidden; show it unless Windows launched us at sign-in.
+            // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.
             if !startup::launched_at_login() {
                 show_main(app.handle());
             }
             Ok(())
-        })
-        .on_window_event(|window, event| match event {
-            // Closing the window keeps Kairo tracking in the tray; "Quit" in the tray menu exits.
-            WindowEvent::CloseRequested { api, .. } => {
-                let _ = window.hide();
-                api.prevent_close();
-            }
-            // The palette is a glance: clicking anywhere else puts it away.
-            WindowEvent::Focused(false) if window.label() == palette::LABEL => {
-                let _ = window.hide();
-            }
-            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_day,
@@ -180,11 +180,7 @@ pub fn run() {
             commands::delete_history,
             commands::get_extension_status,
             commands::open_extension_folder,
-            commands::palette_apps,
-            commands::palette_icons,
-            commands::palette_launch,
-            commands::palette_go,
-            commands::palette_hide,
+            commands::take_navigation,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
             commands::set_palette_suggestions,
@@ -196,8 +192,15 @@ pub fn run() {
             commands::seed_demo_data,
             commands::clear_demo_data,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Kairo");
+        .build(tauri::generate_context!())
+        .expect("error while building Kairo")
+        .run(|_app, event| {
+            // Closing Kairo's window lets it go, web view and all, and Kairo keeps tracking in the
+            // tray; only "Quit" (which gives an exit code) ends it.
+            if let RunEvent::ExitRequested { code: None, api, .. } = event {
+                api.prevent_exit();
+            }
+        });
 }
 
 fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tauri::Result<()> {
@@ -289,10 +292,50 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     Ok(())
 }
 
+/// Set while Kairo's window is being made, so a second click doesn't make another.
+static OPENING: AtomicBool = AtomicBool::new(false);
+
+/// Brings up Kairo's window, making it if it was closed. It isn't kept while closed: its web view
+/// is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
 pub(crate) fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return;
     }
+    // Making a web view from inside one of Windows' callbacks (a tray click, a menu) can hang,
+    // so it's made on a thread of its own.
+    if OPENING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = open_main(&app) {
+            eprintln!("cannot open Kairo's window: {e}");
+        }
+        OPENING.store(false, Ordering::Release);
+    });
+}
+
+fn open_main(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window("main").is_some() {
+        return Ok(());
+    }
+    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else { return Ok(()) };
+    let window = tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
+    let mode = app.state::<AppState>().db.lock().ok().and_then(|conn| appearance::get(&conn).ok()).unwrap_or_default();
+    appearance::apply_to(&window, &mode);
+    window.show()?;
+    window.set_focus()
+}
+
+/// Opens Kairo on a view, and for Today or Week a date. A window made for it is still loading
+/// when this runs, so the page asks where to go (`take_navigation`) once it's ready, and again
+/// whenever it's told to.
+pub(crate) fn open_main_at(app: &AppHandle, view: &str, date: Option<NaiveDate>) {
+    let target = Navigation { view: view.to_string(), date: date.map(|d| d.format("%Y-%m-%d").to_string()) };
+    *app.state::<AppState>().navigation.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
+    show_main(app);
+    let _ = app.emit_to("main", "kairo:navigate", ());
 }
