@@ -37,11 +37,19 @@ fn place(window: &WebviewWindow) {
     let _ = window.set_position(PhysicalPosition::new(x, y));
 }
 
+/// Brings the palette up with the keyboard. On a Mac, showing the panel is enough: focusing it
+/// the usual way would activate Kairo, and macOS answers that by leaving a full-screen app for
+/// Kairo's Space.
+fn present(window: &WebviewWindow) {
+    let _ = window.show();
+    #[cfg(not(target_os = "macos"))]
+    let _ = window.set_focus();
+}
+
 fn show(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(LABEL) {
         place(&window);
-        let _ = window.show();
-        let _ = window.set_focus();
+        present(&window);
         // The page clears the last search and loads fresh suggestions.
         let _ = window.emit("palette:open", ());
         return;
@@ -88,10 +96,84 @@ fn open(app: &AppHandle) -> bool {
     };
     let mode = app.state::<AppState>().db.lock().ok().and_then(|conn| crate::appearance::get(&conn).ok()).unwrap_or_default();
     crate::appearance::apply_to(&window, &mode);
+    #[cfg(target_os = "macos")]
+    panel::convert(&window);
     place(&window);
-    let _ = window.show();
-    let _ = window.set_focus();
+    present(&window);
     true
+}
+
+/// On a Mac the palette is a panel, like Spotlight: it opens over full-screen apps on the Space
+/// you're in, and takes the keyboard without bringing Kairo forward. An ordinary window can't do
+/// either for an app with a Dock icon.
+#[cfg(target_os = "macos")]
+mod panel {
+    use std::ffi::c_void;
+    use std::sync::mpsc;
+
+    use objc2::runtime::{AnyObject, Bool, Sel};
+    use objc2::{define_class, msg_send, sel, ClassType, MainThreadOnly};
+    use objc2_app_kit::{NSPanel, NSResponder, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
+    use objc2_foundation::NSObject;
+    use tauri::WebviewWindow;
+
+    define_class!(
+        #[unsafe(super(NSPanel, NSWindow, NSResponder, NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "KairoPalettePanel"]
+        struct Panel;
+
+        impl Panel {
+            // A borderless window only takes the keyboard when it says it can.
+            #[unsafe(method(canBecomeKeyWindow))]
+            fn can_become_key_window(&self) -> bool {
+                true
+            }
+
+            #[unsafe(method(canBecomeMainWindow))]
+            fn can_become_main_window(&self) -> bool {
+                false
+            }
+        }
+    );
+
+    /// Turns the palette's window into the panel, waiting until it's done so it's shown as one.
+    pub fn convert(window: &WebviewWindow) {
+        let Ok(ns_window) = window.ns_window() else { return };
+        let ns_window = ns_window as usize;
+        let (done, wait) = mpsc::channel();
+        let sent = window.run_on_main_thread(move || {
+            // Safety: on the main thread, with the window Tauri just made.
+            unsafe { make_panel(ns_window as *mut c_void) };
+            let _ = done.send(());
+        });
+        if sent.is_ok() {
+            let _ = wait.recv();
+        }
+    }
+
+    /// NSPanel adds nothing to NSWindow's memory (both are 520 bytes on macOS 26), so swapping
+    /// the class leaves the state tao keeps in its window where tao expects it.
+    unsafe fn make_panel(ns_window: *mut c_void) {
+        let object = &*(ns_window as *const AnyObject);
+        AnyObject::set_class(object, Panel::class());
+        let panel = &*(ns_window as *const NSPanel);
+        panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
+        // Adding the style after the window exists doesn't reach the window server on recent
+        // macOS versions; this private call tells it the panel mustn't activate Kairo.
+        let prevents: Sel = sel!(_setPreventsActivation:);
+        let responds: Bool = msg_send![panel, respondsToSelector: prevents];
+        if responds.as_bool() {
+            let _: () = msg_send![panel, _setPreventsActivation: Bool::YES];
+        }
+        panel.setCollectionBehavior(
+            NSWindowCollectionBehavior::CanJoinAllSpaces
+                | NSWindowCollectionBehavior::FullScreenAuxiliary
+                | NSWindowCollectionBehavior::IgnoresCycle,
+        );
+        panel.setFloatingPanel(true);
+        panel.setHidesOnDeactivate(false);
+    }
 }
 
 /// Closes the palette's page once it has been put away for a while; runs on the thread that
