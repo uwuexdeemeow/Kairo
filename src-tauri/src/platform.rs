@@ -728,43 +728,158 @@ mod tests {
     }
 }
 
-// Linux and others: tracking isn't supported yet, so the collector records nothing; opening
-// files works, for the command palette.
+// Linux and others: other apps' windows come from X11. That covers X11 desktops and, under
+// Wayland, apps running through XWayland, as most games do; Wayland shows apps no windows of
+// native Wayland apps, so with one of those in front Kairo sees nothing. Programs come from /proc.
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn foreground() -> Option<Foreground> {
-    None
-}
+pub use x11::{foreground, fullscreen_in_front, idle_ms, minimize};
 
-/// Whether the active window is full screen, as the window manager marks it for a game or
-/// video. Wayland shows apps no other windows, so there it sees only games running through
-/// XWayland, which most do.
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn fullscreen_in_front() -> bool {
+mod x11 {
     use x11rb::connection::Connection;
-    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+    use x11rb::protocol::screensaver::ConnectionExt as _;
+    use x11rb::protocol::xproto::{AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, GetPropertyReply, Window};
+    use x11rb::rust_connection::RustConnection;
 
-    let Ok((conn, screen)) = x11rb::connect(None) else { return false };
-    let root = conn.setup().roots[screen].root;
-    let atom = |name: &[u8]| Some(conn.intern_atom(false, name).ok()?.reply().ok()?.atom);
-    let fullscreen = || -> Option<bool> {
-        let active = conn.get_property(false, root, atom(b"_NET_ACTIVE_WINDOW")?, AtomEnum::WINDOW, 0, 1).ok()?.reply().ok()?;
-        let window = active.value32()?.next().filter(|&w| w != 0)?;
-        let state = conn.get_property(false, window, atom(b"_NET_WM_STATE")?, AtomEnum::ATOM, 0, 64).ok()?.reply().ok()?;
-        let full = atom(b"_NET_WM_STATE_FULLSCREEN")?;
-        let found = state.value32()?.any(|a| a == full);
-        Some(found)
+    use super::Foreground;
+
+    /// A connection to the X server; each call opens its own, which takes a millisecond or so.
+    struct Display {
+        conn: RustConnection,
+        root: Window,
+    }
+
+    impl Display {
+        fn open() -> Option<Self> {
+            let (conn, screen) = x11rb::connect(None).ok()?;
+            let root = conn.setup().roots.get(screen)?.root;
+            Some(Self { conn, root })
+        }
+
+        fn atom(&self, name: &str) -> Option<u32> {
+            Some(self.conn.intern_atom(false, name.as_bytes()).ok()?.reply().ok()?.atom)
+        }
+
+        /// A window property, `len` 32-bit units at most; `kind` ANY takes any type.
+        fn property(&self, window: Window, name: &str, kind: impl Into<u32>, len: u32) -> Option<GetPropertyReply> {
+            self.conn.get_property(false, window, self.atom(name)?, kind, 0, len).ok()?.reply().ok()
+        }
+
+        /// The window the window manager says has the keyboard.
+        fn active_window(&self) -> Option<Window> {
+            self.property(self.root, "_NET_ACTIVE_WINDOW", AtomEnum::WINDOW, 1)?.value32()?.next().filter(|&w| w != 0)
+        }
+    }
+
+    pub fn foreground() -> Option<Foreground> {
+        let x = Display::open()?;
+        let window = x.active_window()?;
+        let pid = x.property(window, "_NET_WM_PID", AtomEnum::CARDINAL, 1)?.value32()?.next()?;
+        // The modern UTF-8 title, or the old one older programs set instead.
+        let title = ["_NET_WM_NAME", "WM_NAME"]
+            .iter()
+            .find_map(|name| {
+                let p = x.property(window, name, AtomEnum::ANY, 1024)?;
+                (!p.value.is_empty()).then(|| String::from_utf8_lossy(&p.value).into_owned())
+            })
+            .unwrap_or_default();
+        Some(Foreground { exe_path: super::program(pid)?, title, window: window as usize })
+    }
+
+    /// Whether the active window is full screen, as the window manager marks it for a game or
+    /// video.
+    pub fn fullscreen_in_front() -> bool {
+        let fullscreen = || -> Option<bool> {
+            let x = Display::open()?;
+            let state = x.property(x.active_window()?, "_NET_WM_STATE", AtomEnum::ATOM, 64)?;
+            let full = x.atom("_NET_WM_STATE_FULLSCREEN")?;
+            let found = state.value32()?.any(|a| a == full);
+            Some(found)
+        };
+        fullscreen().unwrap_or(false)
+    }
+
+    /// Asks the window manager to minimize a window, as its own minimize button would.
+    pub fn minimize(window: usize) -> bool {
+        const ICONIC_STATE: u32 = 3;
+        let Some(x) = Display::open() else { return false };
+        let Some(change_state) = x.atom("WM_CHANGE_STATE") else { return false };
+        let event = ClientMessageEvent::new(32, window as Window, change_state, [ICONIC_STATE, 0, 0, 0, 0]);
+        x.conn.send_event(false, x.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event).is_ok()
+            && x.conn.flush().is_ok()
+    }
+
+    /// Time since the last keyboard or mouse input. On Wayland, X11 hears only XWayland apps'
+    /// input, so GNOME is asked instead; other Wayland desktops count as never idle.
+    pub fn idle_ms() -> i64 {
+        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            return gnome_idle_ms().unwrap_or(0);
+        }
+        let Some(x) = Display::open() else { return 0 };
+        x.conn.screensaver_query_info(x.root).ok().and_then(|c| c.reply().ok()).map_or(0, |info| info.ms_since_user_input as i64)
+    }
+
+    fn gnome_idle_ms() -> Option<i64> {
+        let out = std::process::Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.gnome.Mutter.IdleMonitor",
+                "--object-path",
+                "/org/gnome/Mutter/IdleMonitor/Core",
+                "--method",
+                "org.gnome.Mutter.IdleMonitor.GetIdletime",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        out.status.success().then(|| dbus_number(&String::from_utf8_lossy(&out.stdout)))?
+    }
+
+    /// The number in a reply gdbus prints, like `(uint64 1234,)`.
+    pub(super) fn dbus_number(reply: &str) -> Option<i64> {
+        reply.trim().strip_prefix('(')?.split([' ', ',', ')']).find_map(|word| word.parse().ok())
+    }
+}
+
+/// The program a process runs, from /proc. A Windows program under Wine or Proton goes by the
+/// .exe it started, as it would on Windows, rather than by Wine's loader, so games keep their
+/// names and share categories and limits with Windows.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn program(pid: u32) -> Option<String> {
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?.to_string_lossy().into_owned();
+    if exe.rsplit('/').next().is_some_and(|file| file.starts_with("wine")) {
+        if let Some(windows) = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|c| windows_program(&c)) {
+            return Some(windows);
+        }
+    }
+    Some(exe)
+}
+
+/// The .exe in a Wine process's command line, whose arguments are separated by nulls.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn windows_program(cmdline: &[u8]) -> Option<String> {
+    cmdline.split(|&b| b == 0).map(String::from_utf8_lossy).find(|arg| arg.to_ascii_lowercase().ends_with(".exe")).map(|arg| arg.into_owned())
+}
+
+/// Where a program Kairo knows by its Windows name is installed, from the commands on the PATH
+/// its Linux packages add, e.g. `google-chrome` for `chrome.exe`.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn app_path(exe: &str) -> Option<String> {
+    let stem = exe.strip_suffix(".exe").unwrap_or(exe);
+    let commands: &[&str] = match stem {
+        "chrome" => &["google-chrome", "google-chrome-stable"],
+        "brave" => &["brave-browser", "brave"],
+        "msedge" => &["microsoft-edge", "microsoft-edge-stable"],
+        _ => std::slice::from_ref(&stem),
     };
-    fullscreen().unwrap_or(false)
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-pub fn idle_ms() -> i64 {
-    0
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-pub fn app_path(_exe: &str) -> Option<String> {
-    None
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .flat_map(|dir| commands.iter().map(move |c| dir.join(c)))
+        .find(|p| p.is_file())
+        .map(|p| p.display().to_string())
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -799,17 +914,48 @@ pub fn open_path(path: &str) -> bool {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
-pub fn minimize(_window: usize) -> bool {
-    false
-}
-
+/// Every running process this user can see: (process id, full path of its program).
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn processes() -> Vec<(u32, String)> {
-    Vec::new()
+    let Ok(entries) = std::fs::read_dir("/proc") else { return Vec::new() };
+    entries.flatten().filter_map(|e| e.file_name().to_str()?.parse().ok()).filter_map(|pid| Some((pid, program(pid)?))).collect()
 }
 
+/// Ends a process outright; false when it's gone already or isn't this user's.
 #[cfg(not(any(windows, target_os = "macos")))]
-pub fn close_process(_pid: u32) -> bool {
-    false
+pub fn close_process(pid: u32) -> bool {
+    // 0 would mean Kairo's own process group to kill().
+    pid != 0 && i32::try_from(pid).is_ok_and(|pid| unsafe { libc::kill(pid, libc::SIGKILL) } == 0)
+}
+
+#[cfg(all(test, not(any(windows, target_os = "macos"))))]
+mod linux_tests {
+    #[test]
+    fn wine_processes_go_by_their_exe() {
+        let cmdline = b"Z:\\home\\me\\.steam\\steam\\steamapps\\common\\Hades\\x64\\Hades.exe\0-vulkan\0";
+        assert_eq!(super::windows_program(cmdline).as_deref(), Some("Z:\\home\\me\\.steam\\steam\\steamapps\\common\\Hades\\x64\\Hades.exe"));
+        assert_eq!(super::windows_program(b"/usr/bin/wineserver\0"), None);
+    }
+
+    #[test]
+    fn gnome_idle_time_is_read_from_gdbus() {
+        assert_eq!(super::x11::dbus_number("(uint64 1234,)\n"), Some(1234));
+        assert_eq!(super::x11::dbus_number("nothing"), None);
+    }
+
+    #[test]
+    fn the_process_list_includes_this_test_and_unknown_processes_cant_be_closed() {
+        let me = std::process::id();
+        assert!(super::processes().iter().any(|(pid, _)| *pid == me));
+        // init belongs to root; nothing else gets to end it.
+        assert!(!super::close_process(1));
+    }
+
+    #[test]
+    fn nothing_is_in_front_without_a_display() {
+        if std::env::var_os("DISPLAY").is_none() {
+            assert!(super::foreground().is_none());
+            assert!(!super::fullscreen_in_front());
+        }
+    }
 }

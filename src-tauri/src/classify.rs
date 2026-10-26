@@ -1,6 +1,6 @@
 //! Turning raw window data into something a person recognises: app names, websites, default categories.
 
-const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "safari"];
+const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "vivaldi", "arc", "safari", "chromium"];
 
 /// Mac apps known by the Windows program they match, so both share categories, limits and
 /// blocking rules: (app bundle name, Windows exe stem).
@@ -192,6 +192,8 @@ pub fn exe_stem(exe_path: &str) -> String {
     }
     let file = exe_path.rsplit(['\\', '/']).next().unwrap_or(exe_path);
     let stem = file.strip_suffix(".exe").or_else(|| file.strip_suffix(".EXE")).unwrap_or(file);
+    // Some Linux packages name the program file apart from the command: vivaldi-bin, chromium-browser.
+    let stem = stem.strip_suffix("-bin").or_else(|| stem.strip_suffix("-browser")).unwrap_or(stem);
     stem.to_lowercase()
 }
 
@@ -208,6 +210,7 @@ pub fn display_name(exe: &str, title: &str) -> String {
         "brave" => "Brave",
         "opera" => "Opera",
         "vivaldi" => "Vivaldi",
+        "chromium" => "Chromium",
         "explorer" => "File Explorer",
         "windowsterminal" => "Windows Terminal",
         "devenv" => "Visual Studio",
@@ -312,6 +315,20 @@ mod tests {
         assert!(is_game(&exe_stem(game), game));
         // Windows paths are untouched.
         assert_eq!(bundle_path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"), None);
+    }
+
+    #[test]
+    fn linux_programs_match_their_windows_twins() {
+        assert_eq!(exe_stem("/opt/google/chrome/chrome"), "chrome");
+        assert_eq!(exe_stem("/opt/vivaldi/vivaldi-bin"), "vivaldi");
+        assert!(is_browser(&exe_stem("/usr/lib/chromium-browser/chromium-browser")));
+        assert_eq!(exe_stem("/usr/share/code/code"), "code");
+        let game = "/home/me/.local/share/Steam/steamapps/common/Hades/Hades";
+        assert_eq!(app_name(game, &exe_stem(game), ""), "Hades");
+        // A Proton game goes by the Windows path Wine started it from.
+        let proton = r"Z:\home\me\.local\share\Steam\steamapps\common\Hades\x64\Hades.exe";
+        assert_eq!(exe_stem(proton), "hades");
+        assert!(is_game(&exe_stem(proton), proton));
     }
 
     #[test]
