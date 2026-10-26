@@ -2190,7 +2190,7 @@ dependencies = [
 
 [[package]]
 name = "kairo"
-version = "1.5.3"
+version = "1.6.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
