@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -803,6 +803,53 @@ pub async fn restore_data(app: AppHandle) -> CmdResult<bool> {
     }
     // Everything that keeps settings in memory starts again from the restored ones.
     app.restart()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncState {
+    /// The synced folder, while combining is on.
+    folder: Option<String>,
+    computers: Vec<sync::Computer>,
+    /// This computer's name, as the others see it.
+    name: String,
+}
+
+fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
+    Ok(SyncState {
+        folder: sync::folder(conn)?.map(|f| f.display().to_string()),
+        computers: sync::computers(conn)?,
+        name: sync::device_name(),
+    })
+}
+
+#[tauri::command]
+pub fn get_sync(state: State<AppState>) -> CmdResult<SyncState> {
+    let conn = state.db.lock().map_err(err)?;
+    sync_state(&conn)
+}
+
+/// Starts combining through a folder the user picks; None when they closed the dialog.
+#[tauri::command]
+pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(dir) = app.dialog().file().set_title("A folder your cloud drive syncs").blocking_pick_folder().and_then(|f| f.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    sync::start(&conn, &dir, now_ms())?;
+    nudge::invalidate(&state.window_cache);
+    sync_state(&conn).map(Some)
+}
+
+#[tauri::command]
+pub fn stop_sync(state: State<AppState>) -> CmdResult<SyncState> {
+    let conn = state.db.lock().map_err(err)?;
+    sync::stop(&conn)?;
+    nudge::invalidate(&state.window_cache);
+    sync_state(&conn)
 }
 
 #[cfg(test)]

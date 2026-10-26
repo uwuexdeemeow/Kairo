@@ -16,6 +16,7 @@ mod platform;
 mod privacy;
 mod recap;
 mod startup;
+mod sync;
 mod updater;
 
 use std::collections::HashMap;
@@ -141,6 +142,7 @@ pub fn run() {
             browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
+            sync::spawn(db_path.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState {
@@ -263,6 +265,9 @@ pub fn run() {
             commands::export_time,
             commands::backup_data,
             commands::restore_data,
+            commands::get_sync,
+            commands::choose_sync_folder,
+            commands::stop_sync,
             commands::clear_demo_data,
         ])
         .build(tauri::generate_context!())

@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type Usage } from "./api";
+import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -1325,6 +1325,7 @@ async function load(v: View = view) {
       renderBrowsers(await api.browsers());
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
+      renderSync(await api.sync());
       await refreshExtension();
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
@@ -1684,6 +1685,47 @@ $("#backup-restore").addEventListener("click", () =>
     return null;
   }),
 );
+
+/// When a computer last wrote its time, the way people say it.
+function ago(ms: number): string {
+  const minutes = Math.round((Date.now() - ms) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(ms).toLocaleDateString();
+}
+
+function renderSync(sync: SyncState) {
+  const on = sync.folder !== null;
+  $("#sync-where").textContent = on
+    ? `Combining through ${sync.folder}.`
+    : `Off. This computer would show up as ${sync.name}.`;
+  $("#sync-computers").replaceChildren(
+    ...sync.computers.map((c) =>
+      h("li", {}, h("strong", {}, c.name), h("span", { class: "muted" }, c.thisOne ? " (this computer)" : ` updated ${ago(c.updatedMs)}`)),
+    ),
+  );
+  $("#sync-choose").textContent = on ? "Use another folder" : "Choose a folder";
+  $("#sync-stop").hidden = !on;
+}
+
+$("#sync-choose").addEventListener("click", async () => {
+  const out = $("#sync-status");
+  out.textContent = "";
+  try {
+    const sync = await api.chooseSyncFolder();
+    if (!sync) return;
+    renderSync(sync);
+    out.textContent =
+      sync.computers.length > 1 ? "Combined. Other computers' time now shows in Today and Week." : "Set. Choose the same folder on your other computers.";
+  } catch (err) {
+    out.textContent = String(err);
+  }
+});
+$("#sync-stop").addEventListener("click", async () => {
+  renderSync(await api.stopSync());
+  $("#sync-status").textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
+});
 
 $("#demo-load").addEventListener("click", async () => {
   const n = await api.seedDemo();

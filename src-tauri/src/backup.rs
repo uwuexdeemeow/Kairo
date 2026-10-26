@@ -13,8 +13,8 @@ use crate::analysis;
 /// What a restore brings back. Where programs live (`app_paths`) stays as it is on this computer.
 const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts"];
 /// Settings that belong to this computer rather than to you: the palette's keys differ between a
-/// Mac and the rest.
-const LOCAL_SETTINGS: &[&str] = &["palette_shortcut"];
+/// Mac and the rest, and each computer combining its time with others has its own id.
+const LOCAL_SETTINGS: &[&str] = &["palette_shortcut", "device_id", "sync_folder"];
 
 type Result<T> = std::result::Result<T, String>;
 
