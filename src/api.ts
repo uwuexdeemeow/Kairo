@@ -5,8 +5,10 @@ export type Category = "productive" | "neutral" | "distracting";
 /** Combining computers: the synced folder while it's on, and the computers found there. */
 export interface SyncState {
   folder: string | null;
-  computers: { name: string; updatedMs: number; thisOne: boolean }[];
+  computers: { id: string; name: string; updatedMs: number; thisOne: boolean }[];
   name: string;
+  /** Whose time the views show: "all", "this" or a computer's id. */
+  shown: string;
 }
 
 export interface Usage {
@@ -348,6 +350,7 @@ export const api = {
   /** Null when the folder dialog was closed. */
   chooseSyncFolder: () => invoke<SyncState | null>("choose_sync_folder"),
   stopSync: () => invoke<SyncState>("stop_sync"),
+  setShownComputer: (computer: string) => invoke<void>("set_shown_computer", { computer }),
   appearance: () => invoke<Appearance>("get_appearance"),
   setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),
   /** PNG data URLs by executable, for the apps that have an icon to show. */

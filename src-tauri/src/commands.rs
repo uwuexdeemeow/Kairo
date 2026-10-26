@@ -35,7 +35,7 @@ fn parse_day(date: Option<String>) -> CmdResult<NaiveDate> {
 pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySummary> {
     let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
-    let rows = analysis::load_rows(&conn, from, to.min(now_ms())).map_err(err)?;
+    let rows = analysis::load_rows_of(&conn, from, to.min(now_ms()), &sync::shown(&conn)?).map_err(err)?;
     Ok(analysis::day_summary(&rows))
 }
 
@@ -53,13 +53,14 @@ pub fn get_day_totals(state: State<AppState>, from: String, to: String) -> CmdRe
     let (from, to) = (parse_day(Some(from))?, parse_day(Some(to))?);
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
+    let shown = sync::shown(&conn)?;
     let mut out = Vec::new();
     for date in from.iter_days().take_while(|d| *d <= to).take(62) {
         let Some((start, end)) = day_bounds(date) else { continue };
         if start > now {
             break;
         }
-        let rows = analysis::load_rows(&conn, start, end.min(now)).map_err(err)?;
+        let rows = analysis::load_rows_of(&conn, start, end.min(now), &shown).map_err(err)?;
         let active = rows.iter().filter(|r| !r.idle);
         let (active_ms, productive_ms) = active.fold((0, 0), |(a, p), r| {
             (a + r.dur(), p + if r.category == Category::Productive { r.dur() } else { 0 })
@@ -86,7 +87,7 @@ pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
     let from = now - days as i64 * DAY_MS;
-    let rows = analysis::load_rows(&conn, from, now).map_err(err)?;
+    let rows = analysis::load_rows_of(&conn, from, now, &sync::shown(&conn)?).map_err(err)?;
     let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
     let focused_ms = blocks.iter().map(focus::Block::ms).sum();
     Ok(analysis::patterns(&rows).with_focus(blocks.len(), focused_ms, focus::insights(&blocks, now)))
@@ -273,7 +274,7 @@ pub fn set_break_minutes(state: State<AppState>, minutes: u32) -> CmdResult<()> 
 pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Week> {
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
-    recap::week(&conn, start, now_ms()).map_err(err)
+    recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
 }
 
 /// Progress on every goal and limit for one local day (default today), plus the streak before it.
@@ -813,6 +814,8 @@ pub struct SyncState {
     computers: Vec<sync::Computer>,
     /// This computer's name, as the others see it.
     name: String,
+    /// Whose time the views show: "all", "this" or a computer's id.
+    shown: String,
 }
 
 fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
@@ -820,6 +823,7 @@ fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
         folder: sync::folder(conn)?.map(|f| f.display().to_string()),
         computers: sync::computers(conn)?,
         name: sync::device_name(),
+        shown: sync::shown(conn)?,
     })
 }
 
@@ -827,6 +831,13 @@ fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
 pub fn get_sync(state: State<AppState>) -> CmdResult<SyncState> {
     let conn = state.db.lock().map_err(err)?;
     sync_state(&conn)
+}
+
+/// Shows every computer's time, this one's, or another's ("all", "this" or its id).
+#[tauri::command]
+pub fn set_shown_computer(state: State<AppState>, computer: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    sync::set_shown(&conn, &computer)
 }
 
 /// Starts combining through a folder the user picks; None when they closed the dialog.

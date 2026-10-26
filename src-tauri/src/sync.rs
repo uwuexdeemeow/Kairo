@@ -42,6 +42,7 @@ struct About {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Computer {
+    pub id: String,
     pub name: String,
     /// When it last wrote its time.
     pub updated_ms: i64,
@@ -51,6 +52,22 @@ pub struct Computer {
 /// The folder being synced, if combining is on.
 pub fn folder(conn: &Connection) -> Result<Option<PathBuf>> {
     Ok(db::get_setting(conn, FOLDER_KEY).map_err(err)?.filter(|f| !f.is_empty()).map(PathBuf::from))
+}
+
+const SHOWN_KEY: &str = "shown_computer";
+
+/// Whose time Today, Week and Patterns show: `analysis::ALL_COMPUTERS`, "this" or
+/// another computer's id. Everyone's, unless asked otherwise while combining.
+pub fn shown(conn: &Connection) -> Result<String> {
+    let shown = db::get_setting(conn, SHOWN_KEY).map_err(err)?;
+    Ok(match shown {
+        Some(s) if folder(conn)?.is_some() => s,
+        _ => crate::analysis::ALL_COMPUTERS.to_string(),
+    })
+}
+
+pub fn set_shown(conn: &Connection, computer: &str) -> Result<()> {
+    db::set_setting(conn, SHOWN_KEY, computer).map_err(err)
 }
 
 /// This computer's id among the others, made the first time it's asked for.
@@ -112,7 +129,8 @@ pub fn computers(conn: &Connection) -> Result<Vec<Computer>> {
         .flatten()
         .filter_map(|entry| {
             let about: About = serde_json::from_str(&std::fs::read_to_string(entry.path().join(ABOUT_FILE)).ok()?).ok()?;
-            Some(Computer { name: about.name, updated_ms: about.updated_ms, this_one: entry.file_name().to_str() == Some(me.as_str()) })
+            let id = entry.file_name().to_str()?.to_string();
+            Some(Computer { this_one: id == me, id, name: about.name, updated_ms: about.updated_ms })
         })
         .collect();
     found.sort_by_key(|c| (!c.this_one, c.name.to_lowercase()));
@@ -397,6 +415,16 @@ mod tests {
         assert_eq!(desk.apps(), [("code".into(), false), ("discord".into(), false), ("figma".into(), true)]);
         assert_eq!(computers(&laptop.conn).unwrap().len(), 2);
         assert!(computers(&laptop.conn).unwrap()[0].this_one);
+
+        // The views can show every computer, this one, or another.
+        let seen = |computer: &str| -> Vec<String> {
+            crate::analysis::load_rows_of(&laptop.conn, 0, i64::MAX, computer).unwrap().into_iter().map(|r| r.app).collect()
+        };
+        assert_eq!(seen("all"), ["code", "discord", "figma"]);
+        assert_eq!(seen("this"), ["figma"]);
+        assert_eq!(seen(&device_id(&desk.conn).unwrap()), ["code", "discord"]);
+        set_shown(&laptop.conn, "this").unwrap();
+        assert_eq!(shown(&laptop.conn).unwrap(), "this");
 
         // History deleted on one computer leaves the others too, and only changed days are written.
         desk.conn.execute("DELETE FROM sessions WHERE id = ?1", [code]).unwrap();

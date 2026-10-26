@@ -1707,7 +1707,29 @@ function renderSync(sync: SyncState) {
   );
   $("#sync-choose").textContent = on ? "Use another folder" : "Choose a folder";
   $("#sync-stop").hidden = !on;
+  renderComputerPick(sync);
 }
+
+/// The sidebar's choice of whose time to show, while more than one computer is combined.
+function renderComputerPick(sync: SyncState) {
+  const others = sync.computers.filter((c) => !c.thisOne);
+  $("#computer-pick").hidden = sync.folder === null || others.length === 0;
+  const pick = $<HTMLSelectElement>("#shown-computer");
+  pick.replaceChildren(
+    h("option", { value: "all" }, "All computers"),
+    h("option", { value: "this" }, `This one (${sync.name})`),
+    ...others.map((c) => h("option", { value: c.id }, c.name)),
+  );
+  pick.value = sync.shown;
+  // A computer that left the folder falls back to everyone's time.
+  if (pick.value !== sync.shown) pick.value = "all";
+}
+
+$<HTMLSelectElement>("#shown-computer").addEventListener("change", async (e) => {
+  await api.setShownComputer((e.target as HTMLSelectElement).value);
+  load();
+});
+api.sync().then(renderComputerPick, () => {});
 
 $("#sync-choose").addEventListener("click", async () => {
   const out = $("#sync-status");

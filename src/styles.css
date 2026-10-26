@@ -257,6 +257,22 @@ h2 {
   color: var(--faint);
 }
 
+/* Whose time the views show, while computers are combined. */
+.computer-pick {
+  display: block;
+  margin-top: 16px;
+  padding: 0 10px;
+}
+
+.computer-pick[hidden] {
+  display: none;
+}
+
+.computer-pick select {
+  width: 100%;
+  margin-top: 4px;
+}
+
 .focus-start {
   display: flex;
   gap: 4px;

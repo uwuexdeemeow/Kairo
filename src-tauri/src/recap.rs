@@ -113,6 +113,12 @@ fn add_apps(apps: &mut AppTimes, rows: &[Row]) {
 }
 
 pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Week> {
+    week_of(conn, start, now_ms, analysis::ALL_COMPUTERS)
+}
+
+/// `week` with time from some computers only (see `analysis::load_rows_of`); goals and limits
+/// still count every computer, as their alerts do.
+pub fn week_of(conn: &Connection, start: NaiveDate, now_ms: i64, computer: &str) -> Result<Week> {
     let goals = goals::load(conn)?;
     let mut totals = Totals::default();
     let mut days = Vec::new();
@@ -121,14 +127,21 @@ pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Week> {
     let (mut goal_days, mut goal_days_met) = (0, 0);
 
     for date in start.iter_days().take(7) {
-        let rows = goals::rows_for(conn, date, now_ms)?;
+        let rows = goals::rows_of(conn, date, now_ms, computer)?;
         let mut day = Totals::default();
         day.add(&rows);
         totals.merge(day);
         add_apps(&mut apps, &rows);
 
+        let every_computer;
+        let goal_rows = if computer == analysis::ALL_COMPUTERS {
+            &rows
+        } else {
+            every_computer = goals::rows_for(conn, date, now_ms)?;
+            &every_computer
+        };
         let goals_met = (day.active_ms > 0 && !goals.is_empty()).then(|| {
-            let progress = goals::progress(&goals, &rows, &HashMap::new());
+            let progress = goals::progress(&goals, goal_rows, &HashMap::new());
             for p in progress.iter().filter(|p| p.kind == Kind::Limit && !p.met) {
                 let entry = limits.entry(p.label.clone()).or_default();
                 entry.0 += p.used_ms - p.target_ms;
@@ -146,7 +159,7 @@ pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Week> {
     let mut previous = Totals::default();
     let mut previous_apps = AppTimes::new();
     for date in (start - Days::new(7)).iter_days().take(7) {
-        let rows = goals::rows_for(conn, date, now_ms)?;
+        let rows = goals::rows_of(conn, date, now_ms, computer)?;
         previous.add(&rows);
         add_apps(&mut previous_apps, &rows);
     }

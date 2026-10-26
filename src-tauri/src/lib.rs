@@ -268,6 +268,7 @@ pub fn run() {
             commands::get_sync,
             commands::choose_sync_folder,
             commands::stop_sync,
+            commands::set_shown_computer,
             commands::clear_demo_data,
         ])
         .build(tauri::generate_context!())
