@@ -189,11 +189,17 @@ fn read_answer(out: &str, now_ms: i64) -> Report {
     Report { site, incognito, at_ms: now_ms }
 }
 
+/// Browsers on a Mac that don't answer Apple Events, whose address bar Kairo reads instead.
+#[cfg(target_os = "macos")]
+const AX_READABLE: &[&str] = &["firefox", "opera"];
+
 /// Asks the browser in front which page it shows, once a second, so sites are exact without the
 /// extension, including in Safari. macOS asks once per browser whether Kairo may; until then, or
-/// after a no, the browser is asked again only every minute.
+/// after a no, the browser is asked again only every minute. Firefox and Opera don't answer, so
+/// their address bar is read instead, while the extension isn't reporting; macOS asks once whether
+/// Kairo may.
 #[cfg(target_os = "macos")]
-pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::AtomicBool>) {
+pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::AtomicBool>, tab: SharedTab) {
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
@@ -204,6 +210,8 @@ pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::Ato
         .name("kairo-tabs".into())
         .spawn(move || {
             let mut denied: HashMap<String, i64> = HashMap::new();
+            let mut bars = crate::platform::AddressBars::new();
+            let mut shown: HashMap<usize, Option<String>> = HashMap::new();
             loop {
                 thread::sleep(Duration::from_secs(1));
                 if paused.load(Ordering::Relaxed) {
@@ -211,8 +219,19 @@ pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::Ato
                 }
                 let Some(path) = crate::platform::frontmost_path() else { continue };
                 let exe = crate::classify::exe_stem(&path);
-                let Some(script) = tab_script(&exe) else { continue };
                 let now = chrono::Utc::now().timestamp_millis();
+                if AX_READABLE.contains(&exe.as_str()) {
+                    if fresh(&tab, now).is_some() {
+                        continue;
+                    }
+                    // A Mac's foreground "window" is the app's process id.
+                    let Some(fg) = crate::platform::foreground() else { continue };
+                    if let Some(report) = bar_report(bars.read(fg.window as i32, exe == "firefox"), fg.window, &mut shown, now) {
+                        *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe, report));
+                    }
+                    continue;
+                }
+                let Some(script) = tab_script(&exe) else { continue };
                 if denied.get(&exe).is_some_and(|&until| now < until) {
                     continue;
                 }
@@ -277,7 +296,7 @@ const READABLE: &[&str] = &["chrome", "msedge", "brave", "vivaldi", "opera", "ch
 /// The site an address bar's text is on: the address usually shows without "https://", and
 /// browser pages like chrome://settings have none. None when it isn't an address at all, as when
 /// Chrome shows a Google search's words there instead.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 fn address_site(text: &str) -> Option<Option<String>> {
     let text = text.trim();
     let scheme = text.split_once("://").map(|(scheme, _)| scheme);
@@ -300,7 +319,7 @@ pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::Ato
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use crate::platform::{Address, AddressBars};
+    use crate::platform::AddressBars;
 
     thread::Builder::new()
         .name("kairo-tabs".into())
@@ -322,27 +341,37 @@ pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::Ato
                 if !READABLE.contains(&exe.as_str()) {
                     continue;
                 }
-                let site = match bars.read(fg.window, exe == "firefox") {
-                    Some(Address::Shows(text)) => match address_site(&text) {
-                        Some(site) => {
-                            shown.insert(fg.window, site.clone());
-                            site
-                        }
-                        None => continue,
-                    },
-                    Some(Address::Typing) => match shown.get(&fg.window) {
-                        Some(site) => site.clone(),
-                        None => continue,
-                    },
-                    None => continue,
-                };
-                if shown.len() > 64 {
-                    shown.retain(|&w, _| w == fg.window);
+                if let Some(report) = bar_report(bars.read(fg.window, exe == "firefox"), fg.window, &mut shown, now) {
+                    *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe, report));
                 }
-                *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe, Report { site, incognito: false, at_ms: now }));
             }
         })
         .expect("failed to start tab reader");
+}
+
+/// What an address bar's reading says about the page: the site it shows, or while someone types
+/// in it, the one it showed before. None when it says nothing about the page. `shown` keeps each
+/// window's site from before the typing.
+#[cfg(any(windows, target_os = "macos"))]
+fn bar_report(
+    read: Option<crate::platform::Address>,
+    window: usize,
+    shown: &mut std::collections::HashMap<usize, Option<String>>,
+    now: i64,
+) -> Option<Report> {
+    use crate::platform::Address;
+    let site = match read? {
+        Address::Shows(text) => {
+            let site = address_site(&text)?;
+            if shown.len() > 64 {
+                shown.clear();
+            }
+            shown.insert(window, site.clone());
+            site
+        }
+        Address::Typing => shown.get(&window)?.clone(),
+    };
+    Some(Report { site, incognito: false, at_ms: now })
 }
 
 pub fn status(shared: &SharedTab, listening: bool) -> Status {

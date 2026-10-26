@@ -654,12 +654,23 @@ fn palette_hide_window(app: &AppHandle, give_back: bool) {
 pub struct PaletteSettings {
     shortcut: String,
     suggestions: bool,
+    over_fullscreen: bool,
 }
 
 #[tauri::command]
 pub fn get_palette_settings(state: State<AppState>) -> CmdResult<PaletteSettings> {
     let conn = state.db.lock().map_err(err)?;
-    Ok(PaletteSettings { shortcut: palette::shortcut(&conn).map_err(err)?, suggestions: palette::suggestions(&conn).map_err(err)? })
+    Ok(PaletteSettings {
+        shortcut: palette::shortcut(&conn).map_err(err)?,
+        suggestions: palette::suggestions(&conn).map_err(err)?,
+        over_fullscreen: palette::over_fullscreen(&conn).map_err(err)?,
+    })
+}
+
+#[tauri::command]
+pub fn set_palette_over_fullscreen(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_over_fullscreen(&conn, on).map_err(err)
 }
 
 /// Fails, keeping the old one, when the keys can't be had.

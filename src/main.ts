@@ -1273,7 +1273,7 @@ if (IS_MAC) {
   // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
   // only needed for blocking sites.
   $("#ext-intro").textContent =
-    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, so sites are tracked without the extension; macOS asks once per browser whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
+    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, and reads it from Firefox's and Opera's address bar, so sites are tracked without the extension; macOS asks once per browser, and once for Accessibility, whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
 }
 if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";
@@ -1333,6 +1333,7 @@ async function load(v: View = view) {
       const palette = await api.paletteSettings();
       showShortcut(palette.shortcut);
       $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
+      $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1560,6 +1561,9 @@ $("#palette-record").addEventListener("click", () => {
 });
 
 $<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
+$<HTMLInputElement>("#palette-over-fullscreen").addEventListener("change", (e) =>
+  api.setPaletteOverFullscreen((e.target as HTMLInputElement).checked),
+);
 
 $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
   const mode = (e.target as HTMLSelectElement).value as Appearance;

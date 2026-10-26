@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use super::Address;
 use windows::core::{Interface, BSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
@@ -12,13 +13,6 @@ use windows::Win32::UI::Accessibility::{
     UIA_AutomationIdPropertyId, UIA_ControlTypePropertyId, UIA_EditControlTypeId, UIA_ValuePatternId,
 };
 use windows::Win32::UI::WindowsAndMessaging::IsWindow;
-
-pub enum Address {
-    /// The text in the address bar, usually the page's address without "https://".
-    Shows(String),
-    /// Someone is typing in it, so it shows what they type rather than the page.
-    Typing,
-}
 
 /// Address bars found so far, by window; finding one takes a moment, reading it doesn't.
 /// COM objects stay on the thread that made them.

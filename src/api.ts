@@ -327,10 +327,11 @@ export const api = {
   /** Runs item `at` of the results numbered `seq`, then puts the palette away. */
   paletteRun: (seq: number, at: number) => invoke<void>("palette_run", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),
-  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean }>("get_palette_settings"),
+  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
+  setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
   appearance: () => invoke<Appearance>("get_appearance"),
   setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),
   /** PNG data URLs by executable, for the apps that have an icon to show. */

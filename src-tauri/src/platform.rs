@@ -8,10 +8,20 @@ pub struct Foreground {
     pub window: usize,
 }
 
+/// What a browser's address bar shows, read the way a screen reader would: through UI Automation
+/// on Windows, the Accessibility API on a Mac.
+#[cfg(any(windows, target_os = "macos"))]
+pub enum Address {
+    /// The text in the address bar, usually the page's address without "https://".
+    Shows(String),
+    /// Someone is typing in it, so it shows what they type rather than the page.
+    Typing,
+}
+
 #[cfg(windows)]
 mod uia;
 #[cfg(windows)]
-pub use uia::{Address, AddressBars};
+pub use uia::AddressBars;
 
 #[cfg(windows)]
 pub use win::{app_path, close_process, foreground, fullscreen_in_front, icon_pixels, icon_png, idle_ms, minimize, open_path, processes, start_apps};
@@ -471,7 +481,10 @@ mod tests {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{app_path, close_process, foreground, frontmost_path, fullscreen_in_front, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
+pub use mac::{
+    app_path, close_process, foreground, frontmost_path, fullscreen_in_front, icon_png, idle_ms, minimize, open_path, processes, request_window_titles,
+    AddressBars,
+};
 
 /// On a Mac, `Foreground::window` holds the app's process id: apps are hidden as a whole, and
 /// `processes` gives full paths, which `classify::exe_stem` reads by their app bundle.
@@ -487,6 +500,9 @@ mod mac {
 
     use super::Foreground;
     use crate::classify;
+
+    mod ax;
+    pub use ax::AddressBars;
 
     type CFTypeRef = *const c_void;
 
