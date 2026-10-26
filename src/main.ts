@@ -1279,9 +1279,9 @@ if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";
   $("#autostart-title").textContent = "Start at login";
   $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
-  // Kairo can't see other apps on Linux yet, so only the extension's sites are blocked.
+  // Kairo sees other apps through X11, which Wayland's own apps don't use.
   $("#block-explainer").textContent =
-    "With the browser extension, blocked sites show a Kairo page instead. Kairo can't see or hide other apps on Linux yet. Pausing a session pauses blocking. Choose what's blocked for each site in Categories.";
+    "Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland, Kairo sees and hides only apps running through XWayland, as most games do.";
   // Wayland keeps keys from apps; the desktop's own shortcut settings can run Kairo instead.
   $("#palette-note").textContent =
     "Works everywhere, even with Kairo's window closed. On Wayland, where apps can't listen for keys, add a shortcut in your desktop's keyboard settings that runs kairo --palette.";
