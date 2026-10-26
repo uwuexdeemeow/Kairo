@@ -236,6 +236,7 @@ pub fn run() {
             commands::set_break_minutes,
             commands::get_goals,
             commands::get_goal_settings,
+            commands::get_week_goals,
             commands::set_goal,
             commands::set_limit,
             commands::set_privacy_rule,

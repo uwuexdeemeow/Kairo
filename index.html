@@ -149,6 +149,14 @@
           <dl class="stats" id="week-stats"></dl>
           <p class="muted week-compare" id="week-compare"></p>
 
+          <section class="block goals" id="week-goals" aria-label="Goals this week" hidden>
+            <div class="section-head">
+              <h2>Goals this week</h2>
+              <span class="muted" id="week-goals-streak"></span>
+            </div>
+            <div id="week-goals-list"></div>
+          </section>
+
           <section class="block" aria-label="Each day">
             <div class="section-head">
               <h2>Each day</h2>
@@ -318,8 +326,8 @@
           </section>
 
           <section class="block">
-            <h2>Daily goals</h2>
-            <p class="muted">Progress shows on Today, and Kairo lets you know when you reach a target or get close to a limit. Limits for single apps and sites are set in Categories.</p>
+            <h2>Goals</h2>
+            <p class="muted">Progress shows on Today and Week, and Kairo lets you know when you reach a target or get close to a limit. Limits for single apps and sites are set in Categories.</p>
             <div class="row-buttons">
               <label class="field">
                 Productive time, at least
@@ -328,6 +336,16 @@
               <label class="field">
                 Distracting time, at most
                 <select id="goal-distracting"></select>
+              </label>
+            </div>
+            <div class="row-buttons">
+              <label class="field">
+                Each week, productive time at least
+                <select id="goal-week-productive"></select>
+              </label>
+              <label class="field">
+                Distracting time at most
+                <select id="goal-week-distracting"></select>
               </label>
             </div>
           </section>

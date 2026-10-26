@@ -238,7 +238,11 @@ fn seed_choices(conn: &Connection) -> Result<()> {
          INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
              SELECT 'goal:productive', value, 1 FROM settings WHERE key = 'goal_productive_min';
          INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
-             SELECT 'goal:distracting', value, 1 FROM settings WHERE key = 'goal_distracting_max_min';",
+             SELECT 'goal:distracting', value, 1 FROM settings WHERE key = 'goal_distracting_max_min';
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'goal:week-productive', value, 1 FROM settings WHERE key = 'goal_week_productive_min';
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'goal:week-distracting', value, 1 FROM settings WHERE key = 'goal_week_distracting_max_min';",
     )
     .map_err(err)?;
     db::set_setting(conn, SEEDED_KEY, "1").map_err(err)
@@ -297,14 +301,10 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
     match kind {
         "category" => analysis::set_category(conn, key, analysis::Category::parse(value).ok_or("unknown category")?).map_err(err),
         "limit" => goals::set_limit(conn, key, minutes()?).map_err(err),
-        "goal" => {
-            let goal = match key {
-                "productive" => goals::Kind::Productive,
-                "distracting" => goals::Kind::Distracting,
-                _ => return Err("unknown goal".into()),
-            };
-            goals::set_goal(conn, goal, minutes()?).map_err(err)
-        }
+        "goal" => match goals::set_named_goal(conn, key, minutes()?).map_err(err)? {
+            true => Ok(()),
+            false => Err("unknown goal".into()),
+        },
         "focus" => blocking::set_rule(conn, key, blocking::Rule::parse(value).ok_or("unknown focus rule")?).map_err(err),
         "privacy" => privacy::set_rule(conn, key, privacy::Mode::parse(value).ok_or("unknown recording rule")?).map_err(err),
         _ => Err("unknown choice".into()),

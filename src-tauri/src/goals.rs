@@ -1,5 +1,6 @@
 //! Daily goals (enough productive time, not too much distraction) and per-app or per-site time
-//! limits, with a notification as a limit gets close and when a goal is reached or passed.
+//! limits, with a notification as a limit gets close and when a goal is reached or passed; and the
+//! same two goals for a whole week, Monday to Sunday.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -19,6 +20,9 @@ use crate::{classify, db, recap};
 
 const PRODUCTIVE_KEY: &str = "goal_productive_min";
 const DISTRACTING_KEY: &str = "goal_distracting_max_min";
+const WEEK_PRODUCTIVE_KEY: &str = "goal_week_productive_min";
+const WEEK_DISTRACTING_KEY: &str = "goal_week_distracting_max_min";
+const WEEK_STREAK_LOOKBACK: u32 = 26;
 const MIN_MS: i64 = 60_000;
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 /// The "almost there" warning, as a share of a cap.
@@ -62,14 +66,25 @@ pub fn load(conn: &Connection) -> Result<Goals> {
     Ok(Goals { productive_min: minutes(PRODUCTIVE_KEY)?, distracting_max_min: minutes(DISTRACTING_KEY)?, limits })
 }
 
-/// Sets the productive target or the distracting cap; `Kind::Limit` goes through [`set_limit`].
-pub fn set_goal(conn: &Connection, kind: Kind, minutes: u32) -> Result<()> {
-    let key = match kind {
-        Kind::Productive => PRODUCTIVE_KEY,
-        Kind::Distracting => DISTRACTING_KEY,
-        Kind::Limit => return Ok(()),
+/// Sets a goal by its name: "productive" or "distracting" for each day, "week-productive" or
+/// "week-distracting" for the week. False for a name it doesn't know. Limits go through
+/// [`set_limit`].
+pub fn set_named_goal(conn: &Connection, name: &str, minutes: u32) -> Result<bool> {
+    let key = match name {
+        "productive" => PRODUCTIVE_KEY,
+        "distracting" => DISTRACTING_KEY,
+        "week-productive" => WEEK_PRODUCTIVE_KEY,
+        "week-distracting" => WEEK_DISTRACTING_KEY,
+        _ => return Ok(false),
     };
-    db::set_setting(conn, key, &minutes.to_string())
+    db::set_setting(conn, key, &minutes.to_string())?;
+    Ok(true)
+}
+
+/// The weekly goals, in minutes; 0 means off.
+pub fn load_week(conn: &Connection) -> Result<Goals> {
+    let minutes = |key| -> Result<u32> { Ok(db::get_setting(conn, key)?.and_then(|v| v.parse().ok()).unwrap_or(0)) };
+    Ok(Goals { productive_min: minutes(WEEK_PRODUCTIVE_KEY)?, distracting_max_min: minutes(WEEK_DISTRACTING_KEY)?, limits: Vec::new() })
 }
 
 pub fn set_limit(conn: &Connection, key: &str, minutes: u32) -> Result<()> {
@@ -195,6 +210,52 @@ pub fn for_day(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<DayGoa
     Ok(DayGoals { items, streak: streak(conn, &goals, date, now_ms)? })
 }
 
+/// The week from Monday `monday` up to now, from every computer.
+fn week_rows(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
+    let from = analysis::day_bounds(monday).map_or(0, |b| b.0);
+    let to = monday.checked_add_days(chrono::Days::new(6)).and_then(analysis::day_bounds).map_or(now_ms, |b| b.1);
+    analysis::load_rows(conn, from, to.min(now_ms))
+}
+
+/// Progress on the weekly goals, named apart from the daily ones.
+fn week_progress(goals: &Goals, rows: &[Row]) -> Vec<Progress> {
+    progress(goals, rows, &HashMap::new())
+        .into_iter()
+        .map(|mut p| {
+            (p.key, p.label) = match p.kind {
+                Kind::Productive => ("goal:week-productive".into(), "Productive time this week".into()),
+                _ => ("goal:week-distracting".into(), "Distracting time this week".into()),
+            };
+            p
+        })
+        .collect()
+}
+
+/// The weekly goals for the week starting `monday`, and how many weeks before it in a row met
+/// them all; weeks with nothing tracked neither count nor break the streak.
+pub fn for_week(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<DayGoals> {
+    let goals = load_week(conn)?;
+    if goals.is_empty() {
+        return Ok(DayGoals { items: Vec::new(), streak: 0 });
+    }
+    let items = week_progress(&goals, &week_rows(conn, monday, now_ms)?);
+    let mut streak = 0;
+    let mut week = monday;
+    for _ in 0..WEEK_STREAK_LOOKBACK {
+        let Some(earlier) = week.checked_sub_days(chrono::Days::new(7)) else { break };
+        week = earlier;
+        let rows = week_rows(conn, week, now_ms)?;
+        if !rows.iter().any(|r| !r.idle) {
+            continue;
+        }
+        if !week_progress(&goals, &rows).iter().all(|p| p.met) {
+            break;
+        }
+        streak += 1;
+    }
+    Ok(DayGoals { items, streak })
+}
+
 pub fn fmt_dur(ms: i64) -> String {
     let minutes = (ms.max(0) + MIN_MS / 2) / MIN_MS;
     match (minutes / 60, minutes % 60) {
@@ -226,6 +287,24 @@ fn alert(p: &Progress) -> Option<(i64, String, String)> {
     }
 }
 
+/// The notification a weekly goal has earned, if any, as for a day's.
+fn week_alert(p: &Progress) -> Option<(i64, String, String)> {
+    let (used, target) = (fmt_dur(p.used_ms), fmt_dur(p.target_ms));
+    let left = fmt_dur((p.target_ms - p.used_ms).max(MIN_MS));
+    match p.kind {
+        Kind::Productive if p.met => {
+            Some((DONE, format!("Weekly goal reached: {target} of productive time"), format!("You've put in {used} of focused work this week.")))
+        }
+        Kind::Distracting if !p.met => {
+            Some((DONE, "Weekly distracting time limit passed".into(), format!("{used} of distractions this week, over your {target} limit.")))
+        }
+        Kind::Distracting if p.used_ms as f64 >= p.target_ms as f64 * WARN_AT => {
+            Some((WARNED, format!("{left} of distracting time left this week"), format!("You've had {used} of your {target} limit.")))
+        }
+        _ => None,
+    }
+}
+
 pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
     thread::Builder::new()
         .name("kairo-goals".into())
@@ -253,8 +332,8 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
 }
 
 fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let goals = load(conn)?;
-    if goals.is_empty() {
+    let (goals, week_goals) = (load(conn)?, load_week(conn)?);
+    if goals.is_empty() && week_goals.is_empty() {
         return Ok(());
     }
     let now = chrono::Utc::now().timestamp_millis();
@@ -263,18 +342,30 @@ fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn 
         return Ok(());
     }
     let today = Local::now().date_naive();
-    let day = today.to_string();
-    conn.execute("DELETE FROM goal_alerts WHERE day != ?1", [&day])?;
-    for p in progress(&goals, &rows_for(conn, today, now)?, &labels(conn, &goals)?) {
-        let Some((level, title, body)) = alert(&p) else { continue };
+    let monday = recap::week_start(today);
+    // Each alert is remembered for its day, or for its week as "week <Monday>".
+    let (day, week) = (today.to_string(), format!("week {monday}"));
+    conn.execute("DELETE FROM goal_alerts WHERE day != ?1 AND day != ?2", params![day, week])?;
+    let mut due = Vec::new();
+    if !goals.is_empty() {
+        for p in progress(&goals, &rows_for(conn, today, now)?, &labels(conn, &goals)?) {
+            due.extend(alert(&p).map(|a| (day.clone(), p.key.clone(), a)));
+        }
+    }
+    if !week_goals.is_empty() {
+        for p in week_progress(&week_goals, &week_rows(conn, monday, now)?) {
+            due.extend(week_alert(&p).map(|a| (week.clone(), p.key.clone(), a)));
+        }
+    }
+    for (when, key, (level, title, body)) in due {
         let sent: Option<i64> =
-            conn.query_row("SELECT level FROM goal_alerts WHERE day = ?1 AND key = ?2", params![day, p.key], |r| r.get(0)).ok();
-        // A warning never follows the "passed" notification, and each is sent once a day.
+            conn.query_row("SELECT level FROM goal_alerts WHERE day = ?1 AND key = ?2", params![when, key], |r| r.get(0)).ok();
+        // A warning never follows the "passed" notification, and each is sent once a day or week.
         if sent.is_some_and(|s| s >= level) {
             continue;
         }
         app.notification().builder().title(&title).body(&body).show()?;
-        conn.execute("INSERT OR REPLACE INTO goal_alerts (day, key, level) VALUES (?1, ?2, ?3)", params![day, p.key, level])?;
+        conn.execute("INSERT OR REPLACE INTO goal_alerts (day, key, level) VALUES (?1, ?2, ?3)", params![when, key, level])?;
     }
     Ok(())
 }
@@ -339,7 +430,7 @@ mod tests {
     #[test]
     fn streak_skips_empty_days_and_stops_at_a_missed_one() {
         let conn = db::open(std::path::Path::new(":memory:")).unwrap();
-        set_goal(&conn, Kind::Distracting, 60).unwrap();
+        set_named_goal(&conn, "distracting", 60).unwrap();
         let today = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
         // Discord is distracting by default. Yesterday and three days ago were under the cap,
         // two days ago nothing was tracked, and four days ago went over.
@@ -351,5 +442,33 @@ mod tests {
         }
         let now = analysis::day_bounds(today).unwrap().1;
         assert_eq!(for_day(&conn, today, now).unwrap().streak, 2);
+    }
+
+    #[test]
+    fn weekly_goals_add_up_the_week_and_keep_their_own_streak() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        assert!(set_named_goal(&conn, "week-distracting", 120).unwrap());
+        assert!(!set_named_goal(&conn, "fortnight", 1).unwrap());
+        let monday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let discord = |date: NaiveDate, minutes: i64| {
+            let start = analysis::day_bounds(date).unwrap().0 + 10 * 60 * MIN_MS;
+            let row = db::NewSession { app: "Discord", exe: "discord", title: "", site: None, start_ms: start, end_ms: start + minutes * MIN_MS, idle: false, demo: false };
+            db::insert_session(&conn, &row).unwrap();
+        };
+        // This week: 50 + 50 minutes, under the 2h cap. Last week under too, the one before empty,
+        // and three weeks back over.
+        discord(monday, 50);
+        discord(monday + chrono::Days::new(3), 50);
+        discord(monday - chrono::Days::new(5), 100);
+        discord(monday - chrono::Days::new(19), 150);
+        let now = analysis::day_bounds(monday + chrono::Days::new(6)).unwrap().1;
+        let week = for_week(&conn, monday, now).unwrap();
+        assert_eq!(week.items.len(), 1);
+        assert_eq!((week.items[0].key.as_str(), week.items[0].used_ms, week.items[0].met), ("goal:week-distracting", 100 * MIN_MS, true));
+        assert_eq!(week.streak, 1);
+        // The daily goals aren't touched.
+        assert!(load(&conn).unwrap().is_empty());
+        let (level, title, _) = week_alert(&week.items[0]).unwrap();
+        assert_eq!((level, title.as_str()), (WARNED, "20m of distracting time left this week"));
     }
 }
