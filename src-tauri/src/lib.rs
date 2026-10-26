@@ -65,7 +65,10 @@ pub fn run() {
         // focuses the running copy instead of starting another collector, or opens its palette.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if args.iter().any(|a| a == startup::PALETTE_ARG) {
-                palette::toggle(app);
+                // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
+                if !platform::fullscreen_in_front() {
+                    palette::toggle(app);
+                }
             } else {
                 show_main(app);
             }
@@ -90,7 +93,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
-                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                    // A game or full-screen app in front keeps its keys to itself.
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed
+                        && !platform::fullscreen_in_front()
+                    {
                         palette::toggle(app);
                     }
                 })

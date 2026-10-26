@@ -9,7 +9,7 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
-pub use win::{app_path, close_process, foreground, icon_pixels, icon_png, idle_ms, minimize, open_path, processes, start_apps};
+pub use win::{app_path, close_process, foreground, fullscreen_in_front, icon_pixels, icon_png, idle_ms, minimize, open_path, processes, start_apps};
 
 #[cfg(windows)]
 mod win {
@@ -319,6 +319,39 @@ mod win {
         }
     }
 
+    /// Whether a game or other app fills the screen in front: a Direct3D game Windows knows is
+    /// full screen, or a window that isn't maximized yet covers its whole monitor, as borderless
+    /// games and full-screen video and browsers do. The desktop covers it too, so it doesn't count.
+    pub fn fullscreen_in_front() -> bool {
+        use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
+        use windows_sys::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetShellWindow, GetWindowRect, IsZoomed};
+        unsafe {
+            let mut state = 0;
+            if SHQueryUserNotificationState(&mut state) == 0 && state == QUNS_RUNNING_D3D_FULL_SCREEN {
+                return true;
+            }
+            let hwnd = GetForegroundWindow();
+            if hwnd.is_null() || hwnd == GetShellWindow() || IsZoomed(hwnd) != 0 {
+                return false;
+            }
+            let mut class = [0u16; 32];
+            let len = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32).max(0) as usize;
+            if matches!(String::from_utf16_lossy(&class[..len]).as_str(), "Progman" | "WorkerW") {
+                return false;
+            }
+            let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL);
+            let mut info: MONITORINFO = std::mem::zeroed();
+            info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            let mut rect = std::mem::zeroed();
+            if monitor.is_null() || GetMonitorInfoW(monitor, &mut info) == 0 || GetWindowRect(hwnd, &mut rect) == 0 {
+                return false;
+            }
+            let screen = info.rcMonitor;
+            rect.left <= screen.left && rect.top <= screen.top && rect.right >= screen.right && rect.bottom >= screen.bottom
+        }
+    }
+
     /// Time since the last keyboard, mouse or game controller input.
     pub fn idle_ms() -> i64 {
         unsafe {
@@ -433,7 +466,7 @@ mod tests {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{app_path, close_process, foreground, frontmost_path, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
+pub use mac::{app_path, close_process, foreground, frontmost_path, fullscreen_in_front, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
 
 /// On a Mac, `Foreground::window` holds the app's process id: apps are hidden as a whole, and
 /// `processes` gives full paths, which `classify::exe_stem` reads by their app bundle.
@@ -469,10 +502,23 @@ mod mac {
         static kCGWindowOwnerPID: CFTypeRef;
         static kCGWindowLayer: CFTypeRef;
         static kCGWindowName: CFTypeRef;
+        static kCGWindowBounds: CFTypeRef;
         fn CGWindowListCopyWindowInfo(option: u32, relative_to_window: u32) -> CFTypeRef;
+        fn CGRectMakeWithDictionaryRepresentation(dict: CFTypeRef, rect: *mut CGRect) -> bool;
+        fn CGGetActiveDisplayList(max: u32, displays: *mut u32, count: *mut u32) -> i32;
+        fn CGDisplayBounds(display: u32) -> CGRect;
         fn CGEventSourceSecondsSinceLastEventType(state: i32, event_type: u32) -> f64;
         fn CGPreflightScreenCaptureAccess() -> bool;
         fn CGRequestScreenCaptureAccess() -> bool;
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct CGRect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
     }
 
     const ON_SCREEN_ONLY: u32 = 1 << 0;
@@ -525,6 +571,41 @@ mod mac {
             }
             CFRelease(list);
             title
+        }
+    }
+
+    /// Whether the app in front fills a display: its frontmost window covers one whole screen,
+    /// menu bar and Dock included, as a full-screen app or game does. Window bounds, unlike
+    /// titles, don't need Screen Recording access.
+    pub fn fullscreen_in_front() -> bool {
+        let Some(pid) = autoreleasepool(|_| Some(NSWorkspace::sharedWorkspace().frontmostApplication()?.processIdentifier())) else {
+            return false;
+        };
+        unsafe {
+            let mut displays = [0u32; 16];
+            let mut count = 0u32;
+            if CGGetActiveDisplayList(displays.len() as u32, displays.as_mut_ptr(), &mut count) != 0 {
+                return false;
+            }
+            let screens: Vec<CGRect> = displays[..count as usize].iter().map(|&d| CGDisplayBounds(d)).collect();
+            let list = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP_ELEMENTS, 0);
+            if list.is_null() {
+                return false;
+            }
+            let mut covers = false;
+            for i in 0..CFArrayGetCount(list) {
+                let window = CFArrayGetValueAtIndex(list, i);
+                if number(window, kCGWindowOwnerPID) == Some(pid as i64) && number(window, kCGWindowLayer) == Some(0) {
+                    let mut rect = CGRect::default();
+                    covers = CGRectMakeWithDictionaryRepresentation(CFDictionaryGetValue(window, kCGWindowBounds), &mut rect)
+                        && screens.iter().any(|s| {
+                            rect.x <= s.x && rect.y <= s.y && rect.x + rect.width >= s.x + s.width && rect.y + rect.height >= s.y + s.height
+                        });
+                    break;
+                }
+            }
+            CFRelease(list);
+            covers
         }
     }
 
@@ -652,6 +733,28 @@ mod tests {
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn foreground() -> Option<Foreground> {
     None
+}
+
+/// Whether the active window is full screen, as the window manager marks it for a game or
+/// video. Wayland shows apps no other windows, so there it sees only games running through
+/// XWayland, which most do.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn fullscreen_in_front() -> bool {
+    use x11rb::connection::Connection;
+    use x11rb::protocol::xproto::{AtomEnum, ConnectionExt};
+
+    let Ok((conn, screen)) = x11rb::connect(None) else { return false };
+    let root = conn.setup().roots[screen].root;
+    let atom = |name: &[u8]| Some(conn.intern_atom(false, name).ok()?.reply().ok()?.atom);
+    let fullscreen = || -> Option<bool> {
+        let active = conn.get_property(false, root, atom(b"_NET_ACTIVE_WINDOW")?, AtomEnum::WINDOW, 0, 1).ok()?.reply().ok()?;
+        let window = active.value32()?.next().filter(|&w| w != 0)?;
+        let state = conn.get_property(false, window, atom(b"_NET_WM_STATE")?, AtomEnum::ATOM, 0, 64).ok()?.reply().ok()?;
+        let full = atom(b"_NET_WM_STATE_FULLSCREEN")?;
+        let found = state.value32()?.any(|a| a == full);
+        Some(found)
+    };
+    fullscreen().unwrap_or(false)
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]

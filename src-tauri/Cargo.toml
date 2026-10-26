@@ -50,6 +50,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 ] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
 
+# Whether the window in front is full screen, on Linux; the version global shortcuts already build.
+[target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
+x11rb = "0.13"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
   "Win32_Foundation",
