@@ -882,11 +882,6 @@ pub fn app_path(exe: &str) -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
-pub fn icon_png(_path: &str) -> Option<Vec<u8>> {
-    None
-}
-
 /// Only the Windows command palette draws icons from pixels.
 #[cfg(not(windows))]
 pub fn icon_pixels(_path: &str) -> Option<(u32, u32, Vec<u8>)> {
