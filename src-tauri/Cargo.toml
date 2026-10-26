@@ -50,10 +50,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 ] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
 
-# The window in front and idle time on Linux; the versions global shortcuts already build.
+# The window in front and idle time on Linux, from X11 or GNOME; the versions global shortcuts
+# and single-instance already build.
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 libc = "0.2"
 x11rb = { version = "0.13", features = ["screensaver"] }
+zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
@@ -69,8 +71,8 @@ windows-sys = { version = "0.59", features = [
   "Win32_UI_Input_XboxController",
   "Win32_UI_WindowsAndMessaging",
 ] }
-# The command palette draws itself with Direct2D and DirectWrite, which are COM APIs; the same
-# versions Tauri already builds.
+# The command palette draws itself with Direct2D and DirectWrite, and browsers' address bars are
+# read with UI Automation, all COM APIs; the same versions Tauri already builds.
 windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Graphics_Direct2D",
@@ -81,6 +83,8 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Gdi",
   "Win32_System_Com",
   "Win32_System_LibraryLoader",
+  "Win32_System_Variant",
+  "Win32_UI_Accessibility",
   "Win32_UI_Controls",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",

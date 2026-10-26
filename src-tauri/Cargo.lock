@@ -2217,6 +2217,7 @@ dependencies = [
  "windows-numerics",
  "windows-sys 0.59.0",
  "x11rb",
+ "zbus",
 ]
 
 [[package]]

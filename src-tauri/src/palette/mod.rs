@@ -202,6 +202,14 @@ pub fn icon_url(path: &str) -> Option<String> {
     Some(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(data)))
 }
 
+/// The icon of a program Kairo tracked, by its file, for Kairo's pages; on Linux, the icon of
+/// the desktop entry that runs it.
+pub fn program_icon_url(path: &str) -> Option<String> {
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let path = &linux::entry_for_program(path, &app_files())?;
+    icon_url(path)
+}
+
 // ---------- settings ----------
 
 pub fn shortcut(conn: &Connection) -> Result<String> {
@@ -220,6 +228,9 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
 /// doesn't know the keys), the old one stays and the reason comes back.
 pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::result::Result<(), String> {
     let old = shortcut(conn).map_err(|e| e.to_string())?;
+    if crate::platform::desktop_palette_shortcut(new) {
+        return db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string());
+    }
     let keys = app.global_shortcut();
     let _ = keys.unregister(old.as_str());
     if let Err(e) = keys.register(new) {
@@ -479,6 +490,10 @@ mod linux {
     pub struct DesktopEntry {
         pub name: String,
         pub icon: Option<String>,
+        /// The command it runs, with placeholders like %U for files.
+        pub exec: Option<String>,
+        /// The window class its windows have, when the app says.
+        pub wm_class: Option<String>,
     }
 
     impl DesktopEntry {
@@ -486,6 +501,7 @@ mod linux {
         pub fn parse(text: &str) -> Option<Self> {
             let mut in_entry = false;
             let (mut name, mut icon, mut app, mut shown) = (None, None, false, true);
+            let (mut exec, mut wm_class) = (None, None);
             for line in text.lines().map(str::trim) {
                 if line.starts_with('[') {
                     in_entry = line == "[Desktop Entry]";
@@ -495,6 +511,8 @@ mod linux {
                 match (key.trim(), value.trim()) {
                     ("Name", v) => name = Some(v.to_string()),
                     ("Icon", v) if !v.is_empty() => icon = Some(v.to_string()),
+                    ("Exec", v) if !v.is_empty() => exec = Some(v.to_string()),
+                    ("StartupWMClass", v) if !v.is_empty() => wm_class = Some(v.to_string()),
                     ("Type", v) => app = v == "Application",
                     ("NoDisplay" | "Hidden", "true") => shown = false,
                     _ => {}
@@ -503,8 +521,65 @@ mod linux {
             if !app || !shown {
                 return None;
             }
-            Some(DesktopEntry { name: name.filter(|n| !n.is_empty())?, icon })
+            Some(DesktopEntry { name: name.filter(|n| !n.is_empty())?, icon, exec, wm_class })
         }
+    }
+
+    /// Which of `entries` (name, desktop entry file) runs the program at `program`, for its icon.
+    /// Best is an entry whose command is that program, or that Steam made for the game; then one
+    /// whose windows carry the program's name; then one whose command sits in the program's own
+    /// folder, as Chrome's launcher script does, preferring a plain launcher over a web app's.
+    pub fn entry_for_program(program: &str, entries: &[(String, String)]) -> Option<String> {
+        use crate::classify::{exe_stem, game_name};
+        let stem = exe_stem(program);
+        let game = game_name(program);
+        let real = std::fs::canonicalize(program).ok();
+        let folder = real.as_deref().and_then(Path::parent).filter(|d| !is_bin_dir(d));
+        let mut best: Option<(u8, &String)> = None;
+        for (name, file) in entries {
+            let Some(entry) = std::fs::read_to_string(file).ok().and_then(|text| DesktopEntry::parse(&text)) else { continue };
+            let runs = entry.exec.as_deref().and_then(command);
+            let score = if game.as_deref().is_some_and(|g| g.eq_ignore_ascii_case(name)) {
+                4
+            } else if game.is_some() {
+                0
+            } else if runs.as_ref().is_some_and(|(raw, real_cmd, _)| {
+                real.as_ref() == Some(real_cmd) || [raw, real_cmd].iter().any(|p| exe_stem(&p.to_string_lossy()) == stem)
+            }) {
+                4
+            } else if entry.wm_class.as_deref().is_some_and(|c| c.eq_ignore_ascii_case(&stem)) {
+                3
+            } else {
+                match &runs {
+                    Some((_, real_cmd, extra)) if folder.is_some() && real_cmd.parent() == folder => if *extra { 1 } else { 2 },
+                    _ => 0,
+                }
+            };
+            if score > best.map_or(0, |(s, _)| s) {
+                best = Some((score, file));
+            }
+        }
+        best.map(|(_, file)| file.clone())
+    }
+
+    /// The program a desktop entry's command runs, as written and with links followed, and
+    /// whether the command adds arguments of its own beyond the file and URL placeholders.
+    fn command(exec: &str) -> Option<(PathBuf, PathBuf, bool)> {
+        let mut words = exec.split_whitespace().map(|w| w.trim_matches('"')).skip_while(|w| *w == "env" || w.contains('='));
+        let program = words.next()?;
+        let extra = words.any(|w| !w.starts_with('%'));
+        let raw = if program.contains('/') {
+            PathBuf::from(program)
+        } else {
+            std::env::split_paths(&std::env::var_os("PATH")?).map(|dir| dir.join(program)).find(|p| p.is_file())?
+        };
+        let real = std::fs::canonicalize(&raw).unwrap_or_else(|_| raw.clone());
+        Some((raw, real, extra))
+    }
+
+    /// Folders full of unrelated programs, where sharing one says nothing.
+    fn is_bin_dir(dir: &Path) -> bool {
+        matches!(dir.to_str(), Some("/bin" | "/sbin" | "/usr/bin" | "/usr/sbin" | "/usr/local/bin" | "/usr/games" | "/snap/bin"))
     }
 
     /// A desktop entry's icon from the shared icon theme, which every Linux desktop has, or the
@@ -544,6 +619,34 @@ mod linux {
             assert_eq!((app.name.as_str(), app.icon.as_deref()), ("Firefox", Some("firefox")));
             assert!(DesktopEntry::parse("[Desktop Entry]\nType=Application\nName=Helper\nNoDisplay=true").is_none());
             assert!(DesktopEntry::parse("[Desktop Entry]\nType=Link\nName=Docs").is_none());
+        }
+
+        #[test]
+        fn tracked_programs_find_their_desktop_entry() {
+            let dir = std::env::temp_dir().join(format!("kairo-entries-{}", std::process::id()));
+            let app = dir.join("opt/chat");
+            std::fs::create_dir_all(&app).unwrap();
+            for file in ["chat-bin", "launcher"] {
+                std::fs::write(app.join(file), "").unwrap();
+            }
+            let entry = |file: &str, text: String| {
+                let path = dir.join(file);
+                std::fs::write(&path, format!("[Desktop Entry]\nType=Application\n{text}")).unwrap();
+                path.display().to_string()
+            };
+            let launcher = app.join("launcher").display().to_string();
+            let web_app = entry("web.desktop", format!("Name=Web app\nExec={launcher} --app-id=abc"));
+            let chat = entry("chat.desktop", format!("Name=Chat\nExec=env A=1 \"{launcher}\" %U"));
+            let game = entry("game.desktop", "Name=Hades\nExec=steam steam://rungameid/1145360".into());
+            let entries: Vec<(String, String)> =
+                [("Web app", &web_app), ("Chat", &chat), ("Hades", &game)].iter().map(|(n, f)| (n.to_string(), f.to_string())).collect();
+
+            // The plain launcher in the program's folder wins over a web app's.
+            assert_eq!(entry_for_program(&app.join("chat-bin").display().to_string(), &entries), Some(chat));
+            let hades = "/home/me/.local/share/Steam/steamapps/common/Hades/Hades";
+            assert_eq!(entry_for_program(hades, &entries), Some(game));
+            assert_eq!(entry_for_program("/usr/bin/unknown", &entries), None);
+            std::fs::remove_dir_all(dir).unwrap();
         }
     }
 }

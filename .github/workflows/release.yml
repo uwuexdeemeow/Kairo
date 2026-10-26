@@ -85,8 +85,8 @@ jobs:
           args: --target universal-apple-darwin --bundles app,dmg
 
   # Last, for the same reason; it still runs if the Mac build fails, since Windows made the
-  # release. Copies installed from the AppImage update themselves; the .deb is for installing
-  # with the system's package tools.
+  # release. Copies installed from the AppImage or the .deb (with a password prompt) update
+  # themselves.
   linux:
     needs: [windows, macos]
     if: ${{ !cancelled() && needs.windows.result == 'success' }}

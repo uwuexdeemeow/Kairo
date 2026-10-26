@@ -269,7 +269,8 @@ fn is_browser_suffix(part: &str) -> bool {
 /// Incognito, InPrivate and private browsing windows, as far as their titles give them away.
 pub fn is_private_window(title: &str) -> bool {
     let title = title.to_lowercase();
-    ["incognito", "inprivate", "private browsing", "private window"].iter().any(|m| title.contains(m))
+    // Brave's private windows end their title in "(Private)", Chrome's in "(Incognito)".
+    ["incognito", "inprivate", "private browsing", "private window", "(private)"].iter().any(|m| title.contains(m))
 }
 
 pub fn is_passive(exe: &str, site: Option<&str>) -> bool {
@@ -348,6 +349,7 @@ mod tests {
         assert!(is_private_window("New Tab - Google Chrome (Incognito)"));
         assert!(is_private_window("[InPrivate] Bing - Microsoft Edge"));
         assert!(is_private_window("Mozilla Firefox Private Browsing"));
+        assert!(is_private_window("New Private Tab - Brave (Private)"));
         assert!(!is_private_window("Privacy policy - Google Chrome"));
     }
 

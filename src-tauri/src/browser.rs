@@ -115,8 +115,8 @@ pub fn fresh(shared: &SharedTab, now_ms: i64) -> Option<Report> {
     (now_ms - report.at_ms <= FRESH_MS).then_some(report)
 }
 
-/// What the browser in front said about its tab when asked through Apple Events (macOS only;
-/// elsewhere it stays empty): the browser's executable name, and the report.
+/// What the browser in front said about its tab when asked: through Apple Events on a Mac, its
+/// address bar on Windows (empty on Linux): the browser's executable name, and the report.
 pub type SharedScripted = Arc<Mutex<Option<(String, Report)>>>;
 
 /// The browser's own answer, if it's about `exe` and recent enough to trust. Asked every second,
@@ -169,7 +169,7 @@ fn tab_script(exe: &str) -> Option<String> {
 }
 
 /// The hostname in a web address; None for anything but http and https pages.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", windows, test))]
 fn host_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.trim().split_once("://")?;
     if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
@@ -268,6 +268,81 @@ fn run_script(script: &str) -> Result<String, bool> {
     } else {
         Err(String::from_utf8_lossy(&out.stderr).contains(NOT_PERMITTED))
     }
+}
+
+/// Browsers whose address bar Kairo reads on Windows.
+#[cfg(any(windows, test))]
+const READABLE: &[&str] = &["chrome", "msedge", "brave", "vivaldi", "opera", "chromium", "firefox"];
+
+/// The site an address bar's text is on: the address usually shows without "https://", and
+/// browser pages like chrome://settings have none. None when it isn't an address at all, as when
+/// Chrome shows a Google search's words there instead.
+#[cfg(any(windows, test))]
+fn address_site(text: &str) -> Option<Option<String>> {
+    let text = text.trim();
+    let scheme = text.split_once("://").map(|(scheme, _)| scheme);
+    // A new tab, or the browser's own pages, like chrome://settings or Firefox's about:config.
+    if text.is_empty() || text.starts_with("about:") || scheme.is_some_and(|s| !s.eq_ignore_ascii_case("http") && !s.eq_ignore_ascii_case("https")) {
+        return Some(None);
+    }
+    let address = if scheme.is_some() { text.to_string() } else { format!("https://{text}") };
+    let host = host_of(&address)?;
+    let looks_like_host = !host.contains(char::is_whitespace) && (host.contains('.') || host.eq_ignore_ascii_case("localhost"));
+    looks_like_host.then(|| site_for_host(host))
+}
+
+/// Reads the address bar of the browser in front, once a second, so sites are exact without the
+/// extension, as on a Mac. While the extension reports, it already says, so this stays out of the
+/// way; reading an address bar makes the browser describe its window to Kairo.
+#[cfg(windows)]
+pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::AtomicBool>, tab: SharedTab) {
+    use std::collections::HashMap;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use crate::platform::{Address, AddressBars};
+
+    thread::Builder::new()
+        .name("kairo-tabs".into())
+        .spawn(move || {
+            let Some(mut bars) = AddressBars::new() else {
+                eprintln!("browser: UI Automation isn't available");
+                return;
+            };
+            // Each window's site from before someone started typing in its address bar.
+            let mut shown: HashMap<usize, Option<String>> = HashMap::new();
+            loop {
+                thread::sleep(Duration::from_secs(1));
+                let now = chrono::Utc::now().timestamp_millis();
+                if paused.load(Ordering::Relaxed) || fresh(&tab, now).is_some() {
+                    continue;
+                }
+                let Some(fg) = crate::platform::foreground() else { continue };
+                let exe = crate::classify::exe_stem(&fg.exe_path);
+                if !READABLE.contains(&exe.as_str()) {
+                    continue;
+                }
+                let site = match bars.read(fg.window, exe == "firefox") {
+                    Some(Address::Shows(text)) => match address_site(&text) {
+                        Some(site) => {
+                            shown.insert(fg.window, site.clone());
+                            site
+                        }
+                        None => continue,
+                    },
+                    Some(Address::Typing) => match shown.get(&fg.window) {
+                        Some(site) => site.clone(),
+                        None => continue,
+                    },
+                    None => continue,
+                };
+                if shown.len() > 64 {
+                    shown.retain(|&w, _| w == fg.window);
+                }
+                *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe, Report { site, incognito: false, at_ms: now }));
+            }
+        })
+        .expect("failed to start tab reader");
 }
 
 pub fn status(shared: &SharedTab, listening: bool) -> Status {
@@ -432,6 +507,22 @@ mod tests {
         assert_eq!(host_of("file:///Users/me/a.pdf"), None);
         assert_eq!(host_of("missing value"), None);
         assert_eq!(host_of(""), None);
+    }
+
+    #[test]
+    fn address_bars_give_the_site_they_show() {
+        let youtube = site_for_host("youtube.com");
+        assert_eq!(address_site("youtube.com/watch?v=1"), Some(youtube.clone()));
+        assert_eq!(address_site("https://www.youtube.com/watch?v=1"), Some(youtube));
+        assert_eq!(address_site("docs.rs/serde"), Some(site_for_host("docs.rs")));
+        // The browser's own pages and a new tab have no site.
+        assert_eq!(address_site("chrome://settings"), Some(None));
+        assert_eq!(address_site("about:preferences"), Some(None));
+        assert_eq!(address_site(""), Some(None));
+        // Search words Chrome shows instead of the address say nothing.
+        assert_eq!(address_site("rust lifetimes"), None);
+        assert_eq!(address_site("rust"), None);
+        assert!(READABLE.contains(&"firefox"));
     }
 
     #[test]

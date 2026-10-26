@@ -131,6 +131,8 @@ pub fn run() {
                 platform::request_window_titles();
                 browser::spawn_scripted(scripted_tab.clone(), paused.clone());
             }
+            #[cfg(windows)]
+            browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
@@ -148,9 +150,32 @@ pub fn run() {
                 navigation: Mutex::default(),
             });
             setup_tray(app, paused, nudges_on)?;
+            // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
+            // has loaded it at a login, and on KDE Plasma its KWin script does right away.
+            #[cfg(not(any(windows, target_os = "macos")))]
+            {
+                if platform::watch_wayland() {
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = app
+                        .notification()
+                        .builder()
+                        .title("Log out and back in to finish setting up Kairo")
+                        .body("GNOME turns on the extension that lets Kairo see your apps at your next login.")
+                        .show();
+                }
+                let handle = app.handle().clone();
+                platform::on_palette_shortcut(Box::new(move || {
+                    if !platform::fullscreen_in_front() {
+                        palette::toggle(&handle);
+                    }
+                }));
+            }
+            // Wayland keeps keys from apps, so there the desktop's own shortcuts open the palette.
             // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
-            if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
-                eprintln!("palette: cannot use {palette_shortcut}: {e}");
+            if !platform::desktop_palette_shortcut(&palette_shortcut) {
+                if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
+                    eprintln!("palette: cannot use {palette_shortcut}: {e}");
+                }
             }
             updater::spawn(app.handle().clone());
             // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.

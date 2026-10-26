@@ -696,16 +696,12 @@ pub fn set_appearance(app: AppHandle, state: State<AppState>, mode: String) -> C
 /// Each is read once and then kept for the rest of the run.
 #[tauri::command]
 pub fn get_app_icons(state: State<AppState>, exes: Vec<String>) -> CmdResult<HashMap<String, String>> {
-    use base64::Engine;
     let conn = state.db.lock().map_err(err)?;
     let mut cache = state.icons.lock().map_err(err)?;
     let mut out = HashMap::new();
     for exe in exes {
         if !cache.contains_key(&exe) {
-            let icon = db::app_path(&conn, &exe)
-                .map_err(err)?
-                .and_then(|path| platform::icon_png(&path))
-                .map(|png| format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(png)));
+            let icon = db::app_path(&conn, &exe).map_err(err)?.and_then(|path| palette::program_icon_url(&path));
             cache.insert(exe.clone(), icon);
         }
         if let Some(Some(url)) = cache.get(&exe) {

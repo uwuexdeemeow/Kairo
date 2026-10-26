@@ -1,0 +1,7 @@
+{
+  "uuid": "kairo@uwuexdeemeow.github.io",
+  "name": "Kairo",
+  "description": "Lets Kairo see which window is in front on Wayland, for screen time and focus sessions.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/uwuexdeemeow/Kairo"
+}
