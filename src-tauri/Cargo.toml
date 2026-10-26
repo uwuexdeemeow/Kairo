@@ -21,6 +21,8 @@ tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
+# File pickers for exporting, backing up and restoring.
+tauri-plugin-dialog = "2"
 tiny_http = "0.12"
 png = "0.18"
 base64 = "0.22"

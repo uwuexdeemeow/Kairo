@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -745,6 +745,111 @@ pub fn clear_demo_data(state: State<AppState>) -> CmdResult<usize> {
     let conn = state.db.lock().map_err(err)?;
     nudge::invalidate(&state.window_cache);
     demo::clear(&conn).map_err(err)
+}
+
+// ---------- your data ----------
+// These wait on a file dialog, so they run off the main thread.
+
+/// Where the user wants a file saved; None if they closed the dialog.
+fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option<std::path::PathBuf> {
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog().file().set_file_name(name).add_filter(kind, &[extension]).blocking_save_file()?.into_path().ok()
+}
+
+/// Saves tracked time as a spreadsheet; how many rows, or None when no place was picked.
+#[tauri::command]
+pub async fn export_time(app: AppHandle) -> CmdResult<Option<usize>> {
+    let name = format!("Kairo time {}.csv", Local::now().format("%Y-%m-%d"));
+    let Some(path) = save_path(&app, &name, "Spreadsheet", "csv") else { return Ok(None) };
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    backup::export_csv(&conn, &path).map(Some)
+}
+
+/// Saves everything to one file; its name, or None when no place was picked.
+#[tauri::command]
+pub async fn backup_data(app: AppHandle) -> CmdResult<Option<String>> {
+    let name = format!("Kairo backup {}.kairo", Local::now().format("%Y-%m-%d"));
+    let Some(path) = save_path(&app, &name, "Kairo backup", "kairo") else { return Ok(None) };
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    backup::backup(&conn, &path)?;
+    Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
+}
+
+/// Replaces what's here with a backup, once the user has picked it and said yes, and restarts
+/// Kairo with it. What was here is saved first in Kairo's data folder. False when they didn't.
+#[tauri::command]
+pub async fn restore_data(app: AppHandle) -> CmdResult<bool> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let Some(from) = app.dialog().file().add_filter("Kairo backup", &["kairo"]).blocking_pick_file().and_then(|f| f.into_path().ok()) else {
+        return Ok(false);
+    };
+    let sure = app
+        .dialog()
+        .message("Kairo's history, categories, limits and settings become the backup's, and Kairo restarts. What's here now is kept as kairo-before-restore.kairo in Kairo's data folder.")
+        .title("Restore this backup?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Restore".into(), "Cancel".into()))
+        .blocking_show();
+    if !sure {
+        return Ok(false);
+    }
+    let before = app.path().app_data_dir().map_err(err)?.join("kairo-before-restore.kairo");
+    {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        backup::restore(&conn, &from, &before)?;
+    }
+    // Everything that keeps settings in memory starts again from the restored ones.
+    app.restart()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncState {
+    /// The synced folder, while combining is on.
+    folder: Option<String>,
+    computers: Vec<sync::Computer>,
+    /// This computer's name, as the others see it.
+    name: String,
+}
+
+fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
+    Ok(SyncState {
+        folder: sync::folder(conn)?.map(|f| f.display().to_string()),
+        computers: sync::computers(conn)?,
+        name: sync::device_name(),
+    })
+}
+
+#[tauri::command]
+pub fn get_sync(state: State<AppState>) -> CmdResult<SyncState> {
+    let conn = state.db.lock().map_err(err)?;
+    sync_state(&conn)
+}
+
+/// Starts combining through a folder the user picks; None when they closed the dialog.
+#[tauri::command]
+pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(dir) = app.dialog().file().set_title("A folder your cloud drive syncs").blocking_pick_folder().and_then(|f| f.into_path().ok())
+    else {
+        return Ok(None);
+    };
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    sync::start(&conn, &dir, now_ms())?;
+    nudge::invalidate(&state.window_cache);
+    sync_state(&conn).map(Some)
+}
+
+#[tauri::command]
+pub fn stop_sync(state: State<AppState>) -> CmdResult<SyncState> {
+    let conn = state.db.lock().map_err(err)?;
+    sync::stop(&conn)?;
+    nudge::invalidate(&state.window_cache);
+    sync_state(&conn)
 }
 
 #[cfg(test)]

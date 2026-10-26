@@ -70,6 +70,18 @@ pub fn open(path: &Path) -> Result<Connection> {
              key   TEXT    NOT NULL,
              level INTEGER NOT NULL,
              PRIMARY KEY (day, key)
+         );
+         -- Combining computers (sync.rs): what this computer last wrote for each day, and which
+         -- of another computer's day files have been read in, by their size and time.
+         CREATE TABLE IF NOT EXISTS sync_written (
+             day       INTEGER PRIMARY KEY,
+             signature TEXT NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS sync_imports (
+             device TEXT    NOT NULL,
+             day    INTEGER NOT NULL,
+             stamp  TEXT    NOT NULL,
+             PRIMARY KEY (device, day)
          );",
     )?;
     // Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.
@@ -77,6 +89,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("focus_sessions", "paused_ms", "INTEGER NOT NULL DEFAULT 0"),
         ("focus_sessions", "paused_at", "INTEGER"),
         ("focus_sessions", "label", "TEXT"),
+        // Which computer a session came from, when combining computers; NULL for this one.
+        ("sessions", "device", "TEXT"),
     ] {
         let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
         if !exists {
@@ -170,7 +184,7 @@ pub struct Current {
 /// The live session, or None when idle, paused or asleep.
 pub fn current_activity(conn: &Connection, now_ms: i64) -> Result<Option<Current>> {
     let mut stmt = conn.prepare(
-        "SELECT app, exe, site, start_ms, end_ms, idle FROM sessions WHERE demo = 0 ORDER BY id DESC LIMIT 200",
+        "SELECT app, exe, site, start_ms, end_ms, idle FROM sessions WHERE demo = 0 AND device IS NULL ORDER BY id DESC LIMIT 200",
     )?;
     let recent: Vec<(String, String, Option<String>, i64, i64, bool)> = stmt
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?

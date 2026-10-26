@@ -2,6 +2,13 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Category = "productive" | "neutral" | "distracting";
 
+/** Combining computers: the synced folder while it's on, and the computers found there. */
+export interface SyncState {
+  folder: string | null;
+  computers: { name: string; updatedMs: number; thisOne: boolean }[];
+  name: string;
+}
+
 export interface Usage {
   /** `app:<exe>` or `site:<name>`, for the icon. */
   key: string;
@@ -332,6 +339,15 @@ export const api = {
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
+  /** Each asks where with the system's file dialog; null when it was closed. */
+  exportTime: () => invoke<number | null>("export_time"),
+  backupData: () => invoke<string | null>("backup_data"),
+  /** Restarts Kairo when it restores, so it only comes back false (not restored) or failing. */
+  restoreData: () => invoke<boolean>("restore_data"),
+  sync: () => invoke<SyncState>("get_sync"),
+  /** Null when the folder dialog was closed. */
+  chooseSyncFolder: () => invoke<SyncState | null>("choose_sync_folder"),
+  stopSync: () => invoke<SyncState>("stop_sync"),
   appearance: () => invoke<Appearance>("get_appearance"),
   setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),
   /** PNG data URLs by executable, for the apps that have an icon to show. */

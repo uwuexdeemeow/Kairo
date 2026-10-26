@@ -363,6 +363,29 @@
           </section>
 
           <section class="block">
+            <h2>Your data</h2>
+            <p class="muted">Take your tracked time into a spreadsheet, or keep everything in one backup file. A backup restores on any computer, Windows, Mac or Linux, so it's also how you move Kairo to a new one.</p>
+            <div class="row-buttons">
+              <button class="link-btn" id="export-time">Export time as CSV</button>
+              <button class="link-btn" id="backup-save">Back up everything</button>
+              <button class="link-btn" id="backup-restore">Restore a backup</button>
+              <span class="muted" id="data-status" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="block">
+            <h2>Combine computers</h2>
+            <p class="muted">See the time from all your computers together. Pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer; Kairo keeps its time there every few minutes, and adds in the others'. Your time, including window titles, goes to that drive. Categories, limits and goals stay per computer.</p>
+            <p id="sync-where" aria-live="polite"></p>
+            <ul class="sync-computers" id="sync-computers"></ul>
+            <div class="row-buttons">
+              <button class="link-btn" id="sync-choose">Choose a folder</button>
+              <button class="link-btn" id="sync-stop" hidden>Stop combining</button>
+              <span class="muted" id="sync-status" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="block">
             <h2>Browser extension</h2>
             <p class="muted" id="ext-intro">Kairo reads the site from the address bar of Chrome, Edge, Brave, Vivaldi, Opera and Firefox, so sites are tracked without the extension. The extension adds blocking distracting sites during focus sessions, and with it the browser tells Kairo the site itself. It sends only the domain, never the page or what you type, and only to Kairo on this computer.</p>
             <p class="ext-status" id="ext-status" aria-live="polite"></p>

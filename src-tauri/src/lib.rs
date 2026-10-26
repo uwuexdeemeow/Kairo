@@ -1,5 +1,6 @@
 mod analysis;
 mod appearance;
+mod backup;
 mod blocking;
 mod browser;
 mod classify;
@@ -15,6 +16,7 @@ mod platform;
 mod privacy;
 mod recap;
 mod startup;
+mod sync;
 mod updater;
 
 use std::collections::HashMap;
@@ -82,6 +84,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         // The command palette copies its answers.
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Size, position and maximized state come back as they were; visibility stays ours,
         // since Kairo starts hidden in the tray at sign-in.
@@ -139,6 +142,7 @@ pub fn run() {
             browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
+            sync::spawn(db_path.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState {
@@ -258,6 +262,12 @@ pub fn run() {
             commands::get_version,
             commands::check_for_updates,
             commands::seed_demo_data,
+            commands::export_time,
+            commands::backup_data,
+            commands::restore_data,
+            commands::get_sync,
+            commands::choose_sync_folder,
+            commands::stop_sync,
             commands::clear_demo_data,
         ])
         .build(tauri::generate_context!())

@@ -1833,6 +1833,22 @@ select {
   gap: 8px 20px;
 }
 
+/* The computers whose time is combined. */
+.sync-computers {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.sync-computers li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.sync-computers:empty {
+  display: none;
+}
+
 .link-btn {
   min-height: 40px;
   padding: 0 2px;

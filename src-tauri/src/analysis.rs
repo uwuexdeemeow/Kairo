@@ -35,6 +35,14 @@ impl Category {
             _ => None,
         }
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Productive => "productive",
+            Self::Neutral => "neutral",
+            Self::Distracting => "distracting",
+        }
+    }
 }
 
 fn local_midnight_ms(date: NaiveDate) -> Option<i64> {
