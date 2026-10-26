@@ -27,7 +27,8 @@ fn err(e: impl std::fmt::Display) -> String {
 pub fn export_csv(conn: &Connection, path: &Path) -> Result<usize> {
     let cats = analysis::category_map(conn).map_err(err)?;
     let mut stmt = conn
-        .prepare("SELECT start_ms, end_ms, app, exe, site, title FROM sessions WHERE idle = 0 AND demo = 0 ORDER BY start_ms")
+        // Moments under a second, as when passing through a window, aren't worth a row.
+        .prepare("SELECT start_ms, end_ms, app, exe, site, title FROM sessions WHERE idle = 0 AND demo = 0 AND end_ms - start_ms >= 1000 ORDER BY start_ms")
         .map_err(err)?;
     let rows = stmt
         .query_map([], |r| {

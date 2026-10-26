@@ -107,6 +107,11 @@ pub fn device_name() -> String {
 
 /// Starts combining through `dir`, at once. True when another computer's choices came in.
 pub fn start(conn: &Connection, dir: &Path, now_ms: i64) -> Result<bool> {
+    // Moving to another folder takes this computer out of the old one, so the computers still
+    // there drop its time, as stopping would.
+    if let Some(old) = folder(conn)?.filter(|old| old != dir) {
+        let _ = std::fs::remove_dir_all(old.join(DIR).join(device_id(conn)?));
+    }
     db::set_setting(conn, FOLDER_KEY, &dir.to_string_lossy()).map_err(err)?;
     run_once(conn, now_ms)
 }
@@ -564,6 +569,17 @@ mod tests {
         // History deleted on one computer leaves the others too, and only changed days are written.
         desk.conn.execute("DELETE FROM sessions WHERE id = ?1", [code]).unwrap();
         run_once(&desk.conn, now).unwrap();
+        run_once(&laptop.conn, now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
+
+        // A computer moving to another folder leaves the old one, and the others there drop it.
+        let elsewhere = folder.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        start(&desk.conn, &elsewhere, now).unwrap();
+        assert!(!folder.join(DIR).join(device_id(&desk.conn).unwrap()).exists());
+        run_once(&laptop.conn, now).unwrap();
+        assert_eq!(laptop.apps(), [("figma".into(), false)]);
+        start(&desk.conn, &folder, now).unwrap();
         run_once(&laptop.conn, now).unwrap();
         assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
 
