@@ -873,11 +873,57 @@ mod tests {
     }
 }
 
-// Linux and others: other apps' windows come from X11. That covers X11 desktops and, under
-// Wayland, apps running through XWayland, as most games do; Wayland shows apps no windows of
-// native Wayland apps, so with one of those in front Kairo sees nothing. Programs come from /proc.
+// Linux and others: other apps' windows come from X11, or on GNOME's Wayland session from Kairo's
+// GNOME Shell extension. Other Wayland desktops show X11 only the apps running through XWayland,
+// as most games do. Programs come from /proc.
 #[cfg(not(any(windows, target_os = "macos")))]
-pub use x11::{foreground, fullscreen_in_front, idle_ms, minimize};
+mod gnome;
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub use gnome::install as install_gnome_extension;
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn foreground() -> Option<Foreground> {
+    if gnome::wayland() {
+        if let Some(focused) = gnome::focused() {
+            let f = focused?;
+            return Some(Foreground { exe_path: program(f.pid)?, title: f.title, window: f.window });
+        }
+    }
+    x11::foreground()
+}
+
+/// Whether the window in front is full screen, as the window manager marks it for a game or
+/// video.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn fullscreen_in_front() -> bool {
+    if gnome::wayland() {
+        if let Some(focused) = gnome::focused() {
+            return focused.is_some_and(|f| f.fullscreen);
+        }
+    }
+    x11::fullscreen_in_front()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn minimize(window: usize) -> bool {
+    if window & gnome::WINDOW != 0 {
+        gnome::minimize(window)
+    } else {
+        x11::minimize(window)
+    }
+}
+
+/// Time since the last keyboard, mouse or game controller input. On Wayland, X11 hears only
+/// XWayland apps' input, so GNOME is asked instead; other Wayland desktops count as never idle.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn idle_ms() -> i64 {
+    let keyboard_mouse = if gnome::wayland() { gnome::idle_ms().unwrap_or(0) } else { x11::idle_ms() };
+    match pads::idle_ms() {
+        Some(pad) => keyboard_mouse.min(pad),
+        None => keyboard_mouse,
+    }
+}
 
 #[cfg(not(any(windows, target_os = "macos")))]
 mod x11 {
@@ -954,44 +1000,9 @@ mod x11 {
             && x.conn.flush().is_ok()
     }
 
-    /// Time since the last keyboard, mouse or game controller input. On Wayland, X11 hears only
-    /// XWayland apps' input, so GNOME is asked instead; other Wayland desktops count as never idle.
+    /// Time since the last keyboard or mouse input, from the X server's screen saver.
     pub fn idle_ms() -> i64 {
-        let keyboard_mouse = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            gnome_idle_ms().unwrap_or(0)
-        } else {
-            Display::open()
-                .and_then(|x| x.conn.screensaver_query_info(x.root).ok()?.reply().ok())
-                .map_or(0, |info| info.ms_since_user_input as i64)
-        };
-        match super::pads::idle_ms() {
-            Some(pad) => keyboard_mouse.min(pad),
-            None => keyboard_mouse,
-        }
-    }
-
-    fn gnome_idle_ms() -> Option<i64> {
-        let out = std::process::Command::new("gdbus")
-            .args([
-                "call",
-                "--session",
-                "--dest",
-                "org.gnome.Mutter.IdleMonitor",
-                "--object-path",
-                "/org/gnome/Mutter/IdleMonitor/Core",
-                "--method",
-                "org.gnome.Mutter.IdleMonitor.GetIdletime",
-            ])
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
-        out.status.success().then(|| dbus_number(&String::from_utf8_lossy(&out.stdout)))?
-    }
-
-    /// The number in a reply gdbus prints, like `(uint64 1234,)`.
-    pub(super) fn dbus_number(reply: &str) -> Option<i64> {
-        reply.trim().strip_prefix('(')?.split([' ', ',', ')']).find_map(|word| word.parse().ok())
+        Display::open().and_then(|x| x.conn.screensaver_query_info(x.root).ok()?.reply().ok()).map_or(0, |info| info.ms_since_user_input as i64)
     }
 }
 
@@ -1190,12 +1201,6 @@ mod linux_tests {
         let cmdline = b"Z:\\home\\me\\.steam\\steam\\steamapps\\common\\Hades\\x64\\Hades.exe\0-vulkan\0";
         assert_eq!(super::windows_program(cmdline).as_deref(), Some("Z:\\home\\me\\.steam\\steam\\steamapps\\common\\Hades\\x64\\Hades.exe"));
         assert_eq!(super::windows_program(b"/usr/bin/wineserver\0"), None);
-    }
-
-    #[test]
-    fn gnome_idle_time_is_read_from_gdbus() {
-        assert_eq!(super::x11::dbus_number("(uint64 1234,)\n"), Some(1234));
-        assert_eq!(super::x11::dbus_number("nothing"), None);
     }
 
     #[test]

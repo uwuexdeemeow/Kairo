@@ -50,10 +50,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 ] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
 
-# The window in front and idle time on Linux; the versions global shortcuts already build.
+# The window in front and idle time on Linux, from X11 or GNOME; the versions global shortcuts
+# and single-instance already build.
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 libc = "0.2"
 x11rb = { version = "0.13", features = ["screensaver"] }
+zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

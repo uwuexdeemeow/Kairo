@@ -153,6 +153,18 @@ pub fn run() {
                 eprintln!("palette: cannot use {palette_shortcut}: {e}");
             }
             updater::spawn(app.handle().clone());
+            // GNOME's Wayland session shows apps no other windows; Kairo's extension does, once
+            // GNOME has loaded it at a login.
+            #[cfg(not(any(windows, target_os = "macos")))]
+            if platform::install_gnome_extension() {
+                use tauri_plugin_notification::NotificationExt;
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Log out and back in to finish setting up Kairo")
+                    .body("GNOME turns on the extension that lets Kairo see your apps at your next login.")
+                    .show();
+            }
             // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.
             if startup::launched_for_palette() {
                 // Windows' palette opens itself once its window exists.
