@@ -57,6 +57,8 @@ pub struct Navigation {
 /// The tray's checkboxes, kept so the in-app toggles can update them.
 pub struct NudgeToggle(pub CheckMenuItem<Wry>);
 pub struct AutostartToggle(pub CheckMenuItem<Wry>);
+/// The tray's palette item, which shows the shortcut and follows it when it changes.
+pub struct PaletteItem(pub MenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -149,7 +151,7 @@ pub fn run() {
                 icons: Mutex::default(),
                 navigation: Mutex::default(),
             });
-            setup_tray(app, paused, nudges_on)?;
+            setup_tray(app, paused, nudges_on, &palette_shortcut)?;
             // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
             // has loaded it at a login, and on KDE Plasma its KWin script does right away.
             #[cfg(not(any(windows, target_os = "macos")))]
@@ -266,8 +268,11 @@ pub fn run() {
         });
 }
 
-fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tauri::Result<()> {
+fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palette_shortcut: &str) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Kairo", true, None::<&str>)?;
+    // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
+    // like over a game, since choosing it from the tray is no stray key press.
+    let palette_item = MenuItem::with_id(app, "palette", "Command palette", true, Some(palette_shortcut))?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
     let nudges = CheckMenuItem::with_id(app, "nudges", "Focus nudges", true, nudges_on, None::<&str>)?;
     let autostart_on = startup::is_enabled(app.handle());
@@ -287,7 +292,8 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
     )?;
     let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &focus_menu, &pause, &nudges, &autostart, &update, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &palette_item, &focus_menu, &pause, &nudges, &autostart, &update, &quit])?;
+    app.manage(PaletteItem(palette_item));
     app.manage(NudgeToggle(nudges.clone()));
     app.manage(AutostartToggle(autostart.clone()));
 
@@ -299,6 +305,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool) -> tau
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_main(app),
+            "palette" => palette::toggle(app),
             "pause" => {
                 let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
                 let _ = pause_item.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });

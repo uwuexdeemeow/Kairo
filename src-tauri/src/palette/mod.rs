@@ -228,16 +228,19 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
 /// doesn't know the keys), the old one stays and the reason comes back.
 pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::result::Result<(), String> {
     let old = shortcut(conn).map_err(|e| e.to_string())?;
-    if crate::platform::desktop_palette_shortcut(new) {
-        return db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string());
+    if !crate::platform::desktop_palette_shortcut(new) {
+        let keys = app.global_shortcut();
+        let _ = keys.unregister(old.as_str());
+        if let Err(e) = keys.register(new) {
+            let _ = keys.register(old.as_str());
+            return Err(format!("{new} can't be used: {e}. Another app may already use it."));
+        }
     }
-    let keys = app.global_shortcut();
-    let _ = keys.unregister(old.as_str());
-    if let Err(e) = keys.register(new) {
-        let _ = keys.register(old.as_str());
-        return Err(format!("{new} can't be used: {e}. Another app may already use it."));
+    db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string())?;
+    if let Some(item) = tauri::Manager::try_state::<crate::PaletteItem>(app) {
+        let _ = item.0.set_accelerator(Some(new));
     }
-    db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string())
+    Ok(())
 }
 
 // ---------- what both palettes show ----------
