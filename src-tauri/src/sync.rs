@@ -1,11 +1,13 @@
 //! Combining computers: each computer writes its own tracked time into a folder the user's cloud
 //! drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing...), and reads the others' in,
 //! so the day views, limits and recaps add up every computer. There's no server; the drive does
-//! the moving. Only tracked time is combined: categories, limits and goals stay per computer.
+//! the moving. The categories, limits, goals and rules the user chooses are shared too, the latest
+//! choice winning everywhere; focus sessions stay per computer.
 //!
-//! In the folder, `Kairo computers/<computer id>/` holds `computer.json` (its name) and one small
-//! file per day (`<day>.kairo-day`, days since 1970 in UTC), rewritten only when that day changed,
-//! so the drive moves a few kilobytes rather than the whole history.
+//! In the folder, `Kairo computers/<computer id>/` holds `computer.json` (its name),
+//! `choices.json` (its choices, with when each was made) and one small file per day
+//! (`<day>.kairo-day`, days since 1970 in UTC), rewritten only when that day changed, so the
+//! drive moves a few kilobytes rather than the whole history.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -103,8 +105,8 @@ pub fn device_name() -> String {
     name.filter(|n| !n.is_empty()).unwrap_or_else(|| "This computer".into())
 }
 
-/// Starts combining through `dir`, at once.
-pub fn start(conn: &Connection, dir: &Path, now_ms: i64) -> Result<()> {
+/// Starts combining through `dir`, at once. True when another computer's choices came in.
+pub fn start(conn: &Connection, dir: &Path, now_ms: i64) -> Result<bool> {
     db::set_setting(conn, FOLDER_KEY, &dir.to_string_lossy()).map_err(err)?;
     run_once(conn, now_ms)
 }
@@ -138,8 +140,10 @@ pub fn computers(conn: &Connection) -> Result<Vec<Computer>> {
 }
 
 /// Writes this computer's changed days and reads the others' changed ones.
-pub fn run_once(conn: &Connection, now_ms: i64) -> Result<()> {
-    let Some(root) = folder(conn)? else { return Ok(()) };
+/// True when another computer's choices came in, which the caller passes on to what keeps them in
+/// memory. Choices go first, so another computer's recording rules apply to its time.
+pub fn run_once(conn: &Connection, now_ms: i64) -> Result<bool> {
+    let Some(root) = folder(conn)? else { return Ok(false) };
     if !root.is_dir() {
         return Err(format!("{} isn't there; is the drive connected?", root.display()));
     }
@@ -147,12 +151,17 @@ pub fn run_once(conn: &Connection, now_ms: i64) -> Result<()> {
     let me = device_id(conn)?;
     let mine = dir.join(&me);
     std::fs::create_dir_all(&mine).map_err(err)?;
+    seed_choices(conn)?;
+    write_choices(conn, &mine)?;
+    let changed = read_choices(conn, &dir, &me)?;
     write_own(conn, &mine, now_ms)?;
-    read_others(conn, &dir, &me, now_ms)
+    read_others(conn, &dir, &me, now_ms)?;
+    Ok(changed)
 }
 
-/// Every few minutes, while Kairo runs.
-pub fn spawn(db_path: PathBuf) {
+/// Every few minutes, while Kairo runs. Choices that come in reach the collector's recording rules
+/// and the nudges at once.
+pub fn spawn(db_path: PathBuf, rules: privacy::SharedRules, cache: crate::nudge::SharedCache) {
     thread::Builder::new()
         .name("kairo-sync".into())
         .spawn(move || {
@@ -162,13 +171,139 @@ pub fn spawn(db_path: PathBuf) {
                 Err(e) => return eprintln!("sync: cannot open the database: {e}"),
             };
             loop {
-                if let Err(e) = run_once(&conn, chrono::Utc::now().timestamp_millis()) {
-                    eprintln!("sync: {e}");
+                match run_once(&conn, chrono::Utc::now().timestamp_millis()) {
+                    Ok(true) => {
+                        if let Err(e) = privacy::refresh(&conn, &rules) {
+                            eprintln!("sync: {e}");
+                        }
+                        crate::nudge::invalidate(&cache);
+                    }
+                    Ok(false) => {}
+                    Err(e) => eprintln!("sync: {e}"),
                 }
                 thread::sleep(EVERY);
             }
         })
         .expect("failed to start sync thread");
+}
+
+// ---------- shared choices ----------
+
+const CHOICES_FILE: &str = "choices.json";
+const SEEDED_KEY: &str = "choices_seeded";
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+struct Choice {
+    value: String,
+    changed_ms: i64,
+}
+
+/// Notes a choice the user made, so the other computers take it: `item` names it, like
+/// `category:app:code`, `limit:site:youtube`, `goal:productive`, `focus:app:steam` or
+/// `privacy:site:bank`, and `value` is what it became.
+pub fn record(conn: &Connection, item: &str, value: &str) -> Result<()> {
+    record_at(conn, item, value, chrono::Utc::now().timestamp_millis())
+}
+
+fn record_at(conn: &Connection, item: &str, value: &str, changed_ms: i64) -> Result<()> {
+    conn.execute(
+        "INSERT INTO shared_choices (item, value, changed_ms) VALUES (?1, ?2, ?3)
+         ON CONFLICT(item) DO UPDATE SET value = excluded.value, changed_ms = excluded.changed_ms",
+        params![item, value, changed_ms],
+    )
+    .map_err(err)?;
+    Ok(())
+}
+
+/// Choices made before they were shared count as the oldest of all, so they reach computers that
+/// haven't chosen but never undo a choice made since. Once.
+fn seed_choices(conn: &Connection) -> Result<()> {
+    if db::get_setting(conn, SEEDED_KEY).map_err(err)?.is_some() {
+        return Ok(());
+    }
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'category:' || key, category, 1 FROM categories WHERE user_set = 1;
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'limit:' || key, minutes, 1 FROM limits;
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'focus:' || key, rule, 1 FROM focus_rules;
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'privacy:' || key, mode, 1 FROM privacy_rules WHERE user_set = 1;
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'goal:productive', value, 1 FROM settings WHERE key = 'goal_productive_min';
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'goal:distracting', value, 1 FROM settings WHERE key = 'goal_distracting_max_min';",
+    )
+    .map_err(err)?;
+    db::set_setting(conn, SEEDED_KEY, "1").map_err(err)
+}
+
+fn choices(conn: &Connection) -> Result<std::collections::BTreeMap<String, Choice>> {
+    let mut stmt = conn.prepare("SELECT item, value, changed_ms FROM shared_choices").map_err(err)?;
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, Choice { value: r.get(1)?, changed_ms: r.get(2)? })))
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err);
+    rows
+}
+
+/// This computer's choices, when they differ from what the folder has.
+fn write_choices(conn: &Connection, mine: &Path) -> Result<()> {
+    let text = serde_json::to_string_pretty(&choices(conn)?).map_err(err)?;
+    let path = mine.join(CHOICES_FILE);
+    if std::fs::read_to_string(&path).is_ok_and(|old| old == text) {
+        return Ok(());
+    }
+    write_atomically(&path, |tmp| std::fs::write(tmp, &text).map_err(err))
+}
+
+/// Takes the other computers' choices made after this one's; true when any came in.
+fn read_choices(conn: &Connection, dir: &Path, me: &str) -> Result<bool> {
+    let mut ours = choices(conn)?;
+    let mut changed = false;
+    for entry in std::fs::read_dir(dir).map_err(err)?.flatten() {
+        if entry.file_name().to_str() == Some(me) {
+            continue;
+        }
+        let Ok(text) = std::fs::read_to_string(entry.path().join(CHOICES_FILE)) else { continue };
+        let Ok(theirs) = serde_json::from_str::<HashMap<String, Choice>>(&text) else { continue };
+        for (item, choice) in theirs {
+            if ours.get(&item).is_some_and(|o| o.changed_ms >= choice.changed_ms) {
+                continue;
+            }
+            // A kind of choice from a newer Kairo, or a value this one doesn't know, waits.
+            if apply(conn, &item, &choice.value).is_ok() {
+                record_at(conn, &item, &choice.value, choice.changed_ms)?;
+                ours.insert(item, choice);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
+/// Makes another computer's choice here.
+fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
+    use crate::{analysis, blocking, goals};
+    let (kind, key) = item.split_once(':').ok_or("not a choice")?;
+    let minutes = || value.parse::<u32>().map_err(err);
+    match kind {
+        "category" => analysis::set_category(conn, key, analysis::Category::parse(value).ok_or("unknown category")?).map_err(err),
+        "limit" => goals::set_limit(conn, key, minutes()?).map_err(err),
+        "goal" => {
+            let goal = match key {
+                "productive" => goals::Kind::Productive,
+                "distracting" => goals::Kind::Distracting,
+                _ => return Err("unknown goal".into()),
+            };
+            goals::set_goal(conn, goal, minutes()?).map_err(err)
+        }
+        "focus" => blocking::set_rule(conn, key, blocking::Rule::parse(value).ok_or("unknown focus rule")?).map_err(err),
+        "privacy" => privacy::set_rule(conn, key, privacy::Mode::parse(value).ok_or("unknown recording rule")?).map_err(err),
+        _ => Err("unknown choice".into()),
+    }
 }
 
 /// Writes the days whose sessions changed since they were last written, and takes away the files
@@ -437,6 +572,44 @@ mod tests {
         run_once(&laptop.conn, now).unwrap();
         assert_eq!(laptop.apps(), [("figma".into(), false)]);
         assert_eq!(desk.apps(), [("discord".into(), false)]);
+
+        let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn the_latest_choice_wins_on_every_computer() {
+        use crate::{analysis, goals};
+        let folder = std::env::temp_dir().join(format!("kairo-sync-choices-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&folder);
+        std::fs::create_dir_all(&folder).unwrap();
+        let (desk, laptop) = (Computer::new("desk-c"), Computer::new("laptop-c"));
+        let now = 20_000 * DAY_MS;
+        let category = |c: &Computer| analysis::category_map(&c.conn).unwrap().get("site:reddit").copied();
+
+        // Chosen on the desk before combining: it reaches the laptop, which hadn't chosen.
+        analysis::set_category(&desk.conn, "site:reddit", analysis::Category::Distracting).unwrap();
+        goals::set_limit(&desk.conn, "site:reddit", 30).unwrap();
+        start(&desk.conn, &folder, now).unwrap();
+        assert!(start(&laptop.conn, &folder, now).unwrap());
+        assert_eq!(category(&laptop), Some(analysis::Category::Distracting));
+        assert_eq!(goals::load(&laptop.conn).unwrap().limits, [("site:reddit".to_string(), 30)]);
+
+        // Changed on the laptop later: the desk takes it, and an older change doesn't undo it.
+        analysis::set_category(&laptop.conn, "site:reddit", analysis::Category::Neutral).unwrap();
+        record_at(&laptop.conn, "category:site:reddit", "neutral", 2_000).unwrap();
+        record_at(&desk.conn, "goal:productive", "120", 1_500).unwrap();
+        run_once(&laptop.conn, now).unwrap();
+        assert!(run_once(&desk.conn, now).unwrap());
+        assert_eq!(category(&desk), Some(analysis::Category::Neutral));
+        assert_eq!(goals::load(&laptop.conn).unwrap().productive_min, 0);
+        run_once(&laptop.conn, now).unwrap();
+        assert_eq!(goals::load(&laptop.conn).unwrap().productive_min, 120);
+        record_at(&desk.conn, "category:site:reddit", "productive", 1_000).unwrap();
+        run_once(&desk.conn, now).unwrap();
+        run_once(&laptop.conn, now).unwrap();
+        assert_eq!(category(&laptop), Some(analysis::Category::Neutral));
+        // A choice from a newer Kairo is left for later rather than failing.
+        assert!(apply(&laptop.conn, "wallpaper:blue", "x").is_err());
 
         let _ = std::fs::remove_dir_all(folder);
     }

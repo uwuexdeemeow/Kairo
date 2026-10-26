@@ -302,20 +302,22 @@ pub fn get_goal_settings(state: State<AppState>) -> CmdResult<GoalSettings> {
 /// `kind` is "productive" (a daily target) or "distracting" (a daily cap); 0 minutes turns it off.
 #[tauri::command]
 pub fn set_goal(state: State<AppState>, kind: String, minutes: u32) -> CmdResult<()> {
-    let kind = match kind.as_str() {
+    let parsed = match kind.as_str() {
         "productive" => goals::Kind::Productive,
         "distracting" => goals::Kind::Distracting,
         other => return Err(format!("unknown goal: {other}")),
     };
     let conn = state.db.lock().map_err(err)?;
-    goals::set_goal(&conn, kind, minutes).map_err(err)
+    goals::set_goal(&conn, parsed, minutes).map_err(err)?;
+    sync::record(&conn, &format!("goal:{kind}"), &minutes.to_string())
 }
 
 /// A daily limit for `app:<exe>` or `site:<name>`; 0 minutes removes it.
 #[tauri::command]
 pub fn set_limit(state: State<AppState>, key: String, minutes: u32) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    goals::set_limit(&conn, &key, minutes).map_err(err)
+    goals::set_limit(&conn, &key, minutes).map_err(err)?;
+    sync::record(&conn, &format!("limit:{key}"), &minutes.to_string())
 }
 
 fn parse_mode(mode: &str) -> CmdResult<Mode> {
@@ -325,9 +327,10 @@ fn parse_mode(mode: &str) -> CmdResult<Mode> {
 /// Takes effect on the collector's next tick.
 #[tauri::command]
 pub fn set_privacy_rule(state: State<AppState>, key: String, mode: String) -> CmdResult<()> {
-    let mode = parse_mode(&mode)?;
+    let parsed = parse_mode(&mode)?;
     let conn = state.db.lock().map_err(err)?;
-    privacy::set_rule(&conn, &key, mode).map_err(err)?;
+    privacy::set_rule(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("privacy:{key}"), &mode)?;
     privacy::refresh(&conn, &state.privacy_rules).map_err(err)
 }
 
@@ -381,16 +384,10 @@ pub fn delete_history(state: State<AppState>, range: String, date: Option<String
 
 #[tauri::command]
 pub fn set_category(state: State<AppState>, key: String, category: String) -> CmdResult<()> {
-    if Category::parse(&category).is_none() {
-        return Err(format!("unknown category: {category}"));
-    }
+    let parsed = Category::parse(&category).ok_or_else(|| format!("unknown category: {category}"))?;
     let conn = state.db.lock().map_err(err)?;
-    conn.execute(
-        "INSERT INTO categories (key, category, user_set) VALUES (?1, ?2, 1)
-         ON CONFLICT(key) DO UPDATE SET category = excluded.category, user_set = 1",
-        params![key, category],
-    )
-    .map_err(err)?;
+    analysis::set_category(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("category:{key}"), &category)?;
     nudge::invalidate(&state.window_cache);
     Ok(())
 }
@@ -535,9 +532,10 @@ pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> Cm
 /// "auto" (follow the category), "block" or "allow" during focus sessions.
 #[tauri::command]
 pub fn set_focus_rule(state: State<AppState>, key: String, rule: String) -> CmdResult<()> {
-    let rule = blocking::Rule::parse(&rule).ok_or_else(|| format!("unknown focus rule: {rule}"))?;
+    let parsed = blocking::Rule::parse(&rule).ok_or_else(|| format!("unknown focus rule: {rule}"))?;
     let conn = state.db.lock().map_err(err)?;
-    blocking::set_rule(&conn, &key, rule).map_err(err)
+    blocking::set_rule(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("focus:{key}"), &rule)
 }
 
 #[derive(Serialize)]
@@ -850,7 +848,9 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
     };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
-    sync::start(&conn, &dir, now_ms())?;
+    if sync::start(&conn, &dir, now_ms())? {
+        privacy::refresh(&conn, &state.privacy_rules).map_err(err)?;
+    }
     nudge::invalidate(&state.window_cache);
     sync_state(&conn).map(Some)
 }

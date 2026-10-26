@@ -78,6 +78,16 @@ impl Row {
     }
 }
 
+/// The user's category for an app or site, which no default replaces.
+pub fn set_category(conn: &Connection, key: &str, category: Category) -> Result<()> {
+    conn.execute(
+        "INSERT INTO categories (key, category, user_set) VALUES (?1, ?2, 1)
+         ON CONFLICT(key) DO UPDATE SET category = excluded.category, user_set = 1",
+        params![key, category.as_str()],
+    )?;
+    Ok(())
+}
+
 pub fn category_map(conn: &Connection) -> Result<HashMap<String, Category>> {
     let mut stmt = conn.prepare("SELECT key, category FROM categories")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;

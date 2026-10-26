@@ -142,7 +142,7 @@ pub fn run() {
             browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
-            sync::spawn(db_path.clone());
+            sync::spawn(db_path.clone(), privacy_rules.clone(), window_cache.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState {
