@@ -82,6 +82,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              day    INTEGER NOT NULL,
              stamp  TEXT    NOT NULL,
              PRIMARY KEY (device, day)
+         );
+         -- The categories, limits, goals and rules the user chose, and when, so the latest
+         -- choice wins on every computer combined.
+         CREATE TABLE IF NOT EXISTS shared_choices (
+             item       TEXT    PRIMARY KEY,
+             value      TEXT    NOT NULL,
+             changed_ms INTEGER NOT NULL
          );",
     )?;
     // Columns added after a table first shipped; CREATE TABLE IF NOT EXISTS won't add them.

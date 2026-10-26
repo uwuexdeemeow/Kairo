@@ -35,7 +35,7 @@ fn parse_day(date: Option<String>) -> CmdResult<NaiveDate> {
 pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySummary> {
     let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
-    let rows = analysis::load_rows(&conn, from, to.min(now_ms())).map_err(err)?;
+    let rows = analysis::load_rows_of(&conn, from, to.min(now_ms()), &sync::shown(&conn)?).map_err(err)?;
     Ok(analysis::day_summary(&rows))
 }
 
@@ -53,13 +53,14 @@ pub fn get_day_totals(state: State<AppState>, from: String, to: String) -> CmdRe
     let (from, to) = (parse_day(Some(from))?, parse_day(Some(to))?);
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
+    let shown = sync::shown(&conn)?;
     let mut out = Vec::new();
     for date in from.iter_days().take_while(|d| *d <= to).take(62) {
         let Some((start, end)) = day_bounds(date) else { continue };
         if start > now {
             break;
         }
-        let rows = analysis::load_rows(&conn, start, end.min(now)).map_err(err)?;
+        let rows = analysis::load_rows_of(&conn, start, end.min(now), &shown).map_err(err)?;
         let active = rows.iter().filter(|r| !r.idle);
         let (active_ms, productive_ms) = active.fold((0, 0), |(a, p), r| {
             (a + r.dur(), p + if r.category == Category::Productive { r.dur() } else { 0 })
@@ -86,7 +87,7 @@ pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
     let from = now - days as i64 * DAY_MS;
-    let rows = analysis::load_rows(&conn, from, now).map_err(err)?;
+    let rows = analysis::load_rows_of(&conn, from, now, &sync::shown(&conn)?).map_err(err)?;
     let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
     let focused_ms = blocks.iter().map(focus::Block::ms).sum();
     Ok(analysis::patterns(&rows).with_focus(blocks.len(), focused_ms, focus::insights(&blocks, now)))
@@ -273,7 +274,7 @@ pub fn set_break_minutes(state: State<AppState>, minutes: u32) -> CmdResult<()> 
 pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Week> {
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
-    recap::week(&conn, start, now_ms()).map_err(err)
+    recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
 }
 
 /// Progress on every goal and limit for one local day (default today), plus the streak before it.
@@ -301,20 +302,22 @@ pub fn get_goal_settings(state: State<AppState>) -> CmdResult<GoalSettings> {
 /// `kind` is "productive" (a daily target) or "distracting" (a daily cap); 0 minutes turns it off.
 #[tauri::command]
 pub fn set_goal(state: State<AppState>, kind: String, minutes: u32) -> CmdResult<()> {
-    let kind = match kind.as_str() {
+    let parsed = match kind.as_str() {
         "productive" => goals::Kind::Productive,
         "distracting" => goals::Kind::Distracting,
         other => return Err(format!("unknown goal: {other}")),
     };
     let conn = state.db.lock().map_err(err)?;
-    goals::set_goal(&conn, kind, minutes).map_err(err)
+    goals::set_goal(&conn, parsed, minutes).map_err(err)?;
+    sync::record(&conn, &format!("goal:{kind}"), &minutes.to_string())
 }
 
 /// A daily limit for `app:<exe>` or `site:<name>`; 0 minutes removes it.
 #[tauri::command]
 pub fn set_limit(state: State<AppState>, key: String, minutes: u32) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    goals::set_limit(&conn, &key, minutes).map_err(err)
+    goals::set_limit(&conn, &key, minutes).map_err(err)?;
+    sync::record(&conn, &format!("limit:{key}"), &minutes.to_string())
 }
 
 fn parse_mode(mode: &str) -> CmdResult<Mode> {
@@ -324,9 +327,10 @@ fn parse_mode(mode: &str) -> CmdResult<Mode> {
 /// Takes effect on the collector's next tick.
 #[tauri::command]
 pub fn set_privacy_rule(state: State<AppState>, key: String, mode: String) -> CmdResult<()> {
-    let mode = parse_mode(&mode)?;
+    let parsed = parse_mode(&mode)?;
     let conn = state.db.lock().map_err(err)?;
-    privacy::set_rule(&conn, &key, mode).map_err(err)?;
+    privacy::set_rule(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("privacy:{key}"), &mode)?;
     privacy::refresh(&conn, &state.privacy_rules).map_err(err)
 }
 
@@ -380,16 +384,10 @@ pub fn delete_history(state: State<AppState>, range: String, date: Option<String
 
 #[tauri::command]
 pub fn set_category(state: State<AppState>, key: String, category: String) -> CmdResult<()> {
-    if Category::parse(&category).is_none() {
-        return Err(format!("unknown category: {category}"));
-    }
+    let parsed = Category::parse(&category).ok_or_else(|| format!("unknown category: {category}"))?;
     let conn = state.db.lock().map_err(err)?;
-    conn.execute(
-        "INSERT INTO categories (key, category, user_set) VALUES (?1, ?2, 1)
-         ON CONFLICT(key) DO UPDATE SET category = excluded.category, user_set = 1",
-        params![key, category],
-    )
-    .map_err(err)?;
+    analysis::set_category(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("category:{key}"), &category)?;
     nudge::invalidate(&state.window_cache);
     Ok(())
 }
@@ -534,9 +532,10 @@ pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> Cm
 /// "auto" (follow the category), "block" or "allow" during focus sessions.
 #[tauri::command]
 pub fn set_focus_rule(state: State<AppState>, key: String, rule: String) -> CmdResult<()> {
-    let rule = blocking::Rule::parse(&rule).ok_or_else(|| format!("unknown focus rule: {rule}"))?;
+    let parsed = blocking::Rule::parse(&rule).ok_or_else(|| format!("unknown focus rule: {rule}"))?;
     let conn = state.db.lock().map_err(err)?;
-    blocking::set_rule(&conn, &key, rule).map_err(err)
+    blocking::set_rule(&conn, &key, parsed).map_err(err)?;
+    sync::record(&conn, &format!("focus:{key}"), &rule)
 }
 
 #[derive(Serialize)]
@@ -813,6 +812,8 @@ pub struct SyncState {
     computers: Vec<sync::Computer>,
     /// This computer's name, as the others see it.
     name: String,
+    /// Whose time the views show: "all", "this" or a computer's id.
+    shown: String,
 }
 
 fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
@@ -820,6 +821,7 @@ fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
         folder: sync::folder(conn)?.map(|f| f.display().to_string()),
         computers: sync::computers(conn)?,
         name: sync::device_name(),
+        shown: sync::shown(conn)?,
     })
 }
 
@@ -827,6 +829,13 @@ fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
 pub fn get_sync(state: State<AppState>) -> CmdResult<SyncState> {
     let conn = state.db.lock().map_err(err)?;
     sync_state(&conn)
+}
+
+/// Shows every computer's time, this one's, or another's ("all", "this" or its id).
+#[tauri::command]
+pub fn set_shown_computer(state: State<AppState>, computer: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    sync::set_shown(&conn, &computer)
 }
 
 /// Starts combining through a folder the user picks; None when they closed the dialog.
@@ -839,7 +848,9 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
     };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
-    sync::start(&conn, &dir, now_ms())?;
+    if sync::start(&conn, &dir, now_ms())? {
+        privacy::refresh(&conn, &state.privacy_rules).map_err(err)?;
+    }
     nudge::invalidate(&state.window_cache);
     sync_state(&conn).map(Some)
 }

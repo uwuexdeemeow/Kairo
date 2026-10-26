@@ -78,6 +78,16 @@ impl Row {
     }
 }
 
+/// The user's category for an app or site, which no default replaces.
+pub fn set_category(conn: &Connection, key: &str, category: Category) -> Result<()> {
+    conn.execute(
+        "INSERT INTO categories (key, category, user_set) VALUES (?1, ?2, 1)
+         ON CONFLICT(key) DO UPDATE SET category = excluded.category, user_set = 1",
+        params![key, category.as_str()],
+    )?;
+    Ok(())
+}
+
 pub fn category_map(conn: &Connection) -> Result<HashMap<String, Category>> {
     let mut stmt = conn.prepare("SELECT key, category FROM categories")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
@@ -98,14 +108,25 @@ pub fn resolve(cats: &HashMap<String, Category>, exe: &str, site: Option<&str>) 
         .unwrap_or(Category::Neutral)
 }
 
-/// Sessions overlapping [from, to), clipped to that range and sorted by start.
+/// Every computer's time, when computers are combined; "this" is this computer's own.
+pub const ALL_COMPUTERS: &str = "all";
+
+/// Sessions overlapping [from, to), clipped to that range and sorted by start; from every
+/// computer, when computers are combined.
 pub fn load_rows(conn: &Connection, from: i64, to: i64) -> Result<Vec<Row>> {
+    load_rows_of(conn, from, to, ALL_COMPUTERS)
+}
+
+/// `load_rows` for some computers only: `ALL_COMPUTERS`, "this", or another's id.
+pub fn load_rows_of(conn: &Connection, from: i64, to: i64, computer: &str) -> Result<Vec<Row>> {
     let cats = category_map(conn)?;
     let mut stmt = conn.prepare(
         "SELECT app, exe, site, start_ms, end_ms, idle FROM sessions
-         WHERE end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms",
+         WHERE end_ms > ?1 AND start_ms < ?2
+           AND (?3 = 'all' OR (?3 = 'this' AND device IS NULL) OR device = ?3)
+         ORDER BY start_ms",
     )?;
-    let rows = stmt.query_map(params![from, to], |r| {
+    let rows = stmt.query_map(params![from, to, computer], |r| {
         Ok((
             r.get::<_, String>(0)?,
             r.get::<_, String>(1)?,

@@ -156,8 +156,13 @@ fn labels(conn: &Connection, goals: &Goals) -> Result<HashMap<String, String>> {
 }
 
 pub fn rows_for(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
+    rows_of(conn, date, now_ms, analysis::ALL_COMPUTERS)
+}
+
+/// A day's rows from some computers only (see `analysis::load_rows_of`).
+pub fn rows_of(conn: &Connection, date: NaiveDate, now_ms: i64, computer: &str) -> Result<Vec<Row>> {
     match analysis::day_bounds(date) {
-        Some((from, to)) => analysis::load_rows(conn, from, to.min(now_ms)),
+        Some((from, to)) => analysis::load_rows_of(conn, from, to.min(now_ms), computer),
         None => Ok(Vec::new()),
     }
 }
