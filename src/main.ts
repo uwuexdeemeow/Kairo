@@ -1279,6 +1279,9 @@ if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";
   $("#autostart-title").textContent = "Start at login";
   $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
+  // Linux browsers don't describe their address bar to other apps unless a screen reader is on.
+  $("#ext-intro").textContent =
+    "Without it, Kairo guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Kairo the exact site instead, and blocks distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
   // Kairo sees other apps through X11 or, on Wayland, through GNOME or KDE Plasma themselves.
   $("#block-explainer").textContent =
     "Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";

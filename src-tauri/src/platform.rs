@@ -9,6 +9,11 @@ pub struct Foreground {
 }
 
 #[cfg(windows)]
+mod uia;
+#[cfg(windows)]
+pub use uia::{Address, AddressBars};
+
+#[cfg(windows)]
 pub use win::{app_path, close_process, foreground, fullscreen_in_front, icon_pixels, icon_png, idle_ms, minimize, open_path, processes, start_apps};
 
 #[cfg(windows)]

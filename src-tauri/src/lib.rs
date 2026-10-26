@@ -131,6 +131,8 @@ pub fn run() {
                 platform::request_window_titles();
                 browser::spawn_scripted(scripted_tab.clone(), paused.clone());
             }
+            #[cfg(windows)]
+            browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
