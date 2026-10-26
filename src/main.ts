@@ -1333,6 +1333,7 @@ async function load(v: View = view) {
       const palette = await api.paletteSettings();
       showShortcut(palette.shortcut);
       $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
+      $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1560,6 +1561,9 @@ $("#palette-record").addEventListener("click", () => {
 });
 
 $<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
+$<HTMLInputElement>("#palette-over-fullscreen").addEventListener("change", (e) =>
+  api.setPaletteOverFullscreen((e.target as HTMLInputElement).checked),
+);
 
 $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
   const mode = (e.target as HTMLSelectElement).value as Appearance;

@@ -68,7 +68,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if args.iter().any(|a| a == startup::PALETTE_ARG) {
                 // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
-                if !platform::fullscreen_in_front() {
+                if palette::shortcut_may_open() {
                     palette::toggle(app);
                 }
             } else {
@@ -95,9 +95,10 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
-                    // A game or full-screen app in front keeps its keys to itself.
+                    // A game or full-screen app in front keeps its keys to itself, unless
+                    // Settings lets the palette open over it.
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed
-                        && !platform::fullscreen_in_front()
+                        && palette::shortcut_may_open()
                     {
                         palette::toggle(app);
                     }
@@ -115,6 +116,7 @@ pub fn run() {
             }
             let nudges_on = nudge::enabled(&conn)?;
             let palette_shortcut = palette::shortcut(&conn)?;
+            palette::over_fullscreen(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
             let privacy_rules = privacy::SharedRules::new(privacy::load(&conn)?.into());
@@ -167,7 +169,7 @@ pub fn run() {
                 }
                 let handle = app.handle().clone();
                 platform::on_palette_shortcut(Box::new(move || {
-                    if !platform::fullscreen_in_front() {
+                    if palette::shortcut_may_open() {
                         palette::toggle(&handle);
                     }
                 }));
@@ -249,6 +251,7 @@ pub fn run() {
             commands::get_palette_settings,
             commands::set_palette_shortcut,
             commands::set_palette_suggestions,
+            commands::set_palette_over_fullscreen,
             commands::get_appearance,
             commands::set_appearance,
             commands::get_app_icons,

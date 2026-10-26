@@ -31,6 +31,10 @@ pub const LABEL: &str = "palette";
 pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
+const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
+/// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
+/// here so each key press needn't ask the database.
+static OVER_FULLSCREEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The installed apps are read again after this long, so new installs show up.
 const INDEX_FOR_MS: i64 = 5 * 60_000;
 /// Usage counts toward an app's rank over this window.
@@ -222,6 +226,25 @@ pub fn suggestions(conn: &Connection) -> Result<bool> {
 
 pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
+}
+
+/// Off unless asked for, so the shortcut can't steal keys mid-game.
+pub fn over_fullscreen(conn: &Connection) -> Result<bool> {
+    let on = db::get_setting(conn, OVER_FULLSCREEN_KEY)?.as_deref() == Some("1");
+    OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
+    Ok(on)
+}
+
+pub fn set_over_fullscreen(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, OVER_FULLSCREEN_KEY, if on { "1" } else { "0" })?;
+    OVER_FULLSCREEN.store(on, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// Whether the shortcut may open the palette now: not over a game or full-screen app, unless
+/// Settings says so.
+pub fn shortcut_may_open() -> bool {
+    OVER_FULLSCREEN.load(std::sync::atomic::Ordering::Relaxed) || !crate::platform::fullscreen_in_front()
 }
 
 /// Swaps the global shortcut. If the new one can't be had (another app holds it, or the system
@@ -657,6 +680,18 @@ mod linux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_palette_stays_out_of_full_screen_apps_unless_asked() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        assert!(!over_fullscreen(&conn).unwrap());
+        set_over_fullscreen(&conn, true).unwrap();
+        assert!(over_fullscreen(&conn).unwrap());
+        // Allowed over anything now, full-screen app or not.
+        assert!(shortcut_may_open());
+        set_over_fullscreen(&conn, false).unwrap();
+        assert!(!over_fullscreen(&conn).unwrap());
+    }
 
     #[test]
     fn installed_apps_come_without_uninstallers_or_repeats() {
