@@ -682,10 +682,155 @@ mod mac {
         pid != 0 && i32::try_from(pid).is_ok_and(|pid| unsafe { libc::kill(pid, libc::SIGKILL) } == 0)
     }
 
-    /// Time since the last keyboard, mouse or trackpad input.
+    /// Time since the last keyboard, mouse, trackpad or game controller input.
     pub fn idle_ms() -> i64 {
         let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION_STATE, ANY_INPUT_EVENT) };
-        (seconds * 1000.0).max(0.0) as i64
+        let keyboard_mouse = (seconds * 1000.0).max(0.0) as i64;
+        match pads::idle_ms() {
+            Some(pad) => keyboard_mouse.min(pad),
+            None => keyboard_mouse,
+        }
+    }
+
+    /// macOS's idle time ignores game controllers, so a HID manager on a thread of its own
+    /// watches gamepads and joysticks, and only those: watching keyboards would need Input
+    /// Monitoring access.
+    mod pads {
+        use std::ffi::c_void;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::{Once, OnceLock};
+        use std::time::Instant;
+
+        use super::{CFRelease, CFTypeRef};
+
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            static kCFTypeDictionaryKeyCallBacks: c_void;
+            static kCFTypeDictionaryValueCallBacks: c_void;
+            static kCFTypeArrayCallBacks: c_void;
+            static kCFRunLoopDefaultMode: CFTypeRef;
+            fn CFNumberCreate(allocator: CFTypeRef, kind: isize, value: *const c_void) -> CFTypeRef;
+            fn CFStringCreateWithCString(allocator: CFTypeRef, text: *const std::ffi::c_char, encoding: u32) -> CFTypeRef;
+            fn CFDictionaryCreate(
+                allocator: CFTypeRef,
+                keys: *const CFTypeRef,
+                values: *const CFTypeRef,
+                count: isize,
+                key_callbacks: *const c_void,
+                value_callbacks: *const c_void,
+            ) -> CFTypeRef;
+            fn CFArrayCreate(allocator: CFTypeRef, values: *const CFTypeRef, count: isize, callbacks: *const c_void) -> CFTypeRef;
+            fn CFRunLoopGetCurrent() -> CFTypeRef;
+            fn CFRunLoopRun();
+        }
+
+        type InputCallback = extern "C" fn(context: *mut c_void, result: i32, sender: *mut c_void, value: CFTypeRef);
+
+        #[link(name = "IOKit", kind = "framework")]
+        extern "C" {
+            fn IOHIDManagerCreate(allocator: CFTypeRef, options: u32) -> CFTypeRef;
+            fn IOHIDManagerSetDeviceMatchingMultiple(manager: CFTypeRef, matching: CFTypeRef);
+            fn IOHIDManagerRegisterInputValueCallback(manager: CFTypeRef, callback: InputCallback, context: *mut c_void);
+            fn IOHIDManagerScheduleWithRunLoop(manager: CFTypeRef, run_loop: CFTypeRef, mode: CFTypeRef);
+            fn IOHIDManagerOpen(manager: CFTypeRef, options: u32) -> i32;
+            fn IOHIDValueGetElement(value: CFTypeRef) -> CFTypeRef;
+            fn IOHIDValueGetIntegerValue(value: CFTypeRef) -> isize;
+            fn IOHIDElementGetUsagePage(element: CFTypeRef) -> u32;
+            fn IOHIDElementGetLogicalMin(element: CFTypeRef) -> isize;
+            fn IOHIDElementGetLogicalMax(element: CFTypeRef) -> isize;
+        }
+
+        const GENERIC_DESKTOP: i32 = 0x01;
+        const JOYSTICK: i32 = 0x04;
+        const GAMEPAD: i32 = 0x05;
+        const MULTI_AXIS: i32 = 0x08;
+        const BUTTON_PAGE: u32 = 0x09;
+        const NUMBER_SINT32: isize = 3;
+        const UTF8: u32 = 0x0800_0100;
+
+        static START: OnceLock<Instant> = OnceLock::new();
+        /// Milliseconds after START of the last input, plus one; 0 until a controller is used.
+        static LAST_INPUT: AtomicU64 = AtomicU64::new(0);
+        static WATCH: Once = Once::new();
+
+        /// None until a controller has been used since Kairo started.
+        pub fn idle_ms() -> Option<i64> {
+            let start = *START.get_or_init(Instant::now);
+            WATCH.call_once(|| {
+                if let Err(e) = std::thread::Builder::new().name("kairo-pads".into()).spawn(watch) {
+                    eprintln!("pads: cannot watch controllers: {e}");
+                }
+            });
+            let last = LAST_INPUT.load(Ordering::Relaxed).checked_sub(1)?;
+            Some((start.elapsed().as_millis() as u64).saturating_sub(last) as i64)
+        }
+
+        fn watch() {
+            unsafe {
+                let manager = IOHIDManagerCreate(std::ptr::null(), 0);
+                if manager.is_null() {
+                    return;
+                }
+                let page_key = CFStringCreateWithCString(std::ptr::null(), c"DeviceUsagePage".as_ptr(), UTF8);
+                let usage_key = CFStringCreateWithCString(std::ptr::null(), c"DeviceUsage".as_ptr(), UTF8);
+                let number = |n: i32| CFNumberCreate(std::ptr::null(), NUMBER_SINT32, (&n as *const i32).cast());
+                let page = number(GENERIC_DESKTOP);
+                let matches: Vec<CFTypeRef> = [JOYSTICK, GAMEPAD, MULTI_AXIS]
+                    .into_iter()
+                    .map(|usage| {
+                        let usage = number(usage);
+                        let keys = [page_key, usage_key];
+                        let values = [page, usage];
+                        let dict = CFDictionaryCreate(
+                            std::ptr::null(),
+                            keys.as_ptr(),
+                            values.as_ptr(),
+                            2,
+                            &kCFTypeDictionaryKeyCallBacks,
+                            &kCFTypeDictionaryValueCallBacks,
+                        );
+                        CFRelease(usage);
+                        dict
+                    })
+                    .collect();
+                let matching = CFArrayCreate(std::ptr::null(), matches.as_ptr(), matches.len() as isize, &kCFTypeArrayCallBacks);
+                for cf in matches.into_iter().chain([page, page_key, usage_key]) {
+                    CFRelease(cf);
+                }
+                IOHIDManagerSetDeviceMatchingMultiple(manager, matching);
+                CFRelease(matching);
+                IOHIDManagerRegisterInputValueCallback(manager, on_input, std::ptr::null_mut());
+                IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+                IOHIDManagerOpen(manager, 0);
+                CFRunLoopRun();
+            }
+        }
+
+        thread_local! {
+            /// Where each stick and trigger last counted as input, by element.
+            static AXES: std::cell::RefCell<std::collections::HashMap<usize, f64>> = Default::default();
+        }
+
+        /// A button, or a stick or trigger moved far enough to be more than drift.
+        extern "C" fn on_input(_context: *mut c_void, _result: i32, _sender: *mut c_void, value: CFTypeRef) {
+            let used = unsafe {
+                let element = IOHIDValueGetElement(value);
+                if element.is_null() {
+                    return;
+                }
+                if IOHIDElementGetUsagePage(element) == BUTTON_PAGE {
+                    true
+                } else {
+                    let (min, max) = (IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
+                    let at = (IOHIDValueGetIntegerValue(value) - min) as f64 / (max - min).max(1) as f64;
+                    AXES.with_borrow_mut(|axes| super::super::moved(axes, element as usize, at))
+                }
+            };
+            if used {
+                let start = *START.get_or_init(Instant::now);
+                LAST_INPUT.store(start.elapsed().as_millis() as u64 + 1, Ordering::Relaxed);
+            }
+        }
     }
 
     /// Where an installed app's program lives, for a Windows exe name such as `brave.exe`; looks
@@ -809,14 +954,20 @@ mod x11 {
             && x.conn.flush().is_ok()
     }
 
-    /// Time since the last keyboard or mouse input. On Wayland, X11 hears only XWayland apps'
-    /// input, so GNOME is asked instead; other Wayland desktops count as never idle.
+    /// Time since the last keyboard, mouse or game controller input. On Wayland, X11 hears only
+    /// XWayland apps' input, so GNOME is asked instead; other Wayland desktops count as never idle.
     pub fn idle_ms() -> i64 {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            return gnome_idle_ms().unwrap_or(0);
+        let keyboard_mouse = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+            gnome_idle_ms().unwrap_or(0)
+        } else {
+            Display::open()
+                .and_then(|x| x.conn.screensaver_query_info(x.root).ok()?.reply().ok())
+                .map_or(0, |info| info.ms_since_user_input as i64)
+        };
+        match super::pads::idle_ms() {
+            Some(pad) => keyboard_mouse.min(pad),
+            None => keyboard_mouse,
         }
-        let Some(x) = Display::open() else { return 0 };
-        x.conn.screensaver_query_info(x.root).ok().and_then(|c| c.reply().ok()).map_or(0, |info| info.ms_since_user_input as i64)
     }
 
     fn gnome_idle_ms() -> Option<i64> {
@@ -842,6 +993,100 @@ mod x11 {
     pub(super) fn dbus_number(reply: &str) -> Option<i64> {
         reply.trim().strip_prefix('(')?.split([' ', ',', ')']).find_map(|word| word.parse().ok())
     }
+}
+
+/// Game controllers, which the desktop's idle time ignores, read from the joystick devices Linux
+/// makes for them without waiting. They're kept open: opening one replays its whole state.
+#[cfg(not(any(windows, target_os = "macos")))]
+mod pads {
+    use std::collections::HashMap;
+    use std::fs::File;
+    use std::io::{ErrorKind, Read};
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    const RESCAN_EVERY: Duration = Duration::from_secs(5);
+    const BUTTON: u8 = 0x01;
+    const AXIS: u8 = 0x02;
+    /// Marks the events a device replays when opened, which aren't input.
+    const INIT: u8 = 0x80;
+
+    struct Pad {
+        path: PathBuf,
+        file: File,
+        /// Where each stick and trigger last counted as input.
+        axes: HashMap<usize, f64>,
+    }
+
+    struct Pads {
+        open: Vec<Pad>,
+        next_scan: Option<Instant>,
+        last_input: Option<Instant>,
+    }
+
+    static PADS: Mutex<Pads> = Mutex::new(Pads { open: Vec::new(), next_scan: None, last_input: None });
+
+    /// None until a controller has been used since Kairo started.
+    pub fn idle_ms() -> Option<i64> {
+        let mut pads = PADS.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        if pads.next_scan.map_or(true, |at| now >= at) {
+            pads.next_scan = Some(now + RESCAN_EVERY);
+            let found: Vec<PathBuf> = std::fs::read_dir("/dev/input")
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("js")))
+                .collect();
+            for path in found {
+                if pads.open.iter().any(|pad| pad.path == path) {
+                    continue;
+                }
+                if let Ok(file) = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&path) {
+                    pads.open.push(Pad { path, file, axes: HashMap::new() });
+                }
+            }
+        }
+        let mut used = false;
+        // A controller that's unplugged stops reading and is dropped.
+        pads.open.retain_mut(|pad| loop {
+            // Each event: time (4 bytes), value (2), kind (1), which button or axis (1).
+            let mut event = [0u8; 8];
+            match pad.file.read(&mut event) {
+                Ok(8) => {
+                    let value = i16::from_ne_bytes([event[4], event[5]]);
+                    let (kind, number) = (event[6], event[7] as usize);
+                    let at = (value as f64 + 32767.0) / 65534.0;
+                    if kind & INIT != 0 {
+                        pad.axes.insert(number, at);
+                    } else if kind == BUTTON || (kind == AXIS && super::moved(&mut pad.axes, number, at)) {
+                        used = true;
+                    }
+                }
+                Ok(0) => break false,
+                Ok(_) => {}
+                Err(e) => break e.kind() == ErrorKind::WouldBlock,
+            }
+        });
+        if used {
+            pads.last_input = Some(now);
+        }
+        pads.last_input.map(|at| now.duration_since(at).as_millis() as i64)
+    }
+}
+
+/// Whether a controller's stick or trigger, `at` of the way along its travel, moved a quarter of
+/// its travel since it last counted as input; a resting stick drifts a little, which isn't.
+#[cfg(not(windows))]
+fn moved(seen: &mut std::collections::HashMap<usize, f64>, axis: usize, at: f64) -> bool {
+    let far = seen.get(&axis).map_or(true, |&last| (at - last).abs() >= 0.25);
+    if far {
+        seen.insert(axis, at);
+    }
+    far
 }
 
 /// The program a process runs, from /proc. A Windows program under Wine or Proton goes by the
@@ -921,6 +1166,21 @@ pub fn processes() -> Vec<(u32, String)> {
 pub fn close_process(pid: u32) -> bool {
     // 0 would mean Kairo's own process group to kill().
     pid != 0 && i32::try_from(pid).is_ok_and(|pid| unsafe { libc::kill(pid, libc::SIGKILL) } == 0)
+}
+
+#[cfg(all(test, not(windows)))]
+mod pad_tests {
+    #[test]
+    fn sticks_count_when_moved_not_when_drifting() {
+        let mut seen = std::collections::HashMap::new();
+        // First seen counts, as it's a change; drift around it doesn't; a real push does.
+        assert!(super::moved(&mut seen, 0, 0.5));
+        assert!(!super::moved(&mut seen, 0, 0.53));
+        assert!(super::moved(&mut seen, 0, 0.95));
+        // A trigger resting at one end isn't measured from the middle.
+        seen.insert(1, 0.0);
+        assert!(!super::moved(&mut seen, 1, 0.02));
+    }
 }
 
 #[cfg(all(test, not(any(windows, target_os = "macos"))))]
