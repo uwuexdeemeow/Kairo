@@ -107,6 +107,83 @@ pub fn idle_ms() -> Option<i64> {
     Some(ms as i64)
 }
 
+const COMPONENT: &str = "kairo";
+const PALETTE_ACTION: &str = "palette";
+static OPEN_PALETTE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+
+/// What to do when Plasma says the palette's shortcut was pressed.
+pub fn on_palette_shortcut(open: Box<dyn Fn() + Send + Sync>) {
+    let _ = OPEN_PALETTE.set(open);
+}
+
+/// Makes `shortcut` one of Plasma's global shortcuts, which its Wayland session keeps for itself,
+/// and listens for it; false when Kairo isn't watching Plasma or Plasma refused it.
+pub fn palette_shortcut(shortcut: &str) -> bool {
+    static LISTENING: std::sync::Once = std::sync::Once::new();
+    let (Some(bus), Some(keys)) = (BUS.get(), qt_keys(shortcut)) else { return false };
+    let id = vec![COMPONENT, PALETTE_ACTION, "Kairo", "Open the command palette"];
+    if global_shortcuts(bus, "doRegister", &(id.clone(),)).is_err() {
+        return false;
+    }
+    // Set even where Plasma has another for it, and not taken back from Plasma's own settings.
+    const SET_PRESENT_NO_AUTOLOADING: u32 = 2 | 4;
+    // Plasma 6 takes key sequences; Plasma 5 key codes.
+    let set = global_shortcuts(bus, "setShortcutKeys", &(id.clone(), vec![(vec![keys],)], SET_PRESENT_NO_AUTOLOADING)).is_ok()
+        || global_shortcuts(bus, "setShortcut", &(id, vec![keys], SET_PRESENT_NO_AUTOLOADING)).is_ok();
+    if set {
+        LISTENING.call_once(|| {
+            let _ = std::thread::Builder::new().name("kairo-kde-keys".into()).spawn(|| {
+                if let Err(e) = listen_for_presses() {
+                    eprintln!("kde: cannot hear the palette's shortcut: {e}");
+                }
+            });
+        });
+    }
+    set
+}
+
+fn global_shortcuts<B: serde::Serialize + zbus::zvariant::DynamicType>(bus: &Connection, method: &str, body: &B) -> zbus::Result<()> {
+    bus.call_method(Some("org.kde.kglobalaccel"), "/kglobalaccel", Some("org.kde.KGlobalAccel"), method, body).map(|_| ())
+}
+
+fn listen_for_presses() -> zbus::Result<()> {
+    let Some(bus) = BUS.get() else { return Ok(()) };
+    let rule = zbus::MatchRule::builder()
+        .msg_type(zbus::message::Type::Signal)
+        .interface("org.kde.kglobalaccel.Component")?
+        .member("globalShortcutPressed")?
+        .path(format!("/component/{COMPONENT}"))?
+        .build();
+    for message in zbus::blocking::MessageIterator::for_match_rule(rule, bus, None)?.flatten() {
+        let Ok((_, action, _)) = message.body().deserialize::<(String, String, i64)>() else { continue };
+        if action == PALETTE_ACTION {
+            if let Some(open) = OPEN_PALETTE.get() {
+                open();
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A shortcut as Kairo saves it ("Ctrl+Shift+K") as Qt's key code, which Plasma speaks.
+fn qt_keys(shortcut: &str) -> Option<i32> {
+    let mut code = 0i32;
+    let mut key = None;
+    for part in shortcut.split('+') {
+        match part {
+            "Shift" => code |= 0x0200_0000,
+            "Ctrl" => code |= 0x0400_0000,
+            "Alt" => code |= 0x0800_0000,
+            "Super" => code |= 0x1000_0000,
+            "Space" => key = Some(0x20),
+            k if k.len() == 1 && k.chars().all(|c| c.is_ascii_alphanumeric()) => key = Some(k.to_ascii_uppercase().as_bytes()[0] as i32),
+            k if k.starts_with('F') => key = Some(0x0100_0030 + k[1..].parse::<i32>().ok()?.checked_sub(1)?),
+            _ => return None,
+        }
+    }
+    Some(code | key?)
+}
+
 /// Loads a script into KWin and runs it, replacing one of the same name, as from an earlier run.
 /// KWin reads the file on its own time, so a one-off script stays loaded until the next.
 fn run_script(bus: &Connection, script: &Path, name: &str) -> zbus::Result<()> {
@@ -141,6 +218,15 @@ mod tests {
         assert!(is_window_id("{4b1c3a2e-9d7f-4e1a-8b2c-0123456789ab}"));
         assert!(!is_window_id("\"); workspace.windowList().forEach(w => w.closeWindow()); (\""));
         assert!(!is_window_id(""));
+    }
+
+    #[test]
+    fn shortcuts_become_qt_key_codes() {
+        assert_eq!(qt_keys("Ctrl+Space"), Some(0x0400_0020));
+        assert_eq!(qt_keys("Ctrl+Shift+K"), Some(0x0600_004B));
+        assert_eq!(qt_keys("Super+F1"), Some(0x1100_0030));
+        assert_eq!(qt_keys("Alt+7"), Some(0x0800_0037));
+        assert_eq!(qt_keys("Ctrl"), None);
     }
 
     #[test]

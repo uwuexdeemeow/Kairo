@@ -103,24 +103,83 @@ fn parse_version(text: &str) -> Option<u32> {
 
 /// Adds the extension to the ones GNOME turns on at login, keeping the rest, unless it's there.
 fn enable() {
-    let run = |args: &[&str]| std::process::Command::new("gsettings").args(args).output().ok().filter(|o| o.status.success());
-    let Some(out) = run(&["get", "org.gnome.shell", "enabled-extensions"]) else { return };
-    let current = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if let Some(list) = with_extension(&current) {
-        run(&["set", "org.gnome.shell", "enabled-extensions", &list]);
+    add_to_list("org.gnome.shell", "enabled-extensions", UUID);
+}
+
+/// Runs gsettings; its output when it worked.
+fn gsettings(args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("gsettings").args(args).output().ok().filter(|o| o.status.success())?;
+    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Adds `item` to a list setting, keeping what's there; true when it's in the list after.
+fn add_to_list(schema: &str, key: &str, item: &str) -> bool {
+    let Some(current) = gsettings(&["get", schema, key]) else { return false };
+    match with_item(&current, item) {
+        Some(list) => gsettings(&["set", schema, key, &list]).is_some(),
+        None => true,
     }
 }
 
-/// GNOME's list of turned-on extensions with Kairo's added, as gsettings prints and takes it
-/// (`['a@b', 'c@d']`, or `@as []` when empty); None when it's in already.
-fn with_extension(list: &str) -> Option<String> {
+/// A list as gsettings prints and takes it (`['a', 'b']`, or `@as []` when empty) with `item`
+/// added at the end; None when it's in already.
+fn with_item(list: &str, item: &str) -> Option<String> {
     let inner = list.strip_prefix("@as ").unwrap_or(list).trim().strip_prefix('[')?.strip_suffix(']')?.trim();
-    let mut uuids: Vec<&str> = inner.split(',').map(|s| s.trim().trim_matches('\'')).filter(|s| !s.is_empty()).collect();
-    if uuids.contains(&UUID) {
+    let mut items: Vec<&str> = inner.split(',').map(|s| s.trim().trim_matches('\'')).filter(|s| !s.is_empty()).collect();
+    if items.contains(&item) {
         return None;
     }
-    uuids.push(UUID);
-    Some(format!("[{}]", uuids.iter().map(|u| format!("'{u}'")).collect::<Vec<_>>().join(", ")))
+    items.push(item);
+    Some(format!("[{}]", items.iter().map(|i| format!("'{i}'")).collect::<Vec<_>>().join(", ")))
+}
+
+const KEYBINDINGS: &str = "org.gnome.settings-daemon.plugins.media-keys";
+const PALETTE_KEYBINDING: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kairo-palette/";
+
+/// Makes `shortcut` open the palette as one of GNOME's own keyboard shortcuts, on its Wayland
+/// session, where apps can't listen for keys; it runs `kairo --palette`. False elsewhere, or when
+/// GNOME didn't take it, which leaves Kairo listening itself.
+pub fn palette_shortcut(shortcut: &str) -> bool {
+    if !wayland() || !desktop_is("GNOME") {
+        return false;
+    }
+    let (Some(binding), Some(command)) = (accelerator(shortcut), palette_command()) else { return false };
+    let schema = format!("{KEYBINDINGS}.custom-keybinding:{PALETTE_KEYBINDING}");
+    let set = [("name", "Kairo command palette".to_string()), ("command", command), ("binding", binding)]
+        .iter()
+        .all(|(key, value)| gsettings(&["set", &schema, key, &quoted(value)]).is_some());
+    set && add_to_list(KEYBINDINGS, "custom-keybindings", PALETTE_KEYBINDING)
+}
+
+/// How GNOME's shortcut runs this copy of Kairo: the AppImage it came from, if it did.
+fn palette_command() -> Option<String> {
+    let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok())?;
+    let program = program.to_str()?;
+    let program = if program.contains(' ') { format!("\"{program}\"") } else { program.to_string() };
+    Some(format!("{program} {}", crate::startup::PALETTE_ARG))
+}
+
+/// A shortcut as Kairo saves it ("Ctrl+Shift+K") in GNOME's spelling ("<Control><Shift>k").
+fn accelerator(shortcut: &str) -> Option<String> {
+    let mut out = String::new();
+    for part in shortcut.split('+') {
+        match part {
+            "Ctrl" => out.push_str("<Control>"),
+            "Alt" => out.push_str("<Alt>"),
+            "Shift" => out.push_str("<Shift>"),
+            "Super" => out.push_str("<Super>"),
+            "Space" => out.push_str("space"),
+            key if key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric()) => out.push_str(&key.to_ascii_lowercase()),
+            key if key.starts_with('F') && key[1..].parse::<u8>().is_ok() => out.push_str(key),
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+/// A text value as gsettings reads it.
+fn quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
 #[cfg(test)]
@@ -129,12 +188,21 @@ mod tests {
 
     #[test]
     fn the_extension_joins_the_ones_already_on() {
-        assert_eq!(with_extension("@as []").as_deref(), Some("['kairo@uwuexdeemeow.github.io']"));
+        assert_eq!(with_item("@as []", UUID).as_deref(), Some("['kairo@uwuexdeemeow.github.io']"));
         assert_eq!(
-            with_extension("['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com']").as_deref(),
+            with_item("['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com']", UUID).as_deref(),
             Some("['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com', 'kairo@uwuexdeemeow.github.io']")
         );
-        assert_eq!(with_extension("['kairo@uwuexdeemeow.github.io']"), None);
+        assert_eq!(with_item("['kairo@uwuexdeemeow.github.io']", UUID), None);
+    }
+
+    #[test]
+    fn shortcuts_are_spelled_the_gnome_way() {
+        assert_eq!(accelerator("Ctrl+Space").as_deref(), Some("<Control>space"));
+        assert_eq!(accelerator("Ctrl+Shift+K").as_deref(), Some("<Control><Shift>k"));
+        assert_eq!(accelerator("Super+F5").as_deref(), Some("<Super>F5"));
+        assert_eq!(accelerator("Alt+Tab"), None);
+        assert_eq!(quoted("it's"), r"'it\'s'");
     }
 
     #[test]

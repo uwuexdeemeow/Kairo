@@ -228,6 +228,9 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
 /// doesn't know the keys), the old one stays and the reason comes back.
 pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::result::Result<(), String> {
     let old = shortcut(conn).map_err(|e| e.to_string())?;
+    if crate::platform::desktop_palette_shortcut(new) {
+        return db::set_setting(conn, SHORTCUT_KEY, new).map_err(|e| e.to_string());
+    }
     let keys = app.global_shortcut();
     let _ = keys.unregister(old.as_str());
     if let Err(e) = keys.register(new) {

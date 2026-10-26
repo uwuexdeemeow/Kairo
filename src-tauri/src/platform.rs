@@ -926,6 +926,23 @@ pub fn watch_wayland() -> bool {
     gnome::install()
 }
 
+/// On Wayland, which keeps keys from apps, makes `shortcut` open the palette through the
+/// desktop's own shortcuts: GNOME runs `kairo --palette`, and KDE Plasma tells Kairo, which runs
+/// what `on_palette_shortcut` was given. False where Kairo listens for the keys itself.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn desktop_palette_shortcut(shortcut: &str) -> bool {
+    wayland() && (gnome::palette_shortcut(shortcut) || kde::palette_shortcut(shortcut))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub use kde::on_palette_shortcut;
+
+/// Windows and macOS let Kairo listen for the palette's keys itself.
+#[cfg(any(windows, target_os = "macos"))]
+pub fn desktop_palette_shortcut(_shortcut: &str) -> bool {
+    false
+}
+
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn foreground() -> Option<Foreground> {
     if let Some(front) = wayland_front() {
