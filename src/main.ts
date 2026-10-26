@@ -1279,9 +1279,9 @@ if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";
   $("#autostart-title").textContent = "Start at login";
   $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
-  // Kairo sees other apps through X11 or, on GNOME's Wayland session, its GNOME Shell extension.
+  // Kairo sees other apps through X11 or, on Wayland, through GNOME or KDE Plasma themselves.
   $("#block-explainer").textContent =
-    "Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME, Kairo sees and hides only apps running through XWayland, as most games do.";
+    "Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
   // Wayland keeps keys from apps; the desktop's own shortcut settings can run Kairo instead.
   $("#palette-note").textContent =
     "Works everywhere, even with Kairo's window closed. On Wayland, where apps can't listen for keys, add a shortcut in your desktop's keyboard settings that runs kairo --palette.";

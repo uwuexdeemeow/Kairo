@@ -873,22 +873,59 @@ mod tests {
     }
 }
 
-// Linux and others: other apps' windows come from X11, or on GNOME's Wayland session from Kairo's
-// GNOME Shell extension. Other Wayland desktops show X11 only the apps running through XWayland,
-// as most games do. Programs come from /proc.
+// Linux and others: other apps' windows come from X11, or on Wayland, which shows X11 only the
+// apps running through XWayland, from the desktop itself: Kairo's GNOME Shell extension on GNOME
+// and its KWin script on KDE Plasma. Programs come from /proc.
 #[cfg(not(any(windows, target_os = "macos")))]
 mod gnome;
-
 #[cfg(not(any(windows, target_os = "macos")))]
-pub use gnome::install as install_gnome_extension;
+mod kde;
+
+/// The window in front as a Wayland desktop tells it.
+#[cfg(not(any(windows, target_os = "macos")))]
+struct WaylandWindow {
+    pid: u32,
+    title: String,
+    /// The window, marked with the desktop's bit (`gnome::WINDOW`, `kde::WINDOW`).
+    window: usize,
+    fullscreen: bool,
+}
+
+/// Whether this is a Wayland session.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn wayland() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
+/// Whether the session is `name`'s desktop, e.g. "GNOME" or "KDE".
+#[cfg(not(any(windows, target_os = "macos")))]
+fn desktop_is(name: &str) -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|d| d.eq_ignore_ascii_case(name)))
+}
+
+/// What the desktop says is in front on Wayland: None where it can't say, which leaves X11;
+/// Some(None) when nothing is.
+#[cfg(not(any(windows, target_os = "macos")))]
+fn wayland_front() -> Option<Option<WaylandWindow>> {
+    if !wayland() {
+        return None;
+    }
+    gnome::focused().or_else(kde::focused)
+}
+
+/// Sets up seeing windows on a Wayland desktop: installs the GNOME extension or loads the KWin
+/// script. True when the GNOME extension is newly installed, which works from the next login.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn watch_wayland() -> bool {
+    kde::start();
+    gnome::install()
+}
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn foreground() -> Option<Foreground> {
-    if gnome::wayland() {
-        if let Some(focused) = gnome::focused() {
-            let f = focused?;
-            return Some(Foreground { exe_path: program(f.pid)?, title: f.title, window: f.window });
-        }
+    if let Some(front) = wayland_front() {
+        let f = front?;
+        return Some(Foreground { exe_path: program(f.pid)?, title: f.title, window: f.window });
     }
     x11::foreground()
 }
@@ -897,10 +934,8 @@ pub fn foreground() -> Option<Foreground> {
 /// video.
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn fullscreen_in_front() -> bool {
-    if gnome::wayland() {
-        if let Some(focused) = gnome::focused() {
-            return focused.is_some_and(|f| f.fullscreen);
-        }
+    if let Some(front) = wayland_front() {
+        return front.is_some_and(|f| f.fullscreen);
     }
     x11::fullscreen_in_front()
 }
@@ -909,16 +944,19 @@ pub fn fullscreen_in_front() -> bool {
 pub fn minimize(window: usize) -> bool {
     if window & gnome::WINDOW != 0 {
         gnome::minimize(window)
+    } else if window & kde::WINDOW != 0 {
+        kde::minimize(window)
     } else {
         x11::minimize(window)
     }
 }
 
 /// Time since the last keyboard, mouse or game controller input. On Wayland, X11 hears only
-/// XWayland apps' input, so GNOME is asked instead; other Wayland desktops count as never idle.
+/// XWayland apps' input, so GNOME or Plasma is asked instead; other Wayland desktops count as
+/// never idle.
 #[cfg(not(any(windows, target_os = "macos")))]
 pub fn idle_ms() -> i64 {
-    let keyboard_mouse = if gnome::wayland() { gnome::idle_ms().unwrap_or(0) } else { x11::idle_ms() };
+    let keyboard_mouse = if wayland() { gnome::idle_ms().or_else(kde::idle_ms).unwrap_or(0) } else { x11::idle_ms() };
     match pads::idle_ms() {
         Some(pad) => keyboard_mouse.min(pad),
         None => keyboard_mouse,

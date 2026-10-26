@@ -7,36 +7,28 @@ use std::sync::OnceLock;
 
 use zbus::blocking::Connection;
 
+use super::{desktop_is, wayland, WaylandWindow};
+
 pub const UUID: &str = "kairo@uwuexdeemeow.github.io";
 const PATH: &str = "/org/gnome/Shell/Extensions/Kairo";
 const INTERFACE: &str = "org.gnome.Shell.Extensions.Kairo";
 
-/// Windows the extension names are told apart from X11 ones by this bit.
+/// Windows the extension names are told apart from X11 and KDE ones by this bit.
 pub const WINDOW: usize = 1 << (usize::BITS - 1);
-
-pub struct Focused {
-    pub pid: u32,
-    pub title: String,
-    /// The window, with `WINDOW` set.
-    pub window: usize,
-    pub fullscreen: bool,
-}
 
 fn session() -> Option<&'static Connection> {
     static SESSION: OnceLock<Option<Connection>> = OnceLock::new();
     SESSION.get_or_init(|| Connection::session().ok()).as_ref()
 }
 
-/// Whether this is a Wayland session, where X11 sees only XWayland's apps.
-pub fn wayland() -> bool {
-    std::env::var_os("WAYLAND_DISPLAY").is_some()
-}
-
 /// What the extension says is in front: None when it isn't running, Some(None) when nothing is.
-pub fn focused() -> Option<Option<Focused>> {
+pub fn focused() -> Option<Option<WaylandWindow>> {
+    if !desktop_is("GNOME") {
+        return None;
+    }
     let reply = session()?.call_method(Some("org.gnome.Shell"), PATH, Some(INTERFACE), "Focused", &()).ok()?;
     let (pid, title, id, fullscreen): (u32, String, u64, bool) = reply.body().deserialize().ok()?;
-    Some((pid != 0).then(|| Focused { pid, title, window: id as usize | WINDOW, fullscreen }))
+    Some((pid != 0).then(|| WaylandWindow { pid, title, window: id as usize | WINDOW, fullscreen }))
 }
 
 /// Minimizes a window the extension named.
@@ -67,8 +59,7 @@ pub fn idle_ms() -> Option<i64> {
 /// Puts the extension where GNOME looks for it and turns it on, on GNOME's Wayland session.
 /// True when it's newly there, since GNOME only loads it at the next login.
 pub fn install() -> bool {
-    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
-    if !wayland() || !desktop.split(':').any(|d| d.eq_ignore_ascii_case("GNOME")) {
+    if !wayland() || !desktop_is("GNOME") {
         return false;
     }
     let Some(dir) = extensions_dir().map(|d| d.join(UUID)) else { return false };

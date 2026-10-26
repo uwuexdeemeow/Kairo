@@ -153,10 +153,10 @@ pub fn run() {
                 eprintln!("palette: cannot use {palette_shortcut}: {e}");
             }
             updater::spawn(app.handle().clone());
-            // GNOME's Wayland session shows apps no other windows; Kairo's extension does, once
-            // GNOME has loaded it at a login.
+            // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
+            // has loaded it at a login, and on KDE Plasma its KWin script does right away.
             #[cfg(not(any(windows, target_os = "macos")))]
-            if platform::install_gnome_extension() {
+            if platform::watch_wayland() {
                 use tauri_plugin_notification::NotificationExt;
                 let _ = app
                     .notification()
