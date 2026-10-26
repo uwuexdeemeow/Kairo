@@ -335,19 +335,27 @@ mod win {
     }
 
     /// Whether a game or other app fills the screen in front: a Direct3D game Windows knows is
-    /// full screen, or a window that isn't maximized yet covers its whole monitor, as borderless
-    /// games and full-screen video and browsers do. The desktop covers it too, so it doesn't count.
+    /// full screen, or a window without a title bar covering its whole monitor, as borderless
+    /// games and full-screen video and browsers do, maximized or not. A maximized window with a
+    /// title bar is just a big window, even where the taskbar hides itself and it covers the whole
+    /// screen; the desktop covers it too, so it doesn't count either.
     pub fn fullscreen_in_front() -> bool {
         use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL};
         use windows_sys::Win32::UI::Shell::{SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN};
-        use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetShellWindow, GetWindowRect, IsZoomed};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetClassNameW, GetShellWindow, GetWindowLongW, GetWindowRect, IsZoomed, GWL_STYLE, WS_CAPTION,
+        };
         unsafe {
             let mut state = 0;
             if SHQueryUserNotificationState(&mut state) == 0 && state == QUNS_RUNNING_D3D_FULL_SCREEN {
                 return true;
             }
             let hwnd = GetForegroundWindow();
-            if hwnd.is_null() || hwnd == GetShellWindow() || IsZoomed(hwnd) != 0 {
+            if hwnd.is_null() || hwnd == GetShellWindow() {
+                return false;
+            }
+            let titled = GetWindowLongW(hwnd, GWL_STYLE) as u32 & WS_CAPTION == WS_CAPTION;
+            if IsZoomed(hwnd) != 0 && titled {
                 return false;
             }
             let mut class = [0u16; 32];
