@@ -115,6 +115,161 @@ pub fn fresh(shared: &SharedTab, now_ms: i64) -> Option<Report> {
     (now_ms - report.at_ms <= FRESH_MS).then_some(report)
 }
 
+/// What the browser in front said about its tab when asked through Apple Events (macOS only;
+/// elsewhere it stays empty): the browser's executable name, and the report.
+pub type SharedScripted = Arc<Mutex<Option<(String, Report)>>>;
+
+/// The browser's own answer, if it's about `exe` and recent enough to trust. Asked every second,
+/// so anything older means the browser stopped answering.
+pub fn scripted_for(shared: &SharedScripted, exe: &str, now_ms: i64) -> Option<Report> {
+    let guard = shared.lock().unwrap_or_else(|e| e.into_inner());
+    let (from, report) = guard.as_ref()?;
+    (from == exe && now_ms - report.at_ms <= SCRIPTED_FRESH_MS).then(|| report.clone())
+}
+
+const SCRIPTED_FRESH_MS: i64 = 3_000;
+
+/// Browsers that answer Apple Events about their tabs: (executable name, bundle id, Chromium).
+/// Firefox and Opera don't say which page they show.
+#[cfg(any(target_os = "macos", test))]
+const SCRIPTABLE: &[(&str, &str, bool)] = &[
+    ("safari", "com.apple.Safari", false),
+    ("chrome", "com.google.Chrome", true),
+    ("brave", "com.brave.Browser", true),
+    ("msedge", "com.microsoft.edgemac", true),
+    ("vivaldi", "com.vivaldi.Vivaldi", true),
+    ("arc", "company.thebrowser.Browser", true),
+];
+
+/// The AppleScript that asks a browser for the front tab's address and, for Chromium browsers,
+/// whether the window is incognito. It never starts a browser that has just quit.
+#[cfg(any(target_os = "macos", test))]
+fn tab_script(exe: &str) -> Option<String> {
+    let &(_, id, chromium) = SCRIPTABLE.iter().find(|(e, _, _)| *e == exe)?;
+    let ask = if chromium {
+        // Not every Chromium browser knows `mode`; those just count as normal windows.
+        "set w to front window\n\
+         set m to \"normal\"\n\
+         try\n\
+         set m to mode of w\n\
+         end try\n\
+         return (URL of active tab of w) & linefeed & m"
+    } else {
+        "return URL of current tab of front window"
+    };
+    Some(format!(
+        "if application id \"{id}\" is running then\n\
+         tell application id \"{id}\"\n\
+         if (count of windows) is 0 then return \"\"\n\
+         {ask}\n\
+         end tell\n\
+         end if\n\
+         return \"\""
+    ))
+}
+
+/// The hostname in a web address; None for anything but http and https pages.
+#[cfg(any(target_os = "macos", test))]
+fn host_of(url: &str) -> Option<&str> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?.split(':').next()?;
+    (!host.is_empty()).then_some(host)
+}
+
+/// Reads a browser's answer: the address on the first line, the window's mode on the second.
+#[cfg(any(target_os = "macos", test))]
+fn read_answer(out: &str, now_ms: i64) -> Report {
+    let mut lines = out.lines();
+    let site = lines.next().and_then(host_of).and_then(site_for_host);
+    let incognito = lines.next().is_some_and(|m| m.trim() == "incognito");
+    Report { site, incognito, at_ms: now_ms }
+}
+
+/// Asks the browser in front which page it shows, once a second, so sites are exact without the
+/// extension, including in Safari. macOS asks once per browser whether Kairo may; until then, or
+/// after a no, the browser is asked again only every minute.
+#[cfg(target_os = "macos")]
+pub fn spawn_scripted(shared: SharedScripted, paused: Arc<std::sync::atomic::AtomicBool>) {
+    use std::collections::HashMap;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    const RETRY_DENIED_MS: i64 = 60_000;
+
+    thread::Builder::new()
+        .name("kairo-tabs".into())
+        .spawn(move || {
+            let mut denied: HashMap<String, i64> = HashMap::new();
+            loop {
+                thread::sleep(Duration::from_secs(1));
+                if paused.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let Some(path) = crate::platform::frontmost_path() else { continue };
+                let exe = crate::classify::exe_stem(&path);
+                let Some(script) = tab_script(&exe) else { continue };
+                let now = chrono::Utc::now().timestamp_millis();
+                if denied.get(&exe).is_some_and(|&until| now < until) {
+                    continue;
+                }
+                match run_script(&script) {
+                    Ok(out) => {
+                        let at = chrono::Utc::now().timestamp_millis();
+                        *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some((exe, read_answer(&out, at)));
+                    }
+                    Err(true) => {
+                        denied.insert(exe, now + RETRY_DENIED_MS);
+                    }
+                    // E.g. Safari's settings window in front, which has no tab.
+                    Err(false) => {}
+                }
+            }
+        })
+        .expect("failed to start tab reader");
+}
+
+/// Runs AppleScript through osascript. The error says whether macOS refused to let Kairo ask.
+#[cfg(target_os = "macos")]
+fn run_script(script: &str) -> Result<String, bool> {
+    use std::time::{Duration, Instant};
+
+    // Long enough to answer the first-time permission prompt; a browser that hangs longer than
+    // this is given up on for one round.
+    const TIMEOUT: Duration = Duration::from_secs(60);
+    // errAEEventNotPermitted: the user said no, or hasn't answered yet.
+    const NOT_PERMITTED: &str = "-1743";
+
+    let mut child = std::process::Command::new("/usr/bin/osascript")
+        .args(["-e", script])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|_| false)?;
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if started.elapsed() < TIMEOUT => thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(false);
+            }
+        }
+    }
+    let out = child.wait_with_output().map_err(|_| false)?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).contains(NOT_PERMITTED))
+    }
+}
+
 pub fn status(shared: &SharedTab, listening: bool) -> Status {
     let last = shared
         .lock()
@@ -265,6 +420,50 @@ mod tests {
         assert_eq!(site_for_host("notx.com").as_deref(), Some("notx.com"));
         assert_eq!(site_for_host("localhost"), None);
         assert_eq!(site_for_host("bad host/<script>"), None);
+    }
+
+    #[test]
+    fn web_addresses_give_their_host() {
+        assert_eq!(host_of("https://www.youtube.com/watch?v=1"), Some("www.youtube.com"));
+        assert_eq!(host_of("http://user:pw@example.com:8080/x"), Some("example.com"));
+        assert_eq!(host_of("HTTPS://GitHub.com#top"), Some("GitHub.com"));
+        assert_eq!(host_of("https://docs.rs?q=1"), Some("docs.rs"));
+        assert_eq!(host_of("chrome://extensions"), None);
+        assert_eq!(host_of("file:///Users/me/a.pdf"), None);
+        assert_eq!(host_of("missing value"), None);
+        assert_eq!(host_of(""), None);
+    }
+
+    #[test]
+    fn browser_answers_become_reports() {
+        assert_eq!(read_answer("https://www.youtube.com/watch?v=1\nnormal\n", 5), Report { site: Some("youtube".into()), incognito: false, at_ms: 5 });
+        assert_eq!(read_answer("https://reddit.com/\nincognito\n", 5), Report { site: Some("reddit".into()), incognito: true, at_ms: 5 });
+        // Safari says nothing about the window.
+        assert_eq!(read_answer("https://github.com/rust-lang\n", 5).site.as_deref(), Some("github"));
+        assert_eq!(read_answer("chrome://newtab/\nnormal\n", 5).site, None);
+        assert_eq!(read_answer("", 5).site, None);
+    }
+
+    #[test]
+    fn only_scriptable_browsers_get_a_script() {
+        let chrome = tab_script("chrome").unwrap();
+        assert!(chrome.contains("application id \"com.google.Chrome\" is running"));
+        assert!(chrome.contains("mode of w"));
+        assert!(tab_script("safari").unwrap().contains("current tab of front window"));
+        assert!(tab_script("firefox").is_none());
+        assert!(tab_script("code").is_none());
+        assert!(SCRIPTABLE.iter().all(|(exe, _, _)| crate::classify::is_browser(exe)));
+    }
+
+    #[test]
+    fn scripted_answers_count_only_for_their_browser_while_fresh() {
+        let shared = SharedScripted::default();
+        assert_eq!(scripted_for(&shared, "safari", 0), None);
+        let report = Report { site: Some("github".into()), incognito: false, at_ms: 1_000 };
+        *shared.lock().unwrap() = Some(("safari".into(), report.clone()));
+        assert_eq!(scripted_for(&shared, "safari", 2_000), Some(report));
+        assert_eq!(scripted_for(&shared, "chrome", 2_000), None);
+        assert_eq!(scripted_for(&shared, "safari", 1_000 + SCRIPTED_FRESH_MS + 1), None);
     }
 
     /// Sends a raw request to the listener; returns the status code and body.

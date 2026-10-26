@@ -1270,6 +1270,10 @@ if (IS_MAC) {
   $("#autostart-label").textContent = "Start Kairo quietly in the menu bar when I log in";
   $("#block-explainer").textContent =
     "Blocked apps are hidden behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
+  // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
+  // only needed for blocking sites.
+  $("#ext-intro").textContent =
+    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, so sites are tracked without the extension; macOS asks once per browser whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
 }
 if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";

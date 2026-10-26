@@ -119,9 +119,13 @@ pub fn run() {
             app.manage(palette::Session::default());
             #[cfg(windows)]
             palette::native::spawn(app.handle().clone(), db_path.clone(), startup::launched_for_palette());
+            let scripted_tab = browser::SharedScripted::default();
             #[cfg(target_os = "macos")]
-            platform::request_window_titles();
-            collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone());
+            {
+                platform::request_window_titles();
+                browser::spawn_scripted(scripted_tab.clone(), paused.clone());
+            }
+            collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());

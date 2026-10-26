@@ -433,7 +433,7 @@ mod tests {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{app_path, close_process, foreground, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
+pub use mac::{app_path, close_process, foreground, frontmost_path, icon_png, idle_ms, minimize, open_path, processes, request_window_titles};
 
 /// On a Mac, `Foreground::window` holds the app's process id: apps are hidden as a whole, and
 /// `processes` gives full paths, which `classify::exe_stem` reads by their app bundle.
@@ -490,6 +490,11 @@ mod mac {
             let pid = app.processIdentifier();
             Some(Foreground { exe_path: process_path(pid)?, title: window_title(pid).unwrap_or_default(), window: pid as usize })
         })
+    }
+
+    /// The program in front, without the window list `foreground` reads for its title.
+    pub fn frontmost_path() -> Option<String> {
+        autoreleasepool(|_| process_path(NSWorkspace::sharedWorkspace().frontmostApplication()?.processIdentifier()))
     }
 
     /// Window titles of other apps need Screen Recording access. Asks once; macOS remembers the

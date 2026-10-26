@@ -487,7 +487,8 @@ fn extension_dir(app: &AppHandle) -> CmdResult<std::path::PathBuf> {
 
 #[tauri::command]
 pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
-    std::process::Command::new("explorer").arg(extension_dir(&app)?).spawn().map_err(err)?;
+    let opener = if cfg!(windows) { "explorer" } else if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    std::process::Command::new(opener).arg(extension_dir(&app)?).spawn().map_err(err)?;
     Ok(())
 }
 

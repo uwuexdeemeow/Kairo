@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rusqlite::Connection;
 
-use crate::browser::{self, SharedTab};
+use crate::browser::{self, SharedScripted, SharedTab};
 use crate::privacy::{self, Mode, Rules, SharedRules};
 use crate::{classify, db, platform};
 
@@ -49,7 +49,7 @@ struct Open {
     flushed_ms: i64,
 }
 
-pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules, tab: SharedTab) {
+pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules, tab: SharedTab, scripted: SharedScripted) {
     thread::Builder::new()
         .name("kairo-collector".into())
         .spawn(move || {
@@ -60,12 +60,12 @@ pub fn spawn(db_path: PathBuf, paused: Arc<AtomicBool>, rules: SharedRules, tab:
                     return;
                 }
             };
-            run(&conn, &paused, &rules, &tab);
+            run(&conn, &paused, &rules, &tab, &scripted);
         })
         .expect("failed to start collector thread");
 }
 
-fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &SharedTab) {
+fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &SharedTab, scripted: &SharedScripted) {
     let mut open: Option<Open> = None;
     let mut last_tick = now_ms();
     let mut adopted_games: HashSet<String> = HashSet::new();
@@ -88,7 +88,8 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
             continue;
         }
 
-        let captured = capture(now, &rules.read().unwrap_or_else(|e| e.into_inner()), browser::fresh(tab, now));
+        let scripted = |exe: &str| browser::scripted_for(scripted, exe, now);
+        let captured = capture(now, &rules.read().unwrap_or_else(|e| e.into_inner()), browser::fresh(tab, now), scripted);
         let Some((sample, since)) = captured else {
             close(conn, open.take(), now);
             continue;
@@ -134,7 +135,7 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
 
 /// What the user is doing right now, and when that started (earlier than now only for idle).
 /// None while something the user excluded from recording is in front.
-fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sample, i64)> {
+fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>, scripted: impl FnOnce(&str) -> Option<browser::Report>) -> Option<(Sample, i64)> {
     let Some(fg) = platform::foreground() else {
         return Some((Sample::idle(), now));
     };
@@ -146,9 +147,10 @@ fn capture(now: i64, rules: &Rules, tab: Option<browser::Report>) -> Option<(Sam
 
     let mut title = classify::clean_title(&fg.title);
     let browser = classify::is_browser(&exe);
-    // With the extension reporting, the browser in front says exactly which site it shows;
-    // without it, the site is guessed from the window title.
-    let tab = tab.filter(|_| browser);
+    // The browser in front says exactly which site it shows: asked directly on a Mac, or through
+    // the extension, which may be reporting for another browser; failing both, the site is
+    // guessed from the window title.
+    let tab = if browser { scripted(exe.as_str()).or(tab) } else { None };
     let private = browser && (tab.as_ref().is_some_and(|t| t.incognito) || classify::is_private_window(&title));
     let site = match tab {
         _ if !browser || private => None,
