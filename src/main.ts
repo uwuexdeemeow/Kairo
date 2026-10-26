@@ -1273,7 +1273,7 @@ if (IS_MAC) {
   // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
   // only needed for blocking sites.
   $("#ext-intro").textContent =
-    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, so sites are tracked without the extension; macOS asks once per browser whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
+    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, and reads it from Firefox's and Opera's address bar, so sites are tracked without the extension; macOS asks once per browser, and once for Accessibility, whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
 }
 if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";

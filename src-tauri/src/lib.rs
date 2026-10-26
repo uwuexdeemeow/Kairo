@@ -133,7 +133,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 platform::request_window_titles();
-                browser::spawn_scripted(scripted_tab.clone(), paused.clone());
+                browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             }
             #[cfg(windows)]
             browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
