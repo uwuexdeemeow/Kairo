@@ -1656,6 +1656,35 @@ $("#nudge-test").addEventListener("click", async () => {
   }
 });
 
+/// Runs one of the data buttons, saying how it went beside them.
+async function dataAction(run: () => Promise<string | null>) {
+  const out = $("#data-status");
+  try {
+    const said = await run();
+    if (said) out.textContent = said;
+  } catch (err) {
+    out.textContent = String(err);
+  }
+}
+$("#export-time").addEventListener("click", () =>
+  dataAction(async () => {
+    const rows = await api.exportTime();
+    return rows === null ? null : `Saved ${rows} rows of tracked time.`;
+  }),
+);
+$("#backup-save").addEventListener("click", () =>
+  dataAction(async () => {
+    const name = await api.backupData();
+    return name === null ? null : `Saved ${name}.`;
+  }),
+);
+$("#backup-restore").addEventListener("click", () =>
+  dataAction(async () => {
+    await api.restoreData();
+    return null;
+  }),
+);
+
 $("#demo-load").addEventListener("click", async () => {
   const n = await api.seedDemo();
   $("#demo-status").textContent = `Loaded ${n} demo sessions. Open Patterns to see insights.`;

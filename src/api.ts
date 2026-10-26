@@ -332,6 +332,11 @@ export const api = {
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
+  /** Each asks where with the system's file dialog; null when it was closed. */
+  exportTime: () => invoke<number | null>("export_time"),
+  backupData: () => invoke<string | null>("backup_data"),
+  /** Restarts Kairo when it restores, so it only comes back false (not restored) or failing. */
+  restoreData: () => invoke<boolean>("restore_data"),
   appearance: () => invoke<Appearance>("get_appearance"),
   setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),
   /** PNG data URLs by executable, for the apps that have an icon to show. */
