@@ -308,8 +308,25 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         suggestions: suggestions(conn).unwrap_or(true),
         subjects,
         limits: cards::limits(conn),
+        week_goals: week_goals(conn, today, now),
     };
     (ctx, footer)
+}
+
+/// The weekly goals as one line, like "7h 53m of 15h 00m productive · 3h 39m of 5h 00m
+/// distracting"; None with none set.
+fn week_goals(conn: &Connection, today: chrono::NaiveDate, now: i64) -> Option<String> {
+    let week = goals::for_week(conn, crate::recap::week_start(today), now).ok()?;
+    let parts: Vec<String> = week
+        .items
+        .iter()
+        .map(|p| {
+            let what = if p.kind == Kind::Productive { "productive" } else { "distracting" };
+            let over = if p.kind != Kind::Productive && !p.met { ", over" } else { "" };
+            format!("{} of {} {what}{over}", fmt_dur(p.used_ms), fmt_dur(p.target_ms))
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// A stretch of a day, as shares of it from midnight.
@@ -370,7 +387,34 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             use tauri_plugin_clipboard_manager::ClipboardExt;
             app.clipboard().write_text(cards::answer(conn, subject, *period).text).map_err(|e| e.to_string())
         }
+        Action::ExportTime | Action::Backup | Action::Restore => {
+            with_file_dialog(app, action.clone());
+            Ok(())
+        }
     }
+}
+
+/// Runs a data action off the palette's thread, since it waits on a file dialog, and says how it
+/// went in a notification. A restore restarts Kairo and says nothing.
+fn with_file_dialog(app: &AppHandle, action: Action) {
+    use tauri_plugin_notification::NotificationExt;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let said = match action {
+            Action::ExportTime => crate::commands::export_time_dialog(&app).map(|rows| rows.map(|n| format!("Saved {n} rows of tracked time."))),
+            Action::Backup => crate::commands::backup_dialog(&app).map(|name| name.map(|n| format!("Saved {n}."))),
+            Action::Restore => crate::commands::restore_dialog(&app).map(|_| None),
+            _ => return,
+        };
+        let (title, body) = match said {
+            Ok(Some(body)) => ("Kairo", body),
+            Ok(None) => return,
+            Err(e) => ("Couldn't do that", e),
+        };
+        if let Err(e) = app.notification().builder().title(title).body(&body).show() {
+            eprintln!("palette: cannot notify: {e}");
+        }
+    });
 }
 
 // ---------- the web palette's side ----------
@@ -727,6 +771,7 @@ mod tests {
             suggestions: true,
             subjects: Vec::new(),
             limits: HashMap::new(),
+            week_goals: None,
         });
         let first = session.query("");
         assert!(!first.chips.is_empty());

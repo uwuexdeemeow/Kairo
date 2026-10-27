@@ -115,9 +115,10 @@ pub struct Progress {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DayGoals {
-    items: Vec<Progress>,
-    /// Completed days in a row, before this one, on which every goal was met.
-    streak: u32,
+    pub items: Vec<Progress>,
+    /// Completed days (or for weekly goals, weeks) in a row, before this one, on which every goal
+    /// was met.
+    pub streak: u32,
 }
 
 fn item(key: &str, label: String, kind: Kind, used_ms: i64, minutes: u32) -> Progress {

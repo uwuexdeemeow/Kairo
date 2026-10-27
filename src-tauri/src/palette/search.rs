@@ -258,6 +258,19 @@ pub enum Action {
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
     CopyAnswer(Subject, Period),
+    /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
+    /// with the system's file dialog.
+    ExportTime,
+    Backup,
+    Restore,
+}
+
+impl Action {
+    /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
+    /// of the way first rather than sitting over it.
+    pub fn opens_window(&self) -> bool {
+        matches!(self, Action::Go(..) | Action::ExportTime | Action::Backup | Action::Restore)
+    }
 }
 
 /// The card shown above the results while an item is selected.
@@ -308,6 +321,8 @@ pub struct Context {
     pub subjects: Vec<Subject>,
     /// Daily limits by key, in milliseconds.
     pub limits: HashMap<String, i64>,
+    /// How the weekly goals stand, like "7h 53m of 15h 00m productive"; None with none set.
+    pub week_goals: Option<String>,
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -466,20 +481,38 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         item.score = m.score - 5.0;
         items.push(item);
     }
+    // "goals", "weekly goals", "how's my week": the weekly goals, or where to set them.
+    if let Some(m) = fuzzy(query, "Goals this week").or_else(|| fuzzy(query, "weekly goals how is my week progress")) {
+        let (title, sub, action) = match &ctx.week_goals {
+            Some(summary) => ("Goals this week", summary.clone(), Action::Go("week", None)),
+            None => ("Set weekly goals", "Settings, Goals".to_string(), Action::Go("settings", None)),
+        };
+        let mut item = Item::new(title, Icon::Glyph(Glyph::Chart, Tone::Accent), "Answers", action);
+        item.at = fuzzy(query, title).map(|m| m.at).unwrap_or_default();
+        item.sub = Some(sub);
+        item.score = m.score - 2.0;
+        items.push(item);
+    }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 6] = [
+    let actions: [(&str, String, Glyph, Action, bool); 10] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("check for updates update version", "Check for updates".into(), Glyph::Update, Action::CheckUpdates, true),
         ("open kairo show window", "Open Kairo".into(), Glyph::Today, Action::Go("today", None), true),
+        ("export csv spreadsheet data download time", "Export time as CSV".into(), Glyph::Settings, Action::ExportTime, true),
+        ("backup back up save data copy", "Back up everything".into(), Glyph::Settings, Action::Backup, true),
+        ("restore backup load data", "Restore a backup".into(), Glyph::Settings, Action::Restore, true),
+        ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
     ];
     for (words, title, glyph, action, offered) in actions {
         if !offered {
             continue;
         }
-        let Some(m) = fuzzy(query, &title).or_else(|| fuzzy(query, words)) else { continue };
+        // The better of the title and the words for it: "backup" means backing up, though
+        // "Restore a backup" has it in its title.
+        let Some(m) = [fuzzy(query, &title), fuzzy(query, words)].into_iter().flatten().max_by(|a, b| a.score.total_cmp(&b.score)) else { continue };
         let mut item = Item::new(title.clone(), Icon::Glyph(glyph, Tone::Accent), "Actions", action);
         item.at = fuzzy(query, &title).map(|m| m.at).unwrap_or_default();
         item.score = m.score - 8.0;
@@ -579,6 +612,7 @@ mod tests {
             suggestions: true,
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
+            week_goals: Some("7h 53m of 15h 00m productive".into()),
         }
     }
 
@@ -588,6 +622,21 @@ mod tests {
 
     fn titles(items: &[Item]) -> Vec<&str> {
         items.iter().map(|i| i.title.as_str()).collect()
+    }
+
+    #[test]
+    fn data_and_goals_are_a_few_letters_away() {
+        let c = ctx();
+        assert_eq!(search(&c, "export")[0].action, Action::ExportTime);
+        assert_eq!(search(&c, "backup")[0].action, Action::Backup);
+        assert!(search(&c, "restore").iter().any(|i| i.action == Action::Restore));
+        let goals = search(&c, "weekly goals");
+        assert_eq!((goals[0].title.as_str(), goals[0].sub.as_deref()), ("Goals this week", Some("7h 53m of 15h 00m productive")));
+        assert_eq!(goals[0].action, Action::Go("week", None));
+        // With none set, it points to where they're set.
+        let none = Context { week_goals: None, ..ctx() };
+        assert_eq!(search(&none, "goals")[0].action, Action::Go("settings", None));
+        assert!(titles(&search(&c, "schedule")).contains(&"Focus schedule"));
     }
 
     #[test]

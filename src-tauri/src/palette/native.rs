@@ -51,7 +51,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_numerics::Vector2;
 
-use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
+use super::search::{self, fmt_dur, Context, Glyph, Icon, Item, Tone};
 use super::cards::{self, Answer, Card, FocusPlan};
 use super::search::Preview;
 use super::{DayGlance, Segment};
@@ -886,8 +886,8 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned() else { return };
-        // Kairo's window opens over where the palette was.
-        if matches!(item.action, Action::Go(..)) {
+        // Kairo's window, or a file dialog, opens over where the palette was.
+        if item.action.opens_window() {
             self.hide();
         }
         match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), &item.action) {

@@ -662,8 +662,8 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
-    // Kairo's window opens over where the palette was, and keeps the keyboard.
-    let go = matches!(item.action, palette::search::Action::Go(..));
+    // Kairo's window, or a file dialog, opens over where the palette was, and keeps the keyboard.
+    let go = item.action.opens_window();
     if go {
         palette_hide_window(&app, false);
     }
@@ -786,7 +786,8 @@ pub fn clear_demo_data(state: State<AppState>) -> CmdResult<usize> {
 }
 
 // ---------- your data ----------
-// These wait on a file dialog, so they run off the main thread.
+// These wait on a file dialog, so they run off the main thread: as async commands for Settings,
+// and on a thread of their own for the palette.
 
 /// Where the user wants a file saved; None if they closed the dialog.
 fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option<std::path::PathBuf> {
@@ -795,30 +796,42 @@ fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option
 }
 
 /// Saves tracked time as a spreadsheet; how many rows, or None when no place was picked.
-#[tauri::command]
-pub async fn export_time(app: AppHandle) -> CmdResult<Option<usize>> {
+pub fn export_time_dialog(app: &AppHandle) -> CmdResult<Option<usize>> {
     let name = format!("Kairo time {}.csv", Local::now().format("%Y-%m-%d"));
-    let Some(path) = save_path(&app, &name, "Spreadsheet", "csv") else { return Ok(None) };
+    let Some(path) = save_path(app, &name, "Spreadsheet", "csv") else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
     backup::export_csv(&conn, &path).map(Some)
 }
 
-/// Saves everything to one file; its name, or None when no place was picked.
 #[tauri::command]
-pub async fn backup_data(app: AppHandle) -> CmdResult<Option<String>> {
+pub async fn export_time(app: AppHandle) -> CmdResult<Option<usize>> {
+    export_time_dialog(&app)
+}
+
+/// Saves everything to one file; its name, or None when no place was picked.
+pub fn backup_dialog(app: &AppHandle) -> CmdResult<Option<String>> {
     let name = format!("Kairo backup {}.kairo", Local::now().format("%Y-%m-%d"));
-    let Some(path) = save_path(&app, &name, "Kairo backup", "kairo") else { return Ok(None) };
+    let Some(path) = save_path(app, &name, "Kairo backup", "kairo") else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
     backup::backup(&conn, &path)?;
     Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
 }
 
-/// Replaces what's here with a backup, once the user has picked it and said yes, and restarts
-/// Kairo with it. What was here is saved first in Kairo's data folder. False when they didn't.
+#[tauri::command]
+pub async fn backup_data(app: AppHandle) -> CmdResult<Option<String>> {
+    backup_dialog(&app)
+}
+
 #[tauri::command]
 pub async fn restore_data(app: AppHandle) -> CmdResult<bool> {
+    restore_dialog(&app)
+}
+
+/// Replaces what's here with a backup, once the user has picked it and said yes, and restarts
+/// Kairo with it. What was here is saved first in Kairo's data folder. False when they didn't.
+pub fn restore_dialog(app: &AppHandle) -> CmdResult<bool> {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     let Some(from) = app.dialog().file().add_filter("Kairo backup", &["kairo"]).blocking_pick_file().and_then(|f| f.into_path().ok()) else {
         return Ok(false);
