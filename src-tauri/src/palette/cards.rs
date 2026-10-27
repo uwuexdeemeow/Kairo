@@ -62,6 +62,10 @@ pub fn subjects(conn: &Connection, apps: &[AppEntry]) -> Result<Vec<Subject>> {
         // The installed entry it opens from, else the program Kairo saw it run as.
         s.icon = apps.iter().find(|a| a.name.eq_ignore_ascii_case(&s.name)).map(|a| a.path.clone()).or_else(|| db::app_path(conn, exe).ok().flatten());
     }
+    // Projects can be asked about too ("kairo this week"), by their time across apps.
+    for p in crate::projects::totals(conn, now_ms() - SUBJECTS_FOR_MS, now_ms(), crate::analysis::ALL_COMPUTERS)? {
+        subjects.push(Subject { name: p.name, key: format!("project:{}", p.id), category: Category::Neutral, icon: None, used_ms: p.ms });
+    }
     subjects.sort_by_key(|s| std::cmp::Reverse(s.used_ms));
     Ok(subjects)
 }
@@ -154,7 +158,14 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
                 _ => false,
             }
     };
-    let load = |from: i64, to: i64| -> Vec<Row> { analysis::load_rows(conn, from, to).unwrap_or_default().into_iter().filter(mine).collect() };
+    // A project's time comes from window titles, which app and site rows don't carry.
+    let project = subject.key.strip_prefix("project:").and_then(|id| id.parse::<i64>().ok());
+    let load = |from: i64, to: i64| -> Vec<Row> {
+        match project {
+            Some(id) => crate::projects::rows_of(conn, id, from, to).unwrap_or_default(),
+            None => analysis::load_rows(conn, from, to).unwrap_or_default().into_iter().filter(mine).collect(),
+        }
+    };
 
     let (first, last) = period.days(today);
     let (from, to) = (bounds(first).0, bounds(last).1);
@@ -259,6 +270,7 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
         Period::ThisMonth | Period::LastMonth => first.format("%B %Y").to_string(),
     };
     let category = match subject.category {
+        _ if project.is_some() => "project",
         Category::Productive => "productive",
         Category::Neutral => "neutral",
         Category::Distracting => "distracting",
@@ -348,5 +360,29 @@ pub fn focus_plan(conn: &Connection, minutes: u32, label: Option<&str>) -> Focus
         launchers,
         strict: if settings.is_some_and(|s| s.strict) { "On".into() } else { "Off".into() },
         replaces: focus::active(conn).ok().flatten().is_some(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projects_can_be_asked_about_like_apps() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        crate::projects::save(&conn, None, "Kairo", "kairo").unwrap();
+        // Up to half an hour in VS Code's kairo folder today, and an hour earlier something else.
+        let now = now_ms();
+        let start = (now - 31 * 60_000).max(bounds(Local::now().date_naive()).0);
+        for (app, title, from) in [("code", "main.rs - kairo", start), ("discord", "Friends", start - 60 * 60_000)] {
+            let s = db::NewSession { app, exe: app, title, site: None, start_ms: from, end_ms: from + 30 * 60_000, idle: false, demo: false };
+            db::insert_session(&conn, &s).unwrap();
+        }
+        let project = subjects(&conn, &[]).unwrap().into_iter().find(|s| s.key.starts_with("project:")).unwrap();
+        assert_eq!(project.name, "Kairo");
+        let card = answer(&conn, &project, Period::Today);
+        assert_eq!(card.title, "Kairo today");
+        assert!(card.range.ends_with("· project"), "{}", card.range);
+        assert!(card.total_ms > 0 && card.total_ms <= 30 * 60_000);
     }
 }
