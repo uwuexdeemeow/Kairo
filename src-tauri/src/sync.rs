@@ -245,6 +245,10 @@ fn seed_choices(conn: &Connection) -> Result<()> {
              SELECT 'goal:week-distracting', value, 1 FROM settings WHERE key = 'goal_week_distracting_max_min';",
     )
     .map_err(err)?;
+    if !crate::schedule::list(conn).map_err(err)?.is_empty() {
+        let schedule = crate::schedule::to_json(conn).map_err(err)?;
+        conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('schedule:focus', ?1, 1)", [schedule]).map_err(err)?;
+    }
     db::set_setting(conn, SEEDED_KEY, "1").map_err(err)
 }
 
@@ -307,6 +311,7 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
         },
         "focus" => blocking::set_rule(conn, key, blocking::Rule::parse(value).ok_or("unknown focus rule")?).map_err(err),
         "privacy" => privacy::set_rule(conn, key, privacy::Mode::parse(value).ok_or("unknown recording rule")?).map_err(err),
+        "schedule" if key == "focus" => crate::schedule::replace_from_json(conn, value),
         _ => Err("unknown choice".into()),
     }
 }

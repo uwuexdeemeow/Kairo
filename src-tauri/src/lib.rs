@@ -15,6 +15,7 @@ mod palette;
 mod platform;
 mod privacy;
 mod recap;
+mod schedule;
 mod startup;
 mod sync;
 mod updater;
@@ -236,6 +237,9 @@ pub fn run() {
             commands::get_focus_blocks,
             commands::get_break_minutes,
             commands::set_break_minutes,
+            commands::get_focus_schedule,
+            commands::add_focus_slot,
+            commands::remove_focus_slot,
             commands::get_goals,
             commands::get_goal_settings,
             commands::get_week_goals,

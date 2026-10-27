@@ -274,7 +274,18 @@ export interface GoalSettings {
   weekDistractingMaxMin: number;
 }
 
-export type GoalName = "productive" | "distracting" | "week-productive" | "week-distracting";
+/** A focus session that starts on its own each week. */
+export interface FocusSlot {
+  id: number;
+  /** Monday in bit 0 to Sunday in bit 6. */
+  days: number;
+  /** Minutes after midnight. */
+  startMin: number;
+  minutes: number;
+  label: string | null;
+}
+
+export type GoalName ="productive" | "distracting" | "week-productive" | "week-distracting";
 
 export type DeleteRange = "hour" | "day" | "all";
 
@@ -305,6 +316,11 @@ export const api = {
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: GoalName, minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  focusSchedule: () => invoke<FocusSlot[]>("get_focus_schedule"),
+  /** `days` has Monday in bit 0 to Sunday in bit 6; returns the schedule after. */
+  addFocusSlot: (days: number, startMin: number, minutes: number, label: string | null) =>
+    invoke<FocusSlot[]>("add_focus_slot", { days, startMin, minutes, label }),
+  removeFocusSlot: (id: number) => invoke<FocusSlot[]>("remove_focus_slot", { id }),
   /** The weekly goals for the week containing `date`; the streak counts weeks. */
   weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),
   setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),

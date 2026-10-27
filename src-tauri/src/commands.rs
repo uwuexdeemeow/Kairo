@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -231,6 +231,31 @@ pub struct FocusOverview {
     week: focus::Stats,
     all: focus::Stats,
     recent: Vec<focus::Block>,
+}
+
+#[tauri::command]
+pub fn get_focus_schedule(state: State<AppState>) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::list(&conn).map_err(err)
+}
+
+/// Adds a slot: `days` has Monday in bit 0 to Sunday in bit 6, `start_min` is minutes after
+/// midnight. The whole schedule then travels to combined computers.
+#[tauri::command]
+pub fn add_focus_slot(state: State<AppState>, days: u8, start_min: u32, minutes: u32, label: Option<String>) -> CmdResult<Vec<schedule::Slot>> {
+    let slot = schedule::tidy(days, start_min, minutes, label.as_deref()).ok_or("Pick at least one day.")?;
+    let conn = state.db.lock().map_err(err)?;
+    schedule::add(&conn, &slot).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_focus_slot(state: State<AppState>, id: i64) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::remove(&conn, id).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
 }
 
 /// Session counts and focused time for today, this week and ever, plus the latest sessions.

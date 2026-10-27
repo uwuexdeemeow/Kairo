@@ -12,11 +12,11 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
-use chrono::Timelike;
+use chrono::{Local, TimeZone, Timelike};
 
 use crate::analysis::{Insight, InsightKind};
 use crate::goals::fmt_dur;
-use crate::{classify, db, nudge, platform};
+use crate::{classify, db, nudge, platform, schedule};
 
 const TICK: Duration = Duration::from_secs(5);
 const MIN_MS: i64 = 60_000;
@@ -28,6 +28,8 @@ const BREAK_KEY: &str = "break_every_min";
 const DEFAULT_BREAK_MIN: u32 = 90;
 /// This long away from the keyboard and mouse counts as a break.
 const BREAK_RESETS_AFTER_MS: i64 = 5 * MIN_MS;
+/// A scheduled session waits for someone at the computer: input within this long.
+const SCHEDULE_NEEDS_ACTIVE_MS: i64 = 2 * MIN_MS;
 /// A tick gap this large means the machine slept, which is a break too.
 const SLEEP_GAP_MS: i64 = 30_000;
 
@@ -340,7 +342,18 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         w.stretch_since = Some(now);
         w.breaks_sent = 0;
     }
-    let session = active(conn)?;
+    let mut session = active(conn)?;
+
+    // A scheduled slot starts once the user is at the computer and nothing else is running.
+    if session.is_none() && !paused && platform::idle_ms() < SCHEDULE_NEEDS_ACTIVE_MS {
+        if let Some((slot, day, left)) = schedule::due(conn, Local::now())? {
+            let started = start(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), now)?;
+            schedule::mark_started(conn, slot.id, day)?;
+            let until = Local.timestamp_millis_opt(started.ends_ms(now)).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default();
+            notify(app, &format!("Scheduled focus until {until}"), "Distracting apps and sites are blocked until then, as in any focus session.");
+            session = Some(started);
+        }
+    }
 
     // Breaks: away long enough, asleep or paused all reset the stretch.
     if slept || paused || platform::idle_ms() >= BREAK_RESETS_AFTER_MS {

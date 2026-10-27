@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -1200,6 +1200,70 @@ function paintTimer() {
 
 const focusedMs = (b: FocusBlock) => Math.max(0, b.end - b.start - b.pausedMs);
 
+// ---------- scheduled focus ----------
+
+const SCHEDULE_LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+
+/// "Weekdays", "Every day", "Weekends" or the days themselves.
+function daysText(days: number): string {
+  if (days === 0x7f) return "Every day";
+  if (days === 0x1f) return "Weekdays";
+  if (days === 0x60) return "Weekends";
+  return WEEKDAYS.filter((_, i) => days & (1 << i)).join(", ");
+}
+
+/// Minutes after midnight as "09:00"; past midnight wraps to the next day's time.
+const clockOf = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+function renderSchedule(slots: FocusSlot[]) {
+  const root = $("#schedule-list");
+  if (!slots.length) {
+    root.replaceChildren();
+    return;
+  }
+  root.replaceChildren(
+    ...slots.map((s) => {
+      const remove = h("button", { class: "link-btn" }, "Remove");
+      remove.addEventListener("click", async () => renderSchedule(await api.removeFocusSlot(s.id)));
+      return h(
+        "div",
+        { class: "history-row schedule-row" },
+        h("span", { class: "history-time" }, `${clockOf(s.startMin)}–${clockOf(s.startMin + s.minutes)}`),
+        h("span", { class: `history-label${s.label ? "" : " muted"}` }, s.label ?? "Scheduled focus"),
+        h("span", { class: "history-len" }, daysText(s.days)),
+        remove,
+      );
+    }),
+  );
+}
+
+/// The add row: day toggles (weekdays to start), and the lengths to choose from.
+function setUpScheduleForm() {
+  $("#schedule-days").replaceChildren(
+    ...WEEKDAYS.map((day, i) => {
+      const button = h("button", { class: "day-toggle", "aria-pressed": String(i < 5), title: day }, day.slice(0, 2));
+      button.addEventListener("click", () => button.setAttribute("aria-pressed", String(button.getAttribute("aria-pressed") !== "true")));
+      return button;
+    }),
+  );
+  const length = $<HTMLSelectElement>("#schedule-length");
+  length.replaceChildren(...SCHEDULE_LENGTHS.map((m) => h("option", { value: String(m) }, fmtDur(m * 60_000))));
+  length.value = "120";
+  $("#schedule-add").addEventListener("click", async () => {
+    const days = [...$("#schedule-days").children].reduce((bits, b, i) => (b.getAttribute("aria-pressed") === "true" ? bits | (1 << i) : bits), 0);
+    const [h24, m] = $<HTMLInputElement>("#schedule-start").value.split(":").map(Number);
+    const label = $<HTMLInputElement>("#schedule-label").value.trim() || null;
+    try {
+      renderSchedule(await api.addFocusSlot(days, (h24 || 0) * 60 + (m || 0), Number(length.value), label));
+      $<HTMLInputElement>("#schedule-label").value = "";
+      $("#schedule-status").textContent = "";
+    } catch (err) {
+      $("#schedule-status").textContent = String(err);
+    }
+  });
+}
+setUpScheduleForm();
+
 function renderFocusPage(o: FocusOverview) {
   const finished = o.all.sessions ? `${Math.round((o.all.completed / o.all.sessions) * 100)}%` : "—";
   $("#focus-stats").replaceChildren(
@@ -1334,6 +1398,7 @@ async function load(v: View = view) {
     if (v === "focus") {
       paintTimer();
       renderFocusPage(await api.focusOverview());
+      renderSchedule(await api.focusSchedule());
     }
     if (v === "settings") {
       $("#settings-version").textContent = `Kairo ${await api.version()}`;
