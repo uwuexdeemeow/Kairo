@@ -59,6 +59,43 @@ pub fn label(conn: &Connection, start: i64, end: i64, kind: &str) -> Result<usiz
     )
 }
 
+/// Labels time away during the calendar's meetings as "Meeting", under each meeting's title, up
+/// to a little before `now`: rows still being written are left for next time. Returns how many
+/// rows changed.
+pub fn label_meetings(conn: &Connection, now: i64) -> Result<usize> {
+    let settled = now - JOIN_GAP_MS;
+    let mut changed = 0;
+    for meeting in crate::calendar::between(conn, settled - LOOK_BACK_MS, settled)? {
+        let to = meeting.end_ms.min(settled);
+        // Only the part of a stretch away within the meeting is the meeting's.
+        split_idle_at(conn, meeting.start_ms, settled)?;
+        split_idle_at(conn, to, settled)?;
+        changed += conn.execute(
+            "UPDATE sessions SET idle = 0, app = 'Meeting', exe = 'away-meeting', title = ?1, site = NULL
+             WHERE idle = 1 AND device IS NULL AND demo = 0 AND start_ms >= ?2 AND end_ms <= ?3",
+            params![meeting.title, meeting.start_ms, to],
+        )?;
+    }
+    Ok(changed)
+}
+
+/// How far back meetings label time away.
+const LOOK_BACK_MS: i64 = 14 * 24 * 60 * 60_000;
+
+/// Splits this computer's finished idle rows that cross `at` into the part before and after it.
+fn split_idle_at(conn: &Connection, at: i64, settled: i64) -> Result<()> {
+    let crossing = "idle = 1 AND device IS NULL AND demo = 0 AND start_ms < ?1 AND end_ms > ?1 AND end_ms <= ?2";
+    conn.execute(
+        &format!(
+            "INSERT INTO sessions (app, exe, title, site, start_ms, end_ms, idle, demo, device)
+             SELECT app, exe, title, site, ?1, end_ms, idle, demo, device FROM sessions WHERE {crossing}"
+        ),
+        params![at, settled],
+    )?;
+    conn.execute(&format!("UPDATE sessions SET end_ms = ?1 WHERE {crossing}"), params![at, settled])?;
+    Ok(())
+}
+
 /// Stops asking about the stretch starting at `start`.
 pub fn dismiss(conn: &Connection, start: i64) -> Result<()> {
     conn.execute("INSERT OR IGNORE INTO away_dismissed (start_ms) VALUES (?1)", [start])?;
@@ -96,6 +133,25 @@ mod tests {
         let rows = analysis::load_rows(&conn, t, t + 40 * M).unwrap();
         assert!(rows.iter().all(|r| !r.idle && r.app == "Meeting" && r.category == analysis::Category::Productive));
         assert_eq!(label(&conn, t + 200 * M, now, "nap").unwrap(), 0);
+    }
+
+    #[test]
+    fn time_away_during_a_meeting_labels_itself() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let t = 1_000_000 * M;
+        // Away from 10:00 to 11:30 in one row; the meeting ran 10:15 to 11:00.
+        idle(&conn, t, 90);
+        let meeting = crate::calendar::Event { start_ms: t + 15 * M, end_ms: t + 60 * M, title: "Design review".into() };
+        crate::calendar::store(&conn, &[meeting]).unwrap();
+        let now = t + 120 * M;
+        assert_eq!(label_meetings(&conn, now).unwrap(), 1);
+        let rows = analysis::load_rows(&conn, t, now).unwrap();
+        let shape: Vec<(i64, i64, bool, &str)> = rows.iter().map(|r| ((r.start - t) / M, (r.end - t) / M, r.idle, r.app.as_str())).collect();
+        assert_eq!(shape, [(0, 15, true, "Idle"), (15, 60, false, "Meeting"), (60, 90, true, "Idle")]);
+        // The rest is still asked about, if long enough; here, 30 minutes after the meeting.
+        assert_eq!(stretches(&conn, t, now, now).unwrap(), [Stretch { start_ms: t + 60 * M, end_ms: t + 90 * M }]);
+        // Labelling again changes nothing.
+        assert_eq!(label_meetings(&conn, now).unwrap(), 0);
     }
 
     #[test]

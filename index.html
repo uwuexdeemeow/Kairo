@@ -423,6 +423,16 @@
           </section>
 
           <section class="block">
+            <h2>Calendar</h2>
+            <p class="muted">Paste your calendar's private address (Google Calendar: Settings → your calendar → "Secret address in iCal format"; Outlook: Settings → Calendar → Shared calendars → Publish; iCloud: share as a public calendar), one per line for more than one. Kairo reads it every half hour and only reads it: time away during a meeting labels itself, scheduled focus waits for meetings to end, and the palette knows your next one.</p>
+            <textarea class="calendar-urls" id="calendar-urls" rows="2" spellcheck="false" autocomplete="off" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" aria-label="Calendar addresses"></textarea>
+            <div class="row-buttons">
+              <button class="btn" id="calendar-save">Save and read</button>
+              <span class="muted" id="calendar-status" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="block">
             <h2>Combine computers</h2>
             <p class="muted">See the time from all your computers together. Pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer; Kairo keeps its time there every few minutes, and adds in the others'. Your time, including window titles, goes to that drive. Categories, limits, goals and blocking rules you change are shared too, the latest change winning everywhere.</p>
             <p id="sync-where" aria-live="polite"></p>

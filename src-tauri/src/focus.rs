@@ -332,10 +332,10 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
 }
 
 /// Whether a scheduled slot that's due may start: once someone is at the computer, nothing else is
-/// running, and they aren't in a game, which a session would block mid-match; the slot waits and
-/// starts when they leave it, for what's left of its window.
-fn schedule_may_start(session_running: bool, paused: bool, idle_ms: i64, gaming: bool) -> bool {
-    !session_running && !paused && idle_ms < SCHEDULE_NEEDS_ACTIVE_MS && !gaming
+/// running, and they're neither in a game, which a session would block mid-match, nor in a meeting
+/// on their calendar; the slot waits and starts when that's over, for what's left of its window.
+fn schedule_may_start(session_running: bool, paused: bool, idle_ms: i64, busy: bool) -> bool {
+    !session_running && !paused && idle_ms < SCHEDULE_NEEDS_ACTIVE_MS && !busy
 }
 
 fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -354,7 +354,8 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     let fg = platform::foreground();
     let gaming = fg.as_ref().is_some_and(|f| classify::is_game(&classify::exe_stem(&f.exe_path), &f.exe_path));
 
-    if schedule_may_start(session.is_some(), paused, platform::idle_ms(), gaming) {
+    let in_meeting = crate::calendar::busy_at(conn, now)?.is_some();
+    if schedule_may_start(session.is_some(), paused, platform::idle_ms(), gaming || in_meeting) {
         if let Some((slot, day, left)) = schedule::due(conn, Local::now())? {
             let started = start(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), now)?;
             schedule::mark_started(conn, slot.id, day)?;
@@ -409,7 +410,7 @@ mod tests {
     fn scheduled_focus_waits_out_games_and_absence() {
         // At the computer, nothing running, not gaming: it starts.
         assert!(schedule_may_start(false, false, 10_000, false));
-        // In a game it waits, however active the player is.
+        // In a game or a meeting it waits, however active the user is.
         assert!(!schedule_may_start(false, false, 0, true));
         // Away from the computer, with a session already running, or with tracking paused, too.
         assert!(!schedule_may_start(false, false, 3 * M, false));

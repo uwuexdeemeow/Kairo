@@ -274,6 +274,15 @@ export interface GoalSettings {
   weekDistractingMaxMin: number;
 }
 
+/** The calendars Kairo reads, and how the last reading went. */
+export interface CalendarStatus {
+  urls: string[];
+  readMs: number | null;
+  /** Meetings within two weeks either side of the reading. */
+  events: number;
+  error: string | null;
+}
+
 /** A stretch away from the computer. */
 export interface AwayStretch {
   startMs: number;
@@ -322,6 +331,9 @@ export const api = {
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: GoalName, minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  calendar: () => invoke<CalendarStatus>("get_calendar"),
+  /** Keeps the addresses (one per line) and reads them at once. */
+  setCalendar: (urls: string) => invoke<CalendarStatus>("set_calendar", { urls }),
   /** Half an hour or more away from this computer on a day, still to be labelled. */
   away: (date?: string) => invoke<AwayStretch[]>("get_away", { date }),
   /** `kind` is "meeting", "call", "break" or "other". */

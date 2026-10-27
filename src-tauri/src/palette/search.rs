@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, Duration, NaiveDate, Weekday};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
 
 use super::AppEntry;
 use crate::analysis::Category;
@@ -323,6 +323,9 @@ pub struct Context {
     pub limits: HashMap<String, i64>,
     /// How the weekly goals stand, like "7h 53m of 15h 00m productive"; None with none set.
     pub week_goals: Option<String>,
+    /// The next meeting on the user's calendars: its title, when it starts, and how far off that
+    /// is from now, in milliseconds.
+    pub next_meeting: Option<(String, NaiveDateTime, i64)>,
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -481,6 +484,21 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         item.score = m.score - 5.0;
         items.push(item);
     }
+    // "meeting", "next", "calendar": the next meeting on the calendar.
+    if let Some((title, at, in_ms)) = &ctx.next_meeting {
+        if let Some(m) = fuzzy(query, "Next meeting").or_else(|| fuzzy(query, "calendar meetings next up")) {
+            let day = match (at.date() - ctx.today).num_days() {
+                0 => "Today".to_string(),
+                1 => "Tomorrow".to_string(),
+                _ => at.format("%A %-d %B").to_string(),
+            };
+            let mut item = Item::new(format!("Next meeting: {title}"), Icon::Glyph(Glyph::Day, Tone::Accent), "Answers", Action::Go("today", None));
+            item.at = fuzzy(query, "Next meeting").map(|m| m.at).unwrap_or_default();
+            item.sub = Some(format!("{day} at {}, in {}", at.format("%H:%M"), fmt_dur(*in_ms)));
+            item.score = m.score - 1.0;
+            items.push(item);
+        }
+    }
     // "goals", "weekly goals", "how's my week": the weekly goals, or where to set them.
     if let Some(m) = fuzzy(query, "Goals this week").or_else(|| fuzzy(query, "weekly goals how is my week progress")) {
         let (title, sub, action) = match &ctx.week_goals {
@@ -613,6 +631,7 @@ mod tests {
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
+            next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
         }
     }
 
@@ -637,6 +656,8 @@ mod tests {
         let none = Context { week_goals: None, ..ctx() };
         assert_eq!(search(&none, "goals")[0].action, Action::Go("settings", None));
         assert!(titles(&search(&c, "schedule")).contains(&"Focus schedule"));
+        let next = search(&c, "next meeting");
+        assert_eq!((next[0].title.as_str(), next[0].sub.as_deref()), ("Next meeting: Design review", Some("Today at 14:00, in 35m")));
     }
 
     #[test]

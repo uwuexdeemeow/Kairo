@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::{Local, NaiveDate};
+use chrono::{Local, NaiveDate, TimeZone};
 use rusqlite::{Connection, Result};
 use serde::Serialize;
 use tauri::AppHandle;
@@ -309,6 +309,10 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
+        next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
+            let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
+            Some((m.title, at, m.start_ms - now))
+        }),
     };
     (ctx, footer)
 }
@@ -772,6 +776,7 @@ mod tests {
             subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,
+            next_meeting: None,
         });
         let first = session.query("");
         assert!(!first.chips.is_empty());
