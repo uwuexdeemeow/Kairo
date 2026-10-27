@@ -118,6 +118,8 @@ export interface CategoryEntry {
   privacy: PrivacyMode;
   /** Daily limit in minutes; 0 means none. */
   limitMin: number;
+  /** Whether passing the limit blocks it for the rest of the day. */
+  limitHard: boolean;
   /** During focus sessions: "auto" blocks it when its category is distracting. */
   focus: FocusRule;
   ms: number;
@@ -366,6 +368,7 @@ export const api = {
   /** The weekly goals for the week containing `date`; the streak counts weeks. */
   weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),
   setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),
+  setLimitHard: (key: string, on: boolean) => invoke<void>("set_limit_hard", { key, on }),
   setPrivacyRule:(key: string, mode: PrivacyMode) => invoke<void>("set_privacy_rule", { key, mode }),
   applyPrivacyToPast: (key: string) => invoke<number>("apply_privacy_to_past", { key }),
   retention: () => invoke<number>("get_retention"),

@@ -258,6 +258,7 @@ pub fn run() {
             commands::get_week_goals,
             commands::set_goal,
             commands::set_limit,
+            commands::set_limit_hard,
             commands::set_privacy_rule,
             commands::apply_privacy_to_past,
             commands::get_retention,

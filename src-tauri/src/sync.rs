@@ -232,6 +232,8 @@ fn seed_choices(conn: &Connection) -> Result<()> {
          INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
              SELECT 'limit:' || key, minutes, 1 FROM limits;
          INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
+             SELECT 'hardlimit:' || key, '1', 1 FROM limits WHERE hard = 1;
+         INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
              SELECT 'focus:' || key, rule, 1 FROM focus_rules;
          INSERT OR IGNORE INTO shared_choices (item, value, changed_ms)
              SELECT 'privacy:' || key, mode, 1 FROM privacy_rules WHERE user_set = 1;
@@ -286,6 +288,9 @@ fn read_choices(conn: &Connection, dir: &Path, me: &str) -> Result<bool> {
         }
         let Ok(text) = std::fs::read_to_string(entry.path().join(CHOICES_FILE)) else { continue };
         let Ok(theirs) = serde_json::from_str::<HashMap<String, Choice>>(&text) else { continue };
+        // A limit before whether it blocks, which needs the limit to be there.
+        let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
+        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:"), item.clone()));
         for (item, choice) in theirs {
             if ours.get(&item).is_some_and(|o| o.changed_ms >= choice.changed_ms) {
                 continue;
@@ -309,6 +314,7 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
     match kind {
         "category" => analysis::set_category(conn, key, analysis::Category::parse(value).ok_or("unknown category")?).map_err(err),
         "limit" => goals::set_limit(conn, key, minutes()?).map_err(err),
+        "hardlimit" => goals::set_hard(conn, key, value == "1").map_err(err),
         "goal" => match goals::set_named_goal(conn, key, minutes()?).map_err(err)? {
             true => Ok(()),
             false => Err("unknown goal".into()),

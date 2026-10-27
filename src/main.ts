@@ -930,7 +930,17 @@ function paintCategories() {
     });
 
     const limit = minutesSelect(LIMIT_CHOICES, e.limitMin, `Daily limit for ${e.label}`);
-    limit.addEventListener("change", () => api.setLimit(e.key, Number(limit.value)));
+    // Once there's a limit, it can block for the rest of the day instead of only notifying.
+    const hard = h("input", { type: "checkbox", "aria-label": `Block ${e.label} once its limit is passed` }) as HTMLInputElement;
+    hard.checked = e.limitHard;
+    const hardToggle = h("label", { class: "hard-toggle", title: "Block it for the rest of the day once the limit is passed (games are never cut short)" }, hard, "Block");
+    hardToggle.hidden = !e.limitMin;
+    hard.addEventListener("change", () => api.setLimitHard(e.key, hard.checked));
+    limit.addEventListener("change", async () => {
+      await api.setLimit(e.key, Number(limit.value));
+      hardToggle.hidden = limit.value === "0";
+      if (limit.value === "0") hard.checked = false;
+    });
     return h(
       "tr",
       {},
@@ -938,7 +948,7 @@ function paintCategories() {
       h("td", { class: "kind" }, e.kind),
       h("td", { class: "num" }, fmtDur(e.ms)),
       h("td", {}, select),
-      h("td", {}, limit),
+      h("td", { class: "limit-cell" }, limit, hardToggle),
       h("td", {}, focus),
       h("td", {}, recording),
     );

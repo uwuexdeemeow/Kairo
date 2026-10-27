@@ -1229,6 +1229,26 @@ html.palette-root {
   border-top: 1px solid var(--rule);
 }
 
+/* A daily limit, and whether passing it blocks for the rest of the day. */
+.limit-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hard-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.hard-toggle[hidden] {
+  display: none;
+}
+
 /* Projects aren't a category, so their bars are plain ink. */
 .line.project {
   background: var(--ink);

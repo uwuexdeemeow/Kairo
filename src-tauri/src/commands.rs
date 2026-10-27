@@ -103,6 +103,8 @@ pub struct CategoryEntry {
     privacy: Mode,
     /// Daily limit in minutes; 0 means none.
     limit_min: u32,
+    /// Whether passing the limit blocks it for the rest of the day.
+    limit_hard: bool,
     /// Whether focus sessions block it.
     focus: blocking::Rule,
     ms: i64,
@@ -116,6 +118,7 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
     let cats = analysis::category_map(&conn).map_err(err)?;
     let rules = privacy::load(&conn).map_err(err)?;
     let limits: HashMap<String, u32> = goals::load(&conn).map_err(err)?.limits.into_iter().collect();
+    let hard = goals::hard_limits(&conn).map_err(err)?;
     let focus_rules = blocking::rules(&conn).map_err(err)?;
     let focus_rule = |key: &str| focus_rules.get(key).copied().unwrap_or(blocking::Rule::Auto);
     let since = now_ms() - 30 * DAY_MS;
@@ -133,7 +136,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
             let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
             let limit_min = limits.get(&key).copied().unwrap_or(0);
             let focus = focus_rule(&key);
-            out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, focus, ms });
+            let limit_hard = hard.contains(&key);
+            out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, limit_hard, focus, ms });
         }
         Ok(())
     };
@@ -165,7 +169,8 @@ pub fn get_categories(state: State<AppState>) -> CmdResult<Vec<CategoryEntry>> {
         let privacy = rules.get(&key).copied().unwrap_or(Mode::Track);
         let limit_min = limits.get(&key).copied().unwrap_or(0);
         let focus = focus_rule(&key);
-        out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, focus, ms: 0 });
+        let limit_hard = hard.contains(&key);
+        out.push(CategoryEntry { key, label, kind, category, privacy, limit_min, limit_hard, focus, ms: 0 });
     }
 
     out.sort_by_key(|e| std::cmp::Reverse(e.ms));
@@ -443,6 +448,15 @@ pub fn set_limit(state: State<AppState>, key: String, minutes: u32) -> CmdResult
     let conn = state.db.lock().map_err(err)?;
     goals::set_limit(&conn, &key, minutes).map_err(err)?;
     sync::record(&conn, &format!("limit:{key}"), &minutes.to_string())
+}
+
+/// Makes a daily limit block its app or site for the rest of the day once passed (`on`), or only
+/// notify.
+#[tauri::command]
+pub fn set_limit_hard(state: State<AppState>, key: String, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    goals::set_hard(&conn, &key, on).map_err(err)?;
+    sync::record(&conn, &format!("hardlimit:{key}"), if on { "1" } else { "0" })
 }
 
 fn parse_mode(mode: &str) -> CmdResult<Mode> {
