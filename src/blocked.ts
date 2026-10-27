@@ -1,4 +1,5 @@
-// The small always-on-top window shown when a focus session minimizes a blocked app.
+// The small always-on-top window shown when a focus session, or a hard daily limit, minimizes a
+// blocked app.
 
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
@@ -9,6 +10,8 @@ interface Blocked {
   label: string;
   key: string;
   untilMs: number;
+  /** "focus" for a focus session, "limit" for a daily limit that's been passed. */
+  reason: "focus" | "limit";
 }
 
 declare global {
@@ -29,7 +32,13 @@ function paint() {
   const minutes = Math.ceil(left / 60_000);
   const until = new Date(current.untilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   $("#blocked-title").textContent = `${current.label} is blocked`;
-  $("#blocked-detail").textContent = `Your focus session runs until ${until}, ${minutes} ${minutes === 1 ? "minute" : "minutes"} from now.`;
+  const limit = current.reason === "limit";
+  $("#blocked-eyebrow").textContent = limit ? "Daily limit" : "Focus session";
+  $("#blocked-detail").textContent = limit
+    ? `You've passed today's limit for it, so it stays blocked until midnight.`
+    : `Your focus session runs until ${until}, ${minutes} ${minutes === 1 ? "minute" : "minutes"} from now.`;
+  // A limit has no session to end.
+  $("#blocked-end").hidden = limit;
 }
 
 window.kairoBlocked = (b) => {

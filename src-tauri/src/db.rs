@@ -130,6 +130,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("focus_sessions", "label", "TEXT"),
         // Which computer a session came from, when combining computers; NULL for this one.
         ("sessions", "device", "TEXT"),
+        // Whether passing a limit blocks the app or site for the rest of the day (goals.rs).
+        ("limits", "hard", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
         if !exists {

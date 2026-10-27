@@ -2,7 +2,7 @@
 //! limits, with a notification as a limit gets close and when a goal is reached or passed; and the
 //! same two goals for a whole week, Monday to Sunday.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -85,6 +85,39 @@ pub fn set_named_goal(conn: &Connection, name: &str, minutes: u32) -> Result<boo
 pub fn load_week(conn: &Connection) -> Result<Goals> {
     let minutes = |key| -> Result<u32> { Ok(db::get_setting(conn, key)?.and_then(|v| v.parse().ok()).unwrap_or(0)) };
     Ok(Goals { productive_min: minutes(WEEK_PRODUCTIVE_KEY)?, distracting_max_min: minutes(WEEK_DISTRACTING_KEY)?, limits: Vec::new() })
+}
+
+/// The limits that block their app or site once passed, by key.
+pub fn hard_limits(conn: &Connection) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare("SELECT key FROM limits WHERE hard = 1")?;
+    let keys = stmt.query_map([], |r| r.get(0))?.collect();
+    keys
+}
+
+/// Makes a limit block its app or site once passed, or only notify; a key without a limit is
+/// left alone.
+pub fn set_hard(conn: &Connection, key: &str, on: bool) -> Result<()> {
+    conn.execute("UPDATE limits SET hard = ?1 WHERE key = ?2", params![on, key])?;
+    Ok(())
+}
+
+/// What's past a hard limit today, by key, with when the block lifts: the next local midnight.
+/// Time from every computer counts, as for the limit's notification.
+pub fn hard_over(conn: &Connection, now_ms: i64) -> Result<HashMap<String, i64>> {
+    let hard = hard_limits(conn)?;
+    if hard.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let limits = load(conn)?.limits.into_iter().filter(|(key, _)| hard.contains(key)).collect();
+    let goals = Goals { productive_min: 0, distracting_max_min: 0, limits };
+    let today = Local::now().date_naive();
+    let Some((_, midnight)) = analysis::day_bounds(today) else { return Ok(HashMap::new()) };
+    Ok(over_limits(&goals, &rows_for(conn, today, now_ms)?).into_iter().map(|key| (key, midnight)).collect())
+}
+
+/// The keys of the limits `rows` go past.
+fn over_limits(goals: &Goals, rows: &[Row]) -> Vec<String> {
+    progress(goals, rows, &HashMap::new()).into_iter().filter(|p| p.kind == Kind::Limit && !p.met).map(|p| p.key).collect()
 }
 
 pub fn set_limit(conn: &Connection, key: &str, minutes: u32) -> Result<()> {
@@ -349,8 +382,13 @@ fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn 
     conn.execute("DELETE FROM goal_alerts WHERE day != ?1 AND day != ?2", params![day, week])?;
     let mut due = Vec::new();
     if !goals.is_empty() {
+        let hard = hard_limits(conn)?;
         for p in progress(&goals, &rows_for(conn, today, now)?, &labels(conn, &goals)?) {
-            due.extend(alert(&p).map(|a| (day.clone(), p.key.clone(), a)));
+            let Some((level, title, mut body)) = alert(&p) else { continue };
+            if level == DONE && hard.contains(&p.key) {
+                body.push_str(" It's blocked for the rest of the day.");
+            }
+            due.push((day.clone(), p.key.clone(), (level, title, body)));
         }
     }
     if !week_goals.is_empty() {
@@ -394,6 +432,25 @@ mod tests {
             distracting_max_min: distracting,
             limits: limits.iter().map(|(k, m)| (k.to_string(), *m)).collect(),
         }
+    }
+
+    #[test]
+    fn hard_limits_keep_their_flag_and_name_what_went_over() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        set_limit(&conn, "site:youtube", 30).unwrap();
+        set_limit(&conn, "app:discord", 60).unwrap();
+        set_hard(&conn, "site:youtube", true).unwrap();
+        // A key with no limit can't be hard.
+        set_hard(&conn, "app:steam", true).unwrap();
+        // Changing the minutes keeps the flag; removing the limit drops it.
+        set_limit(&conn, "site:youtube", 45).unwrap();
+        assert_eq!(hard_limits(&conn).unwrap(), HashSet::from(["site:youtube".to_string()]));
+        set_limit(&conn, "site:youtube", 0).unwrap();
+        assert!(hard_limits(&conn).unwrap().is_empty());
+
+        use Category::*;
+        let rows = vec![row("chrome", Some("youtube"), Distracting, 50), row("discord", None, Distracting, 20)];
+        assert_eq!(over_limits(&goals(0, 0, &[("site:youtube", 45), ("app:discord", 60)]), &rows), ["site:youtube"]);
     }
 
     #[test]

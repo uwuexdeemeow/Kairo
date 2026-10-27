@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::analysis::{self, Category};
-use crate::{classify, db, focus, platform};
+use crate::{classify, db, focus, goals, platform};
 
 const TICK: Duration = Duration::from_millis(500);
 /// Launchers are looked for every this many ticks; listing processes costs more than a glance
@@ -191,14 +191,19 @@ pub fn decide(rules: &HashMap<String, Rule>, cats: &HashMap<String, Category>, e
     analysis::resolve(cats, exe.unwrap_or(""), site) == Category::Distracting
 }
 
-/// For the browser extension: when a site is blocked right now, the time the block lifts.
+/// For the browser extension: when a site is blocked right now, the time the block lifts: by a
+/// focus session, or by a hard daily limit it's past.
 pub fn site_blocked_until(conn: &Connection, allowances: &Allowances, site: &str, now: i64) -> Result<Option<i64>> {
-    let Some(until) = focus::running_until(conn, now)? else { return Ok(None) };
-    if !settings(conn)?.enabled || allowed(allowances, &format!("site:{site}"), now) {
+    let key = format!("site:{site}");
+    if allowed(allowances, &key, now) {
         return Ok(None);
     }
-    let blocked = decide(&rules(conn)?, &analysis::category_map(conn)?, None, Some(site));
-    Ok(blocked.then_some(until))
+    if let Some(until) = focus::running_until(conn, now)?.filter(|_| settings(conn).is_ok_and(|s| s.enabled)) {
+        if decide(&rules(conn)?, &analysis::category_map(conn)?, None, Some(site)) {
+            return Ok(Some(until));
+        }
+    }
+    Ok(goals::hard_over(conn, now)?.get(&key).copied())
 }
 
 /// What the blocked window shows.
@@ -208,6 +213,8 @@ pub struct Blocked {
     label: String,
     key: String,
     until_ms: i64,
+    /// "focus" for a focus session, "limit" for a hard daily limit that's been passed.
+    reason: &'static str,
 }
 
 fn show_blocked(app: &AppHandle, blocked: &Blocked, appearance_mode: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -221,7 +228,7 @@ fn show_blocked(app: &AppHandle, blocked: &Blocked, appearance_mode: &str) -> st
     }
     // The page reads its first message before any of its own code runs.
     let window = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::App("blocked.html".into()))
-        .title("Blocked during focus")
+        .title("Blocked")
         .inner_size(460.0, 320.0)
         .resizable(false)
         .maximizable(false)
@@ -250,7 +257,13 @@ struct Watch {
     ticks: u64,
     /// Launchers already announced this session, so closing one again stays quiet.
     closed: HashSet<&'static str>,
+    /// What's past a hard daily limit, and when that lifts; worked out every few seconds rather
+    /// than every tick, since it adds up the day.
+    hard: HashMap<String, i64>,
 }
+
+/// Ticks between workings-out of what's past a hard limit: every 15 seconds.
+const HARD_EVERY_TICKS: u64 = 30;
 
 pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>, allowances: Allowances) {
     thread::Builder::new()
@@ -277,29 +290,48 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>, allowanc
 fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowances: &Allowances) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let now = chrono::Utc::now().timestamp_millis();
     w.ticks += 1;
-    let until = if paused { None } else { focus::running_until(conn, now)? };
     let settings = settings(conn)?;
-    let Some(until) = until.filter(|_| settings.enabled) else {
+    let session = if paused { None } else { focus::running_until(conn, now)?.filter(|_| settings.enabled) };
+    if paused {
+        w.hard.clear();
+    } else if w.ticks % HARD_EVERY_TICKS == 1 {
+        w.hard = goals::hard_over(conn, now)?;
+    }
+    if session.is_none() {
         w.closed.clear();
+    }
+    if session.is_none() && w.hard.is_empty() {
         close_window(app);
         return Ok(());
-    };
+    }
     let rules = rules(conn)?;
 
     // The app in front. Browsers are the extension's job, since the site matters more than the app.
     if let Some(fg) = platform::foreground() {
         let exe = classify::exe_stem(&fg.exe_path);
         let key = format!("app:{exe}");
-        if !classify::is_browser(&exe)
-            && decide(&rules, &analysis::category_map(conn)?, Some(&exe), None)
-            && !allowed(allowances, &key, now)
-            // Windows won't let Kairo minimize programs running with more rights, like many games
-            // with anti-cheat; the focus session's nudge still speaks up for those.
-            && platform::minimize(fg.window)
-        {
-            let label = classify::app_name(&fg.exe_path, &exe, &classify::clean_title(&fg.title));
-            show_blocked(app, &Blocked { label, key, until_ms: until }, &crate::appearance::get(conn)?)?;
+        let by_session = match session {
+            Some(until) if decide(&rules, &analysis::category_map(conn)?, Some(&exe), None) => Some(until),
+            _ => None,
+        };
+        // A hard limit never cuts a game short mid-match; games get the limit's notification.
+        let by_limit = w.hard.get(&key).copied().filter(|_| !classify::is_game(&exe, &fg.exe_path) && !NEVER.contains(&exe.as_str()));
+        let block = by_session.map(|until| (until, "focus")).or(by_limit.map(|until| (until, "limit")));
+        if let Some((until, reason)) = block {
+            if !classify::is_browser(&exe)
+                && !allowed(allowances, &key, now)
+                // Windows won't let Kairo minimize programs running with more rights, like many
+                // games with anti-cheat; the focus session's nudge still speaks up for those.
+                && platform::minimize(fg.window)
+            {
+                let label = classify::app_name(&fg.exe_path, &exe, &classify::clean_title(&fg.title));
+                show_blocked(app, &Blocked { label, key, until_ms: until, reason }, &crate::appearance::get(conn)?)?;
+            }
         }
+    }
+    // Game launchers close only during a focus session, not for a limit.
+    if session.is_none() {
+        return Ok(());
     }
 
     if settings.launchers && w.ticks.is_multiple_of(LAUNCHER_EVERY_TICKS) {
@@ -333,6 +365,26 @@ fn launchers_to_close(processes: &[(u32, String)]) -> Vec<(u32, &'static str, &'
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_site_past_a_hard_limit_stays_blocked_until_midnight() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let allowances = Allowances::default();
+        let now = chrono::Utc::now().timestamp_millis();
+        // Over a one-minute limit on YouTube, with no focus session running.
+        goals::set_limit(&conn, "site:youtube", 1).unwrap();
+        let s = db::NewSession { app: "Brave", exe: "brave", title: "", site: Some("youtube"), start_ms: now - 150_000, end_ms: now - 10_000, idle: false, demo: false };
+        db::insert_session(&conn, &s).unwrap();
+        // Only notified while the limit isn't hard.
+        assert_eq!(site_blocked_until(&conn, &allowances, "youtube", now).unwrap(), None);
+        goals::set_hard(&conn, "site:youtube", true).unwrap();
+        let midnight = analysis::day_bounds(chrono::Local::now().date_naive()).unwrap().1;
+        assert_eq!(site_blocked_until(&conn, &allowances, "youtube", now).unwrap(), Some(midnight));
+        assert_eq!(site_blocked_until(&conn, &allowances, "github", now).unwrap(), None);
+        // "Allow 5 minutes" still works for a limit.
+        allow(&allowances, "site:youtube", now);
+        assert_eq!(site_blocked_until(&conn, &allowances, "youtube", now).unwrap(), None);
+    }
 
     #[test]
     fn launchers_stay_open_while_a_game_runs() {
