@@ -69,16 +69,19 @@ pub struct PaletteItem(pub MenuItem<Wry>);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        // Must be first: a second launch (e.g. from Start while Kairo sits in the tray) just
-        // focuses the running copy instead of starting another collector, or opens its palette.
+        // Must be first: a second launch (e.g. from Start while Kairo sits in the tray) reaches the
+        // running copy instead of starting another collector. Kairo itself is the command
+        // palette; Chrono's own shortcut opens Chrono, the screen time tracker's window.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if args.iter().any(|a| a == startup::PALETTE_ARG) {
                 // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
                 if palette::shortcut_may_open() {
                     palette::toggle(app);
                 }
-            } else {
+            } else if args.iter().any(|a| a == startup::CHRONO_ARG) {
                 show_main(app);
+            } else {
+                palette::toggle(app);
             }
         }))
         .plugin(tauri_plugin_autostart::init(
@@ -135,7 +138,7 @@ pub fn run() {
             app.manage(palette::Index::default());
             app.manage(palette::Session::default());
             #[cfg(windows)]
-            palette::native::spawn(app.handle().clone(), db_path.clone(), startup::launched_for_palette());
+            palette::native::spawn(app.handle().clone(), db_path.clone(), startup::opens_palette());
             let scripted_tab = browser::SharedScripted::default();
             #[cfg(target_os = "macos")]
             {
@@ -172,8 +175,8 @@ pub fn run() {
                     let _ = app
                         .notification()
                         .builder()
-                        .title("Log out and back in to finish setting up Kairo")
-                        .body("GNOME turns on the extension that lets Kairo see your apps at your next login.")
+                        .title("Log out and back in to finish setting up Chrono")
+                        .body("GNOME turns on the extension that lets Chrono see your apps at your next login.")
                         .show();
                 }
                 let handle = app.handle().clone();
@@ -191,14 +194,15 @@ pub fn run() {
                 }
             }
             updater::spawn(app.handle().clone());
-            // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.
+            // Chrono's window is made when it's wanted; at sign-in Kairo starts in the tray, and
+            // opened by hand it's the palette.
             in_dock(app.handle(), false);
-            if startup::launched_for_palette() {
+            if startup::launched_for_chrono() {
+                show_main(app.handle());
+            } else if startup::opens_palette() {
                 // Windows' palette opens itself once its window exists.
                 #[cfg(not(windows))]
                 palette::toggle(app.handle());
-            } else if !startup::launched_at_login() {
-                show_main(app.handle());
             }
             Ok(())
         })
@@ -304,7 +308,7 @@ pub fn run() {
 }
 
 fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palette_shortcut: &str) -> tauri::Result<()> {
-    let open = MenuItem::with_id(app, "open", "Open Kairo", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Chrono", true, None::<&str>)?;
     // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
     // like over a game, since choosing it from the tray is no stray key press.
     let palette_item = MenuItem::with_id(app, "palette", "Command palette", true, Some(palette_shortcut))?;
@@ -369,7 +373,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palett
                 // running session, so both go through Kairo's own window instead.
                 if blocking::strict_now(&conn).unwrap_or(false) {
                     drop(conn);
-                    blocking::notify(app, "Strict mode is on", "End the focus session from Kairo's Focus page, after a short wait.");
+                    blocking::notify(app, "Strict mode is on", "End the focus session from Chrono's Focus page, after a short wait.");
                     show_main(app);
                     return;
                 }

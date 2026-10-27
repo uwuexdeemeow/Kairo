@@ -1,9 +1,9 @@
 # Kairo
-Kairo takes its name from kairos, the ancient Greek word for the right or opportune moment. It’s a desktop productivity hub that helps you understand and make the most of your time. It begins with a screen time tracker that quietly runs in the background, records which apps and sites you use, and turns that into clear insights about when you focus best and where your time slips away. All data stays on your device. Kairo is built to grow into a single home for everyday productivity tools, with a clipboard manager, command palette launcher and local AI file search on the roadmap.
+Kairo takes its name from kairos, the ancient Greek word for the right or opportune moment. It's a desktop productivity hub, and at its heart is the **command palette**: opening Kairo, from the Start menu, Spotlight or a launcher, or pressing its shortcut, brings up the palette, which opens apps, answers questions about your time and runs Kairo's actions. Its first app is **Chrono**, after chronos, kairos' partner word for clock time: a screen time tracker that quietly runs in the background, records which apps and sites you use, and turns that into clear insights about when you focus best and where your time slips away. Chrono opens from its own Start menu entry (Windows) or app menu entry (Linux), the tray or menu bar, and the palette. All data stays on your device. Kairo is built to grow into a single home for everyday tools, with more apps, like a password safe, to come.
 
-## Screen time tracker
+## Chrono, the screen time tracker
 
-Kairo runs in the system tray and samples the foreground window once a second. Consecutive samples in the same window become a **session** stored in a local SQLite database (`%APPDATA%\com.kairo.app\kairo.db`). Closing the window keeps tracking, and lets the window go entirely, so Kairo idles in the tray without a web view; use the tray menu to pause or quit.
+Chrono runs inside Kairo in the system tray and samples the foreground window once a second. Consecutive samples in the same window become a **session** stored in a local SQLite database (`%APPDATA%\com.kairo.app\kairo.db`). Closing the window keeps tracking, and lets the window go entirely, so Kairo idles in the tray without a web view; use the tray menu to pause or quit.
 
 ```
 collector thread ──► SQLite (sessions, categories) ──► analysis ──► dashboard
