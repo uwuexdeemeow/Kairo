@@ -91,8 +91,8 @@ pub fn heads_up_ignoring_time(conn: &Connection, cache: &SharedCache) -> Option<
 /// Shown by the test button before Kairo has found a window.
 pub fn sample() -> HeadsUp {
     HeadsUp {
-        title: "This is a Kairo focus nudge.".into(),
-        detail: "Once Kairo learns the hours you usually lose focus, it will let you know when they start.".into(),
+        title: "This is a Chrono focus nudge.".into(),
+        detail: "Once Chrono learns the hours you usually lose focus, it will let you know when they start.".into(),
     }
 }
 

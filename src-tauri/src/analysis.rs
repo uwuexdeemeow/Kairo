@@ -648,7 +648,7 @@ fn insights(rows: &[Row], hourly: &[Acc], grid: &[Vec<Cell>], active_days: &[Nai
             InsightKind::Info,
             "Still learning your patterns",
             format!(
-                "Kairo needs about {MIN_DAYS_FOR_INSIGHTS} days of activity before it can spot patterns, and it has {days} so far. Keep it running in the background."
+                "Chrono needs about {MIN_DAYS_FOR_INSIGHTS} days of activity before it can spot patterns, and it has {days} so far. Keep it running in the background."
             ),
         )
         .with_metric(format!("{days}/{MIN_DAYS_FOR_INSIGHTS}"), "days collected")];

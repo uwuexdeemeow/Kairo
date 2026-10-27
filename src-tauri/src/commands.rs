@@ -897,7 +897,7 @@ fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option
 
 /// Saves tracked time as a spreadsheet; how many rows, or None when no place was picked.
 pub fn export_time_dialog(app: &AppHandle) -> CmdResult<Option<usize>> {
-    let name = format!("Kairo time {}.csv", Local::now().format("%Y-%m-%d"));
+    let name = format!("Chrono time {}.csv", Local::now().format("%Y-%m-%d"));
     let Some(path) = save_path(app, &name, "Spreadsheet", "csv") else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;

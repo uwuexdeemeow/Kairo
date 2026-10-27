@@ -399,7 +399,7 @@ fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, aske
     let icon = Icon::App(subject.icon.clone().unwrap_or_else(|| subject.key.clone()));
     let mut answer = Item::new(format!("{} {}", subject.name, period.label()), icon, "Answers", go);
     answer.at = m.at;
-    answer.sub = Some(format!("Open {place} in Kairo"));
+    answer.sub = Some(format!("Open {place} in Chrono"));
     answer.preview = preview.clone();
     if !asked {
         // A name alone most likely means the app; the answer waits below it.
@@ -480,7 +480,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         let Some(m) = fuzzy(query, title).or_else(|| fuzzy(query, words)) else { continue };
         let mut item = Item::new(title, Icon::Glyph(glyph, Tone::Plain), "Go to", page_action(ctx, view, back));
         item.at = fuzzy(query, title).map(|m| m.at).unwrap_or_default();
-        item.sub = Some("Kairo".into());
+        item.sub = Some("Chrono".into());
         item.score = m.score - 5.0;
         items.push(item);
     }
@@ -518,7 +518,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("check for updates update version", "Check for updates".into(), Glyph::Update, Action::CheckUpdates, true),
-        ("open kairo show window", "Open Kairo".into(), Glyph::Today, Action::Go("today", None), true),
+        ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("export csv spreadsheet data download time", "Export time as CSV".into(), Glyph::Settings, Action::ExportTime, true),
         ("backup back up save data copy", "Back up everything".into(), Glyph::Settings, Action::Backup, true),
         ("restore backup load data", "Restore a backup".into(), Glyph::Settings, Action::Restore, true),

@@ -14,7 +14,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Kairo",
+        "title": "Chrono",
         "visible": false,
         "width": 1120,
         "height": 780,
@@ -37,10 +37,18 @@
       "../extension/": "extension/"
     },
     "publisher": "Kairo",
-    "shortDescription": "Screen time tracker that shows when you focus best",
+    "shortDescription": "Command palette, with Chrono, a screen time tracker that shows when you focus best",
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/applications/chrono.desktop": "./linux/chrono.desktop"
+        }
       }
     },
     "macOS": {

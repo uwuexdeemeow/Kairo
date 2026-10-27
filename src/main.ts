@@ -447,7 +447,7 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     }
     parts.unshift(lane);
   }
-  if (!d.timeline.length) parts.push(h("p", { class: "empty" }, isToday ? "Nothing tracked yet today. Kairo records in the background while it runs." : "Nothing was tracked this day."));
+  if (!d.timeline.length) parts.push(h("p", { class: "empty" }, isToday ? "Nothing tracked yet today. Chrono records in the background while Kairo runs." : "Nothing was tracked this day."));
   $("#today-timeline").replaceChildren(...parts);
 }
 
@@ -917,7 +917,7 @@ function paintCategories() {
       focus.options[0].textContent = autoText(c);
     });
 
-    const recording = h("select", { "aria-label": `What Kairo records for ${e.label}` }) as HTMLSelectElement;
+    const recording = h("select", { "aria-label": `What Chrono records for ${e.label}` }) as HTMLSelectElement;
     for (const m of PRIVACY_MODES) {
       const opt = h("option", { value: m }, RECORDING[m]) as HTMLOptionElement;
       opt.selected = m === e.privacy;
@@ -1044,10 +1044,10 @@ function showPrivacyNotice(e: CategoryEntry, mode: PrivacyMode) {
   box.hidden = mode === "track";
   btn.hidden = false;
   if (mode === "hide_title") {
-    $("#privacy-notice-text").textContent = `Kairo won't save window titles from ${e.label} from now on.`;
+    $("#privacy-notice-text").textContent = `Chrono won't save window titles from ${e.label} from now on.`;
     btn.textContent = "Also clear titles already saved";
   } else if (mode === "ignore") {
-    $("#privacy-notice-text").textContent = `Kairo won't record ${e.label} from now on.`;
+    $("#privacy-notice-text").textContent = `Chrono won't record ${e.label} from now on.`;
     btn.textContent = "Also delete what's already recorded";
   }
 }
@@ -1476,11 +1476,11 @@ if (IS_MAC) {
   $("#autostart-title").textContent = "Open at login";
   $("#autostart-label").textContent = "Start Kairo quietly in the menu bar when I log in";
   $("#block-explainer").textContent =
-    "Blocked apps are hidden behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
+    "Blocked apps are hidden behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
   // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
   // only needed for blocking sites.
   $("#ext-intro").textContent =
-    "Kairo asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, and reads it from Firefox's and Opera's address bar, so sites are tracked without the extension; macOS asks once per browser, and once for Accessibility, whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
+    "Chrono asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, and reads it from Firefox's and Opera's address bar, so sites are tracked without the extension; macOS asks once per browser, and once for Accessibility, whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
 }
 if (IS_LINUX) {
   $("#appearance-system").textContent = "Match the system";
@@ -1488,13 +1488,13 @@ if (IS_LINUX) {
   $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
   // Linux browsers don't describe their address bar to other apps unless a screen reader is on.
   $("#ext-intro").textContent =
-    "Without it, Kairo guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Kairo the exact site instead, and blocks distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
+    "Without it, Chrono guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Chrono the exact site instead, and blocks distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
   // Kairo sees other apps through X11 or, on Wayland, through GNOME or KDE Plasma themselves.
   $("#block-explainer").textContent =
-    "Blocked apps are minimized behind a Kairo window, and with the browser extension, blocked sites show a Kairo page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
+    "Blocked apps are minimized behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
   // Wayland keeps keys from apps; GNOME and Plasma take the shortcut into their own settings.
   $("#palette-note").textContent =
-    "Works everywhere, even with Kairo's window closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
+    "Works everywhere, even with Chrono's window closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
 }
 
 type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
@@ -1633,7 +1633,7 @@ async function refreshExtension() {
     const connected = ago !== null && ago < EXTENSION_QUIET_MS;
     el.className = `ext-status${connected ? " connected" : ""}`;
     el.textContent = !s.listening
-      ? "Kairo can't listen for the extension: another program is using port 47613."
+      ? "Chrono can't listen for the extension: another program is using port 47613."
       : connected
         ? `Connected. Last heard ${fmtAgo(ago!)}.`
         : ago === null

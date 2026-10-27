@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Chrono
+Comment=Screen time tracker, part of Kairo
+Exec=kairo --chrono
+Icon=kairo
+Terminal=false
+Categories=Utility;

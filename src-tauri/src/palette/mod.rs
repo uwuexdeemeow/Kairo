@@ -379,7 +379,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         }
         // Starting anew ends the running session, which strict mode only allows after its wait.
         Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
-            Err("Strict mode is on: end the current session from Kairo's Focus page first.".into())
+            Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
         Action::StartFocus(minutes, label) => focus::start(conn, *minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
         Action::CheckUpdates => {

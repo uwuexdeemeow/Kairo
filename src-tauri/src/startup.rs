@@ -21,16 +21,43 @@ pub const LABEL: &str = if cfg!(target_os = "macos") {
 /// Dev builds run from target\debug; registering that path at login would go stale on every rebuild.
 pub const AVAILABLE: bool = !cfg!(debug_assertions);
 
-pub fn launched_at_login() -> bool {
-    std::env::args().any(|a| a == MINIMIZED_ARG)
-}
-
-/// Opens the command palette rather than Kairo's window, for a launcher or a desktop shortcut
-/// where apps can't listen for keys themselves (Linux on Wayland). A running Kairo gets it too.
+/// Opens the command palette, for a launcher or a desktop shortcut where apps can't listen for
+/// keys themselves (Linux on Wayland), even over a game when Settings allows. A running Kairo gets
+/// it too.
 pub const PALETTE_ARG: &str = "--palette";
 
-pub fn launched_for_palette() -> bool {
-    std::env::args().any(|a| a == PALETTE_ARG)
+/// Opens Chrono, the screen time tracker's window, rather than the palette; Chrono's own Start
+/// menu and app menu entry passes it.
+pub const CHRONO_ARG: &str = "--chrono";
+
+pub fn launched_for_chrono() -> bool {
+    std::env::args().any(|a| a == CHRONO_ARG)
+}
+
+/// Whether this launch opens the command palette: Kairo itself is the palette, so opening it from
+/// the Start menu, Spotlight or a launcher does, while signing in starts it quietly and Chrono's
+/// shortcut opens Chrono.
+pub fn opens_palette() -> bool {
+    opens_palette_for(&std::env::args().collect::<Vec<_>>())
+}
+
+fn opens_palette_for(args: &[String]) -> bool {
+    let has = |arg: &str| args.iter().any(|a| a == arg);
+    has(PALETTE_ARG) || (!has(MINIMIZED_ARG) && !has(CHRONO_ARG))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opening_kairo_opens_the_palette_and_chrono_opens_chrono() {
+        let run = |args: &[&str]| opens_palette_for(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+        assert!(run(&["kairo"]));
+        assert!(run(&["kairo", PALETTE_ARG]));
+        assert!(!run(&["kairo", MINIMIZED_ARG]));
+        assert!(!run(&["kairo", CHRONO_ARG]));
+    }
 }
 
 /// Turn start-at-login on the first time an installed build runs; after that the user's choice stands.
