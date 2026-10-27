@@ -290,26 +290,40 @@ pub fn get_goals(state: State<AppState>, date: Option<String>) -> CmdResult<goal
 pub struct GoalSettings {
     productive_min: u32,
     distracting_max_min: u32,
+    week_productive_min: u32,
+    week_distracting_max_min: u32,
 }
 
 #[tauri::command]
 pub fn get_goal_settings(state: State<AppState>) -> CmdResult<GoalSettings> {
     let conn = state.db.lock().map_err(err)?;
-    let g = goals::load(&conn).map_err(err)?;
-    Ok(GoalSettings { productive_min: g.productive_min, distracting_max_min: g.distracting_max_min })
+    let (day, week) = (goals::load(&conn).map_err(err)?, goals::load_week(&conn).map_err(err)?);
+    Ok(GoalSettings {
+        productive_min: day.productive_min,
+        distracting_max_min: day.distracting_max_min,
+        week_productive_min: week.productive_min,
+        week_distracting_max_min: week.distracting_max_min,
+    })
 }
 
-/// `kind` is "productive" (a daily target) or "distracting" (a daily cap); 0 minutes turns it off.
+/// `kind` is "productive" (a daily target), "distracting" (a daily cap), or "week-productive" and
+/// "week-distracting" for the week; 0 minutes turns it off.
 #[tauri::command]
 pub fn set_goal(state: State<AppState>, kind: String, minutes: u32) -> CmdResult<()> {
-    let parsed = match kind.as_str() {
-        "productive" => goals::Kind::Productive,
-        "distracting" => goals::Kind::Distracting,
-        other => return Err(format!("unknown goal: {other}")),
-    };
     let conn = state.db.lock().map_err(err)?;
-    goals::set_goal(&conn, parsed, minutes).map_err(err)?;
+    if !goals::set_named_goal(&conn, &kind, minutes).map_err(err)? {
+        return Err(format!("unknown goal: {kind}"));
+    }
     sync::record(&conn, &format!("goal:{kind}"), &minutes.to_string())
+}
+
+/// Progress on the weekly goals for the week containing `date` (default this week), and the
+/// streak of weeks before it that met them.
+#[tauri::command]
+pub fn get_week_goals(state: State<AppState>, date: Option<String>) -> CmdResult<goals::DayGoals> {
+    let monday = recap::week_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    goals::for_week(&conn, monday, now_ms()).map_err(err)
 }
 
 /// A daily limit for `app:<exe>` or `site:<name>`; 0 minutes removes it.

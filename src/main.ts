@@ -449,12 +449,22 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
 const fmtGoal = (ms: number) => (ms < 30_000 ? "0m" : fmtDur(ms));
 
 function renderGoals(g: DayGoals, isToday: boolean) {
-  const box = $("#goals");
+  // The streak runs up to yesterday, so it only reads naturally next to today.
+  renderGoalBox("goals", g, isToday && g.streak ? `${g.streak}-day streak` : "");
+}
+
+/// The weekly goals on Week; their streak counts the weeks before, so it shows on this week only.
+function renderWeekGoals(g: DayGoals) {
+  renderGoalBox("week-goals", g, selectedWeek === null && g.streak ? `${g.streak}-week streak` : "");
+}
+
+/// A goals block: `#<id>` holding `#<id>-streak` and `#<id>-list`, hidden with no goals set.
+function renderGoalBox(id: string, g: DayGoals, streak: string) {
+  const box = $(`#${id}`);
   box.hidden = !g.items.length;
   if (!g.items.length) return;
-  // The streak runs up to yesterday, so it only reads naturally next to today.
-  $("#goals-streak").textContent = isToday && g.streak ? `${g.streak}-day streak` : "";
-  $("#goals-list").replaceChildren(
+  $(`#${id}-streak`).textContent = streak;
+  $(`#${id}-list`).replaceChildren(
     ...g.items.map((p) => {
       const over = !p.met && p.kind !== "productive";
       const tone = p.kind === "productive" ? "productive" : over ? "distracting" : "neutral";
@@ -834,6 +844,8 @@ const LIMIT_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180, 240];
 const PRODUCTIVE_CHOICES = [0, 60, 120, 180, 240, 300, 360, 480];
 const BREAK_CHOICES = [0, 45, 60, 90, 120];
 const DISTRACTING_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180];
+const WEEK_PRODUCTIVE_CHOICES = [0, 300, 600, 900, 1200, 1500, 1800, 2400];
+const WEEK_DISTRACTING_CHOICES = [0, 120, 180, 300, 420, 600, 840];
 
 /// A minutes picker where 0 is "off"; a saved value outside the presets is kept as an option.
 function minutesSelect(choices: number[], current: number, label: string, offText = "None"): HTMLSelectElement {
@@ -851,6 +863,8 @@ function renderGoalSettings(s: GoalSettings) {
   for (const [id, choices, current, kind] of [
     ["#goal-productive", PRODUCTIVE_CHOICES, s.productiveMin, "productive"],
     ["#goal-distracting", DISTRACTING_CHOICES, s.distractingMaxMin, "distracting"],
+    ["#goal-week-productive", WEEK_PRODUCTIVE_CHOICES, s.weekProductiveMin, "week-productive"],
+    ["#goal-week-distracting", WEEK_DISTRACTING_CHOICES, s.weekDistractingMaxMin, "week-distracting"],
   ] as const) {
     const fresh = minutesSelect([...choices], current, "", "Off");
     const select = $<HTMLSelectElement>(id);
@@ -1313,6 +1327,7 @@ async function load(v: View = view) {
     if (v === "week") {
       firstDay ??= await api.firstDay();
       renderWeek(await api.week(selectedWeek ?? undefined));
+      renderWeekGoals(await api.weekGoals(selectedWeek ?? undefined));
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") renderCategories(await api.categories());

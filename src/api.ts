@@ -270,7 +270,11 @@ export type FocusAction = "stop" | "pause" | "resume" | "extend";
 export interface GoalSettings {
   productiveMin: number;
   distractingMaxMin: number;
+  weekProductiveMin: number;
+  weekDistractingMaxMin: number;
 }
+
+export type GoalName = "productive" | "distracting" | "week-productive" | "week-distracting";
 
 export type DeleteRange = "hour" | "day" | "all";
 
@@ -300,7 +304,9 @@ export const api = {
   setBreakMinutes: (minutes: number) => invoke<void>("set_break_minutes", { minutes }),
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
-  setGoal: (kind: "productive" | "distracting", minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  setGoal: (kind: GoalName, minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  /** The weekly goals for the week containing `date`; the streak counts weeks. */
+  weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),
   setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),
   setPrivacyRule:(key: string, mode: PrivacyMode) => invoke<void>("set_privacy_rule", { key, mode }),
   applyPrivacyToPast: (key: string) => invoke<number>("apply_privacy_to_past", { key }),
