@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -233,6 +233,31 @@ pub struct FocusOverview {
     recent: Vec<focus::Block>,
 }
 
+#[tauri::command]
+pub fn get_focus_schedule(state: State<AppState>) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::list(&conn).map_err(err)
+}
+
+/// Adds a slot: `days` has Monday in bit 0 to Sunday in bit 6, `start_min` is minutes after
+/// midnight. The whole schedule then travels to combined computers.
+#[tauri::command]
+pub fn add_focus_slot(state: State<AppState>, days: u8, start_min: u32, minutes: u32, label: Option<String>) -> CmdResult<Vec<schedule::Slot>> {
+    let slot = schedule::tidy(days, start_min, minutes, label.as_deref()).ok_or("Pick at least one day.")?;
+    let conn = state.db.lock().map_err(err)?;
+    schedule::add(&conn, &slot).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_focus_slot(state: State<AppState>, id: i64) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::remove(&conn, id).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
+}
+
 /// Session counts and focused time for today, this week and ever, plus the latest sessions.
 #[tauri::command]
 pub fn get_focus_overview(state: State<AppState>) -> CmdResult<FocusOverview> {
@@ -275,6 +300,32 @@ pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
     recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+/// Stretches of half an hour or more away from this computer on one local day (default today),
+/// still to be labelled.
+#[tauri::command]
+pub fn get_away(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<away::Stretch>> {
+    let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
+    let conn = state.db.lock().map_err(err)?;
+    away::stretches(&conn, from, to, now_ms()).map_err(err)
+}
+
+/// Labels a stretch away: "meeting", "call", "break" or "other"; it then counts as time.
+#[tauri::command]
+pub fn label_away(state: State<AppState>, start_ms: i64, end_ms: i64, kind: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    if away::label(&conn, start_ms, end_ms, &kind).map_err(err)? == 0 {
+        return Err("That stretch has already changed; reopen Today to see it.".into());
+    }
+    nudge::invalidate(&state.window_cache);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn dismiss_away(state: State<AppState>, start_ms: i64) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    away::dismiss(&conn, start_ms).map_err(err)
 }
 
 /// Progress on every goal and limit for one local day (default today), plus the streak before it.
@@ -637,8 +688,8 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
-    // Kairo's window opens over where the palette was, and keeps the keyboard.
-    let go = matches!(item.action, palette::search::Action::Go(..));
+    // Kairo's window, or a file dialog, opens over where the palette was, and keeps the keyboard.
+    let go = item.action.opens_window();
     if go {
         palette_hide_window(&app, false);
     }
@@ -761,7 +812,8 @@ pub fn clear_demo_data(state: State<AppState>) -> CmdResult<usize> {
 }
 
 // ---------- your data ----------
-// These wait on a file dialog, so they run off the main thread.
+// These wait on a file dialog, so they run off the main thread: as async commands for Settings,
+// and on a thread of their own for the palette.
 
 /// Where the user wants a file saved; None if they closed the dialog.
 fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option<std::path::PathBuf> {
@@ -770,30 +822,42 @@ fn save_path(app: &AppHandle, name: &str, kind: &str, extension: &str) -> Option
 }
 
 /// Saves tracked time as a spreadsheet; how many rows, or None when no place was picked.
-#[tauri::command]
-pub async fn export_time(app: AppHandle) -> CmdResult<Option<usize>> {
+pub fn export_time_dialog(app: &AppHandle) -> CmdResult<Option<usize>> {
     let name = format!("Kairo time {}.csv", Local::now().format("%Y-%m-%d"));
-    let Some(path) = save_path(&app, &name, "Spreadsheet", "csv") else { return Ok(None) };
+    let Some(path) = save_path(app, &name, "Spreadsheet", "csv") else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
     backup::export_csv(&conn, &path).map(Some)
 }
 
-/// Saves everything to one file; its name, or None when no place was picked.
 #[tauri::command]
-pub async fn backup_data(app: AppHandle) -> CmdResult<Option<String>> {
+pub async fn export_time(app: AppHandle) -> CmdResult<Option<usize>> {
+    export_time_dialog(&app)
+}
+
+/// Saves everything to one file; its name, or None when no place was picked.
+pub fn backup_dialog(app: &AppHandle) -> CmdResult<Option<String>> {
     let name = format!("Kairo backup {}.kairo", Local::now().format("%Y-%m-%d"));
-    let Some(path) = save_path(&app, &name, "Kairo backup", "kairo") else { return Ok(None) };
+    let Some(path) = save_path(app, &name, "Kairo backup", "kairo") else { return Ok(None) };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
     backup::backup(&conn, &path)?;
     Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
 }
 
-/// Replaces what's here with a backup, once the user has picked it and said yes, and restarts
-/// Kairo with it. What was here is saved first in Kairo's data folder. False when they didn't.
+#[tauri::command]
+pub async fn backup_data(app: AppHandle) -> CmdResult<Option<String>> {
+    backup_dialog(&app)
+}
+
 #[tauri::command]
 pub async fn restore_data(app: AppHandle) -> CmdResult<bool> {
+    restore_dialog(&app)
+}
+
+/// Replaces what's here with a backup, once the user has picked it and said yes, and restarts
+/// Kairo with it. What was here is saved first in Kairo's data folder. False when they didn't.
+pub fn restore_dialog(app: &AppHandle) -> CmdResult<bool> {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     let Some(from) = app.dialog().file().add_filter("Kairo backup", &["kairo"]).blocking_pick_file().and_then(|f| f.into_path().ok()) else {
         return Ok(false);

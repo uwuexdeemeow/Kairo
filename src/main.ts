@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -451,6 +451,43 @@ const fmtGoal = (ms: number) => (ms < 30_000 ? "0m" : fmtDur(ms));
 function renderGoals(g: DayGoals, isToday: boolean) {
   // The streak runs up to yesterday, so it only reads naturally next to today.
   renderGoalBox("goals", g, isToday && g.streak ? `${g.streak}-day streak` : "");
+}
+
+const AWAY_KINDS: [string, string][] = [
+  ["meeting", "Meeting"],
+  ["call", "Call"],
+  ["break", "Break"],
+  ["other", "Something else"],
+];
+
+/// Long stretches away from the computer, each asking what it was; labelled, it counts as time.
+function renderAway(stretches: AwayStretch[]) {
+  $("#away").hidden = !stretches.length;
+  $("#away-list").replaceChildren(
+    ...stretches.map((s) => {
+      const say = async (run: () => Promise<void>) => {
+        try {
+          await run();
+          load();
+        } catch (err) {
+          $("#away-status").textContent = String(err);
+        }
+      };
+      const buttons = AWAY_KINDS.map(([kind, name]) => {
+        const b = h("button", { class: "btn" }, name);
+        b.addEventListener("click", () => say(() => api.labelAway(s.startMs, s.endMs, kind)));
+        return b;
+      });
+      const skip = h("button", { class: "link-btn" }, "Dismiss");
+      skip.addEventListener("click", () => say(() => api.dismissAway(s.startMs)));
+      return h(
+        "div",
+        { class: "away-row" },
+        h("span", { class: "away-time" }, `${fmtClock(s.startMs)}–${fmtClock(s.endMs)}`, h("span", { class: "muted" }, ` · ${fmtDur(s.endMs - s.startMs)}`)),
+        h("div", { class: "row-buttons" }, ...buttons, skip),
+      );
+    }),
+  );
 }
 
 /// The weekly goals on Week; their streak counts the weeks before, so it shows on this week only.
@@ -1200,6 +1237,70 @@ function paintTimer() {
 
 const focusedMs = (b: FocusBlock) => Math.max(0, b.end - b.start - b.pausedMs);
 
+// ---------- scheduled focus ----------
+
+const SCHEDULE_LENGTHS = [30, 45, 60, 90, 120, 180, 240];
+
+/// "Weekdays", "Every day", "Weekends" or the days themselves.
+function daysText(days: number): string {
+  if (days === 0x7f) return "Every day";
+  if (days === 0x1f) return "Weekdays";
+  if (days === 0x60) return "Weekends";
+  return WEEKDAYS.filter((_, i) => days & (1 << i)).join(", ");
+}
+
+/// Minutes after midnight as "09:00"; past midnight wraps to the next day's time.
+const clockOf = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+function renderSchedule(slots: FocusSlot[]) {
+  const root = $("#schedule-list");
+  if (!slots.length) {
+    root.replaceChildren();
+    return;
+  }
+  root.replaceChildren(
+    ...slots.map((s) => {
+      const remove = h("button", { class: "link-btn" }, "Remove");
+      remove.addEventListener("click", async () => renderSchedule(await api.removeFocusSlot(s.id)));
+      return h(
+        "div",
+        { class: "history-row schedule-row" },
+        h("span", { class: "history-time" }, `${clockOf(s.startMin)}–${clockOf(s.startMin + s.minutes)}`),
+        h("span", { class: `history-label${s.label ? "" : " muted"}` }, s.label ?? "Scheduled focus"),
+        h("span", { class: "history-len" }, daysText(s.days)),
+        remove,
+      );
+    }),
+  );
+}
+
+/// The add row: day toggles (weekdays to start), and the lengths to choose from.
+function setUpScheduleForm() {
+  $("#schedule-days").replaceChildren(
+    ...WEEKDAYS.map((day, i) => {
+      const button = h("button", { class: "day-toggle", "aria-pressed": String(i < 5), title: day }, day.slice(0, 2));
+      button.addEventListener("click", () => button.setAttribute("aria-pressed", String(button.getAttribute("aria-pressed") !== "true")));
+      return button;
+    }),
+  );
+  const length = $<HTMLSelectElement>("#schedule-length");
+  length.replaceChildren(...SCHEDULE_LENGTHS.map((m) => h("option", { value: String(m) }, fmtDur(m * 60_000))));
+  length.value = "120";
+  $("#schedule-add").addEventListener("click", async () => {
+    const days = [...$("#schedule-days").children].reduce((bits, b, i) => (b.getAttribute("aria-pressed") === "true" ? bits | (1 << i) : bits), 0);
+    const [h24, m] = $<HTMLInputElement>("#schedule-start").value.split(":").map(Number);
+    const label = $<HTMLInputElement>("#schedule-label").value.trim() || null;
+    try {
+      renderSchedule(await api.addFocusSlot(days, (h24 || 0) * 60 + (m || 0), Number(length.value), label));
+      $<HTMLInputElement>("#schedule-label").value = "";
+      $("#schedule-status").textContent = "";
+    } catch (err) {
+      $("#schedule-status").textContent = String(err);
+    }
+  });
+}
+setUpScheduleForm();
+
 function renderFocusPage(o: FocusOverview) {
   const finished = o.all.sessions ? `${Math.round((o.all.completed / o.all.sessions) * 100)}%` : "—";
   $("#focus-stats").replaceChildren(
@@ -1319,10 +1420,11 @@ async function load(v: View = view) {
       $("#welcome").hidden = !firstRun;
       if (firstRun) return;
       const date = selectedDay ?? undefined;
-      const [day, goals, focusBlocks] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date)]);
+      const [day, goals, focusBlocks, away] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date)]);
       shownFocus = focusBlocks;
       renderToday(day);
       renderGoals(goals, selectedDay === null);
+      renderAway(away);
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
@@ -1334,6 +1436,7 @@ async function load(v: View = view) {
     if (v === "focus") {
       paintTimer();
       renderFocusPage(await api.focusOverview());
+      renderSchedule(await api.focusSchedule());
     }
     if (v === "settings") {
       $("#settings-version").textContent = `Kairo ${await api.version()}`;

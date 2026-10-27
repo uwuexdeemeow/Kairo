@@ -63,6 +63,11 @@ const PASSIVE: &[&str] = &["youtube", "netflix", "twitch", "vlc", "primevideo", 
 
 /// Categories shipped with Kairo. Users can override any of them; keys are `app:<exe>` or `site:<name>`.
 pub const DEFAULT_CATEGORIES: &[(&str, &str)] = &[
+    // Time away from the computer, once labelled (away.rs).
+    ("app:away-meeting", "productive"),
+    ("app:away-call", "productive"),
+    ("app:away-break", "neutral"),
+    ("app:away-other", "neutral"),
     ("app:code", "productive"),
     ("app:cursor", "productive"),
     ("app:zed", "productive"),

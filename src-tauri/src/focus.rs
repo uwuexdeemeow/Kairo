@@ -12,11 +12,11 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
-use chrono::Timelike;
+use chrono::{Local, TimeZone, Timelike};
 
 use crate::analysis::{Insight, InsightKind};
 use crate::goals::fmt_dur;
-use crate::{classify, db, nudge, platform};
+use crate::{classify, db, nudge, platform, schedule};
 
 const TICK: Duration = Duration::from_secs(5);
 const MIN_MS: i64 = 60_000;
@@ -28,6 +28,8 @@ const BREAK_KEY: &str = "break_every_min";
 const DEFAULT_BREAK_MIN: u32 = 90;
 /// This long away from the keyboard and mouse counts as a break.
 const BREAK_RESETS_AFTER_MS: i64 = 5 * MIN_MS;
+/// A scheduled session waits for someone at the computer: input within this long.
+const SCHEDULE_NEEDS_ACTIVE_MS: i64 = 2 * MIN_MS;
 /// A tick gap this large means the machine slept, which is a break too.
 const SLEEP_GAP_MS: i64 = 30_000;
 
@@ -329,6 +331,13 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
         .expect("failed to start focus thread");
 }
 
+/// Whether a scheduled slot that's due may start: once someone is at the computer, nothing else is
+/// running, and they aren't in a game, which a session would block mid-match; the slot waits and
+/// starts when they leave it, for what's left of its window.
+fn schedule_may_start(session_running: bool, paused: bool, idle_ms: i64, gaming: bool) -> bool {
+    !session_running && !paused && idle_ms < SCHEDULE_NEEDS_ACTIVE_MS && !gaming
+}
+
 fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let now = now_ms();
     let slept = now - w.last_tick > SLEEP_GAP_MS;
@@ -340,7 +349,20 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         w.stretch_since = Some(now);
         w.breaks_sent = 0;
     }
-    let session = active(conn)?;
+    let mut session = active(conn)?;
+
+    let fg = platform::foreground();
+    let gaming = fg.as_ref().is_some_and(|f| classify::is_game(&classify::exe_stem(&f.exe_path), &f.exe_path));
+
+    if schedule_may_start(session.is_some(), paused, platform::idle_ms(), gaming) {
+        if let Some((slot, day, left)) = schedule::due(conn, Local::now())? {
+            let started = start(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), now)?;
+            schedule::mark_started(conn, slot.id, day)?;
+            let until = Local.timestamp_millis_opt(started.ends_ms(now)).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default();
+            notify(app, &format!("Scheduled focus until {until}"), "Distracting apps and sites are blocked until then, as in any focus session.");
+            session = Some(started);
+        }
+    }
 
     // Breaks: away long enough, asleep or paused all reset the stretch.
     if slept || paused || platform::idle_ms() >= BREAK_RESETS_AFTER_MS {
@@ -351,8 +373,6 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     }
     let since = *w.stretch_since.get_or_insert(now);
 
-    let fg = platform::foreground();
-    let gaming = fg.as_ref().is_some_and(|f| classify::is_game(&classify::exe_stem(&f.exe_path), &f.exe_path));
     let every = break_minutes(conn)? as i64 * MIN_MS;
     // Held back during focus sessions and games; it goes out once they're over.
     if every > 0 && session.is_none() && !gaming && now - since >= every * (w.breaks_sent + 1) {
@@ -384,6 +404,18 @@ mod tests {
     use super::*;
 
     const M: i64 = MIN_MS;
+
+    #[test]
+    fn scheduled_focus_waits_out_games_and_absence() {
+        // At the computer, nothing running, not gaming: it starts.
+        assert!(schedule_may_start(false, false, 10_000, false));
+        // In a game it waits, however active the player is.
+        assert!(!schedule_may_start(false, false, 0, true));
+        // Away from the computer, with a session already running, or with tracking paused, too.
+        assert!(!schedule_may_start(false, false, 3 * M, false));
+        assert!(!schedule_may_start(true, false, 0, false));
+        assert!(!schedule_may_start(false, true, 0, false));
+    }
 
     #[test]
     fn sessions_start_stop_complete_and_survive_as_blocks() {

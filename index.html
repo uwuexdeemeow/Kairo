@@ -111,6 +111,13 @@
             <div id="goals-list"></div>
           </section>
 
+          <section class="block away" id="away" aria-label="Time away" hidden>
+            <h2>Away from the computer</h2>
+            <p class="muted">What were you doing? Labelled, the time counts like any app's: meetings and calls as productive, breaks as neutral. Change that in Categories.</p>
+            <div id="away-list"></div>
+            <span class="muted" id="away-status" aria-live="polite"></span>
+          </section>
+
           <section class="block" aria-label="Timeline">
             <div id="today-timeline"></div>
             <div class="legend" data-legend></div>
@@ -216,6 +223,26 @@
           </section>
 
           <dl class="stats focus-stats" id="focus-stats"></dl>
+
+          <section class="block" aria-label="Schedule">
+            <h2>Schedule</h2>
+            <p class="muted">Focus sessions can start on their own at set times, like weekdays 9 to 12. One starts when you're at the computer, runs to the end of its time and blocks distractions as usual; ending it early keeps it off until its next day.</p>
+            <div id="schedule-list"></div>
+            <div class="row-buttons schedule-add">
+              <div class="schedule-days" id="schedule-days" role="group" aria-label="Days"></div>
+              <label class="field">
+                From
+                <input type="time" id="schedule-start" value="09:00" />
+              </label>
+              <label class="field">
+                For
+                <select id="schedule-length"></select>
+              </label>
+              <input class="filter schedule-label" id="schedule-label" maxlength="80" placeholder="Label (optional)" aria-label="Label" autocomplete="off" />
+              <button class="btn" id="schedule-add">Add</button>
+              <span class="muted" id="schedule-status" aria-live="polite"></span>
+            </div>
+          </section>
 
           <section class="block" aria-label="Recent sessions">
             <h2>Recent sessions</h2>

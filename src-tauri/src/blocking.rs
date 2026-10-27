@@ -303,9 +303,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
     }
 
     if settings.launchers && w.ticks.is_multiple_of(LAUNCHER_EVERY_TICKS) {
-        for (pid, file) in platform::processes() {
-            let exe = classify::exe_stem(&file);
-            let Some(&(stem, name)) = LAUNCHERS.iter().find(|(l, _)| *l == exe) else { continue };
+        for (pid, stem, name) in launchers_to_close(&platform::processes()) {
             let key = format!("app:{stem}");
             if rules.get(&key) == Some(&Rule::Allow) || allowed(allowances, &key, now) {
                 continue;
@@ -318,9 +316,38 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
     Ok(())
 }
 
+/// The game launchers among `processes` (process id, program path) to close: (process id, exe
+/// stem, name). None while a game is running, since closing its launcher can take the game down
+/// with it (Overwatch goes with Battle.net); the game itself is blocked as a distracting app.
+fn launchers_to_close(processes: &[(u32, String)]) -> Vec<(u32, &'static str, &'static str)> {
+    let stems: Vec<(u32, String, &String)> = processes.iter().map(|(pid, path)| (*pid, classify::exe_stem(path), path)).collect();
+    if stems.iter().any(|(_, exe, path)| classify::is_game(exe, path)) {
+        return Vec::new();
+    }
+    stems
+        .iter()
+        .filter_map(|(pid, exe, _)| LAUNCHERS.iter().find(|(l, _)| l == exe).map(|&(stem, name)| (*pid, stem, name)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn launchers_stay_open_while_a_game_runs() {
+        let battle_net = (10, r"C:\Program Files (x86)\Battle.net\Battle.net.exe".to_string());
+        let steam = (11, r"C:\Program Files (x86)\Steam\steam.exe".to_string());
+        let notepad = (12, r"C:\Windows\notepad.exe".to_string());
+        // No game running: launchers close, other programs don't.
+        assert_eq!(launchers_to_close(&[battle_net.clone(), steam.clone(), notepad.clone()]), [(10, "battle.net", "Battle.net"), (11, "steam", "Steam")]);
+        // Overwatch would go down with Battle.net, so nothing closes while it plays.
+        let overwatch = (20, r"C:\Program Files (x86)\Overwatch\_retail_\Overwatch.exe".to_string());
+        assert!(launchers_to_close(&[battle_net.clone(), steam.clone(), overwatch]).is_empty());
+        // Nor while a game from a library folder runs.
+        let finals = (21, r"D:\SteamLibrary\steamapps\common\THE FINALS\Discovery.exe".to_string());
+        assert!(launchers_to_close(&[battle_net, steam, notepad, finals]).is_empty());
+    }
 
     #[test]
     fn distracting_things_are_blocked_unless_a_rule_says_otherwise() {

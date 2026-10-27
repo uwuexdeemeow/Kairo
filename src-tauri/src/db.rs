@@ -85,6 +85,24 @@ pub fn open(path: &Path) -> Result<Connection> {
          );
          -- The categories, limits, goals and rules the user chose, and when, so the latest
          -- choice wins on every computer combined.
+         -- Scheduled focus (schedule.rs): when sessions start on their own, and on which days
+         -- each slot already started, so ending one early doesn't bring it back.
+         CREATE TABLE IF NOT EXISTS focus_schedule (
+             id        INTEGER PRIMARY KEY,
+             days      INTEGER NOT NULL,
+             start_min INTEGER NOT NULL,
+             minutes   INTEGER NOT NULL,
+             label     TEXT
+         );
+         CREATE TABLE IF NOT EXISTS focus_schedule_runs (
+             slot INTEGER NOT NULL,
+             day  TEXT    NOT NULL,
+             PRIMARY KEY (slot, day)
+         );
+         -- Stretches away the user waved off rather than labelling (away.rs), by when they began.
+         CREATE TABLE IF NOT EXISTS away_dismissed (
+             start_ms INTEGER PRIMARY KEY
+         );
          CREATE TABLE IF NOT EXISTS shared_choices (
              item       TEXT    PRIMARY KEY,
              value      TEXT    NOT NULL,
