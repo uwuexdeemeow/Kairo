@@ -122,6 +122,27 @@ pub fn totals(conn: &Connection, from: i64, to: i64, computer: &str) -> Result<V
     Ok(out)
 }
 
+/// The stretches of time in project `id` over [from, to), clipped to it, as rows the palette's
+/// answers chart; from every computer. Each stretch goes to its first matching project, as in
+/// [`totals`].
+pub fn rows_of(conn: &Connection, id: i64, from: i64, to: i64) -> Result<Vec<crate::analysis::Row>> {
+    use crate::analysis::{Category, Row};
+    let projects = list(conn)?;
+    let mut stmt = conn.prepare("SELECT app, exe, title, site, start_ms, end_ms FROM sessions WHERE idle = 0 AND end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms")?;
+    let rows = stmt.query_map(params![from, to], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (app, exe, title, site, start, end) = row?;
+        if project_of(&projects, &title, site.as_deref()).is_some_and(|p| p.id == id) {
+            let category = Category::Neutral;
+            out.push(Row { app, exe, site, start: start.max(from), end: end.min(to), idle: false, category, app_category: category });
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +174,12 @@ mod tests {
         let times = totals(&conn, t, t + 180 * M, "all").unwrap();
         let shape: Vec<(&str, i64)> = times.iter().map(|p| (p.name.as_str(), p.ms / M)).collect();
         assert_eq!(shape, [("Kairo", 90), ("Thesis", 30)]);
+
+        // The same time, as the palette charts it, stretch by stretch.
+        let kairo = times[0].id;
+        let rows = rows_of(&conn, kairo, t, t + 180 * M).unwrap();
+        let apps: Vec<(&str, i64)> = rows.iter().map(|r| (r.app.as_str(), r.dur() / M)).collect();
+        assert_eq!(apps, [("code", 60), ("brave", 20), ("code", 10)]);
     }
 
     #[test]
