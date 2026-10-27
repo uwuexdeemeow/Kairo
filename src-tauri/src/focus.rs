@@ -331,6 +331,13 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
         .expect("failed to start focus thread");
 }
 
+/// Whether a scheduled slot that's due may start: once someone is at the computer, nothing else is
+/// running, and they aren't in a game, which a session would block mid-match; the slot waits and
+/// starts when they leave it, for what's left of its window.
+fn schedule_may_start(session_running: bool, paused: bool, idle_ms: i64, gaming: bool) -> bool {
+    !session_running && !paused && idle_ms < SCHEDULE_NEEDS_ACTIVE_MS && !gaming
+}
+
 fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let now = now_ms();
     let slept = now - w.last_tick > SLEEP_GAP_MS;
@@ -344,8 +351,10 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     }
     let mut session = active(conn)?;
 
-    // A scheduled slot starts once the user is at the computer and nothing else is running.
-    if session.is_none() && !paused && platform::idle_ms() < SCHEDULE_NEEDS_ACTIVE_MS {
+    let fg = platform::foreground();
+    let gaming = fg.as_ref().is_some_and(|f| classify::is_game(&classify::exe_stem(&f.exe_path), &f.exe_path));
+
+    if schedule_may_start(session.is_some(), paused, platform::idle_ms(), gaming) {
         if let Some((slot, day, left)) = schedule::due(conn, Local::now())? {
             let started = start(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), now)?;
             schedule::mark_started(conn, slot.id, day)?;
@@ -364,8 +373,6 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     }
     let since = *w.stretch_since.get_or_insert(now);
 
-    let fg = platform::foreground();
-    let gaming = fg.as_ref().is_some_and(|f| classify::is_game(&classify::exe_stem(&f.exe_path), &f.exe_path));
     let every = break_minutes(conn)? as i64 * MIN_MS;
     // Held back during focus sessions and games; it goes out once they're over.
     if every > 0 && session.is_none() && !gaming && now - since >= every * (w.breaks_sent + 1) {
@@ -397,6 +404,18 @@ mod tests {
     use super::*;
 
     const M: i64 = MIN_MS;
+
+    #[test]
+    fn scheduled_focus_waits_out_games_and_absence() {
+        // At the computer, nothing running, not gaming: it starts.
+        assert!(schedule_may_start(false, false, 10_000, false));
+        // In a game it waits, however active the player is.
+        assert!(!schedule_may_start(false, false, 0, true));
+        // Away from the computer, with a session already running, or with tracking paused, too.
+        assert!(!schedule_may_start(false, false, 3 * M, false));
+        assert!(!schedule_may_start(true, false, 0, false));
+        assert!(!schedule_may_start(false, true, 0, false));
+    }
 
     #[test]
     fn sessions_start_stop_complete_and_survive_as_blocks() {
