@@ -187,6 +187,7 @@ pub fn run() {
             }
             updater::spawn(app.handle().clone());
             // Kairo's window is made when it's wanted; at sign-in Kairo starts in the tray.
+            in_dock(app.handle(), false);
             if startup::launched_for_palette() {
                 // Windows' palette opens itself once its window exists.
                 #[cfg(not(windows))]
@@ -201,8 +202,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(windows))]
             palette::web::on_window_event(window, event);
-            #[cfg(windows)]
-            let _ = (window, event);
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                in_dock(window.app_handle(), false);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_day,
@@ -382,6 +384,7 @@ static OPENING: AtomicBool = AtomicBool::new(false);
 /// Brings up Kairo's window, making it if it was closed. It isn't kept while closed: its web view
 /// is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
 pub(crate) fn show_main(app: &AppHandle) {
+    in_dock(app, true);
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -400,6 +403,20 @@ pub(crate) fn show_main(app: &AppHandle) {
         }
         OPENING.store(false, Ordering::Release);
     });
+}
+
+/// On a Mac, Kairo lives in the menu bar: it's in the Dock and the app switcher only while its
+/// window is open, as Windows and Linux show it in the taskbar only then. Elsewhere, nothing.
+fn in_dock(app: &AppHandle, shown: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if shown { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
+        if let Err(e) = app.set_activation_policy(policy) {
+            eprintln!("cannot change Kairo's place in the Dock: {e}");
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, shown);
 }
 
 fn open_main(app: &AppHandle) -> tauri::Result<()> {
