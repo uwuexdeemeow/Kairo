@@ -388,14 +388,34 @@ function renderToday(d: DaySummary) {
 /// Focus sessions on the day the Today view shows, loaded alongside it.
 let shownFocus: FocusBlock[] = [];
 
+/// The whole hours the day's graph spans: from the hour activity began to the hour it ended (or
+/// now), at least three hours wide, so short stretches are wide enough to see and point at. A day
+/// with nothing in it spans all of it.
+function timelineHours(day0: number, times: number[]): [number, number] {
+  if (!times.length) return [0, 24];
+  const hourOf = (ms: number) => (ms - day0) / HOUR_MS;
+  let from = Math.max(0, Math.floor(hourOf(Math.min(...times))));
+  let to = Math.min(24, Math.ceil(hourOf(Math.max(...times))));
+  const MIN_HOURS = 3;
+  if (to - from < MIN_HOURS) {
+    to = Math.min(24, from + MIN_HOURS);
+    from = Math.max(0, to - MIN_HOURS);
+  }
+  return [from, to];
+}
+
 function renderTimeline(d: DaySummary, isToday: boolean) {
-  const t0 = parseDate(shownDay()).getTime();
-  const span = 24 * HOUR_MS;
-  const strip = h("div", { class: "timeline", role: "img", "aria-label": `Activity on ${$("#today-date").textContent} from midnight to midnight` });
+  const day0 = parseDate(shownDay()).getTime();
+  const times = [...d.timeline.flatMap((s) => [s.start, s.end]), ...shownFocus.flatMap((b) => [b.start, b.end]), ...(isToday ? [Date.now()] : [])];
+  const [fromHour, toHour] = timelineHours(day0, d.timeline.length || shownFocus.length ? times : []);
+  const t0 = day0 + fromHour * HOUR_MS;
+  const span = (toHour - fromHour) * HOUR_MS;
+  const clock = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+  const strip = h("div", { class: "timeline", role: "img", "aria-label": `Activity on ${$("#today-date").textContent} from ${clock(fromHour)} to ${clock(toHour)}` });
   for (const seg of d.timeline) {
     const el = h("span", { class: `seg ${seg.category}` });
     el.style.left = `${((seg.start - t0) / span) * 100}%`;
-    el.style.width = `max(calc(${((seg.end - seg.start) / span) * 100}% - 2px), 2px)`;
+    el.style.width = `max(calc(${((seg.end - seg.start) / span) * 100}% - 2px), 3px)`;
     tip(el, () => `<strong>${esc(seg.label)}</strong><div>${dotHtml(seg.category)}${LABELS[seg.category]}</div><div class="muted">${fmtClock(seg.start)}–${fmtClock(seg.end)} · ${fmtDur(seg.end - seg.start)}</div>`);
     strip.append(el);
   }
@@ -405,7 +425,15 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     strip.append(now);
   }
 
-  const axis = h("div", { class: "axis", "aria-hidden": "true" }, ...["00", "06", "12", "18", "24"].map((t) => h("span", {}, t)));
+  // A mark every hour on a short day, every two or three on a longer one.
+  const hours = toHour - fromHour;
+  const step = hours <= 8 ? 1 : hours <= 14 ? 2 : 3;
+  const axis = h("div", { class: "axis", "aria-hidden": "true" });
+  for (let hour = fromHour; hour <= toHour; hour += step) {
+    const mark = h("span", {}, clock(hour));
+    mark.style.left = `${((hour - fromHour) / hours) * 100}%`;
+    axis.append(mark);
+  }
   const parts: Node[] = [strip, axis];
   // Focus sessions run as a thin lane above the activity they covered.
   if (shownFocus.length) {

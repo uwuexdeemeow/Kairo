@@ -1473,7 +1473,7 @@ html.palette-root {
 
 .timeline {
   position: relative;
-  height: 14px;
+  height: 28px;
 }
 
 .timeline::before {
@@ -1481,7 +1481,7 @@ html.palette-root {
   position: absolute;
   left: 0;
   right: 0;
-  top: 6px;
+  top: 13px;
   height: 1px;
   background: var(--track);
 }
@@ -1527,13 +1527,28 @@ html.palette-root {
   background: var(--ink);
 }
 
+/* Hour marks under the day's graph, each centred on its hour; the end ones stay inside. */
 .axis {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
+  height: 14px;
   margin-top: 12px;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--faint);
+}
+
+.axis span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.axis span:first-child {
+  transform: none;
+}
+
+.axis span:last-child {
+  transform: translateX(-100%);
 }
 
 .legend {
