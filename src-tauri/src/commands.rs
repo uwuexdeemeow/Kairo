@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -308,7 +308,30 @@ pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap
 pub fn get_away(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<away::Stretch>> {
     let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
+    // Time away during a meeting on the calendar labels itself rather than being asked about.
+    away::label_meetings(&conn, now_ms()).map_err(err)?;
     away::stretches(&conn, from, to, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_calendar(state: State<AppState>) -> CmdResult<calendar::Status> {
+    let conn = state.db.lock().map_err(err)?;
+    calendar::status(&conn).map_err(err)
+}
+
+/// Keeps the calendar addresses given, one per line, and reads them at once; it waits on the
+/// network, so it runs off the main thread.
+#[tauri::command]
+pub async fn set_calendar(app: AppHandle, urls: String) -> CmdResult<calendar::Status> {
+    let state = app.state::<AppState>();
+    {
+        let conn = state.db.lock().map_err(err)?;
+        calendar::set_urls(&conn, &urls)?;
+    }
+    // Read on a connection of its own, so Kairo's window isn't held up by the network.
+    let db_path = app.path().app_data_dir().map_err(err)?.join("kairo.db");
+    let conn = db::open(&db_path).map_err(err)?;
+    calendar::read_now(&conn, now_ms()).map_err(err)
 }
 
 /// Labels a stretch away: "meeting", "call", "break" or "other"; it then counts as time.

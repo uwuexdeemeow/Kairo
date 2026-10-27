@@ -99,6 +99,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              day  TEXT    NOT NULL,
              PRIMARY KEY (slot, day)
          );
+         -- Meetings from the user's calendars (calendar.rs), two weeks either side of now.
+         CREATE TABLE IF NOT EXISTS calendar_events (
+             start_ms INTEGER NOT NULL,
+             end_ms   INTEGER NOT NULL,
+             title    TEXT    NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS calendar_events_start ON calendar_events(start_ms);
          -- Stretches away the user waved off rather than labelling (away.rs), by when they began.
          CREATE TABLE IF NOT EXISTS away_dismissed (
              start_ms INTEGER PRIMARY KEY

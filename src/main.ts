@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -1472,6 +1472,7 @@ async function load(v: View = view) {
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
       renderSync(await api.sync());
+      renderCalendar(await api.calendar());
       await refreshExtension();
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
@@ -1831,6 +1832,23 @@ $("#backup-restore").addEventListener("click", () =>
     return null;
   }),
 );
+
+function renderCalendar(c: CalendarStatus) {
+  const box = $<HTMLTextAreaElement>("#calendar-urls");
+  if (document.activeElement !== box) box.value = c.urls.join("\n");
+  const read = c.readMs ? `Read at ${fmtClock(c.readMs)}: ${c.events} ${c.events === 1 ? "meeting" : "meetings"} in these four weeks.` : "";
+  $("#calendar-status").textContent = !c.urls.length ? "" : [read, c.error ?? ""].filter(Boolean).join(" ") || "Not read yet.";
+}
+
+$("#calendar-save").addEventListener("click", async () => {
+  const out = $("#calendar-status");
+  out.textContent = "Reading…";
+  try {
+    renderCalendar(await api.setCalendar($<HTMLTextAreaElement>("#calendar-urls").value));
+  } catch (err) {
+    out.textContent = String(err);
+  }
+});
 
 /// When a computer last wrote its time, the way people say it.
 function ago(ms: number): string {

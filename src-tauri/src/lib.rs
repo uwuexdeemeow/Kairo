@@ -3,6 +3,7 @@ mod appearance;
 mod away;
 mod backup;
 mod blocking;
+mod calendar;
 mod browser;
 mod classify;
 mod collector;
@@ -145,6 +146,7 @@ pub fn run() {
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             sync::spawn(db_path.clone(), privacy_rules.clone(), window_cache.clone());
+            calendar::spawn(db_path.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
             app.manage(AppState {
@@ -245,6 +247,8 @@ pub fn run() {
             commands::get_away,
             commands::label_away,
             commands::dismiss_away,
+            commands::get_calendar,
+            commands::set_calendar,
             commands::get_goal_settings,
             commands::get_week_goals,
             commands::set_goal,
