@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, focus, goals, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -231,6 +231,43 @@ pub struct FocusOverview {
     week: focus::Stats,
     all: focus::Stats,
     recent: Vec<focus::Block>,
+}
+
+#[tauri::command]
+pub fn get_projects(state: State<AppState>) -> CmdResult<Vec<projects::Project>> {
+    let conn = state.db.lock().map_err(err)?;
+    projects::list(&conn).map_err(err)
+}
+
+/// Adds a project, or with an id changes it; `keywords` are comma-separated. The projects then
+/// travel to combined computers.
+#[tauri::command]
+pub fn save_project(state: State<AppState>, id: Option<i64>, name: String, keywords: String) -> CmdResult<Vec<projects::Project>> {
+    let conn = state.db.lock().map_err(err)?;
+    projects::save(&conn, id, &name, &keywords).map_err(err)?.ok_or("A project needs a name and at least one keyword.")?;
+    sync::record(&conn, "projects:all", &projects::to_json(&conn).map_err(err)?)?;
+    projects::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_project(state: State<AppState>, id: i64) -> CmdResult<Vec<projects::Project>> {
+    let conn = state.db.lock().map_err(err)?;
+    projects::remove(&conn, id).map_err(err)?;
+    sync::record(&conn, "projects:all", &projects::to_json(&conn).map_err(err)?)?;
+    projects::list(&conn).map_err(err)
+}
+
+/// Time in each project on the day `date` (default today), or with `week`, in its Monday-to-Sunday
+/// week; whose time follows the sidebar's choice of computers.
+#[tauri::command]
+pub fn get_project_times(state: State<AppState>, date: Option<String>, week: bool) -> CmdResult<Vec<projects::ProjectTime>> {
+    let day = parse_day(date)?;
+    let (first, days) = if week { (recap::week_start(day), 7) } else { (day, 1) };
+    let from = day_bounds(first).ok_or("that date has no local midnight")?.0;
+    let last = first.checked_add_days(chrono::Days::new(days - 1)).ok_or("that week is out of range")?;
+    let to = day_bounds(last).ok_or("that date has no local midnight")?.1.min(now_ms());
+    let conn = state.db.lock().map_err(err)?;
+    projects::totals(&conn, from, to, &sync::shown(&conn)?).map_err(err)
 }
 
 #[tauri::command]

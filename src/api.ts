@@ -274,6 +274,19 @@ export interface GoalSettings {
   weekDistractingMaxMin: number;
 }
 
+/** A project: time whose window title or site has one of its keywords. */
+export interface Project {
+  id: number;
+  name: string;
+  keywords: string[];
+}
+
+export interface ProjectTime {
+  id: number;
+  name: string;
+  ms: number;
+}
+
 /** The calendars Kairo reads, and how the last reading went. */
 export interface CalendarStatus {
   urls: string[];
@@ -331,6 +344,12 @@ export const api = {
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: GoalName, minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  projects: () => invoke<Project[]>("get_projects"),
+  /** Adds a project, or with an id changes it; `keywords` are comma-separated. */
+  saveProject: (id: number | null, name: string, keywords: string) => invoke<Project[]>("save_project", { id, name, keywords }),
+  removeProject: (id: number) => invoke<Project[]>("remove_project", { id }),
+  /** Time per project on a day, or with `week` its whole week. */
+  projectTimes: (date: string | undefined, week: boolean) => invoke<ProjectTime[]>("get_project_times", { date, week }),
   calendar: () => invoke<CalendarStatus>("get_calendar"),
   /** Keeps the addresses (one per line) and reads them at once. */
   setCalendar: (urls: string) => invoke<CalendarStatus>("set_calendar", { urls }),

@@ -139,6 +139,11 @@
               <div id="today-sites"></div>
             </section>
           </div>
+
+          <section class="block" id="today-projects-box" aria-label="Projects" hidden>
+            <h2>Projects</h2>
+            <div id="today-projects"></div>
+          </section>
         </section>
 
         <section id="view-week" class="view" hidden>
@@ -182,6 +187,11 @@
               <div id="week-limits"></div>
             </section>
           </div>
+
+          <section class="block" id="week-projects-box" aria-label="Projects" hidden>
+            <h2>Projects</h2>
+            <div id="week-projects"></div>
+          </section>
         </section>
 
         <section id="view-focus" class="view" hidden>
@@ -419,6 +429,18 @@
               <button class="link-btn" id="backup-save">Back up everything</button>
               <button class="link-btn" id="backup-restore">Restore a backup</button>
               <span class="muted" id="data-status" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="block">
+            <h2>Projects</h2>
+            <p class="muted">See time by project across apps. Give each project a few keywords; time belongs to the first project with one in its window title or site, so "kairo" gathers a VS Code folder, a GitHub repository and a terminal named kairo. Projects show on Today and Week.</p>
+            <div id="project-list"></div>
+            <div class="row-buttons project-add">
+              <input class="filter project-name" id="project-name" maxlength="60" placeholder="Project name" aria-label="Project name" autocomplete="off" />
+              <input class="filter project-keywords" id="project-keywords" placeholder="Keywords, separated by commas" aria-label="Keywords" autocomplete="off" />
+              <button class="btn" id="project-add">Add</button>
+              <span class="muted" id="project-status" aria-live="polite"></span>
             </div>
           </section>
 

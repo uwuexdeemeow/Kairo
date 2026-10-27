@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -472,6 +472,60 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
     }),
   );
 }
+
+/// Time per project in `#<id>`, its block hidden when no project had any.
+function renderProjectTimes(id: string, times: ProjectTime[]) {
+  $(`#${id}-box`).hidden = !times.length;
+  const max = times[0]?.ms ?? 1;
+  $(`#${id}`).replaceChildren(
+    ...times.map((p) => {
+      const line = h("div", { class: "line project" });
+      line.style.width = `${Math.max((p.ms / max) * 100, 1)}%`;
+      return h(
+        "div",
+        { class: "usage" },
+        h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, p.name), h("span", { class: "usage-value" }, fmtDur(p.ms))),
+        line,
+      );
+    }),
+  );
+}
+
+/// Settings' projects, each editable in place: a change saves once the field is left.
+function renderProjects(projects: Project[]) {
+  const status = $("#project-status");
+  const save = async (run: () => Promise<Project[]>) => {
+    try {
+      renderProjects(await run());
+      status.textContent = "";
+    } catch (err) {
+      status.textContent = String(err);
+    }
+  };
+  $("#project-list").replaceChildren(
+    ...projects.map((p) => {
+      const name = h("input", { class: "filter project-name", value: p.name, maxlength: "60", "aria-label": "Project name" }) as HTMLInputElement;
+      const words = h("input", { class: "filter project-keywords", value: p.keywords.join(", "), "aria-label": `Keywords for ${p.name}` }) as HTMLInputElement;
+      for (const field of [name, words]) field.addEventListener("change", () => save(() => api.saveProject(p.id, name.value, words.value)));
+      const remove = h("button", { class: "link-btn" }, "Remove");
+      remove.addEventListener("click", () => save(() => api.removeProject(p.id)));
+      return h("div", { class: "row-buttons project-row" }, name, words, remove);
+    }),
+  );
+}
+
+$("#project-add").addEventListener("click", async () => {
+  const name = $<HTMLInputElement>("#project-name");
+  const words = $<HTMLInputElement>("#project-keywords");
+  try {
+    renderProjects(await api.saveProject(null, name.value, words.value));
+    name.value = "";
+    words.value = "";
+    $("#project-status").textContent = "";
+  } catch (err) {
+    $("#project-status").textContent = String(err);
+  }
+});
 
 /// Goal amounts read "0m" rather than "<1m" when nothing has been used yet.
 const fmtGoal = (ms: number) => (ms < 30_000 ? "0m" : fmtDur(ms));
@@ -1448,16 +1502,18 @@ async function load(v: View = view) {
       $("#welcome").hidden = !firstRun;
       if (firstRun) return;
       const date = selectedDay ?? undefined;
-      const [day, goals, focusBlocks, away] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date)]);
+      const [day, goals, focusBlocks, away, projectTimes] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date), api.projectTimes(date, false)]);
       shownFocus = focusBlocks;
       renderToday(day);
       renderGoals(goals, selectedDay === null);
       renderAway(away);
+      renderProjectTimes("today-projects", projectTimes);
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
       renderWeek(await api.week(selectedWeek ?? undefined));
       renderWeekGoals(await api.weekGoals(selectedWeek ?? undefined));
+      renderProjectTimes("week-projects", await api.projectTimes(selectedWeek ?? undefined, true));
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") renderCategories(await api.categories());
@@ -1473,6 +1529,7 @@ async function load(v: View = view) {
       renderGoalSettings(await api.goalSettings());
       renderSync(await api.sync());
       renderCalendar(await api.calendar());
+      renderProjects(await api.projects());
       await refreshExtension();
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
