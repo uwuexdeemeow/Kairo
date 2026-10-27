@@ -99,6 +99,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              day  TEXT    NOT NULL,
              PRIMARY KEY (slot, day)
          );
+         -- Projects (projects.rs): a name, and comma-separated keywords marking its time.
+         CREATE TABLE IF NOT EXISTS projects (
+             id       INTEGER PRIMARY KEY,
+             name     TEXT    NOT NULL,
+             keywords TEXT    NOT NULL,
+             position INTEGER NOT NULL DEFAULT 0
+         );
          -- Meetings from the user's calendars (calendar.rs), two weeks either side of now.
          CREATE TABLE IF NOT EXISTS calendar_events (
              start_ms INTEGER NOT NULL,

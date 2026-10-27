@@ -16,6 +16,7 @@ mod nudge;
 mod palette;
 mod platform;
 mod privacy;
+mod projects;
 mod recap;
 mod schedule;
 mod startup;
@@ -241,6 +242,10 @@ pub fn run() {
             commands::get_break_minutes,
             commands::set_break_minutes,
             commands::get_focus_schedule,
+            commands::get_projects,
+            commands::save_project,
+            commands::remove_project,
+            commands::get_project_times,
             commands::add_focus_slot,
             commands::remove_focus_slot,
             commands::get_goals,

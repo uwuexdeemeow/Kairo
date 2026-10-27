@@ -1229,6 +1229,27 @@ html.palette-root {
   border-top: 1px solid var(--rule);
 }
 
+/* Projects aren't a category, so their bars are plain ink. */
+.line.project {
+  background: var(--ink);
+  opacity: 0.55;
+}
+
+.project-row,
+.project-add {
+  margin-top: 8px;
+}
+
+.project-name {
+  flex: 0 1 180px;
+  min-width: 120px;
+}
+
+.project-keywords {
+  flex: 1;
+  min-width: 200px;
+}
+
 /* Calendar addresses, one per line; long and private, so plain and wrapped. */
 .calendar-urls {
   display: block;
