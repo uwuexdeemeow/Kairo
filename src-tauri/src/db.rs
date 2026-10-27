@@ -99,6 +99,10 @@ pub fn open(path: &Path) -> Result<Connection> {
              day  TEXT    NOT NULL,
              PRIMARY KEY (slot, day)
          );
+         -- Stretches away the user waved off rather than labelling (away.rs), by when they began.
+         CREATE TABLE IF NOT EXISTS away_dismissed (
+             start_ms INTEGER PRIMARY KEY
+         );
          CREATE TABLE IF NOT EXISTS shared_choices (
              item       TEXT    PRIMARY KEY,
              value      TEXT    NOT NULL,

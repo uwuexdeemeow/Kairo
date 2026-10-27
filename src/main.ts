@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -451,6 +451,43 @@ const fmtGoal = (ms: number) => (ms < 30_000 ? "0m" : fmtDur(ms));
 function renderGoals(g: DayGoals, isToday: boolean) {
   // The streak runs up to yesterday, so it only reads naturally next to today.
   renderGoalBox("goals", g, isToday && g.streak ? `${g.streak}-day streak` : "");
+}
+
+const AWAY_KINDS: [string, string][] = [
+  ["meeting", "Meeting"],
+  ["call", "Call"],
+  ["break", "Break"],
+  ["other", "Something else"],
+];
+
+/// Long stretches away from the computer, each asking what it was; labelled, it counts as time.
+function renderAway(stretches: AwayStretch[]) {
+  $("#away").hidden = !stretches.length;
+  $("#away-list").replaceChildren(
+    ...stretches.map((s) => {
+      const say = async (run: () => Promise<void>) => {
+        try {
+          await run();
+          load();
+        } catch (err) {
+          $("#away-status").textContent = String(err);
+        }
+      };
+      const buttons = AWAY_KINDS.map(([kind, name]) => {
+        const b = h("button", { class: "btn" }, name);
+        b.addEventListener("click", () => say(() => api.labelAway(s.startMs, s.endMs, kind)));
+        return b;
+      });
+      const skip = h("button", { class: "link-btn" }, "Dismiss");
+      skip.addEventListener("click", () => say(() => api.dismissAway(s.startMs)));
+      return h(
+        "div",
+        { class: "away-row" },
+        h("span", { class: "away-time" }, `${fmtClock(s.startMs)}–${fmtClock(s.endMs)}`, h("span", { class: "muted" }, ` · ${fmtDur(s.endMs - s.startMs)}`)),
+        h("div", { class: "row-buttons" }, ...buttons, skip),
+      );
+    }),
+  );
 }
 
 /// The weekly goals on Week; their streak counts the weeks before, so it shows on this week only.
@@ -1383,10 +1420,11 @@ async function load(v: View = view) {
       $("#welcome").hidden = !firstRun;
       if (firstRun) return;
       const date = selectedDay ?? undefined;
-      const [day, goals, focusBlocks] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date)]);
+      const [day, goals, focusBlocks, away] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date)]);
       shownFocus = focusBlocks;
       renderToday(day);
       renderGoals(goals, selectedDay === null);
+      renderAway(away);
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();

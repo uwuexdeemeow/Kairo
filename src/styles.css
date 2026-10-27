@@ -1229,6 +1229,22 @@ html.palette-root {
   border-top: 1px solid var(--rule);
 }
 
+/* A stretch away from the computer: when, then what it was. */
+.away-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.away-time {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Scheduled focus: its days can read "Mon, Wed, Fri", and the last column is a Remove link. */
 .schedule-row {
   grid-template-columns: 120px minmax(0, 1fr) auto auto;

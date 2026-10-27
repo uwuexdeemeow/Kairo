@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, browser, classify, db, demo, focus, goals, nudge, palette, platform, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -300,6 +300,32 @@ pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
     recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+/// Stretches of half an hour or more away from this computer on one local day (default today),
+/// still to be labelled.
+#[tauri::command]
+pub fn get_away(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<away::Stretch>> {
+    let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
+    let conn = state.db.lock().map_err(err)?;
+    away::stretches(&conn, from, to, now_ms()).map_err(err)
+}
+
+/// Labels a stretch away: "meeting", "call", "break" or "other"; it then counts as time.
+#[tauri::command]
+pub fn label_away(state: State<AppState>, start_ms: i64, end_ms: i64, kind: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    if away::label(&conn, start_ms, end_ms, &kind).map_err(err)? == 0 {
+        return Err("That stretch has already changed; reopen Today to see it.".into());
+    }
+    nudge::invalidate(&state.window_cache);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn dismiss_away(state: State<AppState>, start_ms: i64) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    away::dismiss(&conn, start_ms).map_err(err)
 }
 
 /// Progress on every goal and limit for one local day (default today), plus the streak before it.

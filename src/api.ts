@@ -274,6 +274,12 @@ export interface GoalSettings {
   weekDistractingMaxMin: number;
 }
 
+/** A stretch away from the computer. */
+export interface AwayStretch {
+  startMs: number;
+  endMs: number;
+}
+
 /** A focus session that starts on its own each week. */
 export interface FocusSlot {
   id: number;
@@ -316,6 +322,11 @@ export const api = {
   goals: (date?: string) => invoke<DayGoals>("get_goals", { date }),
   goalSettings: () => invoke<GoalSettings>("get_goal_settings"),
   setGoal: (kind: GoalName, minutes: number) => invoke<void>("set_goal", { kind, minutes }),
+  /** Half an hour or more away from this computer on a day, still to be labelled. */
+  away: (date?: string) => invoke<AwayStretch[]>("get_away", { date }),
+  /** `kind` is "meeting", "call", "break" or "other". */
+  labelAway: (startMs: number, endMs: number, kind: string) => invoke<void>("label_away", { startMs, endMs, kind }),
+  dismissAway: (startMs: number) => invoke<void>("dismiss_away", { startMs }),
   focusSchedule: () => invoke<FocusSlot[]>("get_focus_schedule"),
   /** `days` has Monday in bit 0 to Sunday in bit 6; returns the schedule after. */
   addFocusSlot: (days: number, startMin: number, minutes: number, label: string | null) =>

@@ -1,5 +1,6 @@
 mod analysis;
 mod appearance;
+mod away;
 mod backup;
 mod blocking;
 mod browser;
@@ -241,6 +242,9 @@ pub fn run() {
             commands::add_focus_slot,
             commands::remove_focus_slot,
             commands::get_goals,
+            commands::get_away,
+            commands::label_away,
+            commands::dismiss_away,
             commands::get_goal_settings,
             commands::get_week_goals,
             commands::set_goal,
