@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -473,21 +473,88 @@ function renderUsage(root: HTMLElement, items: Usage[], emptyText: string) {
   );
 }
 
-/// Time per project in `#<id>`, its block hidden when no project had any.
-function renderProjectTimes(id: string, times: ProjectTime[]) {
+/// The project open in each projects block, by the block's id.
+const openProjects = new Map<string, number>();
+
+/// Time per project in `#<id>`, its block hidden when no project had any. Clicking one opens where
+/// its time came from over the same `span` holding `date`.
+function renderProjectTimes(id: string, times: ProjectTime[], span: Span, date?: string) {
   $(`#${id}-box`).hidden = !times.length;
   const max = times[0]?.ms ?? 1;
   $(`#${id}`).replaceChildren(
     ...times.map((p) => {
       const line = h("div", { class: "line project" });
       line.style.width = `${Math.max((p.ms / max) * 100, 1)}%`;
-      return h(
-        "div",
-        { class: "usage" },
+      const open = openProjects.get(id) === p.id;
+      const row = h(
+        "button",
+        { class: "usage project-toggle", "aria-expanded": String(open), title: open ? "Hide where this time came from" : "Show where this time came from" },
         h("div", { class: "usage-top" }, h("span", { class: "usage-label" }, p.name), h("span", { class: "usage-value" }, fmtDur(p.ms))),
         line,
       );
+      row.addEventListener("click", () => {
+        if (open) openProjects.delete(id);
+        else openProjects.set(id, p.id);
+        renderProjectTimes(id, times, span, date);
+      });
+      const item = h("div", { class: "project-item" }, row);
+      if (open) {
+        const box = h("div", { class: "project-detail" }, h("p", { class: "muted" }, "Loading…"));
+        item.append(box);
+        api
+          .projectDetail(p.id, date, span)
+          .then((d) => paintProjectDetail(box, d, span))
+          .catch((err) => box.replaceChildren(h("p", { class: "empty" }, `Couldn't load it: ${err}`)));
+      }
+      return item;
     }),
+  );
+}
+
+/// A bar an hour or a day, then the apps and sites and the window titles behind the time.
+function paintProjectDetail(box: HTMLElement, d: ProjectDetail, span: Span) {
+  const max = Math.max(...d.bars.map((b) => b.ms), 1);
+  const label = (b: { startMs: number }, i: number) => {
+    const at = new Date(b.startMs);
+    if (span === "day") return i % 6 === 0 ? at.toLocaleTimeString([], { hour: "numeric" }) : "";
+    if (span === "week") return at.toLocaleDateString([], { weekday: "short" });
+    return at.getDate() % 7 === 1 ? String(at.getDate()) : "";
+  };
+  const name = (b: { startMs: number }) => {
+    const at = new Date(b.startMs);
+    return span === "day"
+      ? `${at.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${new Date(b.startMs + HOUR_MS).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+      : at.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  };
+  const bars = h(
+    "div",
+    { class: "pd-bars", style: `--bars: ${d.bars.length}` },
+    ...d.bars.map((b, i) => {
+      const fill = h("span", { class: "pd-fill" });
+      fill.style.height = `${(b.ms / max) * 100}%`;
+      const col = h("div", { class: "pd-bar", "aria-label": `${name(b)}: ${fmtDur(b.ms)}` }, h("span", { class: "pd-track" }, fill), h("span", { class: "pd-label" }, label(b, i)));
+      tip(col, () => `<strong>${esc(name(b))}</strong><div class="muted">${b.ms ? fmtDur(b.ms) : "Nothing"}</div>`);
+      return col;
+    }),
+  );
+  const sources = h("div");
+  renderUsage(sources, d.sources, "Nothing in this stretch.");
+  const top = d.titles[0]?.ms ?? 1;
+  const titles = d.titles.length
+    ? d.titles.map((t) => {
+        const fill = h("div", { class: "line project" });
+        fill.style.width = `${Math.max((t.ms / top) * 100, 1)}%`;
+        return h(
+          "div",
+          { class: "usage" },
+          h("div", { class: "usage-top" }, h("span", { class: "usage-label pd-title", title: t.title }, t.title), h("span", { class: "usage-value" }, fmtDur(t.ms))),
+          fill,
+        );
+      })
+    : [h("p", { class: "empty" }, "No window titles: they're hidden by a privacy rule, or the time matched by site.")];
+  box.replaceChildren(
+    bars,
+    h("div", { class: "pd-columns" }, h("section", {}, h("h3", {}, "Apps and sites"), sources), h("section", {}, h("h3", {}, "Window titles"), ...titles)),
   );
 }
 
@@ -719,7 +786,7 @@ function renderPeriod(w: Period) {
     : "";
   renderWeekChart(w);
   renderWeekApps(w);
-  renderProjectTimes("week-projects", w.topProjects);
+  renderProjectTimes("week-projects", w.topProjects, month ? "month" : "week", w.start);
 
   $("#week-limits").replaceChildren(
     ...(w.limitsOver.length
@@ -1655,7 +1722,7 @@ async function load(v: View = view) {
       renderToday(day);
       renderGoals(goals, selectedDay === null);
       renderAway(away);
-      renderProjectTimes("today-projects", projectTimes);
+      renderProjectTimes("today-projects", projectTimes, "day", date);
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
