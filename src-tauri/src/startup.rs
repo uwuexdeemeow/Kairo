@@ -9,14 +9,6 @@ use crate::db;
 /// Passed by the login entry so Kairo starts quietly in the tray instead of opening its window.
 pub const MINIMIZED_ARG: &str = "--minimized";
 const INITIALIZED_KEY: &str = "autostart_initialized";
-/// Its name in settings.
-pub const LABEL: &str = if cfg!(target_os = "macos") {
-    "Open at Login"
-} else if cfg!(windows) {
-    "Start with Windows"
-} else {
-    "Start at login"
-};
 
 /// Dev builds run from target\debug; registering that path at login would go stale on every rebuild.
 pub const AVAILABLE: bool = !cfg!(debug_assertions);
