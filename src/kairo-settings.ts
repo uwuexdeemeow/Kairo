@@ -17,9 +17,14 @@ function keyName(key: string): string {
   return key;
 }
 
+/// A saved shortcut ("Ctrl+Space") as keys, named the way this computer's keyboard labels them.
+export function shortcutKeys(shortcut: string): HTMLElement[] {
+  return shortcut.split("+").map((k) => h("kbd", {}, keyName(k)));
+}
+
 function showShortcut(shortcut: string) {
   savedShortcut = shortcut;
-  $("#palette-keys").replaceChildren(...shortcut.split("+").map((k) => h("kbd", {}, keyName(k))));
+  $("#palette-keys").replaceChildren(...shortcutKeys(shortcut));
 }
 
 /// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
