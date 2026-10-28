@@ -26,9 +26,9 @@ mod startup;
 mod sync;
 mod updater;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -56,6 +56,8 @@ pub struct AppState {
     pub browser_listening: bool,
     /// Where the palette last asked Kairo's window to go, until the page takes it.
     pub navigation: Mutex<Option<Navigation>>,
+    /// The dashboard tab asked for, until the page takes it.
+    pub dashboard_tab: Mutex<Option<String>>,
 }
 
 /// A view, and for Today or Week a local `YYYY-MM-DD` date.
@@ -83,8 +85,7 @@ pub fn run() {
                     }
                 }
                 Launch::Chrono => show_main(app),
-                // Task 2: show_dashboard(app, None)
-                Launch::Dashboard => show_main(app),
+                Launch::Dashboard => show_dashboard(app, None),
                 Launch::Quiet => {}
             }
         }))
@@ -168,6 +169,7 @@ pub fn run() {
                 strict_waits,
                 icons: Mutex::default(),
                 navigation: Mutex::default(),
+                dashboard_tab: Mutex::default(),
             });
             setup_tray(app, paused, &palette_shortcut)?;
             // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
@@ -203,8 +205,7 @@ pub fn run() {
             in_dock(app.handle(), false);
             match launch {
                 Launch::Chrono => show_main(app.handle()),
-                // Task 2: show_dashboard(app.handle(), None)
-                Launch::Dashboard => show_main(app.handle()),
+                Launch::Dashboard => show_dashboard(app.handle(), None),
                 // Windows' palette opens itself once its window exists.
                 #[cfg(not(windows))]
                 Launch::Palette => palette::toggle(app.handle()),
@@ -217,8 +218,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(windows))]
             palette::web::on_window_event(window, event);
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                in_dock(window.app_handle(), false);
+            if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard") {
+                // The window being destroyed may still be listed.
+                let app = window.app_handle();
+                let windows = app.webview_windows();
+                let open: Vec<&str> = windows.keys().map(String::as_str).filter(|l| *l != window.label()).collect();
+                in_dock(app, keep_in_dock(&open));
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -293,6 +298,10 @@ pub fn run() {
             commands::get_extension_status,
             commands::open_extension_folder,
             commands::take_navigation,
+            commands::open_dashboard,
+            commands::take_dashboard_tab,
+            commands::open_chrono,
+            commands::open_palette,
             commands::palette_open,
             commands::palette_query,
             commands::palette_icons,
@@ -355,8 +364,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
-            // Task 2: show_dashboard(app, None)
-            "dashboard" => show_main(app),
+            "dashboard" => show_dashboard(app, None),
             "open" => show_main(app),
             "palette" => palette::toggle(app),
             "pause" => {
@@ -374,22 +382,49 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
                 _ => return,
             };
             if tray_click_opens_dashboard(button, state) {
-                // Task 2: show_dashboard(tray.app_handle(), None)
-                show_main(tray.app_handle());
+                show_dashboard(tray.app_handle(), None);
             }
         })
         .build(app)?;
     Ok(())
 }
 
-/// Set while Kairo's window is being made, so a second click doesn't make another.
-static OPENING: AtomicBool = AtomicBool::new(false);
+/// The windows being made, by label, so a second click doesn't make another.
+static OPENING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
-/// Brings up Kairo's window, making it if it was closed. It isn't kept while closed: its web view
-/// is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+/// Claims the making of `label`'s window; false when one is already being made.
+fn begin_opening(label: &str) -> bool {
+    OPENING.lock().unwrap_or_else(|e| e.into_inner()).insert(label.to_string())
+}
+
+fn end_opening(label: &str) {
+    OPENING.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
+}
+
+/// Whether Kairo belongs in the Dock: while Chrono or the dashboard is open.
+fn keep_in_dock(open: &[&str]) -> bool {
+    open.iter().any(|l| *l == "main" || *l == "dashboard")
+}
+
+/// Brings up Chrono's window, making it if it was closed.
 pub(crate) fn show_main(app: &AppHandle) {
+    show_window(app, "main");
+}
+
+/// Brings up the dashboard, on `tab` when one is given. A window made for it is still loading
+/// when this runs, so the page asks for the tab (`take_dashboard_tab`) once it's ready, and again
+/// whenever it's told to.
+pub(crate) fn show_dashboard(app: &AppHandle, tab: Option<&str>) {
+    *app.state::<AppState>().dashboard_tab.lock().unwrap_or_else(|e| e.into_inner()) = tab.map(str::to_string);
+    show_window(app, "dashboard");
+    let _ = app.emit_to("dashboard", "kairo:dashboard", ());
+}
+
+/// Brings up the window `label`, making it if it was closed. It isn't kept while closed: its web
+/// view is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+pub(crate) fn show_window(app: &AppHandle, label: &str) {
     in_dock(app, true);
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(label) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -397,15 +432,16 @@ pub(crate) fn show_main(app: &AppHandle) {
     }
     // Making a web view from inside one of Windows' callbacks (a tray click, a menu) can hang,
     // so it's made on a thread of its own.
-    if OPENING.swap(true, Ordering::AcqRel) {
+    if !begin_opening(label) {
         return;
     }
     let app = app.clone();
+    let label = label.to_string();
     std::thread::spawn(move || {
-        if let Err(e) = open_main(&app) {
-            eprintln!("cannot open Kairo's window: {e}");
+        if let Err(e) = open_window(&app, &label) {
+            eprintln!("cannot open the {label} window: {e}");
         }
-        OPENING.store(false, Ordering::Release);
+        end_opening(&label);
     });
 }
 
@@ -423,11 +459,11 @@ fn in_dock(app: &AppHandle, shown: bool) {
     let _ = (app, shown);
 }
 
-fn open_main(app: &AppHandle) -> tauri::Result<()> {
-    if app.get_webview_window("main").is_some() {
+fn open_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
+    if app.get_webview_window(label).is_some() {
         return Ok(());
     }
-    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else { return Ok(()) };
+    let Some(config) = app.config().app.windows.iter().find(|w| w.label == label) else { return Ok(()) };
     let window = tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
     let mode = app.state::<AppState>().db.lock().ok().and_then(|conn| appearance::get(&conn).ok()).unwrap_or_default();
     appearance::apply_to(&window, &mode);
@@ -454,5 +490,24 @@ mod tests {
         assert!(tray_click_opens_dashboard(MouseButton::Left, MouseButtonState::Up));
         assert!(!tray_click_opens_dashboard(MouseButton::Left, MouseButtonState::Down));
         assert!(!tray_click_opens_dashboard(MouseButton::Right, MouseButtonState::Up));
+    }
+
+    #[test]
+    fn only_one_window_of_a_kind_opens_at_a_time() {
+        assert!(begin_opening("dashboard"));
+        assert!(!begin_opening("dashboard"));
+        assert!(begin_opening("main"));
+        end_opening("dashboard");
+        end_opening("main");
+        assert!(begin_opening("dashboard"));
+        end_opening("dashboard");
+    }
+
+    #[test]
+    fn kairo_stays_in_the_dock_while_either_window_is_open() {
+        assert!(keep_in_dock(&["dashboard"]));
+        assert!(keep_in_dock(&["main", "palette"]));
+        assert!(!keep_in_dock(&["palette", "blocked"]));
+        assert!(!keep_in_dock(&[]));
     }
 }

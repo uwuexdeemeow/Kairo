@@ -22,6 +22,19 @@
         "minHeight": 520,
         "backgroundColor": "#0e0f12",
         "dragDropEnabled": false
+      },
+      {
+        "label": "dashboard",
+        "create": false,
+        "url": "dashboard.html",
+        "title": "Kairo",
+        "visible": false,
+        "width": 860,
+        "height": 620,
+        "minWidth": 560,
+        "minHeight": 440,
+        "backgroundColor": "#0e0f12",
+        "dragDropEnabled": false
       }
     ],
     "security": {
