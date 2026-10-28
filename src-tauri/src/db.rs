@@ -132,6 +132,12 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("sessions", "device", "TEXT"),
         // Whether passing a limit blocks the app or site for the rest of the day (goals.rs).
         ("limits", "hard", "INTEGER NOT NULL DEFAULT 0"),
+        // A scheduled slot's own block list, as a JSON array of keys; NULL blocks as usual.
+        ("focus_schedule", "blocks", "TEXT"),
+        // The slot that started a session, so its block list applies while it runs.
+        ("focus_sessions", "slot", "INTEGER"),
+        // A project's weekly target in minutes; 0 means none (goals.rs).
+        ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
         if !exists {

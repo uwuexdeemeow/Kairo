@@ -14,7 +14,13 @@ pub struct Project {
     pub name: String,
     /// Lowercase words or phrases, any of which marks time as this project's.
     pub keywords: Vec<String>,
+    /// Time to put in each week, in minutes; 0 means no target.
+    #[serde(default)]
+    pub week_target_min: u32,
 }
+
+/// Weekly targets run up to a full working week and then some.
+pub const MAX_WEEK_TARGET_MIN: u32 = 80 * 60;
 
 /// Keywords as the user typed them, comma-separated, tidied: trimmed, lowercase, no empties.
 pub fn keywords(text: &str) -> Vec<String> {
@@ -28,9 +34,9 @@ pub fn keywords(text: &str) -> Vec<String> {
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<Project>> {
-    let mut stmt = conn.prepare("SELECT id, name, keywords FROM projects ORDER BY position, id")?;
+    let mut stmt = conn.prepare("SELECT id, name, keywords, week_target_min FROM projects ORDER BY position, id")?;
     let projects = stmt
-        .query_map([], |r| Ok(Project { id: r.get(0)?, name: r.get(1)?, keywords: keywords(&r.get::<_, String>(2)?) }))?
+        .query_map([], |r| Ok(Project { id: r.get(0)?, name: r.get(1)?, keywords: keywords(&r.get::<_, String>(2)?), week_target_min: r.get(3)? }))?
         .collect();
     projects
 }
@@ -57,6 +63,12 @@ pub fn save(conn: &Connection, id: Option<i64>, name: &str, keyword_text: &str) 
     }
 }
 
+/// Sets project `id`'s weekly target in minutes; 0 takes it away.
+pub fn set_target(conn: &Connection, id: i64, minutes: u32) -> Result<()> {
+    conn.execute("UPDATE projects SET week_target_min = ?1 WHERE id = ?2", params![minutes.min(MAX_WEEK_TARGET_MIN), id])?;
+    Ok(())
+}
+
 pub fn remove(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM projects WHERE id = ?1", [id])?;
     Ok(())
@@ -74,7 +86,9 @@ pub fn replace_from_json(conn: &Connection, json: &str) -> std::result::Result<(
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM projects", []).map_err(|e| e.to_string())?;
     for p in projects {
-        save(&tx, None, &p.name, &p.keywords.join(",")).map_err(|e| e.to_string())?;
+        if let Some(id) = save(&tx, None, &p.name, &p.keywords.join(",")).map_err(|e| e.to_string())? {
+            set_target(&tx, id, p.week_target_min).map_err(|e| e.to_string())?;
+        }
     }
     tx.commit().map_err(|e| e.to_string())
 }
@@ -185,10 +199,14 @@ mod tests {
     #[test]
     fn projects_move_between_computers_as_text() {
         let (here, there) = (db::open(std::path::Path::new(":memory:")).unwrap(), db::open(std::path::Path::new(":memory:")).unwrap());
-        save(&here, None, "Kairo", "kairo").unwrap();
+        let id = save(&here, None, "Kairo", "kairo").unwrap().unwrap();
+        set_target(&here, id, 600).unwrap();
         save(&there, None, "Old", "old").unwrap();
         replace_from_json(&there, &to_json(&here).unwrap()).unwrap();
-        let names: Vec<String> = list(&there).unwrap().into_iter().map(|p| p.name).collect();
-        assert_eq!(names, ["Kairo"]);
+        let got: Vec<(String, u32)> = list(&there).unwrap().into_iter().map(|p| (p.name, p.week_target_min)).collect();
+        assert_eq!(got, [("Kairo".to_string(), 600)]);
+        // Projects written before targets existed still read, with none.
+        replace_from_json(&there, r#"[{"name":"Essay","keywords":["essay"]}]"#).unwrap();
+        assert_eq!(list(&there).unwrap()[0].week_target_min, 0);
     }
 }

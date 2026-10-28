@@ -16,7 +16,7 @@ use chrono::{Local, TimeZone, Timelike};
 
 use crate::analysis::{Insight, InsightKind};
 use crate::goals::fmt_dur;
-use crate::{classify, db, nudge, platform, schedule};
+use crate::{blocking, classify, db, nudge, platform, schedule};
 
 const TICK: Duration = Duration::from_secs(5);
 const MIN_MS: i64 = 60_000;
@@ -131,6 +131,13 @@ pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> 
         "INSERT INTO focus_sessions (start_ms, planned_ms, label) VALUES (?1, ?2, ?3)",
         params![a.start_ms, a.planned_ms, a.label],
     )?;
+    Ok(a)
+}
+
+/// Starts a session for scheduled slot `slot`, whose block list then applies while it runs.
+pub fn start_from_slot(conn: &Connection, minutes: u32, label: Option<&str>, slot: i64, now: i64) -> Result<Active> {
+    let a = start(conn, minutes, label, now)?;
+    conn.execute("UPDATE focus_sessions SET slot = ?1 WHERE end_ms IS NULL", [slot])?;
     Ok(a)
 }
 
@@ -357,10 +364,14 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     let in_meeting = crate::calendar::busy_at(conn, now)?.is_some();
     if schedule_may_start(session.is_some(), paused, platform::idle_ms(), gaming || in_meeting) {
         if let Some((slot, day, left)) = schedule::due(conn, Local::now())? {
-            let started = start(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), now)?;
+            let started = start_from_slot(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), slot.id, now)?;
             schedule::mark_started(conn, slot.id, day)?;
             let until = Local.timestamp_millis_opt(started.ends_ms(now)).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default();
-            notify(app, &format!("Scheduled focus until {until}"), "Distracting apps and sites are blocked until then, as in any focus session.");
+            let body = match &slot.blocks {
+                Some(keys) => format!("{} blocked until then.", blocking::describe(conn, keys)?),
+                None => "Distracting apps and sites are blocked until then, as in any focus session.".to_string(),
+            };
+            notify(app, &format!("Scheduled focus until {until}"), &body);
             session = Some(started);
         }
     }

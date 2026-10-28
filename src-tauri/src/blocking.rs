@@ -15,7 +15,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 
 use crate::analysis::{self, Category};
-use crate::{classify, db, focus, goals, platform};
+use crate::{classify, db, focus, goals, platform, schedule};
 
 const TICK: Duration = Duration::from_millis(500);
 /// Launchers are looked for every this many ticks; listing processes costs more than a glance
@@ -174,13 +174,23 @@ fn allowed(allowances: &Allowances, key: &str, now: i64) -> bool {
     allowances.lock().unwrap_or_else(|e| e.into_inner()).get(key).is_some_and(|&until| now < until)
 }
 
-/// Whether something is blocked during a focus session, before any "Allow 5 minutes". A rule set
-/// in Categories wins, a site's over its browser's; otherwise anything distracting is blocked.
-pub fn decide(rules: &HashMap<String, Rule>, cats: &HashMap<String, Category>, exe: Option<&str>, site: Option<&str>) -> bool {
+/// Whether something is blocked during a focus session, before any "Allow 5 minutes". A session
+/// from a slot with its own list blocks just what's on it; otherwise a rule set in Categories
+/// wins, a site's over its browser's, and anything else distracting is blocked.
+pub fn decide(
+    only: Option<&[String]>,
+    rules: &HashMap<String, Rule>,
+    cats: &HashMap<String, Category>,
+    exe: Option<&str>,
+    site: Option<&str>,
+) -> bool {
     if exe.is_some_and(|e| NEVER.contains(&e)) {
         return false;
     }
     let keys = [site.map(|s| format!("site:{s}")), exe.map(|e| format!("app:{e}"))];
+    if let Some(only) = only {
+        return keys.iter().flatten().any(|k| only.contains(k));
+    }
     for key in keys.iter().flatten() {
         match rules.get(key) {
             Some(Rule::Block) => return true,
@@ -191,6 +201,30 @@ pub fn decide(rules: &HashMap<String, Rule>, cats: &HashMap<String, Category>, e
     analysis::resolve(cats, exe.unwrap_or(""), site) == Category::Distracting
 }
 
+/// A slot's block list as a notification says it: "YouTube and Reddit are", "YouTube, Reddit
+/// and 2 more are". Apps go by the name they last showed.
+pub fn describe(conn: &Connection, keys: &[String]) -> Result<String> {
+    let mut stmt = conn.prepare("SELECT app FROM sessions WHERE exe = ?1 ORDER BY id DESC LIMIT 1")?;
+    let mut names = Vec::new();
+    for key in keys.iter().take(3) {
+        names.push(match key.split_once(':') {
+            Some(("app", exe)) => match stmt.query_map([exe], |r| r.get::<_, String>(0))?.next() {
+                Some(name) => name?,
+                None => classify::display_name(exe, ""),
+            },
+            Some((_, name)) => name.to_string(),
+            None => key.clone(),
+        });
+    }
+    Ok(match (names.as_slice(), keys.len()) {
+        ([one], 1) => format!("{one} is"),
+        ([a, b], 2) => format!("{a} and {b} are"),
+        ([a, b, c], 3) => format!("{a}, {b} and {c} are"),
+        ([a, b, ..], n) => format!("{a}, {b} and {} more are", n - 2),
+        _ => "Nothing is".to_string(),
+    })
+}
+
 /// For the browser extension: when a site is blocked right now, the time the block lifts: by a
 /// focus session, or by a hard daily limit it's past.
 pub fn site_blocked_until(conn: &Connection, allowances: &Allowances, site: &str, now: i64) -> Result<Option<i64>> {
@@ -199,7 +233,8 @@ pub fn site_blocked_until(conn: &Connection, allowances: &Allowances, site: &str
         return Ok(None);
     }
     if let Some(until) = focus::running_until(conn, now)?.filter(|_| settings(conn).is_ok_and(|s| s.enabled)) {
-        if decide(&rules(conn)?, &analysis::category_map(conn)?, None, Some(site)) {
+        let only = schedule::session_blocks(conn)?;
+        if decide(only.as_deref(), &rules(conn)?, &analysis::category_map(conn)?, None, Some(site)) {
             return Ok(Some(until));
         }
     }
@@ -305,13 +340,14 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
         return Ok(());
     }
     let rules = rules(conn)?;
+    let only = if session.is_some() { schedule::session_blocks(conn)? } else { None };
 
     // The app in front. Browsers are the extension's job, since the site matters more than the app.
     if let Some(fg) = platform::foreground() {
         let exe = classify::exe_stem(&fg.exe_path);
         let key = format!("app:{exe}");
         let by_session = match session {
-            Some(until) if decide(&rules, &analysis::category_map(conn)?, Some(&exe), None) => Some(until),
+            Some(until) if decide(only.as_deref(), &rules, &analysis::category_map(conn)?, Some(&exe), None) => Some(until),
             _ => None,
         };
         // A hard limit never cuts a game short mid-match; games get the limit's notification.
@@ -407,21 +443,44 @@ mod tests {
         let cats = analysis::category_map(&conn).unwrap();
         let none = HashMap::new();
         // Discord and YouTube are distracting by default; Cursor and GitHub aren't.
-        assert!(decide(&none, &cats, Some("discord"), None));
-        assert!(decide(&none, &cats, None, Some("youtube")));
-        assert!(!decide(&none, &cats, Some("cursor"), None));
-        assert!(!decide(&none, &cats, None, Some("github")));
+        assert!(decide(None, &none, &cats, Some("discord"), None));
+        assert!(decide(None, &none, &cats, None, Some("youtube")));
+        assert!(!decide(None, &none, &cats, Some("cursor"), None));
+        assert!(!decide(None, &none, &cats, None, Some("github")));
         // Kairo and Explorer are never blocked, even when told to.
         set_rule(&conn, "app:explorer", Rule::Block).unwrap();
-        assert!(!decide(&rules(&conn).unwrap(), &cats, Some("explorer"), None));
+        assert!(!decide(None, &rules(&conn).unwrap(), &cats, Some("explorer"), None));
 
         set_rule(&conn, "app:discord", Rule::Allow).unwrap();
         set_rule(&conn, "site:github", Rule::Block).unwrap();
         let r = rules(&conn).unwrap();
-        assert!(!decide(&r, &cats, Some("discord"), None));
-        assert!(decide(&r, &cats, None, Some("github")));
+        assert!(!decide(None, &r, &cats, Some("discord"), None));
+        assert!(decide(None, &r, &cats, None, Some("github")));
         set_rule(&conn, "app:discord", Rule::Auto).unwrap();
-        assert!(decide(&rules(&conn).unwrap(), &cats, Some("discord"), None));
+        assert!(decide(None, &rules(&conn).unwrap(), &cats, Some("discord"), None));
+    }
+
+    #[test]
+    fn a_slot_list_blocks_just_what_is_on_it() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let cats = analysis::category_map(&conn).unwrap();
+        set_rule(&conn, "app:steam", Rule::Allow).unwrap();
+        let r = rules(&conn).unwrap();
+        let only = ["site:reddit".to_string(), "app:steam".to_string(), "app:explorer".to_string()];
+        // On the list: blocked, whatever its category or rule says.
+        assert!(decide(Some(&only), &r, &cats, None, Some("reddit")));
+        assert!(decide(Some(&only), &r, &cats, Some("steam"), None));
+        // Off it: let through, even when distracting.
+        assert!(!decide(Some(&only), &r, &cats, Some("discord"), None));
+        assert!(!decide(Some(&only), &r, &cats, None, Some("youtube")));
+        // Still never Explorer.
+        assert!(!decide(Some(&only), &r, &cats, Some("explorer"), None));
+
+        let keys = |k: &[&str]| k.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(describe(&conn, &keys(&["site:youtube"])).unwrap(), "youtube is");
+        assert_eq!(describe(&conn, &keys(&["site:youtube", "app:steam"])).unwrap(), format!("youtube and {} are", classify::display_name("steam", "")));
+        assert_eq!(describe(&conn, &keys(&["site:a", "site:b", "site:c"])).unwrap(), "a, b and c are");
+        assert_eq!(describe(&conn, &keys(&["site:a", "site:b", "site:c", "site:d", "site:e"])).unwrap(), "a, b and 3 more are");
     }
 
     #[test]

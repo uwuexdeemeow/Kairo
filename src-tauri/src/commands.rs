@@ -254,6 +254,15 @@ pub fn save_project(state: State<AppState>, id: Option<i64>, name: String, keywo
     projects::list(&conn).map_err(err)
 }
 
+/// A project's weekly target in minutes; 0 takes it away.
+#[tauri::command]
+pub fn set_project_target(state: State<AppState>, id: i64, minutes: u32) -> CmdResult<Vec<projects::Project>> {
+    let conn = state.db.lock().map_err(err)?;
+    projects::set_target(&conn, id, minutes).map_err(err)?;
+    sync::record(&conn, "projects:all", &projects::to_json(&conn).map_err(err)?)?;
+    projects::list(&conn).map_err(err)
+}
+
 #[tauri::command]
 pub fn remove_project(state: State<AppState>, id: i64) -> CmdResult<Vec<projects::Project>> {
     let conn = state.db.lock().map_err(err)?;
@@ -285,6 +294,15 @@ pub fn add_focus_slot(state: State<AppState>, days: u8, start_min: u32, minutes:
     let slot = schedule::tidy(days, start_min, minutes, label.as_deref()).ok_or("Pick at least one day.")?;
     let conn = state.db.lock().map_err(err)?;
     schedule::add(&conn, &slot).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
+}
+
+/// Gives a slot its own list of `app:` and `site:` keys to block, or with None, the usual blocking.
+#[tauri::command]
+pub fn set_slot_blocks(state: State<AppState>, id: i64, blocks: Option<Vec<String>>) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::set_blocks(&conn, id, blocks).map_err(err)?;
     sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
     schedule::list(&conn).map_err(err)
 }
