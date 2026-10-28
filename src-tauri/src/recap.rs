@@ -344,6 +344,7 @@ fn message(w: &Period) -> (String, String) {
     if let Some(l) = w.limits_over.first() {
         parts.push(format!("{} over your {} limit.", fmt_dur(l.over_ms), l.label));
     }
+    parts.push("Add your notes on the Week page.".into());
     (title, parts.join(" "))
 }
 
@@ -504,7 +505,7 @@ mod tests {
 
         let (title, body) = message(&w);
         assert_eq!(title, "Your week: 6h productive");
-        assert_eq!(body, "Up 20% on last week. Best day: Tuesday. Goals met on 1 of 2 days. 30m over your Discord limit.");
+        assert_eq!(body, "Up 20% on last week. Best day: Tuesday. Goals met on 1 of 2 days. 30m over your Discord limit. Add your notes on the Week page.");
         assert_eq!((w.end.as_str(), w.goal_weeks), ("2026-10-25", 0));
     }
 

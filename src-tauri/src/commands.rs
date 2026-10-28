@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -460,6 +460,41 @@ pub fn get_year(state: State<AppState>, date: Option<String>) -> CmdResult<recap
     let first = recap::year_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
     recap::year_of(&conn, first, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+/// The notes for the week containing `date` (default today).
+#[tauri::command]
+pub fn get_week_notes(state: State<AppState>, date: Option<String>) -> CmdResult<notes::Note> {
+    let monday = recap::week_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    notes::get(&conn, monday).map_err(err)
+}
+
+/// Keeps the notes for the week containing `date`; both empty takes them away. They travel to
+/// combined computers, one shared choice a week.
+#[tauri::command]
+pub fn set_week_notes(state: State<AppState>, date: Option<String>, well: String, change: String) -> CmdResult<notes::Note> {
+    let monday = recap::week_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    let note = notes::set(&conn, monday, &well, &change).map_err(err)?;
+    sync::record(&conn, &format!("notes:{monday}"), &notes::to_json(&note))?;
+    Ok(note)
+}
+
+/// The weeks with notes whose Monday falls in the month (`span` "month") or year ("year")
+/// containing `date`.
+#[tauri::command]
+pub fn get_notes_between(state: State<AppState>, date: Option<String>, span: String) -> CmdResult<Vec<notes::WeekNote>> {
+    let day = parse_day(date)?;
+    let (from, to) = if span == "year" {
+        let first = recap::year_start(day);
+        (first, first.with_month(12).and_then(|d| d.with_day(31)).unwrap_or(first))
+    } else {
+        let first = recap::month_start(day);
+        (first, first.checked_add_months(chrono::Months::new(1)).and_then(|d| d.pred_opt()).unwrap_or(first))
+    };
+    let conn = state.db.lock().map_err(err)?;
+    notes::between(&conn, from, to).map_err(err)
 }
 
 /// The month containing `date` (default today), against the month before.

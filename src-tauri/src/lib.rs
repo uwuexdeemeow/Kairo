@@ -14,6 +14,7 @@ mod evening;
 mod focus;
 mod goals;
 mod lists;
+mod notes;
 mod nudge;
 mod palette;
 mod platform;
@@ -235,6 +236,9 @@ pub fn run() {
             commands::get_week,
             commands::get_month,
             commands::get_year,
+            commands::get_week_notes,
+            commands::set_week_notes,
+            commands::get_notes_between,
             commands::get_evening_summary,
             commands::set_evening_summary,
             commands::send_test_evening_summary,

@@ -310,6 +310,12 @@ export interface ProjectDetail {
 
 export type Span = "day" | "week" | "month" | "year";
 
+/** A week's review notes. */
+export interface WeekNote {
+  well: string;
+  change: string;
+}
+
 /** The calendars Kairo reads, and how the last reading went. */
 export interface CalendarStatus {
   urls: string[];
@@ -371,6 +377,12 @@ export const api = {
   month: (date?: string) => invoke<Period>("get_month", { date }),
   /** The year containing `date` (a local `YYYY-MM-DD`; default today). */
   year: (date?: string) => invoke<Period>("get_year", { date }),
+  /** The notes for the week containing `date`. */
+  weekNotes: (date?: string) => invoke<WeekNote>("get_week_notes", { date }),
+  /** Both empty takes them away; returns them as kept. */
+  setWeekNotes: (date: string | undefined, well: string, change: string) => invoke<WeekNote>("set_week_notes", { date, well, change }),
+  /** The weeks with notes in the month or year containing `date`, by their Monday. */
+  notesBetween: (date: string | undefined, span: "month" | "year") => invoke<(WeekNote & { monday: string })[]>("get_notes_between", { date, span }),
   focus: () => invoke<FocusSession | null>("get_focus"),
   startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
   /** Returns the session as it stands afterwards; null once it has ended. */

@@ -106,6 +106,12 @@ pub fn open(path: &Path) -> Result<Connection> {
              keys     TEXT    NOT NULL,
              position INTEGER NOT NULL DEFAULT 0
          );
+         -- Weekly review notes (notes.rs), by the week's Monday.
+         CREATE TABLE IF NOT EXISTS week_notes (
+             monday TEXT PRIMARY KEY,
+             well   TEXT NOT NULL DEFAULT '',
+             change TEXT NOT NULL DEFAULT ''
+         );
          -- Projects (projects.rs): a name, and comma-separated keywords marking its time.
          CREATE TABLE IF NOT EXISTS projects (
              id       INTEGER PRIMARY KEY,
