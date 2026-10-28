@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, focus, goals, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -262,15 +262,12 @@ pub fn remove_project(state: State<AppState>, id: i64) -> CmdResult<Vec<projects
     projects::list(&conn).map_err(err)
 }
 
-/// Time in each project on the day `date` (default today), or with `week`, in its Monday-to-Sunday
-/// week; whose time follows the sidebar's choice of computers.
+/// Time in each project on the day `date` (default today); whose time follows the sidebar's choice
+/// of computers. Week and Month bring their own.
 #[tauri::command]
-pub fn get_project_times(state: State<AppState>, date: Option<String>, week: bool) -> CmdResult<Vec<projects::ProjectTime>> {
-    let day = parse_day(date)?;
-    let (first, days) = if week { (recap::week_start(day), 7) } else { (day, 1) };
-    let from = day_bounds(first).ok_or("that date has no local midnight")?.0;
-    let last = first.checked_add_days(chrono::Days::new(days - 1)).ok_or("that week is out of range")?;
-    let to = day_bounds(last).ok_or("that date has no local midnight")?.1.min(now_ms());
+pub fn get_project_times(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<projects::ProjectTime>> {
+    let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
+    let to = to.min(now_ms());
     let conn = state.db.lock().map_err(err)?;
     projects::totals(&conn, from, to, &sync::shown(&conn)?).map_err(err)
 }
@@ -338,10 +335,37 @@ pub fn set_break_minutes(state: State<AppState>, minutes: u32) -> CmdResult<()> 
 
 /// The Monday-to-Sunday week containing `date` (default today), against the week before.
 #[tauri::command]
-pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Week> {
+pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Period> {
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
     recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+/// The month containing `date` (default today), against the month before.
+#[tauri::command]
+pub fn get_month(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Period> {
+    let first = recap::month_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    recap::month_of(&conn, first, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_evening_summary(state: State<AppState>) -> CmdResult<evening::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    evening::settings(&conn).map_err(err)
+}
+
+/// `minute` is when to send it, in minutes after midnight.
+#[tauri::command]
+pub fn set_evening_summary(state: State<AppState>, enabled: bool, minute: u32) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    evening::set(&conn, enabled, minute).map_err(err)
+}
+
+#[tauri::command]
+pub fn send_test_evening_summary(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    evening::send_test(&app, &conn).map_err(err)
 }
 
 /// Stretches of half an hour or more away from this computer on one local day (default today),

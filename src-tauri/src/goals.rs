@@ -16,7 +16,7 @@ use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::analysis::{self, Category, Row};
-use crate::{classify, db, recap};
+use crate::{classify, db, evening, recap};
 
 const PRODUCTIVE_KEY: &str = "goal_productive_min";
 const DISTRACTING_KEY: &str = "goal_distracting_max_min";
@@ -278,16 +278,23 @@ pub fn for_week(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Day
     for _ in 0..WEEK_STREAK_LOOKBACK {
         let Some(earlier) = week.checked_sub_days(chrono::Days::new(7)) else { break };
         week = earlier;
-        let rows = week_rows(conn, week, now_ms)?;
-        if !rows.iter().any(|r| !r.idle) {
-            continue;
+        match week_met(conn, &goals, week, now_ms)? {
+            None => continue,
+            Some(false) => break,
+            Some(true) => streak += 1,
         }
-        if !week_progress(&goals, &rows).iter().all(|p| p.met) {
-            break;
-        }
-        streak += 1;
     }
     Ok(DayGoals { items, streak })
+}
+
+/// Whether the week starting `monday` met every weekly goal in `goals`; None with nothing
+/// tracked that week.
+pub fn week_met(conn: &Connection, goals: &Goals, monday: NaiveDate, now_ms: i64) -> Result<Option<bool>> {
+    let rows = week_rows(conn, monday, now_ms)?;
+    if !rows.iter().any(|r| !r.idle) {
+        return Ok(None);
+    }
+    Ok(Some(week_progress(goals, &rows).iter().all(|p| p.met)))
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -358,6 +365,12 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
                     }
                     if let Err(e) = recap::maybe_notify(&app, &conn) {
                         eprintln!("recap: {e}");
+                    }
+                    if let Err(e) = recap::maybe_notify_month(&app, &conn) {
+                        eprintln!("month recap: {e}");
+                    }
+                    if let Err(e) = evening::maybe_notify(&app, &conn) {
+                        eprintln!("evening summary: {e}");
                     }
                 }
             }
