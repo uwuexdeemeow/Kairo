@@ -9,7 +9,7 @@ use crate::db;
 /// Passed by the login entry so Kairo starts quietly in the tray instead of opening its window.
 pub const MINIMIZED_ARG: &str = "--minimized";
 const INITIALIZED_KEY: &str = "autostart_initialized";
-/// The tray menu's name for it.
+/// Its name in settings.
 pub const LABEL: &str = if cfg!(target_os = "macos") {
     "Open at Login"
 } else if cfg!(windows) {
@@ -30,20 +30,33 @@ pub const PALETTE_ARG: &str = "--palette";
 /// menu and app menu entry passes it.
 pub const CHRONO_ARG: &str = "--chrono";
 
-pub fn launched_for_chrono() -> bool {
-    std::env::args().any(|a| a == CHRONO_ARG)
+/// Opens the dashboard, Kairo's own window, rather than the palette.
+pub const DASHBOARD_ARG: &str = "--dashboard";
+
+/// What a launch opens.
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Launch {
+    Palette,
+    Chrono,
+    Dashboard,
+    Quiet,
 }
 
-/// Whether this launch opens the command palette: Kairo itself is the palette, so opening it from
-/// the Start menu, Spotlight or a launcher does, while signing in starts it quietly and Chrono's
-/// shortcut opens Chrono.
-pub fn opens_palette() -> bool {
-    opens_palette_for(&std::env::args().collect::<Vec<_>>())
-}
-
-fn opens_palette_for(args: &[String]) -> bool {
+/// What a launch opens: Kairo itself is the palette, so opening it from the Start menu, Spotlight
+/// or a launcher does, while signing in starts it quietly and Chrono's shortcut opens Chrono.
+pub fn launch_for(args: &[String]) -> Launch {
     let has = |arg: &str| args.iter().any(|a| a == arg);
-    has(PALETTE_ARG) || (!has(MINIMIZED_ARG) && !has(CHRONO_ARG))
+    if has(PALETTE_ARG) {
+        Launch::Palette
+    } else if has(DASHBOARD_ARG) {
+        Launch::Dashboard
+    } else if has(CHRONO_ARG) {
+        Launch::Chrono
+    } else if has(MINIMIZED_ARG) {
+        Launch::Quiet
+    } else {
+        Launch::Palette
+    }
 }
 
 #[cfg(test)]
@@ -51,12 +64,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opening_kairo_opens_the_palette_and_chrono_opens_chrono() {
-        let run = |args: &[&str]| opens_palette_for(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
-        assert!(run(&["kairo"]));
-        assert!(run(&["kairo", PALETTE_ARG]));
-        assert!(!run(&["kairo", MINIMIZED_ARG]));
-        assert!(!run(&["kairo", CHRONO_ARG]));
+    fn each_launch_opens_what_it_names() {
+        let run = |args: &[&str]| launch_for(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+        assert_eq!(run(&["kairo"]), Launch::Palette);
+        assert_eq!(run(&["kairo", PALETTE_ARG]), Launch::Palette);
+        assert_eq!(run(&["kairo", CHRONO_ARG]), Launch::Chrono);
+        assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
+        assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
     }
 }
 

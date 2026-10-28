@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -751,14 +751,9 @@ pub fn get_nudges_enabled(state: State<AppState>) -> CmdResult<bool> {
 }
 
 #[tauri::command]
-pub fn set_nudges_enabled(app: AppHandle, state: State<AppState>, enabled: bool) -> CmdResult<()> {
+pub fn set_nudges_enabled(state: State<AppState>, enabled: bool) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    nudge::set_enabled(&conn, enabled).map_err(err)?;
-    // Keep the tray checkbox in sync with the in-app toggle.
-    if let Some(toggle) = app.try_state::<NudgeToggle>() {
-        let _ = toggle.0.set_checked(enabled);
-    }
-    Ok(())
+    nudge::set_enabled(&conn, enabled).map_err(err)
 }
 
 #[tauri::command]
@@ -781,11 +776,7 @@ pub fn get_autostart(app: AppHandle) -> Autostart {
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
-    startup::set_enabled(&app, enabled)?;
-    if let Some(toggle) = app.try_state::<AutostartToggle>() {
-        let _ = toggle.0.set_checked(enabled);
-    }
-    Ok(())
+    startup::set_enabled(&app, enabled)
 }
 
 #[tauri::command]
