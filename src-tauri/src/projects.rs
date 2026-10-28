@@ -157,6 +157,100 @@ pub fn rows_of(conn: &Connection, id: i64, from: i64, to: i64) -> Result<Vec<cra
     Ok(out)
 }
 
+/// Where a project's time came from: an app, or a site in a browser.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Source {
+    /// `app:<exe>` or `site:<name>`, for the icon.
+    pub key: String,
+    pub label: String,
+    pub category: crate::analysis::Category,
+    pub ms: i64,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TitleTime {
+    pub title: String,
+    pub ms: i64,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Bar {
+    pub start_ms: i64,
+    pub ms: i64,
+}
+
+/// A project's time taken apart, to check its keywords catch the right things.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Detail {
+    pub ms: i64,
+    /// The apps and sites it came from, most first.
+    pub sources: Vec<Source>,
+    /// The window titles that matched, most first; titles hidden by a privacy rule aren't kept, so
+    /// they never show.
+    pub titles: Vec<TitleTime>,
+    /// Its time in each of the stretches asked about.
+    pub bars: Vec<Bar>,
+}
+
+const DETAIL_TOP: usize = 8;
+
+/// Project `id`'s time over `buckets`, consecutive [from, to) stretches such as the hours of a day
+/// or the days of a week: where it came from and how it spread across them. `computer` picks
+/// whose time, as in [`totals`]; each stretch goes to its first matching project, as there.
+pub fn detail(conn: &Connection, id: i64, buckets: &[(i64, i64)], computer: &str) -> Result<Detail> {
+    let projects = list(conn)?;
+    let (from, to) = (buckets.first().map_or(0, |b| b.0), buckets.last().map_or(0, |b| b.1));
+    let cats = crate::analysis::category_map(conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT app, exe, title, site, start_ms, end_ms FROM sessions
+         WHERE idle = 0 AND end_ms > ?1 AND start_ms < ?2
+           AND (?3 = 'all' OR (?3 = 'this' AND device IS NULL) OR device = ?3)",
+    )?;
+    let rows = stmt.query_map(params![from, to, computer], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?))
+    })?;
+    let mut sources: Vec<Source> = Vec::new();
+    let mut titles: Vec<TitleTime> = Vec::new();
+    let mut bars: Vec<Bar> = buckets.iter().map(|b| Bar { start_ms: b.0, ms: 0 }).collect();
+    let mut total = 0;
+    for row in rows {
+        let (app, exe, title, site, start, end) = row?;
+        if project_of(&projects, &title, site.as_deref()).is_none_or(|p| p.id != id) {
+            continue;
+        }
+        let ms = end.min(to) - start.max(from);
+        total += ms;
+        let key = site.as_ref().map_or_else(|| format!("app:{exe}"), |s| format!("site:{s}"));
+        match sources.iter_mut().find(|s| s.key == key) {
+            Some(s) => s.ms += ms,
+            None => {
+                let label = site.clone().unwrap_or(app);
+                let category = crate::analysis::resolve(&cats, &exe, site.as_deref());
+                sources.push(Source { key, label, category, ms });
+            }
+        }
+        let title = crate::classify::clean_title(&title);
+        if !title.trim().is_empty() {
+            match titles.iter_mut().find(|t| t.title == title) {
+                Some(t) => t.ms += ms,
+                None => titles.push(TitleTime { title, ms }),
+            }
+        }
+        for (bar, (b_from, b_to)) in bars.iter_mut().zip(buckets) {
+            bar.ms += (end.min(*b_to) - start.max(*b_from)).max(0);
+        }
+    }
+    sources.sort_by_key(|s| std::cmp::Reverse(s.ms));
+    sources.truncate(DETAIL_TOP);
+    titles.sort_by_key(|t| std::cmp::Reverse(t.ms));
+    titles.truncate(DETAIL_TOP);
+    Ok(Detail { ms: total, sources, titles, bars })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,6 +288,34 @@ mod tests {
         let rows = rows_of(&conn, kairo, t, t + 180 * M).unwrap();
         let apps: Vec<(&str, i64)> = rows.iter().map(|r| (r.app.as_str(), r.dur() / M)).collect();
         assert_eq!(apps, [("code", 60), ("brave", 20), ("code", 10)]);
+    }
+
+    #[test]
+    fn a_project_comes_apart_by_app_title_and_stretch() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let kairo = save(&conn, None, "Kairo", "kairo").unwrap().unwrap();
+        save(&conn, None, "Thesis", "thesis").unwrap();
+        let t = 1_000 * M;
+        track(&conn, "code", "focus.rs - kairo", None, t, 40);
+        track(&conn, "code", "focus.rs - kairo", None, t + 60 * M, 30);
+        track(&conn, "brave", "uwuexdeemeow/kairo", Some("github"), t + 100 * M, 20);
+        // A hidden title can't match, but its site still can; and only its site shows.
+        track(&conn, "brave", "", Some("kairo.app"), t + 130 * M, 10);
+        track(&conn, "code", "thesis.tex", None, t + 150 * M, 30);
+
+        // Two hour-long stretches; the second hour's 20m of brave runs past it and is cut.
+        let d = detail(&conn, kairo, &[(t, t + 60 * M), (t + 60 * M, t + 120 * M)], "all").unwrap();
+        assert_eq!(d.ms, 40 * M + 30 * M + 20 * M);
+        let sources: Vec<(&str, &str, i64)> = d.sources.iter().map(|s| (s.key.as_str(), s.label.as_str(), s.ms / M)).collect();
+        assert_eq!(sources, [("app:code", "code", 70), ("site:github", "github", 20)]);
+        let titles: Vec<(&str, i64)> = d.titles.iter().map(|t| (t.title.as_str(), t.ms / M)).collect();
+        assert_eq!(titles, [("focus.rs - kairo", 70), ("uwuexdeemeow/kairo", 20)]);
+        assert_eq!(d.bars.iter().map(|b| b.ms / M).collect::<Vec<_>>(), [40, 50]);
+        assert_eq!(d.bars[1].start_ms, t + 60 * M);
+
+        let all = detail(&conn, kairo, &[(t, t + 180 * M)], "all").unwrap();
+        assert!(all.sources.iter().any(|s| s.key == "site:kairo.app"));
+        assert!(all.titles.iter().all(|t| !t.title.is_empty() && !t.title.contains("thesis")));
     }
 
     #[test]

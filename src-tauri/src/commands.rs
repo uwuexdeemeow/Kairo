@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
-use chrono::{Local, NaiveDate, TimeZone};
+use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use rusqlite::params;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -279,6 +279,32 @@ pub fn get_project_times(state: State<AppState>, date: Option<String>) -> CmdRes
     let to = to.min(now_ms());
     let conn = state.db.lock().map_err(err)?;
     projects::totals(&conn, from, to, &sync::shown(&conn)?).map_err(err)
+}
+
+/// Where project `id`'s time came from over a day (`span` "day", in hours), or the week or month
+/// (`span` "week" or "month", in days) holding `date` (default today); whose time follows the
+/// sidebar's choice of computers.
+#[tauri::command]
+pub fn get_project_detail(state: State<AppState>, id: i64, date: Option<String>, span: String) -> CmdResult<projects::Detail> {
+    let day = parse_day(date)?;
+    let now = now_ms();
+    let days: Vec<chrono::NaiveDate> = match span.as_str() {
+        "week" => recap::week_start(day).iter_days().take(7).collect(),
+        "month" => {
+            let first = recap::month_start(day);
+            first.iter_days().take_while(|d| d.month() == first.month()).collect()
+        }
+        _ => vec![day],
+    };
+    let mut buckets: Vec<(i64, i64)> = days.iter().filter_map(|d| day_bounds(*d)).collect();
+    if span != "week" && span != "month" {
+        // A day goes by the hour; a day the clocks change on has 23 or 25 of them.
+        let (from, to) = buckets.first().copied().ok_or("that date has no local midnight")?;
+        buckets = (0..).map(|h| from + h * 3_600_000).take_while(|s| *s < to).map(|s| (s, (s + 3_600_000).min(to))).collect();
+    }
+    let buckets: Vec<(i64, i64)> = buckets.into_iter().map(|(f, t)| (f, t.min(now).max(f))).collect();
+    let conn = state.db.lock().map_err(err)?;
+    projects::detail(&conn, id, &buckets, &sync::shown(&conn)?).map_err(err)
 }
 
 #[tauri::command]

@@ -299,6 +299,17 @@ export interface ProjectTime {
   ms: number;
 }
 
+/** A project's time taken apart: the apps and sites and window titles it came from, and a bar an
+ *  hour (for a day) or a day (for a week or month). */
+export interface ProjectDetail {
+  ms: number;
+  sources: Usage[];
+  titles: { title: string; ms: number }[];
+  bars: { startMs: number; ms: number }[];
+}
+
+export type Span = "day" | "week" | "month";
+
 /** The calendars Kairo reads, and how the last reading went. */
 export interface CalendarStatus {
   urls: string[];
@@ -368,6 +379,8 @@ export const api = {
   setProjectTarget: (id: number, minutes: number) => invoke<Project[]>("set_project_target", { id, minutes }),
   /** Time per project on a day. */
   projectTimes: (date?: string) => invoke<ProjectTime[]>("get_project_times", { date }),
+  /** Where a project's time came from over the day, week or month holding `date`. */
+  projectDetail: (id: number, date: string | undefined, span: Span) => invoke<ProjectDetail>("get_project_detail", { id, date, span }),
   calendar: () => invoke<CalendarStatus>("get_calendar"),
   /** Keeps the addresses (one per line) and reads them at once. */
   setCalendar: (urls: string) => invoke<CalendarStatus>("set_calendar", { urls }),
