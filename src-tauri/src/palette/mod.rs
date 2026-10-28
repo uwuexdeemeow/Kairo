@@ -309,6 +309,7 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
+        block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
             Some((m.title, at, m.start_ms - now))
@@ -381,7 +382,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
-        Action::StartFocus(minutes, label) => focus::start(conn, *minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
+        Action::StartFocus(minutes, label) => focus::start_by_hand(conn, *minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
         Action::CheckUpdates => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
@@ -776,6 +777,7 @@ mod tests {
             subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,
+            block_lists: Vec::new(),
             next_meeting: None,
         });
         let first = session.query("");

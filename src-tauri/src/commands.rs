@@ -8,7 +8,7 @@ use tauri::{AppHandle, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -195,7 +195,65 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>) 
     if blocking::strict_now(&conn).map_err(err)? {
         return Err("Strict mode is on: end the current session first.".into());
     }
-    focus::start(&conn, minutes, label.as_deref(), now_ms()).map_err(err)
+    focus::start_by_hand(&conn, minutes, label.as_deref(), now_ms()).map_err(err)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockLists {
+    lists: Vec<lists::BlockList>,
+    /// The list sessions started by hand block; None blocks as usual.
+    default: Option<String>,
+}
+
+fn block_lists(conn: &rusqlite::Connection) -> CmdResult<BlockLists> {
+    Ok(BlockLists { lists: lists::list(conn).map_err(err)?, default: lists::default_list(conn).map_err(err)? })
+}
+
+/// Lists and slots both change when a list is renamed or taken away, so both travel.
+fn record_lists(conn: &rusqlite::Connection) -> CmdResult<()> {
+    sync::record(conn, "lists:block", &lists::to_json(conn).map_err(err)?)?;
+    sync::record(conn, "schedule:focus", &schedule::to_json(conn).map_err(err)?)
+}
+
+#[tauri::command]
+pub fn get_block_lists(state: State<AppState>) -> CmdResult<BlockLists> {
+    let conn = state.db.lock().map_err(err)?;
+    block_lists(&conn)
+}
+
+/// Adds a list, or with `old`, changes the list of that name.
+#[tauri::command]
+pub fn save_block_list(state: State<AppState>, old: Option<String>, name: String, keys: Vec<String>) -> CmdResult<BlockLists> {
+    let conn = state.db.lock().map_err(err)?;
+    lists::save(&conn, old.as_deref(), &name, keys).map_err(err)??;
+    record_lists(&conn)?;
+    block_lists(&conn)
+}
+
+#[tauri::command]
+pub fn remove_block_list(state: State<AppState>, name: String) -> CmdResult<BlockLists> {
+    let conn = state.db.lock().map_err(err)?;
+    lists::remove(&conn, &name).map_err(err)?;
+    record_lists(&conn)?;
+    block_lists(&conn)
+}
+
+/// The list sessions started by hand block; None blocks as usual.
+#[tauri::command]
+pub fn set_default_block_list(state: State<AppState>, name: Option<String>) -> CmdResult<BlockLists> {
+    let conn = state.db.lock().map_err(err)?;
+    lists::set_default(&conn, name.as_deref()).map_err(err)?;
+    block_lists(&conn)
+}
+
+/// Has a slot block a saved list instead of its own; None goes back to its own.
+#[tauri::command]
+pub fn set_slot_list(state: State<AppState>, id: i64, list: Option<String>) -> CmdResult<Vec<schedule::Slot>> {
+    let conn = state.db.lock().map_err(err)?;
+    schedule::set_list(&conn, id, list.as_deref()).map_err(err)?;
+    sync::record(&conn, "schedule:focus", &schedule::to_json(&conn).map_err(err)?)?;
+    schedule::list(&conn).map_err(err)
 }
 
 /// Ends, pauses, resumes or extends the running session, then returns it as it now stands.

@@ -324,8 +324,13 @@ pub fn focus_plan(conn: &Connection, minutes: u32, label: Option<&str>) -> Focus
         None => format!("Ends at {ends}"),
     };
     let settings = blocking::settings(conn).ok();
-    let blocking = match &settings {
-        Some(s) if s.enabled => {
+    let list = crate::lists::for_session(conn, label).ok().flatten().and_then(|name| Some((crate::lists::keys_of(conn, &name).ok()??, name)));
+    let blocking = match (&settings, &list) {
+        (Some(s), Some((keys, name))) if s.enabled => {
+            let apps = keys.iter().filter(|k| k.starts_with("app:")).count();
+            format!("Your “{name}” list: {}, {}", count(apps, "app"), count(keys.len() - apps, "site"))
+        }
+        (Some(s), None) if s.enabled => {
             let rules = blocking::rules(conn).unwrap_or_default();
             let cats = analysis::category_map(conn).unwrap_or_default();
             let mut keys: Vec<&String> = cats.keys().chain(rules.keys()).collect();

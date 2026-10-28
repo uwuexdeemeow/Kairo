@@ -134,6 +134,15 @@ pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> 
     Ok(a)
 }
 
+/// Starts a session someone asked for: it blocks the saved list its label names, or else the
+/// default list, or else as usual (see `lists::for_session`).
+pub fn start_by_hand(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
+    let list = crate::lists::for_session(conn, label)?;
+    let a = start(conn, minutes, label, now)?;
+    conn.execute("UPDATE focus_sessions SET list = ?1 WHERE end_ms IS NULL", [list])?;
+    Ok(a)
+}
+
 /// Starts a session for scheduled slot `slot`, whose block list then applies while it runs.
 pub fn start_from_slot(conn: &Connection, minutes: u32, label: Option<&str>, slot: i64, now: i64) -> Result<Active> {
     let a = start(conn, minutes, label, now)?;
@@ -367,8 +376,8 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
             let started = start_from_slot(conn, left, Some(slot.label.as_deref().unwrap_or("Scheduled focus")), slot.id, now)?;
             schedule::mark_started(conn, slot.id, day)?;
             let until = Local.timestamp_millis_opt(started.ends_ms(now)).single().map(|t| t.format("%H:%M").to_string()).unwrap_or_default();
-            let body = match &slot.blocks {
-                Some(keys) => format!("{} blocked until then.", blocking::describe(conn, keys)?),
+            let body = match schedule::session_blocks(conn)? {
+                Some(keys) => format!("{} blocked until then.", blocking::describe(conn, &keys)?),
                 None => "Distracting apps and sites are blocked until then, as in any focus session.".to_string(),
             };
             notify(app, &format!("Scheduled focus until {until}"), &body);

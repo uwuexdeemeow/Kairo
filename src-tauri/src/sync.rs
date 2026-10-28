@@ -251,6 +251,10 @@ fn seed_choices(conn: &Connection) -> Result<()> {
         let projects = crate::projects::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('projects:all', ?1, 1)", [projects]).map_err(err)?;
     }
+    if !crate::lists::list(conn).map_err(err)?.is_empty() {
+        let lists = crate::lists::to_json(conn).map_err(err)?;
+        conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('lists:block', ?1, 1)", [lists]).map_err(err)?;
+    }
     if !crate::schedule::list(conn).map_err(err)?.is_empty() {
         let schedule = crate::schedule::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('schedule:focus', ?1, 1)", [schedule]).map_err(err)?;
@@ -323,6 +327,7 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
         "privacy" => privacy::set_rule(conn, key, privacy::Mode::parse(value).ok_or("unknown recording rule")?).map_err(err),
         "schedule" if key == "focus" => crate::schedule::replace_from_json(conn, value),
         "projects" if key == "all" => crate::projects::replace_from_json(conn, value),
+        "lists" if key == "block" => crate::lists::replace_from_json(conn, value),
         _ => Err("unknown choice".into()),
     }
 }

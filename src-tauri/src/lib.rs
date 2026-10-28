@@ -13,6 +13,7 @@ mod demo;
 mod evening;
 mod focus;
 mod goals;
+mod lists;
 mod nudge;
 mod palette;
 mod platform;
@@ -259,6 +260,11 @@ pub fn run() {
             commands::add_focus_slot,
             commands::remove_focus_slot,
             commands::set_slot_blocks,
+            commands::set_slot_list,
+            commands::get_block_lists,
+            commands::save_block_list,
+            commands::remove_block_list,
+            commands::set_default_block_list,
             commands::set_project_target,
             commands::get_goals,
             commands::get_away,
@@ -387,7 +393,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palett
                 }
                 let result = match id.trim_start_matches("focus:") {
                     "stop" => focus::stop(&conn, now),
-                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start(&conn, m, None, now).map(|_| ())),
+                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start_by_hand(&conn, m, None, now).map(|_| ())),
                 };
                 if let Err(e) = result {
                     eprintln!("tray: focus session: {e}");

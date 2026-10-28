@@ -99,6 +99,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              day  TEXT    NOT NULL,
              PRIMARY KEY (slot, day)
          );
+         -- Block lists (lists.rs): named sets of apps and sites, as a JSON array of keys, that
+         -- slots and sessions block instead of everything distracting.
+         CREATE TABLE IF NOT EXISTS block_lists (
+             name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+             keys     TEXT    NOT NULL,
+             position INTEGER NOT NULL DEFAULT 0
+         );
          -- Projects (projects.rs): a name, and comma-separated keywords marking its time.
          CREATE TABLE IF NOT EXISTS projects (
              id       INTEGER PRIMARY KEY,
@@ -136,6 +143,10 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("focus_schedule", "blocks", "TEXT"),
         // The slot that started a session, so its block list applies while it runs.
         ("focus_sessions", "slot", "INTEGER"),
+        // The saved block list a slot uses, by name, instead of its own (lists.rs).
+        ("focus_schedule", "list", "TEXT"),
+        // The saved block list a session started by hand blocks, by name.
+        ("focus_sessions", "list", "TEXT"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {

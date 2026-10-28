@@ -336,6 +336,20 @@ export interface FocusSlot {
   label: string | null;
   /** `app:` and `site:` keys this slot blocks, and nothing else; null blocks as usual. */
   blocks: string[] | null;
+  /** A saved block list it blocks instead, by name. */
+  list: string | null;
+}
+
+/** A named set of apps and sites to block instead of everything distracting. */
+export interface BlockList {
+  name: string;
+  keys: string[];
+}
+
+export interface BlockLists {
+  lists: BlockList[];
+  /** The list sessions started by hand block; null blocks as usual. */
+  default: string | null;
 }
 
 export type GoalName ="productive" | "distracting" | "week-productive" | "week-distracting";
@@ -396,6 +410,13 @@ export const api = {
   removeFocusSlot: (id: number) => invoke<FocusSlot[]>("remove_focus_slot", { id }),
   /** null gives the slot the usual blocking back; returns the schedule after. */
   setSlotBlocks: (id: number, blocks: string[] | null) => invoke<FocusSlot[]>("set_slot_blocks", { id, blocks }),
+  /** A saved list the slot blocks instead of its own; null goes back to its own. */
+  setSlotList: (id: number, list: string | null) => invoke<FocusSlot[]>("set_slot_list", { id, list }),
+  blockLists: () => invoke<BlockLists>("get_block_lists"),
+  /** Adds a list, or with `old`, changes the list of that name. Refused for a name in use. */
+  saveBlockList: (old: string | null, name: string, keys: string[]) => invoke<BlockLists>("save_block_list", { old, name, keys }),
+  removeBlockList: (name: string) => invoke<BlockLists>("remove_block_list", { name }),
+  setDefaultBlockList: (name: string | null) => invoke<BlockLists>("set_default_block_list", { name }),
   /** The weekly goals for the week containing `date`; the streak counts weeks. */
   weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),
   setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),

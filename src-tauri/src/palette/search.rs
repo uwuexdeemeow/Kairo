@@ -323,6 +323,8 @@ pub struct Context {
     pub limits: HashMap<String, i64>,
     /// How the weekly goals stand, like "7h 53m of 15h 00m productive"; None with none set.
     pub week_goals: Option<String>,
+    /// The saved block lists' names; "focus 50 social" blocks the one called Social.
+    pub block_lists: Vec<String>,
     /// The next meeting on the user's calendars: its title, when it starts, and how far off that
     /// is from now, in milliseconds.
     pub next_meeting: Option<(String, NaiveDateTime, i64)>,
@@ -446,7 +448,12 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
 
     if let Some((minutes, label)) = focus_command(query) {
         let mut item = Item::new(format!("Start a {minutes}-minute focus session"), Icon::Glyph(Glyph::Focus, Tone::Accent), "Focus", Action::StartFocus(minutes, label.clone()));
-        item.sub = Some(label.as_ref().map_or("No label".into(), |l| format!("Labelled “{l}”")));
+        let list = label.as_ref().and_then(|l| ctx.block_lists.iter().find(|n| n.eq_ignore_ascii_case(l.trim())));
+        item.sub = Some(match (list, &label) {
+            (Some(list), _) => format!("Blocks your “{list}” list"),
+            (None, Some(l)) => format!("Labelled “{l}”"),
+            (None, None) => "No label".into(),
+        });
         item.score = 1000.0;
         item.preview = Some(Preview::Focus(minutes, label));
         items.push(item);
@@ -631,6 +638,7 @@ mod tests {
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
+            block_lists: vec!["Social".into()],
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
         }
     }
@@ -695,6 +703,9 @@ mod tests {
         assert_eq!(search(&c, "last tue")[0].preview, Some(Preview::Day(NaiveDate::from_ymd_opt(2026, 10, 20).unwrap())));
         let focus = &search(&c, "focus 50 essay")[0];
         assert_eq!(focus.action, Action::StartFocus(50, Some("essay".into())));
+        assert_eq!(focus.sub.as_deref(), Some("Labelled “essay”"));
+        let social = &search(&c, "focus 25 social")[0];
+        assert_eq!((social.action.clone(), social.sub.as_deref()), (Action::StartFocus(25, Some("social".into())), Some("Blocks your “Social” list")));
         let found = search(&c, "foc");
         assert_eq!(found[0].title, "Focus");
         assert!(found[1..].iter().all(|i| i.section == "Actions"));
