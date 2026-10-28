@@ -2,7 +2,8 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
+import { loadKairoSettings, wireKairoSettings } from "./kairo-settings";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -15,37 +16,6 @@ const STATUS_POLL_MS = 10_000;
 const HOUR_MS = 3_600_000;
 
 // ---------- helpers ----------
-
-const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
-
-/// Kairo also runs on a Mac and on Linux, where a few things go by other names.
-const IS_MAC = navigator.userAgent.includes("Macintosh");
-const IS_LINUX = !IS_MAC && navigator.userAgent.includes("Linux");
-
-function h(tag: string, attrs: Record<string, string> = {}, ...children: (Node | string)[]): HTMLElement {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  el.append(...children);
-  return el;
-}
-
-const SVG_NS = "http://www.w3.org/2000/svg";
-function s(tag: string, attrs: Record<string, string | number> = {}): SVGElement {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-  return el;
-}
-
-function fmtDur(ms: number): string {
-  const mins = Math.round(ms / 60_000);
-  if (mins < 1) return "<1m";
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-}
-
-function fmtClock(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
 
 function fmtHour(hour: number): string {
   const h24 = ((hour % 24) + 24) % 24;
@@ -60,32 +30,6 @@ function fmtElapsed(ms: number): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
 }
-
-const pct = (part: number, whole: number) => (whole ? Math.round((part / whole) * 100) : 0);
-
-// Labels come from window titles, which any web page controls, so escape before using innerHTML.
-const esc = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-// ---------- theme ----------
-
-const THEME_KEY = "kairo.theme";
-const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
-let appearance: Appearance = "system";
-
-/// Puts the palette for a choice on the page. "Match Windows" asks the system, and the choice
-/// is kept for the next launch so the window opens in the right colors straight away.
-function applyTheme(mode: Appearance) {
-  appearance = mode;
-  const theme = mode === "system" ? (prefersLight.matches ? "light" : "dark") : mode;
-  document.documentElement.dataset.theme = theme;
-  try {
-    localStorage.setItem(THEME_KEY, theme);
-  } catch {
-    // The next launch may open in the other palette for a moment; that's all.
-  }
-}
-
-prefersLight.addEventListener("change", () => appearance === "system" && applyTheme("system"));
 
 // ---------- icons ----------
 
@@ -1881,9 +1825,6 @@ function paintStatus() {
 // ---------- wiring ----------
 
 if (IS_MAC) {
-  $("#appearance-system").textContent = "Match macOS";
-  $("#autostart-title").textContent = "Open at login";
-  $("#autostart-label").textContent = "Start Kairo quietly in the menu bar when I log in";
   $("#block-explainer").textContent =
     "Blocked apps are hidden behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
   // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
@@ -1892,18 +1833,12 @@ if (IS_MAC) {
     "Chrono asks Safari, Chrome, Brave, Edge, Vivaldi and Arc which site is in front, and reads it from Firefox's and Opera's address bar, so sites are tracked without the extension; macOS asks once per browser, and once for Accessibility, whether that's OK. The extension adds blocking distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
 }
 if (IS_LINUX) {
-  $("#appearance-system").textContent = "Match the system";
-  $("#autostart-title").textContent = "Start at login";
-  $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
   // Linux browsers don't describe their address bar to other apps unless a screen reader is on.
   $("#ext-intro").textContent =
     "Without it, Chrono guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Chrono the exact site instead, and blocks distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
   // Kairo sees other apps through X11 or, on Wayland, through GNOME or KDE Plasma themselves.
   $("#block-explainer").textContent =
     "Blocked apps are minimized behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
-  // Wayland keeps keys from apps; GNOME and Plasma take the shortcut into their own settings.
-  $("#palette-note").textContent =
-    "Works everywhere, even with Chrono's window closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
 }
 
 type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
@@ -1955,22 +1890,15 @@ async function load(v: View = view) {
       renderSchedule(await api.focusSchedule());
     }
     if (v === "settings") {
-      $("#settings-version").textContent = `Kairo ${await api.version()}`;
       renderBrowsers(await api.browsers());
       renderRetention(await api.retention());
       renderGoalSettings(await api.goalSettings());
-      renderSync(await api.sync());
       renderCalendar(await api.calendar());
       renderProjects(await api.projects());
       await refreshExtension();
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
-      $<HTMLSelectElement>("#appearance").value = appearance;
-      const palette = await api.paletteSettings();
-      showShortcut(palette.shortcut);
-      $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
-      $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -1979,11 +1907,7 @@ async function load(v: View = view) {
       const evening = await api.eveningSummary();
       $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;
       $<HTMLInputElement>("#evening-time").value = `${String(Math.floor(evening.minute / 60)).padStart(2, "0")}:${String(evening.minute % 60).padStart(2, "0")}`;
-      const auto = await api.autostart();
-      const box = $<HTMLInputElement>("#autostart-enabled");
-      box.checked = auto.enabled;
-      box.disabled = !auto.available;
-      if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
+      await loadKairoSettings();
     }
   } catch (e) {
     const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#update-status" }[v];
@@ -2128,92 +2052,6 @@ async function followNavigation() {
 
 listen("kairo:navigate", () => followNavigation());
 
-let savedShortcut = "";
-
-/// A key as this computer's keyboard labels it; the saved shortcut keeps the names the shortcut
-/// parser knows.
-function keyName(key: string): string {
-  if (IS_MAC) return { Ctrl: "Control", Alt: "Option", Super: "Command" }[key] ?? key;
-  if (!IS_LINUX && key === "Super") return "Win";
-  return key;
-}
-
-function showShortcut(shortcut: string) {
-  savedShortcut = shortcut;
-  $("#palette-keys").replaceChildren(...shortcut.split("+").map((k) => h("kbd", {}, keyName(k))));
-}
-
-/// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
-/// own and keys it can't use give nothing.
-function shortcutKey(e: KeyboardEvent): string | null {
-  if (/^Key[A-Z]$/.test(e.code)) return e.code.slice(3);
-  if (/^Digit\d$/.test(e.code)) return e.code.slice(5);
-  if (/^F([1-9]|1[0-2])$/.test(e.code)) return e.code;
-  if (e.code === "Space") return "Space";
-  return null;
-}
-
-let recording = false;
-
-function stopRecording(note: string) {
-  recording = false;
-  document.removeEventListener("keydown", recordKeys, true);
-  $("#palette-keys").classList.remove("recording");
-  $("#palette-record").textContent = "Change";
-  showShortcut(savedShortcut);
-  $("#palette-note").textContent = note;
-}
-
-/// While recording, the next key press with a modifier becomes the shortcut.
-async function recordKeys(e: KeyboardEvent) {
-  e.preventDefault();
-  e.stopPropagation();
-  if (e.key === "Escape") {
-    stopRecording("Kept as it was.");
-    return;
-  }
-  const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
-  const key = shortcutKey(e);
-  $("#palette-keys").replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
-  if (!key) return;
-  if (!mods.length) {
-    const hold = IS_MAC ? "Control, Option, Shift or Command" : IS_LINUX ? "Ctrl, Alt, Shift or Super" : "Ctrl, Alt, Shift or the Windows key";
-    $("#palette-note").textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
-    return;
-  }
-  const shortcut = [...mods, key].join("+");
-  try {
-    await api.setPaletteShortcut(shortcut);
-    savedShortcut = shortcut;
-    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens the palette from anywhere.`);
-  } catch (err) {
-    stopRecording(String(err));
-  }
-}
-
-$("#palette-record").addEventListener("click", () => {
-  if (recording) {
-    stopRecording("Kept as it was.");
-    return;
-  }
-  recording = true;
-  $("#palette-keys").classList.add("recording");
-  $("#palette-record").textContent = "Cancel";
-  $("#palette-note").textContent = "Press the keys you want, or Esc to keep the current ones.";
-  document.addEventListener("keydown", recordKeys, true);
-});
-
-$<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
-$<HTMLInputElement>("#palette-over-fullscreen").addEventListener("change", (e) =>
-  api.setPaletteOverFullscreen((e.target as HTMLInputElement).checked),
-);
-
-$<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
-  const mode = (e.target as HTMLSelectElement).value as Appearance;
-  applyTheme(mode);
-  await api.setAppearance(mode);
-});
-
 for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
   $<HTMLInputElement>(id).addEventListener("change", async (e) => {
     const box = e.target as HTMLInputElement;
@@ -2242,16 +2080,6 @@ for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) 
 $("#welcome-demo").addEventListener("click", async () => {
   await api.seedDemo();
   load("today");
-});
-
-$("#update-check").addEventListener("click", async () => {
-  const out = $("#update-status");
-  try {
-    await api.checkForUpdates();
-    out.textContent = "Checking… the result shows as a notification.";
-  } catch (err) {
-    out.textContent = `Couldn't check: ${err}`;
-  }
 });
 
 $("#week-prev").addEventListener("click", () => stepPeriod(-1));
@@ -2307,16 +2135,6 @@ $<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {
   await api.setNudgesEnabled((e.target as HTMLInputElement).checked);
 });
 
-$<HTMLInputElement>("#autostart-enabled").addEventListener("change", async (e) => {
-  const box = e.target as HTMLInputElement;
-  try {
-    await api.setAutostart(box.checked);
-  } catch (err) {
-    box.checked = !box.checked;
-    $("#autostart-note").textContent = `Couldn't change it: ${err}`;
-  }
-});
-
 /// The evening summary's toggle and time save together, whichever changed.
 for (const id of ["#evening-enabled", "#evening-time"]) {
   $(id).addEventListener("change", async () => {
@@ -2351,35 +2169,6 @@ $("#nudge-test").addEventListener("click", async () => {
   }
 });
 
-/// Runs one of the data buttons, saying how it went beside them.
-async function dataAction(run: () => Promise<string | null>) {
-  const out = $("#data-status");
-  try {
-    const said = await run();
-    if (said) out.textContent = said;
-  } catch (err) {
-    out.textContent = String(err);
-  }
-}
-$("#export-time").addEventListener("click", () =>
-  dataAction(async () => {
-    const rows = await api.exportTime();
-    return rows === null ? null : `Saved ${rows} rows of tracked time.`;
-  }),
-);
-$("#backup-save").addEventListener("click", () =>
-  dataAction(async () => {
-    const name = await api.backupData();
-    return name === null ? null : `Saved ${name}.`;
-  }),
-);
-$("#backup-restore").addEventListener("click", () =>
-  dataAction(async () => {
-    await api.restoreData();
-    return null;
-  }),
-);
-
 function renderCalendar(c: CalendarStatus) {
   const box = $<HTMLTextAreaElement>("#calendar-urls");
   if (document.activeElement !== box) box.value = c.urls.join("\n");
@@ -2396,30 +2185,6 @@ $("#calendar-save").addEventListener("click", async () => {
     out.textContent = String(err);
   }
 });
-
-/// When a computer last wrote its time, the way people say it.
-function ago(ms: number): string {
-  const minutes = Math.round((Date.now() - ms) / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h ago`;
-  return new Date(ms).toLocaleDateString();
-}
-
-function renderSync(sync: SyncState) {
-  const on = sync.folder !== null;
-  $("#sync-where").textContent = on
-    ? `Combining through ${sync.folder}.`
-    : `Off. This computer would show up as ${sync.name}.`;
-  $("#sync-computers").replaceChildren(
-    ...sync.computers.map((c) =>
-      h("li", {}, h("strong", {}, c.name), h("span", { class: "muted" }, c.thisOne ? " (this computer)" : ` updated ${ago(c.updatedMs)}`)),
-    ),
-  );
-  $("#sync-choose").textContent = on ? "Use another folder" : "Choose a folder";
-  $("#sync-stop").hidden = !on;
-  renderComputerPick(sync);
-}
 
 /// The sidebar's choice of whose time to show, while more than one computer is combined.
 function renderComputerPick(sync: SyncState) {
@@ -2441,24 +2206,7 @@ $<HTMLSelectElement>("#shown-computer").addEventListener("change", async (e) => 
   load();
 });
 api.sync().then(renderComputerPick, () => {});
-
-$("#sync-choose").addEventListener("click", async () => {
-  const out = $("#sync-status");
-  out.textContent = "";
-  try {
-    const sync = await api.chooseSyncFolder();
-    if (!sync) return;
-    renderSync(sync);
-    out.textContent =
-      sync.computers.length > 1 ? "Combined. Other computers' time now shows in Today and Week." : "Set. Choose the same folder on your other computers.";
-  } catch (err) {
-    out.textContent = String(err);
-  }
-});
-$("#sync-stop").addEventListener("click", async () => {
-  renderSync(await api.stopSync());
-  $("#sync-status").textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
-});
+wireKairoSettings(renderComputerPick);
 
 $("#demo-load").addEventListener("click", async () => {
   const n = await api.seedDemo();
@@ -2491,4 +2239,4 @@ renderLegends();
 refreshStatus();
 load();
 followNavigation();
-api.appearance().then(applyTheme, () => {});
+followTheme();
