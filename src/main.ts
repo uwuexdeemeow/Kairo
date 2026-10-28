@@ -507,9 +507,11 @@ function renderProjects(projects: Project[]) {
       const name = h("input", { class: "filter project-name", value: p.name, maxlength: "60", "aria-label": "Project name" }) as HTMLInputElement;
       const words = h("input", { class: "filter project-keywords", value: p.keywords.join(", "), "aria-label": `Keywords for ${p.name}` }) as HTMLInputElement;
       for (const field of [name, words]) field.addEventListener("change", () => save(() => api.saveProject(p.id, name.value, words.value)));
+      const target = minutesSelect(PROJECT_TARGET_CHOICES, p.weekTargetMin, `Weekly target for ${p.name}`, "No weekly target");
+      target.addEventListener("change", () => save(() => api.setProjectTarget(p.id, Number(target.value))));
       const remove = h("button", { class: "link-btn" }, "Remove");
       remove.addEventListener("click", () => save(() => api.removeProject(p.id)));
-      return h("div", { class: "row-buttons project-row" }, name, words, remove);
+      return h("div", { class: "row-buttons project-row" }, name, words, target, remove);
     }),
   );
 }
@@ -1027,6 +1029,8 @@ const PRODUCTIVE_CHOICES = [0, 60, 120, 180, 240, 300, 360, 480];
 const BREAK_CHOICES = [0, 45, 60, 90, 120];
 const DISTRACTING_CHOICES = [0, 15, 30, 45, 60, 90, 120, 180];
 const WEEK_PRODUCTIVE_CHOICES = [0, 300, 600, 900, 1200, 1500, 1800, 2400];
+/// A project's weekly target: an hour up to a full working week.
+const PROJECT_TARGET_CHOICES = [0, 60, 120, 180, 300, 420, 600, 900, 1200, 1800, 2400];
 const WEEK_DISTRACTING_CHOICES = [0, 120, 180, 300, 420, 600, 840];
 
 /// A minutes picker where 0 is "off"; a saved value outside the presets is kept as an option.
@@ -1397,6 +1401,13 @@ function daysText(days: number): string {
 /// Minutes after midnight as "09:00"; past midnight wraps to the next day's time.
 const clockOf = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
+/// The slot whose block list is open for changing, if any.
+let editingSlot: number | null = null;
+/// Apps and sites Kairo has seen, to pick a slot's block list from; fetched when first needed.
+let blockChoices: { key: string; label: string }[] | null = null;
+
+const blockLabel = (key: string) => blockChoices?.find((c) => c.key === key)?.label ?? key.slice(key.indexOf(":") + 1);
+
 function renderSchedule(slots: FocusSlot[]) {
   const root = $("#schedule-list");
   if (!slots.length) {
@@ -1407,17 +1418,90 @@ function renderSchedule(slots: FocusSlot[]) {
     ...slots.map((s) => {
       const remove = h("button", { class: "link-btn" }, "Remove");
       remove.addEventListener("click", async () => renderSchedule(await api.removeFocusSlot(s.id)));
+      const change = h("button", { class: "link-btn", "aria-expanded": String(editingSlot === s.id) }, editingSlot === s.id ? "Done" : "Change");
+      change.addEventListener("click", async () => {
+        editingSlot = editingSlot === s.id ? null : s.id;
+        blockChoices ??= (await api.categories().catch(() => [])).map((c) => ({ key: c.key, label: c.label }));
+        renderSchedule(await api.focusSchedule());
+      });
+      const blocks = s.blocks ? `Blocks only ${s.blocks.map(blockLabel).join(", ")}` : "Blocks distracting apps and sites";
       return h(
         "div",
         { class: "history-row schedule-row" },
         h("span", { class: "history-time" }, `${clockOf(s.startMin)}–${clockOf(s.startMin + s.minutes)}`),
-        h("span", { class: `history-label${s.label ? "" : " muted"}` }, s.label ?? "Scheduled focus"),
+        h(
+          "span",
+          { class: "history-label" },
+          h("span", { class: s.label ? "" : "muted" }, s.label ?? "Scheduled focus"),
+          h("span", { class: "schedule-blocks muted" }, `${blocks} · `, change),
+        ),
         h("span", { class: "history-len" }, daysText(s.days)),
         remove,
+        ...(editingSlot === s.id ? [slotBlocksEditor(s)] : []),
       );
     }),
   );
 }
+
+/// Under a slot: whether it blocks as usual or only a list, and the list, each change saved.
+function slotBlocksEditor(s: FocusSlot) {
+  const status = h("span", { class: "muted" });
+  const save = async (blocks: string[] | null) => {
+    try {
+      renderSchedule(await api.setSlotBlocks(s.id, blocks));
+    } catch (err) {
+      status.textContent = String(err);
+    }
+  };
+  // "Only these" with nothing on the list yet blocks as usual until something's added.
+  let only = s.blocks !== null || pendingOnly === s.id;
+  const list = s.blocks ?? [];
+  const usual = h("button", { "aria-pressed": String(!only) }, "Distracting apps and sites");
+  const mine = h("button", { "aria-pressed": String(only) }, "Only these");
+  usual.addEventListener("click", () => {
+    pendingOnly = null;
+    save(null);
+  });
+  mine.addEventListener("click", async () => {
+    if (only) return;
+    pendingOnly = s.id;
+    renderSchedule(await api.focusSchedule());
+  });
+  const box = h("div", { class: "slot-blocks" }, h("div", { class: "range", role: "group", "aria-label": "What it blocks" }, usual, mine));
+  if (only) {
+    const chips = list.map((key) => {
+      const x = h("button", { class: "link-btn", "aria-label": `Stop blocking ${blockLabel(key)}` }, "×");
+      x.addEventListener("click", () => save(list.length > 1 ? list.filter((k) => k !== key) : null));
+      return h("span", { class: "slot-chip" }, blockLabel(key), x);
+    });
+    const listId = `block-choices-${s.id}`;
+    const input = h("input", { class: "filter", list: listId, placeholder: "Add an app or site", "aria-label": "Add an app or site", autocomplete: "off" }) as HTMLInputElement;
+    const options = h(
+      "datalist",
+      { id: listId },
+      ...(blockChoices ?? []).filter((c) => !list.includes(c.key)).map((c) => h("option", { value: c.label }, c.key.startsWith("site:") ? "Site" : "App")),
+    );
+    input.addEventListener("change", () => {
+      const text = input.value.trim().toLowerCase();
+      const found = (blockChoices ?? []).find((c) => c.label.toLowerCase() === text || c.key === text);
+      if (!found) {
+        status.textContent = text ? "Pick an app or site Kairo has seen." : "";
+        return;
+      }
+      pendingOnly = null;
+      save([...list, found.key]);
+    });
+    box.append(
+      h("div", { class: "slot-chips" }, ...chips, input, options),
+      h("p", { class: "muted" }, list.length ? "Only these are blocked while this slot runs; everything else is let through." : "Add what this slot should block. Until then it blocks as usual."),
+    );
+  }
+  box.append(status);
+  return box;
+}
+
+/// The slot just switched to "Only these", before anything is on its list.
+let pendingOnly: number | null = null;
 
 /// The add row: day toggles (weekdays to start), and the lengths to choose from.
 function setUpScheduleForm() {

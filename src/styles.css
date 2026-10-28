@@ -1342,6 +1342,42 @@ html.palette-root {
   grid-template-columns: 120px minmax(0, 1fr) auto auto;
 }
 
+.schedule-blocks {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+/* A slot's block list opens under it, across the whole row. */
+.slot-blocks {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+
+.slot-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.slot-chip .link-btn {
+  min-height: 24px;
+  padding: 0 6px;
+}
+
 .schedule-add {
   margin-top: 12px;
 }

@@ -16,7 +16,7 @@ use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::analysis::{self, Category, Row};
-use crate::{classify, db, evening, recap};
+use crate::{classify, db, evening, projects, recap};
 
 const PRODUCTIVE_KEY: &str = "goal_productive_min";
 const DISTRACTING_KEY: &str = "goal_distracting_max_min";
@@ -51,11 +51,13 @@ pub struct Goals {
     pub distracting_max_min: u32,
     /// (`app:<exe>` or `site:<name>`, minutes)
     pub limits: Vec<(String, u32)>,
+    /// Weekly goals only: (project id, name, minutes) for projects with a target.
+    pub projects: Vec<(i64, String, u32)>,
 }
 
 impl Goals {
     pub fn is_empty(&self) -> bool {
-        self.productive_min == 0 && self.distracting_max_min == 0 && self.limits.is_empty()
+        self.productive_min == 0 && self.distracting_max_min == 0 && self.limits.is_empty() && self.projects.is_empty()
     }
 }
 
@@ -63,7 +65,7 @@ pub fn load(conn: &Connection) -> Result<Goals> {
     let minutes = |key| -> Result<u32> { Ok(db::get_setting(conn, key)?.and_then(|v| v.parse().ok()).unwrap_or(0)) };
     let mut stmt = conn.prepare("SELECT key, minutes FROM limits ORDER BY key")?;
     let limits = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_>>()?;
-    Ok(Goals { productive_min: minutes(PRODUCTIVE_KEY)?, distracting_max_min: minutes(DISTRACTING_KEY)?, limits })
+    Ok(Goals { productive_min: minutes(PRODUCTIVE_KEY)?, distracting_max_min: minutes(DISTRACTING_KEY)?, limits, projects: Vec::new() })
 }
 
 /// Sets a goal by its name: "productive" or "distracting" for each day, "week-productive" or
@@ -81,10 +83,11 @@ pub fn set_named_goal(conn: &Connection, name: &str, minutes: u32) -> Result<boo
     Ok(true)
 }
 
-/// The weekly goals, in minutes; 0 means off.
+/// The weekly goals, in minutes; 0 means off. Projects' weekly targets are among them.
 pub fn load_week(conn: &Connection) -> Result<Goals> {
     let minutes = |key| -> Result<u32> { Ok(db::get_setting(conn, key)?.and_then(|v| v.parse().ok()).unwrap_or(0)) };
-    Ok(Goals { productive_min: minutes(WEEK_PRODUCTIVE_KEY)?, distracting_max_min: minutes(WEEK_DISTRACTING_KEY)?, limits: Vec::new() })
+    let projects = projects::list(conn)?.into_iter().filter(|p| p.week_target_min > 0).map(|p| (p.id, p.name, p.week_target_min)).collect();
+    Ok(Goals { productive_min: minutes(WEEK_PRODUCTIVE_KEY)?, distracting_max_min: minutes(WEEK_DISTRACTING_KEY)?, limits: Vec::new(), projects })
 }
 
 /// The limits that block their app or site once passed, by key.
@@ -109,7 +112,7 @@ pub fn hard_over(conn: &Connection, now_ms: i64) -> Result<HashMap<String, i64>>
         return Ok(HashMap::new());
     }
     let limits = load(conn)?.limits.into_iter().filter(|(key, _)| hard.contains(key)).collect();
-    let goals = Goals { productive_min: 0, distracting_max_min: 0, limits };
+    let goals = Goals { productive_min: 0, distracting_max_min: 0, limits, projects: Vec::new() };
     let today = Local::now().date_naive();
     let Some((_, midnight)) = analysis::day_bounds(today) else { return Ok(HashMap::new()) };
     Ok(over_limits(&goals, &rows_for(conn, today, now_ms)?).into_iter().map(|key| (key, midnight)).collect())
@@ -152,6 +155,13 @@ pub struct DayGoals {
     /// Completed days (or for weekly goals, weeks) in a row, before this one, on which every goal
     /// was met.
     pub streak: u32,
+}
+
+impl Progress {
+    /// A project's weekly target, labelled with the project's name.
+    pub fn is_project(&self) -> bool {
+        self.key.starts_with("project:")
+    }
 }
 
 fn item(key: &str, label: String, kind: Kind, used_ms: i64, minutes: u32) -> Progress {
@@ -244,11 +254,33 @@ pub fn for_day(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<DayGoa
     Ok(DayGoals { items, streak: streak(conn, &goals, date, now_ms)? })
 }
 
-/// The week from Monday `monday` up to now, from every computer.
-fn week_rows(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
+/// The week from Monday `monday` up to now, as [from, to).
+fn week_bounds(monday: NaiveDate, now_ms: i64) -> (i64, i64) {
     let from = analysis::day_bounds(monday).map_or(0, |b| b.0);
     let to = monday.checked_add_days(chrono::Days::new(6)).and_then(analysis::day_bounds).map_or(now_ms, |b| b.1);
-    analysis::load_rows(conn, from, to.min(now_ms))
+    (from, to.min(now_ms))
+}
+
+/// The week from Monday `monday` up to now, from every computer.
+fn week_rows(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Vec<Row>> {
+    let (from, to) = week_bounds(monday, now_ms);
+    analysis::load_rows(conn, from, to)
+}
+
+/// Progress on every weekly goal in the week from `monday`, projects' targets last, and whether
+/// anything was tracked that week.
+fn week_status(conn: &Connection, goals: &Goals, monday: NaiveDate, now_ms: i64) -> Result<(bool, Vec<Progress>)> {
+    let rows = week_rows(conn, monday, now_ms)?;
+    let mut items = week_progress(goals, &rows);
+    if !goals.projects.is_empty() {
+        let (from, to) = week_bounds(monday, now_ms);
+        let times = projects::totals(conn, from, to, analysis::ALL_COMPUTERS)?;
+        for (id, name, minutes) in &goals.projects {
+            let ms = times.iter().find(|t| t.id == *id).map_or(0, |t| t.ms);
+            items.push(item(&format!("project:{name}"), name.clone(), Kind::Productive, ms, *minutes));
+        }
+    }
+    Ok((rows.iter().any(|r| !r.idle), items))
 }
 
 /// Progress on the weekly goals, named apart from the daily ones.
@@ -272,7 +304,7 @@ pub fn for_week(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Day
     if goals.is_empty() {
         return Ok(DayGoals { items: Vec::new(), streak: 0 });
     }
-    let items = week_progress(&goals, &week_rows(conn, monday, now_ms)?);
+    let (_, items) = week_status(conn, &goals, monday, now_ms)?;
     let mut streak = 0;
     let mut week = monday;
     for _ in 0..WEEK_STREAK_LOOKBACK {
@@ -290,11 +322,8 @@ pub fn for_week(conn: &Connection, monday: NaiveDate, now_ms: i64) -> Result<Day
 /// Whether the week starting `monday` met every weekly goal in `goals`; None with nothing
 /// tracked that week.
 pub fn week_met(conn: &Connection, goals: &Goals, monday: NaiveDate, now_ms: i64) -> Result<Option<bool>> {
-    let rows = week_rows(conn, monday, now_ms)?;
-    if !rows.iter().any(|r| !r.idle) {
-        return Ok(None);
-    }
-    Ok(Some(week_progress(goals, &rows).iter().all(|p| p.met)))
+    let (tracked, items) = week_status(conn, goals, monday, now_ms)?;
+    Ok(tracked.then(|| items.iter().all(|p| p.met)))
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -332,6 +361,9 @@ fn alert(p: &Progress) -> Option<(i64, String, String)> {
 fn week_alert(p: &Progress) -> Option<(i64, String, String)> {
     let (used, target) = (fmt_dur(p.used_ms), fmt_dur(p.target_ms));
     let left = fmt_dur((p.target_ms - p.used_ms).max(MIN_MS));
+    if p.is_project() {
+        return p.met.then(|| (DONE, format!("{}: {used} this week", p.label), format!("Weekly target of {target} reached.")));
+    }
     match p.kind {
         Kind::Productive if p.met => {
             Some((DONE, format!("Weekly goal reached: {target} of productive time"), format!("You've put in {used} of focused work this week.")))
@@ -405,7 +437,7 @@ fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn 
         }
     }
     if !week_goals.is_empty() {
-        for p in week_progress(&week_goals, &week_rows(conn, monday, now)?) {
+        for p in week_status(conn, &week_goals, monday, now)?.1 {
             due.extend(week_alert(&p).map(|a| (week.clone(), p.key.clone(), a)));
         }
     }
@@ -444,6 +476,7 @@ mod tests {
             productive_min: productive,
             distracting_max_min: distracting,
             limits: limits.iter().map(|(k, m)| (k.to_string(), *m)).collect(),
+            projects: Vec::new(),
         }
     }
 
@@ -541,5 +574,40 @@ mod tests {
         assert!(load(&conn).unwrap().is_empty());
         let (level, title, _) = week_alert(&week.items[0]).unwrap();
         assert_eq!((level, title.as_str()), (WARNED, "20m of distracting time left this week"));
+    }
+
+    #[test]
+    fn project_targets_count_as_weekly_goals() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let id = projects::save(&conn, None, "Kairo", "kairo").unwrap().unwrap();
+        projects::set_target(&conn, id, 180).unwrap();
+        let monday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let work = |date: NaiveDate, app: &str, exe: &str, title: &str, minutes: i64| {
+            let start = analysis::day_bounds(date).unwrap().0 + 10 * 60 * MIN_MS;
+            let row = db::NewSession { app, exe, title, site: None, start_ms: start, end_ms: start + minutes * MIN_MS, idle: false, demo: false };
+            db::insert_session(&conn, &row).unwrap();
+        };
+        // This week: 2h in the editor and 1h 10m in a terminal, both titled kairo, plus time on
+        // something else. Last week only 1h on it, which misses the target.
+        work(monday, "Code", "code", "main.rs - kairo", 120);
+        work(monday + chrono::Days::new(2), "Terminal", "wt", "kairo", 70);
+        work(monday + chrono::Days::new(2), "Code", "code", "essay.md - notes", 60);
+        work(monday - chrono::Days::new(6), "Code", "code", "kairo", 60);
+
+        let goals = load_week(&conn).unwrap();
+        assert!(!goals.is_empty());
+        let now = analysis::day_bounds(monday + chrono::Days::new(6)).unwrap().1;
+        let week = for_week(&conn, monday, now).unwrap();
+        assert_eq!(week.items.len(), 1);
+        let p = &week.items[0];
+        assert_eq!((p.key.as_str(), p.label.as_str(), p.used_ms, p.target_ms, p.met), ("project:Kairo", "Kairo", 190 * MIN_MS, 180 * MIN_MS, true));
+        assert_eq!(week.streak, 0);
+        assert_eq!(week_met(&conn, &goals, monday - chrono::Days::new(7), now).unwrap(), Some(false));
+        assert_eq!(week_met(&conn, &goals, monday - chrono::Days::new(14), now).unwrap(), None);
+        assert_eq!(week_alert(p).unwrap(), (DONE, "Kairo: 3h 10m this week".to_string(), "Weekly target of 3h reached.".to_string()));
+        // No word until it's reached.
+        assert!(week_alert(&item("project:Kairo", "Kairo".into(), Kind::Productive, 60 * MIN_MS, 180)).is_none());
+        // The daily goals aren't touched.
+        assert!(load(&conn).unwrap().is_empty());
     }
 }

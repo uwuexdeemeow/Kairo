@@ -289,6 +289,8 @@ export interface Project {
   id: number;
   name: string;
   keywords: string[];
+  /** Minutes to put in each week; 0 means no target. */
+  weekTargetMin: number;
 }
 
 export interface ProjectTime {
@@ -321,6 +323,8 @@ export interface FocusSlot {
   startMin: number;
   minutes: number;
   label: string | null;
+  /** `app:` and `site:` keys this slot blocks, and nothing else; null blocks as usual. */
+  blocks: string[] | null;
 }
 
 export type GoalName ="productive" | "distracting" | "week-productive" | "week-distracting";
@@ -360,6 +364,8 @@ export const api = {
   /** Adds a project, or with an id changes it; `keywords` are comma-separated. */
   saveProject: (id: number | null, name: string, keywords: string) => invoke<Project[]>("save_project", { id, name, keywords }),
   removeProject: (id: number) => invoke<Project[]>("remove_project", { id }),
+  /** 0 takes the target away. */
+  setProjectTarget: (id: number, minutes: number) => invoke<Project[]>("set_project_target", { id, minutes }),
   /** Time per project on a day. */
   projectTimes: (date?: string) => invoke<ProjectTime[]>("get_project_times", { date }),
   calendar: () => invoke<CalendarStatus>("get_calendar"),
@@ -375,6 +381,8 @@ export const api = {
   addFocusSlot: (days: number, startMin: number, minutes: number, label: string | null) =>
     invoke<FocusSlot[]>("add_focus_slot", { days, startMin, minutes, label }),
   removeFocusSlot: (id: number) => invoke<FocusSlot[]>("remove_focus_slot", { id }),
+  /** null gives the slot the usual blocking back; returns the schedule after. */
+  setSlotBlocks: (id: number, blocks: string[] | null) => invoke<FocusSlot[]>("set_slot_blocks", { id, blocks }),
   /** The weekly goals for the week containing `date`; the streak counts weeks. */
   weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),
   setLimit: (key: string, minutes: number) => invoke<void>("set_limit", { key, minutes }),

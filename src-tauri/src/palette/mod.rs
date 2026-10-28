@@ -318,14 +318,14 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
 }
 
 /// The weekly goals as one line, like "7h 53m of 15h 00m productive · 3h 39m of 5h 00m
-/// distracting"; None with none set.
+/// distracting · 6h of 10h Kairo"; None with none set.
 fn week_goals(conn: &Connection, today: chrono::NaiveDate, now: i64) -> Option<String> {
     let week = goals::for_week(conn, crate::recap::week_start(today), now).ok()?;
     let parts: Vec<String> = week
         .items
         .iter()
         .map(|p| {
-            let what = if p.kind == Kind::Productive { "productive" } else { "distracting" };
+            let what = if p.is_project() { p.label.as_str() } else if p.kind == Kind::Productive { "productive" } else { "distracting" };
             let over = if p.kind != Kind::Productive && !p.met { ", over" } else { "" };
             format!("{} of {} {what}{over}", fmt_dur(p.used_ms), fmt_dur(p.target_ms))
         })

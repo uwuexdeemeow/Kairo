@@ -334,8 +334,8 @@ pub fn focus_plan(conn: &Connection, minutes: u32, label: Option<&str>) -> Focus
             let (mut apps, mut sites) = (0, 0);
             for key in keys {
                 match key.split_once(':') {
-                    Some(("app", exe)) if blocking::decide(&rules, &cats, Some(exe), None) => apps += 1,
-                    Some(("site", site)) if blocking::decide(&rules, &cats, None, Some(site)) => sites += 1,
+                    Some(("app", exe)) if blocking::decide(None, &rules, &cats, Some(exe), None) => apps += 1,
+                    Some(("site", site)) if blocking::decide(None, &rules, &cats, None, Some(site)) => sites += 1,
                     _ => {}
                 }
             }

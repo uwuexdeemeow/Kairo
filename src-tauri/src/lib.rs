@@ -257,6 +257,8 @@ pub fn run() {
             commands::get_project_times,
             commands::add_focus_slot,
             commands::remove_focus_slot,
+            commands::set_slot_blocks,
+            commands::set_project_target,
             commands::get_goals,
             commands::get_away,
             commands::label_away,
