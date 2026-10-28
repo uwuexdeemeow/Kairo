@@ -401,6 +401,9 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
                     if let Err(e) = recap::maybe_notify_month(&app, &conn) {
                         eprintln!("month recap: {e}");
                     }
+                    if let Err(e) = recap::maybe_notify_year(&app, &conn) {
+                        eprintln!("year recap: {e}");
+                    }
                     if let Err(e) = evening::maybe_notify(&app, &conn) {
                         eprintln!("evening summary: {e}");
                     }

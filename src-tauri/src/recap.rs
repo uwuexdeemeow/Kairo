@@ -1,6 +1,7 @@
-//! A week (Monday to Sunday) or a month at a glance: totals against the stretch before, each day,
-//! the apps and projects that took the most time and how the goals went, plus a Sunday-evening
-//! notification for the week and one early in the month for the month before.
+//! A week (Monday to Sunday), a month or a year at a glance: totals against the stretch before,
+//! each day, the apps and projects that took the most time and how the goals went, plus a
+//! Sunday-evening notification for the week, one early in the month for the month before and one
+//! early in January for the year before.
 
 use std::collections::HashMap;
 
@@ -27,6 +28,8 @@ const MONTH_RECAP_LAST_DAY: u32 = 7;
 /// Weeks with less than this tracked aren't worth a notification.
 const MIN_WEEK_ACTIVE_MS: i64 = 60 * 60 * 1000;
 const MIN_MONTH_ACTIVE_MS: i64 = 5 * 60 * 60 * 1000;
+const YEAR_SENT_KEY: &str = "year_recap_sent_for";
+const MIN_YEAR_ACTIVE_MS: i64 = 20 * 60 * 60 * 1000;
 /// Changes smaller than this read as "about the same".
 const STEADY_SHARE: f64 = 0.05;
 const TOP_APPS: usize = 5;
@@ -146,6 +149,40 @@ pub fn week(conn: &Connection, start: NaiveDate, now_ms: i64) -> Result<Period> 
 /// `analysis::load_rows_of`); goals and limits still count every computer, as their alerts do.
 pub fn week_of(conn: &Connection, start: NaiveDate, now_ms: i64, computer: &str) -> Result<Period> {
     period_of(conn, Span { start, len: 7, previous_start: start - Days::new(7), previous_len: 7, count_weeks: false }, now_ms, computer)
+}
+
+pub fn year_start(date: NaiveDate) -> NaiveDate {
+    NaiveDate::from_ymd_opt(date.year(), 1, 1).unwrap_or(date)
+}
+
+/// The number of days in the year starting `first`, 365 or 366.
+fn year_days(first: NaiveDate) -> u64 {
+    first.checked_add_months(Months::new(12)).map_or(365, |next| (next - first).num_days() as u64)
+}
+
+pub fn year(conn: &Connection, first: NaiveDate, now_ms: i64) -> Result<Period> {
+    year_of(conn, first, now_ms, analysis::ALL_COMPUTERS)
+}
+
+/// The year starting 1 January `first`, against the whole year before; whose time as in
+/// [`week_of`].
+pub fn year_of(conn: &Connection, first: NaiveDate, now_ms: i64, computer: &str) -> Result<Period> {
+    let before = first.checked_sub_months(Months::new(12)).unwrap_or(first);
+    let span = Span { start: first, len: year_days(first), previous_start: before, previous_len: year_days(before), count_weeks: true };
+    period_of(conn, span, now_ms, computer)
+}
+
+/// The month with the most productive time, as its 1st; None with none at all.
+fn best_month(days: &[DayLine]) -> Option<String> {
+    let mut months: Vec<(String, i64)> = Vec::new();
+    for d in days {
+        let month = format!("{}-01", &d.date[..7]);
+        match months.last_mut() {
+            Some((m, ms)) if *m == month => *ms += d.totals.productive_ms,
+            _ => months.push((month, d.totals.productive_ms)),
+        }
+    }
+    months.into_iter().filter(|(_, ms)| *ms > 0).max_by_key(|(_, ms)| *ms).map(|(m, _)| m)
 }
 
 pub fn month(conn: &Connection, first: NaiveDate, now_ms: i64) -> Result<Period> {
@@ -329,6 +366,25 @@ fn month_message(m: &Period) -> (String, String) {
     (title, parts.join(" "))
 }
 
+/// The year's notification: (title, body).
+fn year_message(y: &Period) -> (String, String) {
+    let year = &y.start[..4];
+    let title = format!("Your {year}: {} productive", fmt_dur(y.totals.productive_ms));
+    let before = year.parse::<i32>().map_or_else(|_| "last year".to_string(), |y| (y - 1).to_string());
+    let mut parts = Vec::new();
+    parts.extend(change(y.totals.productive_ms, y.previous.productive_ms, &before));
+    if let Some(month) = best_month(&y.days) {
+        parts.push(format!("Best month: {}.", day_named(&month, "%B")));
+    }
+    if y.goal_days > 0 {
+        parts.push(format!("Goals met on {} of {} days.", y.goal_days_met, y.goal_days));
+    }
+    if let Some(p) = y.top_projects.first() {
+        parts.push(format!("Top project: {}.", p.name));
+    }
+    (title, parts.join(" "))
+}
+
 pub fn maybe_notify(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let now = Local::now();
     if now.weekday() != RECAP_DAY || now.hour() < RECAP_HOUR {
@@ -361,6 +417,36 @@ fn month_due(now: NaiveDateTime, sent_for: Option<&str>) -> Option<NaiveDate> {
     }
     let last = month_start(today).checked_sub_months(Months::new(1))?;
     (sent_for != Some(last.to_string().as_str())).then_some(last)
+}
+
+/// The 1 January of the year whose summary is due at `now`, if one is: last year's, from the
+/// morning of 1 January through the first week, unless already sent.
+fn year_due(now: NaiveDateTime, sent_for: Option<&str>) -> Option<NaiveDate> {
+    let today = now.date();
+    if today.month() != 1 || today.day() > MONTH_RECAP_LAST_DAY || (today.day() == 1 && now.hour() < MONTH_RECAP_HOUR) {
+        return None;
+    }
+    let last = NaiveDate::from_ymd_opt(today.year() - 1, 1, 1)?;
+    (sent_for != Some(last.to_string().as_str())).then_some(last)
+}
+
+pub fn maybe_notify_year(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let now = Local::now();
+    let Some(first) = year_due(now.naive_local(), db::get_setting(conn, YEAR_SENT_KEY)?.as_deref()) else {
+        return Ok(());
+    };
+    let now_ms = now.timestamp_millis();
+    // Only tell someone who is at the computer.
+    if db::current_activity(conn, now_ms)?.is_none() {
+        return Ok(());
+    }
+    let y = year(conn, first, now_ms)?;
+    if y.totals.active_ms >= MIN_YEAR_ACTIVE_MS {
+        let (title, body) = year_message(&y);
+        app.notification().builder().title(&title).body(&body).show()?;
+    }
+    db::set_setting(conn, YEAR_SENT_KEY, &first.to_string())?;
+    Ok(())
 }
 
 pub fn maybe_notify_month(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -452,6 +538,38 @@ mod tests {
         // January compares with December of the year before.
         let jan = month(&conn, NaiveDate::from_ymd_opt(2027, 1, 1).unwrap(), now).unwrap();
         assert_eq!((jan.end.as_str(), jan.days.len()), ("2027-01-31", 31));
+    }
+
+    #[test]
+    fn year_spans_its_days_and_names_its_best_month() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let date = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).unwrap();
+        assert_eq!(year_start(date(2026, 10, 28)), date(2026, 1, 1));
+        assert_eq!((year_days(date(2026, 1, 1)), year_days(date(2028, 1, 1))), (365, 366));
+        session(&conn, "cursor", "Cursor", date(2026, 3, 4), 300);
+        session(&conn, "cursor", "Cursor", date(2026, 3, 18), 200);
+        session(&conn, "cursor", "Cursor", date(2026, 10, 1), 400);
+        session(&conn, "cursor", "Cursor", date(2025, 6, 1), 600);
+        let now = analysis::day_bounds(date(2027, 1, 2)).unwrap().0;
+        let y = year(&conn, date(2026, 1, 1), now).unwrap();
+        assert_eq!((y.start.as_str(), y.end.as_str(), y.days.len()), ("2026-01-01", "2026-12-31", 365));
+        assert_eq!((y.totals.productive_ms, y.previous.productive_ms), (900 * MIN_MS, 600 * MIN_MS));
+        assert_eq!(best_month(&y.days).as_deref(), Some("2026-03-01"));
+        let (title, body) = year_message(&y);
+        assert_eq!(title, "Your 2026: 15h productive");
+        assert_eq!(body, "Up 50% on 2025. Best month: March.");
+    }
+
+    #[test]
+    fn year_summary_is_due_in_the_first_week_of_january_once() {
+        let at = |d: &str, h| NaiveDate::parse_from_str(d, "%Y-%m-%d").unwrap().and_hms_opt(h, 0, 0).unwrap();
+        let y2026 = NaiveDate::from_ymd_opt(2026, 1, 1);
+        assert_eq!(year_due(at("2027-01-01", 9), None), None);
+        assert_eq!(year_due(at("2027-01-01", 10), None), y2026);
+        assert_eq!(year_due(at("2027-01-05", 8), Some("2025-01-01")), y2026);
+        assert_eq!(year_due(at("2027-01-05", 8), Some("2026-01-01")), None);
+        assert_eq!(year_due(at("2027-01-08", 12), None), None);
+        assert_eq!(year_due(at("2026-11-02", 12), None), None);
     }
 
     #[test]

@@ -352,10 +352,21 @@ pub fn get_project_detail(state: State<AppState>, id: i64, date: Option<String>,
             let first = recap::month_start(day);
             first.iter_days().take_while(|d| d.month() == first.month()).collect()
         }
+        "year" => recap::year_start(day).iter_days().take_while(|d| d.year() == day.year()).collect(),
         _ => vec![day],
     };
     let mut buckets: Vec<(i64, i64)> = days.iter().filter_map(|d| day_bounds(*d)).collect();
-    if span != "week" && span != "month" {
+    if span == "year" {
+        // A year goes by the month: each from its 1st to the next one's.
+        let mut months: Vec<(i64, i64)> = Vec::new();
+        for (d, b) in days.iter().zip(&buckets) {
+            match months.last_mut() {
+                Some(m) if d.day() != 1 => m.1 = b.1,
+                _ => months.push(*b),
+            }
+        }
+        buckets = months;
+    } else if span != "week" && span != "month" {
         // A day goes by the hour; a day the clocks change on has 23 or 25 of them.
         let (from, to) = buckets.first().copied().ok_or("that date has no local midnight")?;
         buckets = (0..).map(|h| from + h * 3_600_000).take_while(|s| *s < to).map(|s| (s, (s + 3_600_000).min(to))).collect();
@@ -441,6 +452,14 @@ pub fn get_week(state: State<AppState>, date: Option<String>) -> CmdResult<recap
     let start = recap::week_start(parse_day(date)?);
     let conn = state.db.lock().map_err(err)?;
     recap::week_of(&conn, start, now_ms(), &sync::shown(&conn)?).map_err(err)
+}
+
+/// The year containing `date` (default today), against the year before.
+#[tauri::command]
+pub fn get_year(state: State<AppState>, date: Option<String>) -> CmdResult<recap::Period> {
+    let first = recap::year_start(parse_day(date)?);
+    let conn = state.db.lock().map_err(err)?;
+    recap::year_of(&conn, first, now_ms(), &sync::shown(&conn)?).map_err(err)
 }
 
 /// The month containing `date` (default today), against the month before.
