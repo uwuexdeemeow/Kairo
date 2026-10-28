@@ -370,40 +370,13 @@
         <section id="view-settings" class="view" hidden>
           <section class="page-head">
             <div>
-              <p class="eyebrow" id="settings-version"></p>
-              <h1>Settings</h1>
+              <h1>Chrono settings</h1>
             </div>
           </section>
 
-          <section class="block settings-first">
-            <h2>Appearance</h2>
-            <label class="field">
-              Theme
-              <select id="appearance">
-                <option value="system" id="appearance-system">Match Windows</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
-          </section>
+          <p class="muted settings-first">Theme, the command palette, starting at sign-in, your data, combining computers and updates are in Kairo's settings. <button class="link-btn" id="open-kairo-settings">Open Kairo's settings</button></p>
 
-          <section class="block" id="palette-settings">
-            <h2>Command palette</h2>
-            <div class="row-buttons">
-              <span>Open it with</span>
-              <span class="shortcut-keys" id="palette-keys" aria-live="polite"></span>
-              <button class="btn" id="palette-record">Change</button>
-            </div>
-            <p class="muted" id="palette-note" aria-live="polite">Works everywhere, even with Chrono's window closed. Press it again, or Esc, to put it away.</p>
-            <label class="toggle">
-              <input type="checkbox" id="palette-suggestions" />
-              Show suggestions when it opens (focus sessions, limits passed, recent apps)
-            </label>
-            <label class="toggle">
-              <input type="checkbox" id="palette-over-fullscreen" />
-              Open it over games and full-screen apps too (the tray's Command palette always does)
-            </label>
-          </section>
+          <p class="muted" id="settings-status" aria-live="polite"></p>
 
           <section class="block">
             <h2>Goals</h2>
@@ -456,17 +429,6 @@
           </section>
 
           <section class="block">
-            <h2>Your data</h2>
-            <p class="muted">Take your tracked time into a spreadsheet, or keep everything in one backup file. A backup restores on any computer, Windows, Mac or Linux, so it's also how you move Kairo to a new one.</p>
-            <div class="row-buttons">
-              <button class="link-btn" id="export-time">Export time as CSV</button>
-              <button class="link-btn" id="backup-save">Back up everything</button>
-              <button class="link-btn" id="backup-restore">Restore a backup</button>
-              <span class="muted" id="data-status" aria-live="polite"></span>
-            </div>
-          </section>
-
-          <section class="block">
             <h2>Projects</h2>
             <p class="muted">See time by project across apps. Give each project a few keywords; time belongs to the first project with one in its window title or site, so "kairo" gathers a VS Code folder, a GitHub repository and a terminal named kairo. Projects show on Today and Week.</p>
             <div id="project-list"></div>
@@ -490,18 +452,6 @@
           </section>
 
           <section class="block">
-            <h2>Combine computers</h2>
-            <p class="muted">See the time from all your computers together. Pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer; Chrono keeps its time there every few minutes, and adds in the others'. Your time, including window titles, goes to that drive. Categories, limits, goals and blocking rules you change are shared too, the latest change winning everywhere.</p>
-            <p id="sync-where" aria-live="polite"></p>
-            <ul class="sync-computers" id="sync-computers"></ul>
-            <div class="row-buttons">
-              <button class="link-btn" id="sync-choose">Choose a folder</button>
-              <button class="link-btn" id="sync-stop" hidden>Stop combining</button>
-              <span class="muted" id="sync-status" aria-live="polite"></span>
-            </div>
-          </section>
-
-          <section class="block">
             <h2>Browser extension</h2>
             <p class="muted" id="ext-intro">Chrono reads the site from the address bar of Chrome, Edge, Brave, Vivaldi, Opera and Firefox, so sites are tracked without the extension. The extension adds blocking distracting sites during focus sessions, and with it the browser tells Kairo the site itself. It sends only the domain, never the page or what you type, and only to Kairo on this computer.</p>
             <p class="ext-status" id="ext-status" aria-live="polite"></p>
@@ -514,15 +464,6 @@
               <button class="link-btn" id="ext-open">Show the extension folder instead</button>
               <span class="muted" id="ext-note" aria-live="polite"></span>
             </div>
-          </section>
-
-          <section class="block">
-            <h2 id="autostart-title">Start with Windows</h2>
-            <label class="toggle">
-              <input type="checkbox" id="autostart-enabled" />
-              <span id="autostart-label">Start Kairo quietly in the tray when I sign in</span>
-            </label>
-            <p class="muted" id="autostart-note">Chrono can only record while Kairo runs, so this keeps your history complete.</p>
           </section>
 
           <section class="block">
@@ -592,14 +533,6 @@
             </div>
           </section>
 
-          <section class="block">
-            <h2>Updates</h2>
-            <p class="muted">Kairo looks for a new version a minute after it starts and every 6 hours, and installs it quietly.</p>
-            <div class="row-buttons">
-              <button class="link-btn" id="update-check">Check for updates</button>
-              <span class="muted" id="update-status" aria-live="polite"></span>
-            </div>
-          </section>
         </section>
       </main>
     </div>

@@ -493,8 +493,13 @@ export const api = {
   /** PNG data URLs by executable, for the apps that have an icon to show. */
   appIcons: (exes: string[]) => invoke<Record<string, string>>("get_app_icons", { exes }),
   version: () => invoke<string>("get_version"),
-  /** The result arrives as a notification, like the tray's "Check for updates". */
+  /** The result arrives as a notification, like Kairo's settings' Updates → "Check for updates". */
   checkForUpdates: () => invoke<void>("check_for_updates"),
   seedDemo: () => invoke<number>("seed_demo_data"),
   clearDemo: () => invoke<number>("clear_demo_data"),
+  openDashboard: (tab?: "settings") => invoke<void>("open_dashboard", { tab }),
+  /** The tab a dashboard opened for before its page was ready to hear about it, once. */
+  takeDashboardTab: () => invoke<string | null>("take_dashboard_tab"),
+  openChrono: (view?: string) => invoke<void>("open_chrono", { view }),
+  openPalette: () => invoke<void>("open_palette"),
 };

@@ -254,6 +254,8 @@ pub enum Action {
     Launch(String),
     /// A Kairo view, and for Today or Week a date.
     Go(&'static str, Option<NaiveDate>),
+    /// Kairo's dashboard: `None` for Home, or the tab by name.
+    Dashboard(Option<&'static str>),
     StartFocus(u32, Option<String>),
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
@@ -269,7 +271,7 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::ExportTime | Action::Backup | Action::Restore)
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore)
     }
 }
 
@@ -351,7 +353,7 @@ const PAGES: [(&str, &str, &str, Glyph, i64); 8] = [
     ("focus timer sessions", "Focus", "focus", Glyph::Focus, -1),
     ("patterns insights", "Patterns", "patterns", Glyph::Chart, -1),
     ("categories apps sites limits", "Categories", "categories", Glyph::Tag, -1),
-    ("settings preferences options", "Settings", "settings", Glyph::Settings, -1),
+    ("settings preferences options", "Chrono settings", "settings", Glyph::Settings, -1),
 ];
 
 fn page_action(ctx: &Context, view: &'static str, days_back: i64) -> Action {
@@ -519,13 +521,15 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 10] = [
+    let actions: [(&str, String, Glyph, Action, bool); 12] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("check for updates update version", "Check for updates".into(), Glyph::Update, Action::CheckUpdates, true),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
+        ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
+        ("settings theme appearance dark light palette shortcut startup sign in login updates backup restore combine computers", "Kairo settings".into(), Glyph::Settings, Action::Dashboard(Some("settings")), true),
         ("export csv spreadsheet data download time", "Export time as CSV".into(), Glyph::Settings, Action::ExportTime, true),
         ("backup back up save data copy", "Back up everything".into(), Glyph::Settings, Action::Backup, true),
         ("restore backup load data", "Restore a backup".into(), Glyph::Settings, Action::Restore, true),
@@ -581,7 +585,7 @@ pub struct Suggestions {
 pub fn suggestions(ctx: &Context) -> Suggestions {
     let chips = PAGES
         .iter()
-        .filter(|p| ["Today", "Yesterday", "This week", "Focus", "Settings"].contains(&p.1))
+        .filter(|p| ["Today", "Yesterday", "This week", "Focus", "Chrono settings"].contains(&p.1))
         .map(|&(_, title, view, glyph, back)| Item::new(title, Icon::Glyph(glyph, Tone::Plain), "Go to", page_action(ctx, view, back)))
         .collect();
     let mut rows = Vec::new();
@@ -652,6 +656,16 @@ mod tests {
     }
 
     #[test]
+    fn the_dashboard_and_both_settings_are_a_few_letters_away() {
+        let c = ctx();
+        assert_eq!(search(&c, "dashboard")[0].action, Action::Dashboard(None));
+        let settings = search(&c, "settings");
+        assert!(settings.iter().any(|i| i.title == "Kairo settings" && i.action == Action::Dashboard(Some("settings"))));
+        assert!(settings.iter().any(|i| i.title == "Chrono settings" && i.action == Action::Go("settings", None)));
+        assert_eq!(search(&c, "theme")[0].action, Action::Dashboard(Some("settings")));
+    }
+
+    #[test]
     fn data_and_goals_are_a_few_letters_away() {
         let c = ctx();
         assert_eq!(search(&c, "export")[0].action, Action::ExportTime);
@@ -718,7 +732,7 @@ mod tests {
         assert_eq!(titles(&s.rows), ["Start a 25-minute focus session", "THE FINALS: 12m over today’s limit"]);
         // THE FINALS isn't in the Start menu, so it can't be a tile.
         assert_eq!(titles(&s.tiles), ["Cursor", "Brave"]);
-        assert_eq!(titles(&s.chips), ["Today", "Yesterday", "This week", "Focus", "Settings"]);
+        assert_eq!(titles(&s.chips), ["Today", "Yesterday", "This week", "Focus", "Chrono settings"]);
         let quiet = suggestions(&Context { suggestions: false, ..ctx() });
         assert!(quiet.rows.is_empty() && quiet.tiles.is_empty() && quiet.chips.len() == 5);
     }

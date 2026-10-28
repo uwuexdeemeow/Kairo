@@ -17,6 +17,24 @@ If something goes wrong, run Kairo from a terminal so its messages show, and cop
 Kairo goes idle after 2 minutes without input (30 in games and video), so keep using the machine
 while checking tracking.
 
+## Tray and dashboard
+
+On Windows and a Mac:
+
+1. **Click.** Left-click the tray icon (menu bar icon on a Mac), then try a double-click.
+   *Expect:* the dashboard opens either way, once, never two windows. Right-click (or, on a Mac,
+   any other click) shows the menu.
+2. **Menu.** *Expect:* Open dashboard, Open Chrono, Command palette (with its shortcut),
+   Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and if it's
+   already open, brings it forward.
+3. **Settings.** On the dashboard's Home, press Chrono's Settings while Chrono is closed.
+   *Expect:* Chrono opens on its Settings page, which starts with a line pointing to Kairo's
+   settings; its link opens the dashboard's Settings tab. Change the theme there with Chrono open.
+   *Expect:* Chrono repaints without a restart.
+
+On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same five items,
+and Open dashboard opens the dashboard.
+
 ## Mac
 
 1. **Install.** Open the `.dmg`, copy Kairo to Applications, run `xattr -cr /Applications/Kairo.app`
@@ -31,7 +49,7 @@ while checking tracking.
    the site shows under Sites. If it never does, run Kairo from the terminal and note what it says.
 5. **Palette.** Press Option+Space. *Expect:* the palette opens; Esc closes it.
 6. **Full screen.** Put an app in full screen (the green button) and press Option+Space.
-   *Expect:* nothing. Turn on Settings → Command palette → "Open it over games and full-screen
+   *Expect:* nothing. Turn on Kairo's settings → Command palette → "Open it over games and full-screen
    apps too" and press it again. *Expect:* it opens. The menu bar's Kairo menu → Command palette
    opens it either way.
 7. **Controller.** Connect a gamepad, open a non-game app, and for 3 minutes touch only the
@@ -48,7 +66,7 @@ while checking tracking.
    *Expect:* each shows on Today with its icon.
 4. **Idle.** Leave the machine alone for 3 minutes. *Expect:* the sidebar says Idle.
 5. **Palette.** Press Ctrl+Space. *Expect:* the palette opens. Settings → Keyboard → View and
-   Customise Shortcuts → Custom Shortcuts lists "Kairo command palette". Change the shortcut in Kairo's Settings; *expect* the
+   Customise Shortcuts → Custom Shortcuts lists "Kairo command palette". Change the shortcut in Kairo's settings; *expect* the
    GNOME shortcut to follow.
 6. **Full screen.** Press F11 in Firefox, then Ctrl+Space. *Expect:* nothing, unless the
    full-screen setting is on.
@@ -57,7 +75,7 @@ while checking tracking.
 8. **Game (Steam, Proton or native).** Play for a minute. *Expect:* it shows under the game's
    name, filed as distracting, as on Windows.
 9. **Controller.** As on the Mac, step 7.
-10. **Update.** When a newer version is out, use Check for updates in the tray. *Expect:* the
+10. **Update.** When a newer version is out, use Check for updates in Kairo's settings. *Expect:* the
     `.deb` asks for your password, then Kairo restarts on the new version.
 
 ## Linux, KDE Plasma on Wayland
@@ -74,7 +92,7 @@ while checking tracking.
 
 Use two machines (any systems) with the same cloud drive.
 
-1. On each, Settings → Combine computers → Choose a folder, and pick the **same** synced folder.
+1. On each, Kairo's settings → Combine computers → Choose a folder, and pick the **same** synced folder.
 2. Wait 5–10 minutes for the drive to sync. *Expect:* each lists both computers, and Today on
    each adds up both.
 3. **Showing switch.** In the sidebar, pick "This one". *Expect:* only that computer's time.
@@ -86,7 +104,7 @@ Use two machines (any systems) with the same cloud drive.
 
 ## Any system: backup and restore
 
-1. Settings → Your data → Back up everything; save the file.
+1. Kairo's settings → Your data → Back up everything; save the file.
 2. Restore it on another computer (even another system). *Expect:* a confirmation, a restart, and
    the history, categories, limits and goals of the backup, with this computer's palette shortcut
    kept.

@@ -26,16 +26,18 @@ mod startup;
 mod sync;
 mod updater;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use chrono::NaiveDate;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, Wry};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
+
+use startup::Launch;
 
 pub struct AppState {
     /// Connection used by UI commands; the collector thread has its own.
@@ -54,6 +56,8 @@ pub struct AppState {
     pub browser_listening: bool,
     /// Where the palette last asked Kairo's window to go, until the page takes it.
     pub navigation: Mutex<Option<Navigation>>,
+    /// The dashboard tab asked for, until the page takes it.
+    pub dashboard_tab: Mutex<Option<String>>,
 }
 
 /// A view, and for Today or Week a local `YYYY-MM-DD` date.
@@ -63,9 +67,6 @@ pub struct Navigation {
     date: Option<String>,
 }
 
-/// The tray's checkboxes, kept so the in-app toggles can update them.
-pub struct NudgeToggle(pub CheckMenuItem<Wry>);
-pub struct AutostartToggle(pub CheckMenuItem<Wry>);
 /// The tray's palette item, which shows the shortcut and follows it when it changes.
 pub struct PaletteItem(pub MenuItem<Wry>);
 
@@ -76,15 +77,16 @@ pub fn run() {
         // running copy instead of starting another collector. Kairo itself is the command
         // palette; Chrono's own shortcut opens Chrono, the screen time tracker's window.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == startup::PALETTE_ARG) {
-                // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
-                if palette::shortcut_may_open() {
-                    palette::toggle(app);
+            match startup::launch_for(&args) {
+                Launch::Palette => {
+                    // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
+                    if !args.iter().any(|a| a == startup::PALETTE_ARG) || palette::shortcut_may_open() {
+                        palette::toggle(app);
+                    }
                 }
-            } else if args.iter().any(|a| a == startup::CHRONO_ARG) {
-                show_main(app);
-            } else {
-                palette::toggle(app);
+                Launch::Chrono => show_main(app),
+                Launch::Dashboard => show_dashboard(app, None),
+                Launch::Quiet => {}
             }
         }))
         .plugin(tauri_plugin_autostart::init(
@@ -123,11 +125,11 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("kairo.db");
 
+            let launch = startup::launch_for(&std::env::args().collect::<Vec<_>>());
             let conn = db::open(&db_path)?;
             if let Err(e) = startup::apply_default(app.handle(), &conn) {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
-            let nudges_on = nudge::enabled(&conn)?;
             let palette_shortcut = palette::shortcut(&conn)?;
             palette::over_fullscreen(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
@@ -141,7 +143,7 @@ pub fn run() {
             app.manage(palette::Index::default());
             app.manage(palette::Session::default());
             #[cfg(windows)]
-            palette::native::spawn(app.handle().clone(), db_path.clone(), startup::opens_palette());
+            palette::native::spawn(app.handle().clone(), db_path.clone(), launch == Launch::Palette);
             let scripted_tab = browser::SharedScripted::default();
             #[cfg(target_os = "macos")]
             {
@@ -167,8 +169,9 @@ pub fn run() {
                 strict_waits,
                 icons: Mutex::default(),
                 navigation: Mutex::default(),
+                dashboard_tab: Mutex::default(),
             });
-            setup_tray(app, paused, nudges_on, &palette_shortcut)?;
+            setup_tray(app, paused, &palette_shortcut)?;
             // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
             // has loaded it at a login, and on KDE Plasma its KWin script does right away.
             #[cfg(not(any(windows, target_os = "macos")))]
@@ -190,7 +193,7 @@ pub fn run() {
                 }));
             }
             // Wayland keeps keys from apps, so there the desktop's own shortcuts open the palette.
-            // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
+            // Another app holding the keys mustn't stop Kairo starting; the clash is only logged.
             if !platform::desktop_palette_shortcut(&palette_shortcut) {
                 if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                     eprintln!("palette: cannot use {palette_shortcut}: {e}");
@@ -200,12 +203,13 @@ pub fn run() {
             // Chrono's window is made when it's wanted; at sign-in Kairo starts in the tray, and
             // opened by hand it's the palette.
             in_dock(app.handle(), false);
-            if startup::launched_for_chrono() {
-                show_main(app.handle());
-            } else if startup::opens_palette() {
+            match launch {
+                Launch::Chrono => show_main(app.handle()),
+                Launch::Dashboard => show_dashboard(app.handle(), None),
                 // Windows' palette opens itself once its window exists.
                 #[cfg(not(windows))]
-                palette::toggle(app.handle());
+                Launch::Palette => palette::toggle(app.handle()),
+                _ => {}
             }
             Ok(())
         })
@@ -214,8 +218,12 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(windows))]
             palette::web::on_window_event(window, event);
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
-                in_dock(window.app_handle(), false);
+            if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard") {
+                // The window being destroyed may still be listed.
+                let app = window.app_handle();
+                let windows = app.webview_windows();
+                let open: Vec<&str> = windows.keys().map(String::as_str).filter(|l| *l != window.label()).collect();
+                in_dock(app, keep_in_dock(&open));
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -290,6 +298,10 @@ pub fn run() {
             commands::get_extension_status,
             commands::open_extension_folder,
             commands::take_navigation,
+            commands::open_dashboard,
+            commands::take_dashboard_tab,
+            commands::open_chrono,
+            commands::open_palette,
             commands::palette_open,
             commands::palette_query,
             commands::palette_icons,
@@ -326,34 +338,24 @@ pub fn run() {
         });
 }
 
-fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palette_shortcut: &str) -> tauri::Result<()> {
+/// Whether a click on the tray icon opens the dashboard: the left button, once it's released.
+fn tray_click_opens_dashboard(button: MouseButton, state: MouseButtonState) -> bool {
+    button == MouseButton::Left && state == MouseButtonState::Up
+}
+
+fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str) -> tauri::Result<()> {
+    let dashboard = MenuItem::with_id(app, "dashboard", "Open dashboard", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Chrono", true, None::<&str>)?;
     // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
     // like over a game, since choosing it from the tray is no stray key press.
     let palette_item = MenuItem::with_id(app, "palette", "Command palette", true, Some(palette_shortcut))?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
-    let nudges = CheckMenuItem::with_id(app, "nudges", "Focus nudges", true, nudges_on, None::<&str>)?;
-    let autostart_on = startup::is_enabled(app.handle());
-    let autostart =
-        CheckMenuItem::with_id(app, "autostart", startup::LABEL, startup::AVAILABLE, autostart_on, None::<&str>)?;
-    let focus_menu = Submenu::with_items(
-        app,
-        "Focus session",
-        true,
-        &[
-            &MenuItem::with_id(app, "focus:25", "25 minutes", true, None::<&str>)?,
-            &MenuItem::with_id(app, "focus:50", "50 minutes", true, None::<&str>)?,
-            &MenuItem::with_id(app, "focus:90", "90 minutes", true, None::<&str>)?,
-            &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "focus:stop", "End session", true, None::<&str>)?,
-        ],
-    )?;
-    let update = MenuItem::with_id(app, "update", "Check for updates", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &palette_item, &focus_menu, &pause, &nudges, &autostart, &update, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&dashboard, &open, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
+    )?;
     app.manage(PaletteItem(palette_item));
-    app.manage(NudgeToggle(nudges.clone()));
-    app.manage(AutostartToggle(autostart.clone()));
 
     let pause_item = pause.clone();
     TrayIconBuilder::with_id("main")
@@ -362,72 +364,70 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, nudges_on: bool, palett
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
+            "dashboard" => show_dashboard(app, None),
             "open" => show_main(app),
             "palette" => palette::toggle(app),
             "pause" => {
                 let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
                 let _ = pause_item.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });
             }
-            "nudges" => {
-                // The OS flips the checkmark on click; persist whatever it now shows.
-                let on = nudges.is_checked().unwrap_or(true);
-                if let Ok(conn) = app.state::<AppState>().db.lock() {
-                    if let Err(e) = nudge::set_enabled(&conn, on) {
-                        eprintln!("tray: cannot save nudge setting: {e}");
-                    }
-                }
-            }
-            "autostart" => {
-                let on = autostart.is_checked().unwrap_or(false);
-                if let Err(e) = startup::set_enabled(app, on) {
-                    eprintln!("tray: {e}");
-                    let _ = autostart.set_checked(startup::is_enabled(app));
-                }
-            }
-            id if id.starts_with("focus:") => {
-                let state = app.state::<AppState>();
-                let Ok(conn) = state.db.lock() else { return };
-                let now = chrono::Utc::now().timestamp_millis();
-                // The tray can't show strict mode's countdown, and starting anew would end the
-                // running session, so both go through Kairo's own window instead.
-                if blocking::strict_now(&conn).unwrap_or(false) {
-                    drop(conn);
-                    blocking::notify(app, "Strict mode is on", "End the focus session from Chrono's Focus page, after a short wait.");
-                    show_main(app);
-                    return;
-                }
-                let result = match id.trim_start_matches("focus:") {
-                    "stop" => focus::stop(&conn, now),
-                    minutes => minutes.parse().map_or(Ok(()), |m| focus::start_by_hand(&conn, m, None, now).map(|_| ())),
-                };
-                if let Err(e) = result {
-                    eprintln!("tray: focus session: {e}");
-                }
-            }
-            "update" => {
-                let app = app.clone();
-                tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
-            }
             "quit" => app.exit(0),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                show_main(tray.app_handle());
+            // Windows reports a quick second click as a double click instead.
+            let (button, state) = match event {
+                TrayIconEvent::Click { button, button_state, .. } => (button, button_state),
+                TrayIconEvent::DoubleClick { button, .. } => (button, MouseButtonState::Up),
+                _ => return,
+            };
+            if tray_click_opens_dashboard(button, state) {
+                show_dashboard(tray.app_handle(), None);
             }
         })
         .build(app)?;
     Ok(())
 }
 
-/// Set while Kairo's window is being made, so a second click doesn't make another.
-static OPENING: AtomicBool = AtomicBool::new(false);
+/// The windows being made, by label, so a second click doesn't make another.
+static OPENING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
-/// Brings up Kairo's window, making it if it was closed. It isn't kept while closed: its web view
-/// is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+/// Claims the making of `label`'s window; false when one is already being made.
+fn begin_opening(label: &str) -> bool {
+    OPENING.lock().unwrap_or_else(|e| e.into_inner()).insert(label.to_string())
+}
+
+fn end_opening(label: &str) {
+    OPENING.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
+}
+
+/// Whether Kairo belongs in the Dock: while Chrono or the dashboard is open.
+fn keep_in_dock(open: &[&str]) -> bool {
+    open.iter().any(|l| *l == "main" || *l == "dashboard")
+}
+
+/// Brings up Chrono's window, making it if it was closed.
 pub(crate) fn show_main(app: &AppHandle) {
+    show_window(app, "main");
+}
+
+/// Brings up the dashboard, on `tab` when one is given. A window made for it is still loading
+/// when this runs, so the page asks for the tab (`take_dashboard_tab`) once it's ready, and again
+/// whenever it's told to.
+pub(crate) fn show_dashboard(app: &AppHandle, tab: Option<&str>) {
+    // A second launch can get here before setup has made the state; the window still opens.
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.dashboard_tab.lock().unwrap_or_else(|e| e.into_inner()) = tab.map(str::to_string);
+    }
+    show_window(app, "dashboard");
+    let _ = app.emit_to("dashboard", "kairo:dashboard", ());
+}
+
+/// Brings up the window `label`, making it if it was closed. It isn't kept while closed: its web
+/// view is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+pub(crate) fn show_window(app: &AppHandle, label: &str) {
     in_dock(app, true);
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(label) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -435,15 +435,16 @@ pub(crate) fn show_main(app: &AppHandle) {
     }
     // Making a web view from inside one of Windows' callbacks (a tray click, a menu) can hang,
     // so it's made on a thread of its own.
-    if OPENING.swap(true, Ordering::AcqRel) {
+    if !begin_opening(label) {
         return;
     }
     let app = app.clone();
+    let label = label.to_string();
     std::thread::spawn(move || {
-        if let Err(e) = open_main(&app) {
-            eprintln!("cannot open Kairo's window: {e}");
+        if let Err(e) = open_window(&app, &label) {
+            eprintln!("cannot open the {label} window: {e}");
         }
-        OPENING.store(false, Ordering::Release);
+        end_opening(&label);
     });
 }
 
@@ -461,11 +462,11 @@ fn in_dock(app: &AppHandle, shown: bool) {
     let _ = (app, shown);
 }
 
-fn open_main(app: &AppHandle) -> tauri::Result<()> {
-    if app.get_webview_window("main").is_some() {
+fn open_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
+    if app.get_webview_window(label).is_some() {
         return Ok(());
     }
-    let Some(config) = app.config().app.windows.iter().find(|w| w.label == "main") else { return Ok(()) };
+    let Some(config) = app.config().app.windows.iter().find(|w| w.label == label) else { return Ok(()) };
     let window = tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
     let mode = app.state::<AppState>().db.lock().ok().and_then(|conn| appearance::get(&conn).ok()).unwrap_or_default();
     appearance::apply_to(&window, &mode);
@@ -481,4 +482,35 @@ pub(crate) fn open_main_at(app: &AppHandle, view: &str, date: Option<NaiveDate>)
     *app.state::<AppState>().navigation.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
     show_main(app);
     let _ = app.emit_to("main", "kairo:navigate", ());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_left_click_on_the_tray_opens_the_dashboard() {
+        assert!(tray_click_opens_dashboard(MouseButton::Left, MouseButtonState::Up));
+        assert!(!tray_click_opens_dashboard(MouseButton::Left, MouseButtonState::Down));
+        assert!(!tray_click_opens_dashboard(MouseButton::Right, MouseButtonState::Up));
+    }
+
+    #[test]
+    fn only_one_window_of_a_kind_opens_at_a_time() {
+        assert!(begin_opening("dashboard"));
+        assert!(!begin_opening("dashboard"));
+        assert!(begin_opening("main"));
+        end_opening("dashboard");
+        end_opening("main");
+        assert!(begin_opening("dashboard"));
+        end_opening("dashboard");
+    }
+
+    #[test]
+    fn kairo_stays_in_the_dock_while_either_window_is_open() {
+        assert!(keep_in_dock(&["dashboard"]));
+        assert!(keep_in_dock(&["main", "palette"]));
+        assert!(!keep_in_dock(&["palette", "blocked"]));
+        assert!(!keep_in_dock(&[]));
+    }
 }

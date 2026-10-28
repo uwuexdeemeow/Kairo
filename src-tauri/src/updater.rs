@@ -1,5 +1,5 @@
 //! Self-update from GitHub Releases: a quiet check shortly after launch and every few hours,
-//! plus "Check for updates" in the tray.
+//! plus "Check for updates" in Kairo's settings (Updates).
 
 use std::thread;
 use std::time::Duration;

@@ -4,11 +4,11 @@ use std::sync::atomic::Ordering;
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use rusqlite::params;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, AutostartToggle, Navigation, NudgeToggle};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -751,14 +751,9 @@ pub fn get_nudges_enabled(state: State<AppState>) -> CmdResult<bool> {
 }
 
 #[tauri::command]
-pub fn set_nudges_enabled(app: AppHandle, state: State<AppState>, enabled: bool) -> CmdResult<()> {
+pub fn set_nudges_enabled(state: State<AppState>, enabled: bool) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    nudge::set_enabled(&conn, enabled).map_err(err)?;
-    // Keep the tray checkbox in sync with the in-app toggle.
-    if let Some(toggle) = app.try_state::<NudgeToggle>() {
-        let _ = toggle.0.set_checked(enabled);
-    }
-    Ok(())
+    nudge::set_enabled(&conn, enabled).map_err(err)
 }
 
 #[tauri::command]
@@ -781,11 +776,7 @@ pub fn get_autostart(app: AppHandle) -> Autostart {
 
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> CmdResult<()> {
-    startup::set_enabled(&app, enabled)?;
-    if let Some(toggle) = app.try_state::<AutostartToggle>() {
-        let _ = toggle.0.set_checked(enabled);
-    }
-    Ok(())
+    startup::set_enabled(&app, enabled)
 }
 
 #[tauri::command]
@@ -888,6 +879,33 @@ pub fn open_extensions_page(app: AppHandle, id: String) -> CmdResult<String> {
 #[tauri::command]
 pub fn take_navigation(state: State<AppState>) -> CmdResult<Option<Navigation>> {
     Ok(state.navigation.lock().map_err(err)?.take())
+}
+
+/// Opens the dashboard, on `tab` when one is given.
+#[tauri::command]
+pub fn open_dashboard(app: AppHandle, tab: Option<String>) {
+    crate::show_dashboard(&app, tab.as_deref());
+}
+
+/// The dashboard tab asked for, once; None when none was.
+#[tauri::command]
+pub fn take_dashboard_tab(state: State<AppState>) -> CmdResult<Option<String>> {
+    Ok(state.dashboard_tab.lock().map_err(err)?.take())
+}
+
+/// Opens Chrono, on `view` when one is given.
+#[tauri::command]
+pub fn open_chrono(app: AppHandle, view: Option<String>) {
+    match view {
+        Some(view) => crate::open_main_at(&app, &view, None),
+        None => crate::show_main(&app),
+    }
+}
+
+/// Opens the command palette.
+#[tauri::command]
+pub fn open_palette(app: AppHandle) {
+    palette::toggle(&app);
 }
 
 // The web palette, on macOS and Linux; Windows draws its own (palette::native).
@@ -1018,6 +1036,8 @@ pub fn set_appearance(app: AppHandle, state: State<AppState>, mode: String) -> C
         return Err(format!("unknown appearance: {mode}"));
     }
     appearance::apply(&app, &mode);
+    // Every open window repaints itself, Chrono's page included.
+    let _ = app.emit("kairo:appearance", &mode);
     Ok(())
 }
 
@@ -1045,7 +1065,7 @@ pub fn get_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// Same as the tray's "Check for updates": the result arrives as a notification.
+/// Same as Kairo's settings' Updates → "Check for updates": the result arrives as a notification.
 #[tauri::command]
 pub fn check_for_updates(app: AppHandle) {
     tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
