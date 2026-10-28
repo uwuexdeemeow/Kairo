@@ -378,6 +378,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::open_main_at(app, view, *date);
             Ok(())
         }
+        Action::Dashboard(tab) => {
+            crate::show_dashboard(app, *tab);
+            Ok(())
+        }
         // Starting anew ends the running session, which strict mode only allows after its wait.
         Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
