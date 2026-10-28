@@ -218,16 +218,24 @@ export interface WeekTotals {
   distractingMs: number;
 }
 
-export interface Week {
-  /** Monday, as a local `YYYY-MM-DD`. */
+/** A week or a month. */
+export interface Period {
+  /** The first day (a Monday, or the 1st), as a local `YYYY-MM-DD`. */
   start: string;
+  /** The last day. */
+  end: string;
   totals: WeekTotals;
+  /** Last week, or last month. */
   previous: WeekTotals;
   days: { date: string; totals: WeekTotals; goalsMet: boolean | null }[];
   bestDay: string | null;
   goalDaysMet: number;
   goalDays: number;
+  /** For a month, its finished weeks that met every weekly goal, of those tracked; 0 for a week. */
+  goalWeeksMet: number;
+  goalWeeks: number;
   topApps: { key: string; label: string; category: Category; ms: number; previousMs: number }[];
+  topProjects: ProjectTime[];
   limitsOver: { label: string; overMs: number; daysOver: number }[];
   focusSessions: number;
   focusMs: number;
@@ -329,7 +337,9 @@ export const api = {
   categories: () => invoke<CategoryEntry[]>("get_categories"),
   setCategory: (key: string, category: Category) => invoke<void>("set_category", { key, category }),
   /** The Monday-to-Sunday week containing `date` (a local `YYYY-MM-DD`; default today). */
-  week: (date?: string) => invoke<Week>("get_week", { date }),
+  week: (date?: string) => invoke<Period>("get_week", { date }),
+  /** The month containing `date` (a local `YYYY-MM-DD`; default today). */
+  month: (date?: string) => invoke<Period>("get_month", { date }),
   focus: () => invoke<FocusSession | null>("get_focus"),
   startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
   /** Returns the session as it stands afterwards; null once it has ended. */
@@ -350,8 +360,8 @@ export const api = {
   /** Adds a project, or with an id changes it; `keywords` are comma-separated. */
   saveProject: (id: number | null, name: string, keywords: string) => invoke<Project[]>("save_project", { id, name, keywords }),
   removeProject: (id: number) => invoke<Project[]>("remove_project", { id }),
-  /** Time per project on a day, or with `week` its whole week. */
-  projectTimes: (date: string | undefined, week: boolean) => invoke<ProjectTime[]>("get_project_times", { date, week }),
+  /** Time per project on a day. */
+  projectTimes: (date?: string) => invoke<ProjectTime[]>("get_project_times", { date }),
   calendar: () => invoke<CalendarStatus>("get_calendar"),
   /** Keeps the addresses (one per line) and reads them at once. */
   setCalendar: (urls: string) => invoke<CalendarStatus>("set_calendar", { urls }),
@@ -381,6 +391,10 @@ export const api = {
   nudgesEnabled: () => invoke<boolean>("get_nudges_enabled"),
   setNudgesEnabled: (enabled: boolean) => invoke<void>("set_nudges_enabled", { enabled }),
   testNudge: () => invoke<void>("send_test_nudge"),
+  /** `minute` is when it's sent, in minutes after midnight. */
+  eveningSummary: () => invoke<{ enabled: boolean; minute: number }>("get_evening_summary"),
+  setEveningSummary: (enabled: boolean, minute: number) => invoke<void>("set_evening_summary", { enabled, minute }),
+  testEveningSummary: () => invoke<void>("send_test_evening_summary"),
   autostart: () => invoke<Autostart>("get_autostart"),
   setAutostart: (enabled: boolean) => invoke<void>("set_autostart", { enabled }),
   extensionStatus: () => invoke<{ listening: boolean; lastReportMs: number | null }>("get_extension_status"),

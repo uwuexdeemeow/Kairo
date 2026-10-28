@@ -10,6 +10,7 @@ mod collector;
 mod commands;
 mod db;
 mod demo;
+mod evening;
 mod focus;
 mod goals;
 mod nudge;
@@ -231,6 +232,10 @@ pub fn run() {
             commands::get_autostart,
             commands::set_autostart,
             commands::get_week,
+            commands::get_month,
+            commands::get_evening_summary,
+            commands::set_evening_summary,
+            commands::send_test_evening_summary,
             commands::get_focus,
             commands::start_focus,
             commands::control_focus,

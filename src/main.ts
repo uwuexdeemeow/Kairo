@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Week, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -620,13 +620,18 @@ async function renderHeadsUp() {
 
 /// The Monday of the week shown; null follows the current week.
 let selectedWeek: string | null = null;
+/// Week shows a week or, switched over, a month.
+let span: "week" | "month" = "week";
+/// The 1st of the month shown; null follows the current month.
+let selectedMonth: string | null = null;
 
 const mondayOf = (iso: string) => shiftDate(iso, -weekdayIndex(iso));
 const shownWeek = () => selectedWeek ?? mondayOf(todayIso());
+const shownMonth = () => selectedMonth ?? monthStart(todayIso());
 const TOTAL_KEYS = { productive: "productiveMs", neutral: "neutralMs", distracting: "distractingMs" } as const;
 
-/// "+12%" against the week before, or nothing when that week had no time to compare with.
-function vsLastWeek(current: number, previous: number): string {
+/// "+12%" against the week or month before, or nothing when that had no time to compare with.
+function vsBefore(current: number, previous: number): string {
   if (!previous) return "";
   const change = Math.round(((current - previous) / previous) * 100);
   return `${change >= 0 ? "+" : "−"}${Math.abs(change)}%`;
@@ -639,40 +644,79 @@ function goToWeek(monday: string | null) {
   load("week");
 }
 
+function goToMonth(first: string | null) {
+  const current = monthStart(todayIso());
+  if (first && firstDay && first < monthStart(firstDay)) first = monthStart(firstDay);
+  selectedMonth = !first || first >= current ? null : first;
+  load("week");
+}
+
+/// Steps the week shown, or the month, `n` back or on.
+function stepPeriod(n: number) {
+  if (span === "month") goToMonth(shiftMonthKeepDay(shownMonth(), n));
+  else goToWeek(shiftDate(shownWeek(), 7 * n));
+}
+
+const backToNow = () => (span === "month" ? goToMonth : goToWeek)(null);
+
+function setSpan(next: "week" | "month") {
+  span = next;
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#span button")) b.setAttribute("aria-pressed", String(b.dataset.span === next));
+}
+
 /// Opens a day from the week chart on the Today view.
 function openDay(iso: string) {
   selectedDay = iso >= todayIso() ? null : iso;
   $<HTMLButtonElement>('[data-view="today"]').click();
 }
 
-function renderWeek(w: Week) {
-  const isThisWeek = selectedWeek === null;
+function renderPeriod(w: Period) {
+  const month = span === "month";
+  const isNow = month ? selectedMonth === null : selectedWeek === null;
   const start = parseDate(w.start);
-  const end = parseDate(shiftDate(w.start, 6));
+  const end = parseDate(w.end);
   const otherYear = end.getFullYear() !== new Date().getFullYear();
   const from = start.toLocaleDateString([], start.getMonth() === end.getMonth() ? { day: "numeric" } : { day: "numeric", month: "long" });
   $("#week-range").textContent = `${from} – ${end.toLocaleDateString([], { day: "numeric", month: "long", ...(otherYear ? { year: "numeric" } : {}) })}`;
-  $("#week-title").textContent = isThisWeek ? "This week so far" : `Week of ${start.toLocaleDateString([], { day: "numeric", month: "long" })}`;
-  $<HTMLButtonElement>("#week-prev").disabled = !firstDay || w.start <= mondayOf(firstDay);
-  $<HTMLButtonElement>("#week-next").disabled = isThisWeek;
-  $("#week-this").hidden = isThisWeek;
+  $("#week-title").textContent = month
+    ? isNow
+      ? "This month so far"
+      : start.toLocaleDateString([], { month: "long", ...(otherYear ? { year: "numeric" } : {}) })
+    : isNow
+      ? "This week so far"
+      : `Week of ${start.toLocaleDateString([], { day: "numeric", month: "long" })}`;
+  const unit = month ? "month" : "week";
+  const prev = $<HTMLButtonElement>("#week-prev");
+  const next = $<HTMLButtonElement>("#week-next");
+  prev.disabled = !firstDay || w.start <= (month ? monthStart(firstDay) : mondayOf(firstDay));
+  next.disabled = isNow;
+  prev.setAttribute("aria-label", `Previous ${unit}`);
+  prev.title = `Previous ${unit} (←)`;
+  next.setAttribute("aria-label", `Next ${unit}`);
+  next.title = `Next ${unit} (→)`;
+  const back = $("#week-this");
+  back.hidden = isNow;
+  back.textContent = `This ${unit}`;
+  back.title = `Back to this ${unit} (T)`;
 
   const [t, p] = [w.totals, w.previous];
   $("#week-stats").replaceChildren(
-    stat("Productive", fmtGoal(t.productiveMs), vsLastWeek(t.productiveMs, p.productiveMs)),
-    stat("Distracting", fmtGoal(t.distractingMs), vsLastWeek(t.distractingMs, p.distractingMs)),
-    stat("On screen", fmtGoal(t.activeMs), vsLastWeek(t.activeMs, p.activeMs)),
+    stat("Productive", fmtGoal(t.productiveMs), vsBefore(t.productiveMs, p.productiveMs)),
+    stat("Distracting", fmtGoal(t.distractingMs), vsBefore(t.distractingMs, p.distractingMs)),
+    stat("On screen", fmtGoal(t.activeMs), vsBefore(t.activeMs, p.activeMs)),
     stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
-    stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], { weekday: "long" }) : "—"),
+    ...(w.goalWeeks ? [stat("Weekly goals", `${w.goalWeeksMet} of ${w.goalWeeks} weeks`)] : []),
+    stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], month ? { weekday: "long", day: "numeric" } : { weekday: "long" }) : "—"),
     stat("Focus sessions", String(w.focusSessions), w.focusSessions ? fmtDur(w.focusMs) : ""),
   );
-  const before = parseDate(shiftDate(w.start, -7));
+  const before = parseDate(month ? shiftMonthKeepDay(w.start, -1) : shiftDate(w.start, -7));
   const beforeEnd = parseDate(shiftDate(w.start, -1));
   $("#week-compare").textContent = p.activeMs
     ? `Changes compare with ${before.toLocaleDateString([], { day: "numeric", month: "long" })} – ${beforeEnd.toLocaleDateString([], { day: "numeric", month: "long" })}.`
     : "";
   renderWeekChart(w);
   renderWeekApps(w);
+  renderProjectTimes("week-projects", w.topProjects);
 
   $("#week-limits").replaceChildren(
     ...(w.limitsOver.length
@@ -692,10 +736,16 @@ function renderWeek(w: Week) {
   );
 }
 
-function renderWeekChart(w: Week) {
+/// A bar per day; a month's are narrow, so they leave out the hours above and, on a small
+/// window, most of the dates below.
+function renderWeekChart(w: Period) {
   const max = Math.max(HOUR_MS, ...w.days.map((d) => d.totals.activeMs));
   const today = todayIso();
-  $("#week-chart").replaceChildren(
+  const month = w.days.length > 7;
+  const chart = $("#week-chart");
+  chart.classList.toggle("month", month);
+  chart.style.setProperty("--days", String(w.days.length));
+  chart.replaceChildren(
     ...w.days.map((d) => {
       const date = parseDate(d.date);
       const name = date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
@@ -712,9 +762,11 @@ function renderWeekChart(w: Week) {
       const col = h(
         "button",
         { class: `wk-day${d.date === today ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(d.totals.activeMs)} on screen` },
-        h("span", { class: "wk-value" }, d.totals.activeMs ? fmtDur(d.totals.activeMs) : ""),
+        h("span", { class: "wk-value" }, d.totals.activeMs && !month ? fmtDur(d.totals.activeMs) : ""),
         bar,
-        h("span", { class: "wk-label" }, date.toLocaleDateString([], { weekday: "short" })),
+        month
+          ? h("span", { class: `wk-label${date.getDate() % 7 === 1 ? "" : " minor"}` }, String(date.getDate()))
+          : h("span", { class: "wk-label" }, date.toLocaleDateString([], { weekday: "short" })),
         h("span", { class: `wk-goal${d.goalsMet === false ? " missed" : ""}`, title: d.goalsMet === null ? "" : d.goalsMet ? "Goals met" : "Goals missed" }, goal),
       ) as HTMLButtonElement;
       col.disabled = d.date > today;
@@ -725,10 +777,11 @@ function renderWeekChart(w: Week) {
   );
 }
 
-function renderWeekApps(w: Week) {
+function renderWeekApps(w: Period) {
   const root = $("#week-apps");
+  const unit = w.days.length > 7 ? "month" : "week";
   if (!w.topApps.length) {
-    root.replaceChildren(h("p", { class: "empty" }, "Nothing tracked this week."));
+    root.replaceChildren(h("p", { class: "empty" }, `Nothing tracked this ${unit}.`));
     return;
   }
   const top = w.topApps[0].ms;
@@ -745,7 +798,7 @@ function renderWeekApps(w: Week) {
           "div",
           { class: "usage-top" },
           h("span", { class: "usage-label" }, appIcon(a.key, a.label), a.label),
-          h("span", { class: "usage-delta", title: "Change from last week" }, delta),
+          h("span", { class: "usage-delta", title: `Change from last ${unit}` }, delta),
           h("span", { class: "usage-value" }, fmtDur(a.ms)),
         ),
         line,
@@ -1512,7 +1565,7 @@ async function load(v: View = view) {
       $("#welcome").hidden = !firstRun;
       if (firstRun) return;
       const date = selectedDay ?? undefined;
-      const [day, goals, focusBlocks, away, projectTimes] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date), api.projectTimes(date, false)]);
+      const [day, goals, focusBlocks, away, projectTimes] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date), api.projectTimes(date)]);
       shownFocus = focusBlocks;
       renderToday(day);
       renderGoals(goals, selectedDay === null);
@@ -1521,9 +1574,14 @@ async function load(v: View = view) {
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
-      renderWeek(await api.week(selectedWeek ?? undefined));
-      renderWeekGoals(await api.weekGoals(selectedWeek ?? undefined));
-      renderProjectTimes("week-projects", await api.projectTimes(selectedWeek ?? undefined, true));
+      if (span === "month") {
+        renderPeriod(await api.month(selectedMonth ?? undefined));
+        // The month counts its weeks in the stats; the box is for one week's goals.
+        $("#week-goals").hidden = true;
+      } else {
+        renderPeriod(await api.week(selectedWeek ?? undefined));
+        renderWeekGoals(await api.weekGoals(selectedWeek ?? undefined));
+      }
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
     if (v === "categories") renderCategories(await api.categories());
@@ -1554,6 +1612,9 @@ async function load(v: View = view) {
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
       breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
+      const evening = await api.eveningSummary();
+      $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;
+      $<HTMLInputElement>("#evening-time").value = `${String(Math.floor(evening.minute / 60)).padStart(2, "0")}:${String(evening.minute % 60).padStart(2, "0")}`;
       const auto = await api.autostart();
       const box = $<HTMLInputElement>("#autostart-enabled");
       box.checked = auto.enabled;
@@ -1694,7 +1755,10 @@ async function followNavigation() {
   if (!target) return;
   const { view: next, date } = target;
   if (next === "today") selectedDay = date && date < todayIso() ? date : null;
-  if (next === "week") selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
+  if (next === "week") {
+    setSpan("week");
+    selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
+  }
   $<HTMLButtonElement>(`[data-view="${next}"]`).click();
 }
 
@@ -1826,18 +1890,30 @@ $("#update-check").addEventListener("click", async () => {
   }
 });
 
-$("#week-prev").addEventListener("click",() => goToWeek(shiftDate(shownWeek(), -7)));
-$("#week-next").addEventListener("click", () => goToWeek(shiftDate(shownWeek(), 7)));
-$("#week-this").addEventListener("click", () => goToWeek(null));
+$("#week-prev").addEventListener("click", () => stepPeriod(-1));
+$("#week-next").addEventListener("click", () => stepPeriod(1));
+$("#week-this").addEventListener("click", backToNow);
 
-/// ←/→ step a day on Today and a week on Week; T jumps back to the present.
+/// Switching keeps roughly the same time in view: the month of the week shown, or the week of
+/// the month's 1st.
+for (const btn of document.querySelectorAll<HTMLButtonElement>("#span button")) {
+  btn.addEventListener("click", () => {
+    const next = btn.dataset.span === "month" ? "month" : "week";
+    if (next === span) return;
+    setSpan(next);
+    if (next === "month") goToMonth(selectedWeek && monthStart(selectedWeek));
+    else goToWeek(selectedMonth && mondayOf(selectedMonth));
+  });
+}
+
+/// ←/→ step a day on Today and a week or month on Week; T jumps back to the present.
 document.addEventListener("keydown", (e) => {
   if ((view !== "today" && view !== "week") || e.altKey || e.ctrlKey || e.metaKey) return;
   if ((e.target as HTMLElement).closest("input, select, textarea")) return;
-  const step = (n: number) => (view === "today" ? goToDay(shiftDate(shownDay(), n)) : goToWeek(shiftDate(shownWeek(), 7 * n)));
+  const step = (n: number) => (view === "today" ? goToDay(shiftDate(shownDay(), n)) : stepPeriod(n));
   if (e.key === "ArrowLeft") step(-1);
   else if (e.key === "ArrowRight") step(1);
-  else if (e.key === "t" || e.key === "T") (view === "today" ? goToDay : goToWeek)(null);
+  else if (e.key === "t" || e.key === "T") (view === "today" ? goToDay(null) : backToNow());
   else return;
   e.preventDefault();
 });
@@ -1858,6 +1934,30 @@ $<HTMLInputElement>("#autostart-enabled").addEventListener("change", async (e) =
   } catch (err) {
     box.checked = !box.checked;
     $("#autostart-note").textContent = `Couldn't change it: ${err}`;
+  }
+});
+
+/// The evening summary's toggle and time save together, whichever changed.
+for (const id of ["#evening-enabled", "#evening-time"]) {
+  $(id).addEventListener("change", async () => {
+    const [h24, m] = $<HTMLInputElement>("#evening-time").value.split(":").map(Number);
+    const out = $("#evening-status");
+    try {
+      await api.setEveningSummary($<HTMLInputElement>("#evening-enabled").checked, (h24 || 0) * 60 + (m || 0));
+      out.textContent = "";
+    } catch (e) {
+      out.textContent = `Couldn't save: ${e}`;
+    }
+  });
+}
+
+$("#evening-test").addEventListener("click", async () => {
+  const out = $("#evening-status");
+  try {
+    await api.testEveningSummary();
+    out.textContent = "Sent. Check your notifications.";
+  } catch (e) {
+    out.textContent = `Couldn't send: ${e}`;
   }
 });
 

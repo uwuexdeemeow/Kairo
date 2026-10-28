@@ -549,6 +549,37 @@ h2 {
   color: var(--distracting);
 }
 
+/* A month's bars sit close together, with every week's first date under them. */
+.week-chart.month {
+  grid-template-columns: repeat(var(--days), minmax(0, 1fr));
+  gap: 2px;
+}
+
+.week-chart.month .wk-day {
+  gap: 4px;
+}
+
+.week-chart.month .wk-bar {
+  width: 100%;
+  max-width: 16px;
+  height: 120px;
+}
+
+.week-chart.month .wk-value {
+  display: none;
+}
+
+.week-chart.month .wk-label {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+@media (max-width: 720px) {
+  .week-chart.month .wk-label.minor {
+    visibility: hidden;
+  }
+}
+
 .usage-delta {
   font-family: var(--mono);
   font-size: 12px;
