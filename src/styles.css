@@ -574,6 +574,22 @@ h2 {
   font-size: 10px;
 }
 
+.week-chart.year {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.week-chart.year .wk-bar {
+  width: 100%;
+  max-width: 28px;
+}
+
+.week-chart.year .wk-goal {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+}
+
 @media (max-width: 720px) {
   .week-chart.month .wk-label.minor {
     visibility: hidden;

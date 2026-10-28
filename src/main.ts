@@ -690,17 +690,21 @@ async function renderHeadsUp() {
 
 /// The Monday of the week shown; null follows the current week.
 let selectedWeek: string | null = null;
-/// Week shows a week or, switched over, a month.
-let span: "week" | "month" = "week";
+/// Week shows a week or, switched over, a month or a year.
+let span: "week" | "month" | "year" = "week";
 /// The 1st of the month shown; null follows the current month.
 let selectedMonth: string | null = null;
+/// The 1 January of the year shown; null follows the current year.
+let selectedYear: string | null = null;
 
 const mondayOf = (iso: string) => shiftDate(iso, -weekdayIndex(iso));
 const shownWeek = () => selectedWeek ?? mondayOf(todayIso());
 const shownMonth = () => selectedMonth ?? monthStart(todayIso());
+const yearStart = (iso: string) => `${iso.slice(0, 4)}-01-01`;
+const shownYear = () => selectedYear ?? yearStart(todayIso());
 const TOTAL_KEYS = { productive: "productiveMs", neutral: "neutralMs", distracting: "distractingMs" } as const;
 
-/// "+12%" against the week or month before, or nothing when that had no time to compare with.
+/// "+12%" against the week, month or year before, or nothing when that had no time to compare with.
 function vsBefore(current: number, previous: number): string {
   if (!previous) return "";
   const change = Math.round(((current - previous) / previous) * 100);
@@ -721,15 +725,23 @@ function goToMonth(first: string | null) {
   load("week");
 }
 
-/// Steps the week shown, or the month, `n` back or on.
+function goToYear(first: string | null) {
+  const current = yearStart(todayIso());
+  if (first && firstDay && first < yearStart(firstDay)) first = yearStart(firstDay);
+  selectedYear = !first || first >= current ? null : first;
+  load("week");
+}
+
+/// Steps the week shown, or the month or year, `n` back or on.
 function stepPeriod(n: number) {
-  if (span === "month") goToMonth(shiftMonthKeepDay(shownMonth(), n));
+  if (span === "year") goToYear(shiftMonthKeepDay(shownYear(), 12 * n));
+  else if (span === "month") goToMonth(shiftMonthKeepDay(shownMonth(), n));
   else goToWeek(shiftDate(shownWeek(), 7 * n));
 }
 
-const backToNow = () => (span === "month" ? goToMonth : goToWeek)(null);
+const backToNow = () => ({ week: goToWeek, month: goToMonth, year: goToYear })[span](null);
 
-function setSpan(next: "week" | "month") {
+function setSpan(next: "week" | "month" | "year") {
   span = next;
   for (const b of document.querySelectorAll<HTMLButtonElement>("#span button")) b.setAttribute("aria-pressed", String(b.dataset.span === next));
 }
@@ -742,23 +754,28 @@ function openDay(iso: string) {
 
 function renderPeriod(w: Period) {
   const month = span === "month";
-  const isNow = month ? selectedMonth === null : selectedWeek === null;
+  const year = span === "year";
+  const isNow = { week: selectedWeek, month: selectedMonth, year: selectedYear }[span] === null;
   const start = parseDate(w.start);
   const end = parseDate(w.end);
   const otherYear = end.getFullYear() !== new Date().getFullYear();
   const from = start.toLocaleDateString([], start.getMonth() === end.getMonth() ? { day: "numeric" } : { day: "numeric", month: "long" });
   $("#week-range").textContent = `${from} – ${end.toLocaleDateString([], { day: "numeric", month: "long", ...(otherYear ? { year: "numeric" } : {}) })}`;
-  $("#week-title").textContent = month
+  $("#week-title").textContent = year
+    ? isNow
+      ? "This year so far"
+      : String(start.getFullYear())
+    : month
     ? isNow
       ? "This month so far"
       : start.toLocaleDateString([], { month: "long", ...(otherYear ? { year: "numeric" } : {}) })
     : isNow
       ? "This week so far"
       : `Week of ${start.toLocaleDateString([], { day: "numeric", month: "long" })}`;
-  const unit = month ? "month" : "week";
+  const unit = span;
   const prev = $<HTMLButtonElement>("#week-prev");
   const next = $<HTMLButtonElement>("#week-next");
-  prev.disabled = !firstDay || w.start <= (month ? monthStart(firstDay) : mondayOf(firstDay));
+  prev.disabled = !firstDay || w.start <= (year ? yearStart(firstDay) : month ? monthStart(firstDay) : mondayOf(firstDay));
   next.disabled = isNow;
   prev.setAttribute("aria-label", `Previous ${unit}`);
   prev.title = `Previous ${unit} (←)`;
@@ -776,17 +793,21 @@ function renderPeriod(w: Period) {
     stat("On screen", fmtGoal(t.activeMs), vsBefore(t.activeMs, p.activeMs)),
     stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
     ...(w.goalWeeks ? [stat("Weekly goals", `${w.goalWeeksMet} of ${w.goalWeeks} weeks`)] : []),
-    stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], month ? { weekday: "long", day: "numeric" } : { weekday: "long" }) : "—"),
+    year
+      ? stat("Best month", bestMonth(w) ? parseDate(bestMonth(w)!).toLocaleDateString([], { month: "long" }) : "—")
+      : stat("Best day", w.bestDay ? parseDate(w.bestDay).toLocaleDateString([], month ? { weekday: "long", day: "numeric" } : { weekday: "long" }) : "—"),
     stat("Focus sessions", String(w.focusSessions), w.focusSessions ? fmtDur(w.focusMs) : ""),
   );
-  const before = parseDate(month ? shiftMonthKeepDay(w.start, -1) : shiftDate(w.start, -7));
+  const before = parseDate(year ? shiftMonthKeepDay(w.start, -12) : month ? shiftMonthKeepDay(w.start, -1) : shiftDate(w.start, -7));
   const beforeEnd = parseDate(shiftDate(w.start, -1));
   $("#week-compare").textContent = p.activeMs
-    ? `Changes compare with ${before.toLocaleDateString([], { day: "numeric", month: "long" })} – ${beforeEnd.toLocaleDateString([], { day: "numeric", month: "long" })}.`
+    ? `Changes compare with ${before.toLocaleDateString([], { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })} – ${beforeEnd.toLocaleDateString([], { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })}.`
     : "";
-  renderWeekChart(w);
+  $("#week-chart-title").textContent = year ? "Each month" : "Each day";
+  if (year) renderYearChart(w);
+  else renderWeekChart(w);
   renderWeekApps(w);
-  renderProjectTimes("week-projects", w.topProjects, month ? "month" : "week", w.start);
+  renderProjectTimes("week-projects", w.topProjects, span, w.start);
 
   $("#week-limits").replaceChildren(
     ...(w.limitsOver.length
@@ -806,6 +827,72 @@ function renderPeriod(w: Period) {
   );
 }
 
+/// The year's days added up by month, from January.
+function months(w: Period) {
+  const out: { first: string; totals: Period["totals"]; met: number; tracked: number }[] = [];
+  for (const d of w.days) {
+    const first = monthStart(d.date);
+    let m = out[out.length - 1];
+    if (!m || m.first !== first) out.push((m = { first, totals: { activeMs: 0, productiveMs: 0, neutralMs: 0, distractingMs: 0 }, met: 0, tracked: 0 }));
+    for (const k of ["activeMs", "productiveMs", "neutralMs", "distractingMs"] as const) m.totals[k] += d.totals[k];
+    if (d.goalsMet !== null) {
+      m.tracked += 1;
+      m.met += Number(d.goalsMet);
+    }
+  }
+  return out;
+}
+
+/// The 1st of the month with the most productive time, or null with none.
+function bestMonth(w: Period): string | null {
+  const best = months(w).reduce<{ first: string; ms: number } | null>((b, m) => (m.totals.productiveMs > (b?.ms ?? 0) ? { first: m.first, ms: m.totals.productiveMs } : b), null);
+  return best?.first ?? null;
+}
+
+/// A bar a month; clicking one opens that month.
+function renderYearChart(w: Period) {
+  const list = months(w);
+  const max = Math.max(HOUR_MS, ...list.map((m) => m.totals.activeMs));
+  const thisMonth = monthStart(todayIso());
+  const chart = $("#week-chart");
+  chart.classList.remove("month");
+  chart.style.setProperty("--days", "12");
+  chart.classList.add("year");
+  chart.replaceChildren(
+    ...list.map((m) => {
+      const date = parseDate(m.first);
+      const name = date.toLocaleDateString([], { month: "long", year: "numeric" });
+      const bar = h("div", { class: "wk-bar" });
+      for (const c of ["distracting", "neutral", "productive"] as const) {
+        const ms = m.totals[TOTAL_KEYS[c]];
+        if (!ms) continue;
+        const part = h("span", { class: `wk-part ${c}` });
+        part.style.height = `${(ms / max) * 100}%`;
+        bar.append(part);
+      }
+      const goals = m.tracked ? `${m.met}/${m.tracked}` : "";
+      const col = h(
+        "button",
+        { class: `wk-day${m.first === thisMonth ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(m.totals.activeMs)} on screen` },
+        h("span", { class: "wk-value" }, m.totals.activeMs ? fmtHours(m.totals.activeMs) : ""),
+        bar,
+        h("span", { class: "wk-label" }, date.toLocaleDateString([], { month: "short" })),
+        h("span", { class: "wk-goal", title: goals ? `Goals met on ${m.met} of ${m.tracked} days` : "" }, goals),
+      ) as HTMLButtonElement;
+      col.disabled = m.first > thisMonth;
+      tip(col, () => `<strong>${esc(name)}</strong>${CATEGORIES.map((c) => `<div>${dotHtml(c)}${LABELS[c]}<b>${fmtGoal(m.totals[TOTAL_KEYS[c]])}</b></div>`).join("")}`);
+      col.addEventListener("click", () => {
+        setSpan("month");
+        goToMonth(m.first);
+      });
+      return col;
+    }),
+  );
+}
+
+/// Whole hours for a month's bar, which has no room for minutes: "142h".
+const fmtHours = (ms: number) => `${Math.round(ms / HOUR_MS)}h`;
+
 /// A bar per day; a month's are narrow, so they leave out the hours above and, on a small
 /// window, most of the dates below.
 function renderWeekChart(w: Period) {
@@ -813,6 +900,7 @@ function renderWeekChart(w: Period) {
   const today = todayIso();
   const month = w.days.length > 7;
   const chart = $("#week-chart");
+  chart.classList.remove("year");
   chart.classList.toggle("month", month);
   chart.style.setProperty("--days", String(w.days.length));
   chart.replaceChildren(
@@ -849,7 +937,7 @@ function renderWeekChart(w: Period) {
 
 function renderWeekApps(w: Period) {
   const root = $("#week-apps");
-  const unit = w.days.length > 7 ? "month" : "week";
+  const unit = w.days.length > 31 ? "year" : w.days.length > 7 ? "month" : "week";
   if (!w.topApps.length) {
     root.replaceChildren(h("p", { class: "empty" }, `Nothing tracked this ${unit}.`));
     return;
@@ -1811,9 +1899,9 @@ async function load(v: View = view) {
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
-      if (span === "month") {
-        renderPeriod(await api.month(selectedMonth ?? undefined));
-        // The month counts its weeks in the stats; the box is for one week's goals.
+      if (span !== "week") {
+        renderPeriod(await (span === "year" ? api.year(selectedYear ?? undefined) : api.month(selectedMonth ?? undefined)));
+        // A month or year counts its weeks in the stats; the box is for one week's goals.
         $("#week-goals").hidden = true;
       } else {
         renderPeriod(await api.week(selectedWeek ?? undefined));
@@ -2138,11 +2226,14 @@ $("#week-this").addEventListener("click", backToNow);
 /// the month's 1st.
 for (const btn of document.querySelectorAll<HTMLButtonElement>("#span button")) {
   btn.addEventListener("click", () => {
-    const next = btn.dataset.span === "month" ? "month" : "week";
+    const next = btn.dataset.span === "month" ? "month" : btn.dataset.span === "year" ? "year" : "week";
     if (next === span) return;
+    // The first day of what's shown now, or null for the present.
+    const from = { week: selectedWeek, month: selectedMonth, year: selectedYear }[span];
     setSpan(next);
-    if (next === "month") goToMonth(selectedWeek && monthStart(selectedWeek));
-    else goToWeek(selectedMonth && mondayOf(selectedMonth));
+    if (next === "year") goToYear(from && yearStart(from));
+    else if (next === "month") goToMonth(from && monthStart(from));
+    else goToWeek(from && mondayOf(from));
   });
 }
 

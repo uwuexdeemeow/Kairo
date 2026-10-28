@@ -234,6 +234,7 @@ pub fn run() {
             commands::set_autostart,
             commands::get_week,
             commands::get_month,
+            commands::get_year,
             commands::get_evening_summary,
             commands::set_evening_summary,
             commands::send_test_evening_summary,

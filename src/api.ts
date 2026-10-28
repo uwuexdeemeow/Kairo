@@ -308,7 +308,7 @@ export interface ProjectDetail {
   bars: { startMs: number; ms: number }[];
 }
 
-export type Span = "day" | "week" | "month";
+export type Span = "day" | "week" | "month" | "year";
 
 /** The calendars Kairo reads, and how the last reading went. */
 export interface CalendarStatus {
@@ -369,6 +369,8 @@ export const api = {
   week: (date?: string) => invoke<Period>("get_week", { date }),
   /** The month containing `date` (a local `YYYY-MM-DD`; default today). */
   month: (date?: string) => invoke<Period>("get_month", { date }),
+  /** The year containing `date` (a local `YYYY-MM-DD`; default today). */
+  year: (date?: string) => invoke<Period>("get_year", { date }),
   focus: () => invoke<FocusSession | null>("get_focus"),
   startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
   /** Returns the session as it stands afterwards; null once it has ended. */
