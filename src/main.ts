@@ -3,6 +3,7 @@ import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { useDropdowns } from "./dropdown";
 import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -1134,7 +1135,8 @@ function paintCategories() {
       h("td", { class: "kind" }, e.kind),
       h("td", { class: "num" }, fmtDur(e.ms)),
       h("td", {}, select),
-      h("td", { class: "limit-cell" }, limit, hardToggle),
+      // In a span, so the cell stays a table cell and lines up with the rest of its row.
+      h("td", {}, h("span", { class: "limit-cell" }, limit, hardToggle)),
       h("td", {}, focus),
       h("td", {}, recording),
     );
@@ -2241,3 +2243,4 @@ refreshStatus();
 load();
 followNavigation();
 followTheme();
+useDropdowns();

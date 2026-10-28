@@ -4,6 +4,7 @@ import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
+import { useDropdowns } from "./dropdown";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
@@ -135,6 +136,7 @@ async function followTab() {
 }
 
 followTheme();
+useDropdowns();
 $("#dash-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 drawTiles();
 drawAppSettings();
