@@ -219,7 +219,7 @@ pub fn detail(conn: &Connection, id: i64, buckets: &[(i64, i64)], computer: &str
     let mut total = 0;
     for row in rows {
         let (app, exe, title, site, start, end) = row?;
-        if !project_of(&projects, &title, site.as_deref()).is_some_and(|p| p.id == id) {
+        if project_of(&projects, &title, site.as_deref()).is_none_or(|p| p.id != id) {
             continue;
         }
         let ms = end.min(to) - start.max(from);
