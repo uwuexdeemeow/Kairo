@@ -369,34 +369,25 @@
           <section class="block">
             <h2>Goals</h2>
             <p class="muted">Progress shows on Today and Week, and Chrono lets you know when you reach a target or get close to a limit. Limits for single apps and sites are set in Categories.</p>
-            <div class="row-buttons">
-              <label class="field">
-                Productive time, at least
-                <select id="goal-productive"></select>
-              </label>
-              <label class="field">
-                Distracting time, at most
-                <select id="goal-distracting"></select>
-              </label>
-            </div>
-            <div class="row-buttons">
-              <label class="field">
-                Each week, productive time at least
-                <select id="goal-week-productive"></select>
-              </label>
-              <label class="field">
-                Distracting time at most
-                <select id="goal-week-distracting"></select>
-              </label>
+            <div class="goal-grid">
+              <span></span>
+              <span class="goal-head" id="goal-head-productive">Productive time, at least</span>
+              <span class="goal-head" id="goal-head-distracting">Distracting time, at most</span>
+              <span id="goal-when-day">Each day</span>
+              <select id="goal-productive" aria-labelledby="goal-head-productive goal-when-day"></select>
+              <select id="goal-distracting" aria-labelledby="goal-head-distracting goal-when-day"></select>
+              <span id="goal-when-week">Each week</span>
+              <select id="goal-week-productive" aria-labelledby="goal-head-productive goal-when-week"></select>
+              <select id="goal-week-distracting" aria-labelledby="goal-head-distracting goal-when-week"></select>
             </div>
           </section>
 
-          <section class="block">
+          <section class="block aligned-fields">
             <h2>Privacy</h2>
             <p class="muted">Everything stays on this computer. Private browser windows are recorded without titles or sites, and password managers aren't recorded at all. Choose what's recorded for each app or site in Categories.</p>
             <div class="row-buttons">
               <label class="field">
-                Keep history for
+                <span class="field-label">Keep history for</span>
                 <select id="retention">
                   <option value="0">Forever</option>
                   <option value="365">1 year</option>
@@ -409,7 +400,7 @@
             </div>
             <div class="row-buttons">
               <label class="field">
-                Delete
+                <span class="field-label">Delete</span>
                 <select id="delete-range">
                   <option value="hour">the last hour</option>
                   <option value="today">today</option>
@@ -440,9 +431,10 @@
             <h2>Projects</h2>
             <p class="muted">See time by project across apps. Give each project a few keywords; time belongs to the first project with one in its window title or site, so "kairo" gathers a VS Code folder, a GitHub repository and a terminal named kairo. Projects show on Today and Week.</p>
             <div id="project-list"></div>
-            <div class="row-buttons project-add">
+            <div class="project-row project-add">
               <input class="filter project-name" id="project-name" maxlength="60" placeholder="Project name" aria-label="Project name" autocomplete="off" />
               <input class="filter project-keywords" id="project-keywords" placeholder="Keywords, separated by commas" aria-label="Keywords" autocomplete="off" />
+              <span class="project-target"></span>
               <button class="btn" id="project-add">Add</button>
               <span class="muted" id="project-status" aria-live="polite"></span>
             </div>
