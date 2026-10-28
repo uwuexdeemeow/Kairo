@@ -618,7 +618,7 @@ h2 {
   color: var(--muted);
 }
 
-.table td:first-child .app-icon {
+.entry-name .app-icon {
   margin-right: 0;
 }
 
@@ -1286,19 +1286,69 @@ html.palette-root {
   opacity: 0.55;
 }
 
-.project-row,
-.project-add {
+/* Each project, and the row that adds one, on the same columns: name, keywords, weekly target, and
+   Remove or Add. */
+.project-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) 170px 76px;
+  align-items: center;
+  gap: 8px 12px;
   margin-top: 8px;
 }
 
-.project-name {
-  flex: 0 1 180px;
-  min-width: 120px;
+.project-row .filter,
+.project-row select {
+  width: 100%;
 }
 
-.project-keywords {
-  flex: 1;
-  min-width: 200px;
+.project-row > button {
+  justify-self: start;
+}
+
+.project-add #project-status {
+  grid-column: 1 / -1;
+}
+
+.project-add #project-status:empty {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .project-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .project-keywords {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .project-add .project-target {
+    display: none;
+  }
+}
+
+/* The daily and weekly goals, as rows under their two kinds. */
+.goal-grid {
+  display: grid;
+  grid-template-columns: max-content repeat(2, minmax(0, 200px));
+  align-items: center;
+  gap: 6px 32px;
+}
+
+.goal-head {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.goal-grid select {
+  justify-self: start;
+  min-width: 110px;
+}
+
+/* Labels of a block's settings one above the other, so their controls start together. */
+.aligned-fields .field-label {
+  min-width: 128px;
 }
 
 /* Calendar addresses, one per line; long and private, so plain and wrapped. */
@@ -2000,14 +2050,19 @@ html.palette-root {
   font-weight: 500;
   color: var(--faint);
   padding: 0 8px 10px 0;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .table td {
   padding: 10px 8px 10px 0;
   border-top: 1px solid var(--rule);
+  vertical-align: middle;
 }
 
-.table td:first-child {
+/* The dot, icon and name sit in a span, so the cell stays a table cell and lines up with the rest
+   of its row. */
+.entry-name {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2015,6 +2070,11 @@ html.palette-root {
 
 .table .num {
   text-align: right;
+  /* Right-aligned, so it needs room before the column after it. */
+  padding-right: 24px;
+}
+
+.table td.num {
   font-family: var(--mono);
   font-size: 13px;
   color: var(--muted);
@@ -2026,13 +2086,20 @@ html.palette-root {
   color: var(--faint);
 }
 
-select {
+select,
+input[type="time"] {
   font: inherit;
   color: var(--ink);
   background: var(--bg);
   border: 0;
   border-bottom: 1px solid var(--line);
+  border-radius: 0;
   padding: 4px 2px;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+  cursor: pointer;
 }
 
 .row-buttons {

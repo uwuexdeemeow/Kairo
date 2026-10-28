@@ -511,7 +511,8 @@ function renderProjects(projects: Project[]) {
       target.addEventListener("change", () => save(() => api.setProjectTarget(p.id, Number(target.value))));
       const remove = h("button", { class: "link-btn" }, "Remove");
       remove.addEventListener("click", () => save(() => api.removeProject(p.id)));
-      return h("div", { class: "row-buttons project-row" }, name, words, target, remove);
+      target.classList.add("project-target");
+      return h("div", { class: "project-row" }, name, words, target, remove);
     }),
   );
 }
@@ -999,7 +1000,7 @@ function paintCategories() {
     return h(
       "tr",
       {},
-      h("td", {}, dot, appIcon(e.key, e.label), e.label),
+      h("td", {}, h("span", { class: "entry-name" }, dot, appIcon(e.key, e.label), e.label)),
       h("td", { class: "kind" }, e.kind),
       h("td", { class: "num" }, fmtDur(e.ms)),
       h("td", {}, select),
