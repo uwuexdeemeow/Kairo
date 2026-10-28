@@ -2,8 +2,8 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
-import { loadKairoSettings, wireKairoSettings } from "./kairo-settings";
+import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -1907,10 +1907,9 @@ async function load(v: View = view) {
       const evening = await api.eveningSummary();
       $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;
       $<HTMLInputElement>("#evening-time").value = `${String(Math.floor(evening.minute / 60)).padStart(2, "0")}:${String(evening.minute % 60).padStart(2, "0")}`;
-      await loadKairoSettings();
     }
   } catch (e) {
-    const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#update-status" }[v];
+    const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#goal-productive" }[v];
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
   }
 }
@@ -2206,7 +2205,9 @@ $<HTMLSelectElement>("#shown-computer").addEventListener("change", async (e) => 
   load();
 });
 api.sync().then(renderComputerPick, () => {});
-wireKairoSettings(renderComputerPick);
+// Kairo's settings can change who is combined while Chrono is open in the background.
+window.addEventListener("focus", () => api.sync().then(renderComputerPick, () => {}));
+$("#open-kairo-settings").addEventListener("click", () => api.openDashboard("settings"));
 
 $("#demo-load").addEventListener("click", async () => {
   const n = await api.seedDemo();
