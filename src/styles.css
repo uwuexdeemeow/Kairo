@@ -1833,6 +1833,54 @@ html.palette-root {
   padding: 8px 0;
 }
 
+/* A week's notes, side by side when there's room. */
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px 24px;
+}
+
+.note-field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.note-field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.note-field textarea:focus-visible {
+  outline: 2px solid var(--productive);
+  outline-offset: 1px;
+}
+
+.period-note {
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.period-note h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.period-note p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
+
 /* A project's row opens where its time came from. */
 .project-toggle {
   display: block;

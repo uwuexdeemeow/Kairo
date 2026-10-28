@@ -197,6 +197,28 @@
             <h2>Projects</h2>
             <div id="week-projects"></div>
           </section>
+
+          <section class="block" id="week-notes-box" aria-label="Notes">
+            <div class="section-head">
+              <h2>Notes</h2>
+              <span class="muted" id="week-notes-status" aria-live="polite"></span>
+            </div>
+            <div class="notes-grid">
+              <label class="note-field">
+                <span>What went well</span>
+                <textarea id="week-note-well" rows="3" maxlength="2000"></textarea>
+              </label>
+              <label class="note-field">
+                <span>What to change</span>
+                <textarea id="week-note-change" rows="3" maxlength="2000"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="block" id="period-notes-box" aria-label="Notes from its weeks" hidden>
+            <h2>Notes from its weeks</h2>
+            <div id="period-notes"></div>
+          </section>
         </section>
 
         <section id="view-focus" class="view" hidden>

@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -824,6 +824,37 @@ function renderPeriod(w: Period) {
           ),
         )
       : [h("p", { class: "empty" }, "No limits passed. Daily limits are set in Categories.")]),
+  );
+}
+
+/// The week's notes in their fields, unless one is being typed in.
+function renderWeekNotes(n: WeekNote) {
+  for (const [id, text] of [["#week-note-well", n.well], ["#week-note-change", n.change]] as const) {
+    const field = $<HTMLTextAreaElement>(id);
+    if (document.activeElement !== field) field.value = text;
+  }
+  $("#week-notes-status").textContent = "";
+}
+
+/// A month's or year's weeks that have notes, each under its dates.
+function renderPeriodNotes(notes: (WeekNote & { monday: string })[]) {
+  $("#period-notes-box").hidden = !notes.length;
+  $("#period-notes").replaceChildren(
+    ...notes.map((n) => {
+      const start = parseDate(n.monday);
+      const week = h("button", { class: "link-btn" }, `Week of ${start.toLocaleDateString([], { day: "numeric", month: "long" })}`);
+      week.addEventListener("click", () => {
+        setSpan("week");
+        goToWeek(n.monday);
+      });
+      return h(
+        "article",
+        { class: "period-note" },
+        h("h3", {}, week),
+        ...(n.well ? [h("p", {}, h("span", { class: "muted" }, "Went well · "), n.well)] : []),
+        ...(n.change ? [h("p", {}, h("span", { class: "muted" }, "To change · "), n.change)] : []),
+      );
+    }),
   );
 }
 
@@ -1899,13 +1930,18 @@ async function load(v: View = view) {
     }
     if (v === "week") {
       firstDay ??= await api.firstDay();
+      $("#week-notes-box").hidden = span !== "week";
       if (span !== "week") {
-        renderPeriod(await (span === "year" ? api.year(selectedYear ?? undefined) : api.month(selectedMonth ?? undefined)));
+        const first = span === "year" ? selectedYear : selectedMonth;
+        renderPeriod(await (span === "year" ? api.year(first ?? undefined) : api.month(first ?? undefined)));
         // A month or year counts its weeks in the stats; the box is for one week's goals.
         $("#week-goals").hidden = true;
+        renderPeriodNotes(await api.notesBetween(first ?? undefined, span));
       } else {
         renderPeriod(await api.week(selectedWeek ?? undefined));
         renderWeekGoals(await api.weekGoals(selectedWeek ?? undefined));
+        $("#period-notes-box").hidden = true;
+        renderWeekNotes(await api.weekNotes(selectedWeek ?? undefined));
       }
     }
     if (v === "patterns") renderPatterns(await api.patterns(rangeDays));
@@ -2234,6 +2270,19 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>("#span button")) 
     if (next === "year") goToYear(from && yearStart(from));
     else if (next === "month") goToMonth(from && monthStart(from));
     else goToWeek(from && mondayOf(from));
+  });
+}
+
+/// The week's notes save when a field is left; the week shown is the one they belong to.
+for (const id of ["#week-note-well", "#week-note-change"]) {
+  $(id).addEventListener("change", async () => {
+    const status = $("#week-notes-status");
+    try {
+      await api.setWeekNotes(shownWeek(), $<HTMLTextAreaElement>("#week-note-well").value, $<HTMLTextAreaElement>("#week-note-change").value);
+      status.textContent = "Saved";
+    } catch (err) {
+      status.textContent = `Couldn't save: ${err}`;
+    }
   });
 }
 
