@@ -92,7 +92,7 @@ and Open dashboard opens the dashboard.
 
 Use two machines (any systems) with the same cloud drive.
 
-1. On each, Settings → Combine computers → Choose a folder, and pick the **same** synced folder.
+1. On each, Kairo's settings → Combine computers → Choose a folder, and pick the **same** synced folder.
 2. Wait 5–10 minutes for the drive to sync. *Expect:* each lists both computers, and Today on
    each adds up both.
 3. **Showing switch.** In the sidebar, pick "This one". *Expect:* only that computer's time.
@@ -104,7 +104,7 @@ Use two machines (any systems) with the same cloud drive.
 
 ## Any system: backup and restore
 
-1. Settings → Your data → Back up everything; save the file.
+1. Kairo's settings → Your data → Back up everything; save the file.
 2. Restore it on another computer (even another system). *Expect:* a confirmation, a restart, and
    the history, categories, limits and goals of the backup, with this computer's palette shortcut
    kept.

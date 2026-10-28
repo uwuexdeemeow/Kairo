@@ -493,7 +493,7 @@ export const api = {
   /** PNG data URLs by executable, for the apps that have an icon to show. */
   appIcons: (exes: string[]) => invoke<Record<string, string>>("get_app_icons", { exes }),
   version: () => invoke<string>("get_version"),
-  /** The result arrives as a notification, like the tray's "Check for updates". */
+  /** The result arrives as a notification, like Kairo's settings' Updates → "Check for updates". */
   checkForUpdates: () => invoke<void>("check_for_updates"),
   seedDemo: () => invoke<number>("seed_demo_data"),
   clearDemo: () => invoke<number>("clear_demo_data"),

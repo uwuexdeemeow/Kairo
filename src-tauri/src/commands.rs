@@ -1065,7 +1065,7 @@ pub fn get_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
 }
 
-/// Same as the tray's "Check for updates": the result arrives as a notification.
+/// Same as Kairo's settings' Updates → "Check for updates": the result arrives as a notification.
 #[tauri::command]
 pub fn check_for_updates(app: AppHandle) {
     tauri::async_runtime::spawn(async move { updater::check(&app, true).await });

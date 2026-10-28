@@ -2,12 +2,11 @@ import { api, type Appearance, type SyncState } from "./api";
 import { $, IS_LINUX, IS_MAC, applyTheme, getAppearance, h } from "./ui";
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
-// palette, starting at login, your data, combining computers and updates. Both Chrono's window
-// and the dashboard include this markup and call wireKairoSettings once.
+// palette, starting at login, your data, combining computers and updates. Only the dashboard
+// includes this markup; it calls wireKairoSettings once.
 
 let savedShortcut = "";
 let recording = false;
-let onSync: ((sync: SyncState) => void) | undefined;
 
 /// A key as this computer's keyboard labels it; the saved shortcut keeps the names the shortcut
 /// parser knows.
@@ -105,14 +104,10 @@ function renderSync(sync: SyncState) {
   );
   $("#sync-choose").textContent = on ? "Use another folder" : "Choose a folder";
   $("#sync-stop").hidden = !on;
-  onSync?.(sync);
 }
 
-/// Attaches every handler once. `onSync` hears the combined-computers state whenever this
-/// section redraws it, for a page that shows it elsewhere too.
-export function wireKairoSettings(onSyncChange?: (sync: SyncState) => void): void {
-  onSync = onSyncChange;
-
+/// Attaches every handler once.
+export function wireKairoSettings(): void {
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
     $("#autostart-title").textContent = "Open at login";
@@ -124,7 +119,7 @@ export function wireKairoSettings(onSyncChange?: (sync: SyncState) => void): voi
     $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
     // Wayland keeps keys from apps; GNOME and Plasma take the shortcut into their own settings.
     $("#palette-note").textContent =
-      "Works everywhere, even with Chrono's window closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
+      "Works everywhere, even with Kairo's windows closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
   }
 
   $("#palette-record").addEventListener("click", () => {

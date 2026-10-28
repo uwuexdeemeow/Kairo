@@ -193,7 +193,7 @@ pub fn run() {
                 }));
             }
             // Wayland keeps keys from apps, so there the desktop's own shortcuts open the palette.
-            // Another app holding the keys mustn't stop Kairo starting; Settings shows the clash.
+            // Another app holding the keys mustn't stop Kairo starting; the clash is only logged.
             if !platform::desktop_palette_shortcut(&palette_shortcut) {
                 if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                     eprintln!("palette: cannot use {palette_shortcut}: {e}");
@@ -415,7 +415,10 @@ pub(crate) fn show_main(app: &AppHandle) {
 /// when this runs, so the page asks for the tab (`take_dashboard_tab`) once it's ready, and again
 /// whenever it's told to.
 pub(crate) fn show_dashboard(app: &AppHandle, tab: Option<&str>) {
-    *app.state::<AppState>().dashboard_tab.lock().unwrap_or_else(|e| e.into_inner()) = tab.map(str::to_string);
+    // A second launch can get here before setup has made the state; the window still opens.
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.dashboard_tab.lock().unwrap_or_else(|e| e.into_inner()) = tab.map(str::to_string);
+    }
     show_window(app, "dashboard");
     let _ = app.emit_to("dashboard", "kairo:dashboard", ());
 }

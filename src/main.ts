@@ -1909,7 +1909,7 @@ async function load(v: View = view) {
       $<HTMLInputElement>("#evening-time").value = `${String(Math.floor(evening.minute / 60)).padStart(2, "0")}:${String(evening.minute % 60).padStart(2, "0")}`;
     }
   } catch (e) {
-    const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#goal-productive" }[v];
+    const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#settings-status" }[v];
     $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
   }
 }
