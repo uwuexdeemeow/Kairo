@@ -227,6 +227,7 @@
               </div>
               <input class="filter timer-label" id="timer-label" maxlength="80" placeholder="What are you working on? (optional)" aria-label="What are you working on" autocomplete="off" />
               <button class="btn primary" id="timer-start">Start focus</button>
+              <p class="muted focus-blocks-note" id="focus-blocks-note" hidden></p>
             </div>
 
             <div class="timer-run" id="timer-run" hidden>
@@ -255,6 +256,21 @@
               <input class="filter schedule-label" id="schedule-label" maxlength="80" placeholder="Label (optional)" aria-label="Label" autocomplete="off" />
               <button class="btn" id="schedule-add">Add</button>
               <span class="muted" id="schedule-status" aria-live="polite"></span>
+            </div>
+          </section>
+
+          <section class="block" aria-label="Block lists">
+            <h2>Block lists</h2>
+            <p class="muted">Save a set of apps and sites, like Social or Games, to block instead of everything distracting. A scheduled slot can use one, and so can a session you start: choose it here, or name it when you start one, as in "focus 50 social" in the palette.</p>
+            <label class="field">
+              Sessions you start block
+              <select id="default-block-list"></select>
+            </label>
+            <div id="block-lists"></div>
+            <div class="row-buttons block-list-add">
+              <input class="filter" id="block-list-name" maxlength="40" placeholder="New list, like Social" aria-label="New list name" autocomplete="off" />
+              <button class="btn" id="block-list-add">Add</button>
+              <span class="muted" id="block-list-status" aria-live="polite"></span>
             </div>
           </section>
 

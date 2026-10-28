@@ -2,7 +2,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type Appearance, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -1471,10 +1471,43 @@ const clockOf = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2
 
 /// The slot whose block list is open for changing, if any.
 let editingSlot: number | null = null;
-/// Apps and sites Kairo has seen, to pick a slot's block list from; fetched when first needed.
+/// Apps and sites Kairo has seen, to pick block lists from; fetched when first needed.
 let blockChoices: { key: string; label: string }[] | null = null;
+/// The saved block lists, as last shown.
+let savedLists: BlockList[] = [];
 
 const blockLabel = (key: string) => blockChoices?.find((c) => c.key === key)?.label ?? key.slice(key.indexOf(":") + 1);
+
+async function loadBlockChoices() {
+  blockChoices ??= (await api.categories().catch(() => [])).map((c) => ({ key: c.key, label: c.label }));
+}
+
+/// Apps and sites as removable tags, with a field to add one Kairo has seen; `save` gets the list
+/// after each change, and `say` reports a name it can't find.
+function keyPicker(keys: string[], save: (keys: string[]) => void, say: (text: string) => void, id: string) {
+  const chips = keys.map((key) => {
+    const x = h("button", { class: "link-btn", "aria-label": `Stop blocking ${blockLabel(key)}` }, "×");
+    x.addEventListener("click", () => save(keys.filter((k) => k !== key)));
+    return h("span", { class: "slot-chip" }, blockLabel(key), x);
+  });
+  const listId = `block-choices-${id}`;
+  const input = h("input", { class: "filter", list: listId, placeholder: "Add an app or site", "aria-label": "Add an app or site", autocomplete: "off" }) as HTMLInputElement;
+  const options = h(
+    "datalist",
+    { id: listId },
+    ...(blockChoices ?? []).filter((c) => !keys.includes(c.key)).map((c) => h("option", { value: c.label }, c.key.startsWith("site:") ? "Site" : "App")),
+  );
+  input.addEventListener("change", () => {
+    const text = input.value.trim().toLowerCase();
+    const found = (blockChoices ?? []).find((c) => c.label.toLowerCase() === text || c.key === text);
+    if (!found) {
+      say(text ? "Pick an app or site Kairo has seen." : "");
+      return;
+    }
+    save([...keys, found.key]);
+  });
+  return h("div", { class: "slot-chips" }, ...chips, input, options);
+}
 
 function renderSchedule(slots: FocusSlot[]) {
   const root = $("#schedule-list");
@@ -1489,10 +1522,14 @@ function renderSchedule(slots: FocusSlot[]) {
       const change = h("button", { class: "link-btn", "aria-expanded": String(editingSlot === s.id) }, editingSlot === s.id ? "Done" : "Change");
       change.addEventListener("click", async () => {
         editingSlot = editingSlot === s.id ? null : s.id;
-        blockChoices ??= (await api.categories().catch(() => [])).map((c) => ({ key: c.key, label: c.label }));
+        await loadBlockChoices();
         renderSchedule(await api.focusSchedule());
       });
-      const blocks = s.blocks ? `Blocks only ${s.blocks.map(blockLabel).join(", ")}` : "Blocks distracting apps and sites";
+      const blocks = s.list
+        ? `Blocks your “${s.list}” list`
+        : s.blocks
+          ? `Blocks only ${s.blocks.map(blockLabel).join(", ")}`
+          : "Blocks distracting apps and sites";
       return h(
         "div",
         { class: "history-row schedule-row" },
@@ -1511,24 +1548,24 @@ function renderSchedule(slots: FocusSlot[]) {
   );
 }
 
-/// Under a slot: whether it blocks as usual or only a list, and the list, each change saved.
+/// Under a slot: whether it blocks as usual, a saved list or its own, each change saved.
 function slotBlocksEditor(s: FocusSlot) {
   const status = h("span", { class: "muted" });
-  const save = async (blocks: string[] | null) => {
+  const run = async (change: () => Promise<FocusSlot[]>) => {
     try {
-      renderSchedule(await api.setSlotBlocks(s.id, blocks));
+      renderSchedule(await change());
     } catch (err) {
       status.textContent = String(err);
     }
   };
   // "Only these" with nothing on the list yet blocks as usual until something's added.
-  let only = s.blocks !== null || pendingOnly === s.id;
-  const list = s.blocks ?? [];
+  const only = s.blocks !== null || s.list !== null || pendingOnly === s.id;
+  const own = s.blocks ?? [];
   const usual = h("button", { "aria-pressed": String(!only) }, "Distracting apps and sites");
   const mine = h("button", { "aria-pressed": String(only) }, "Only these");
   usual.addEventListener("click", () => {
     pendingOnly = null;
-    save(null);
+    run(async () => (await api.setSlotList(s.id, null), api.setSlotBlocks(s.id, null)));
   });
   mine.addEventListener("click", async () => {
     if (only) return;
@@ -1537,32 +1574,28 @@ function slotBlocksEditor(s: FocusSlot) {
   });
   const box = h("div", { class: "slot-blocks" }, h("div", { class: "range", role: "group", "aria-label": "What it blocks" }, usual, mine));
   if (only) {
-    const chips = list.map((key) => {
-      const x = h("button", { class: "link-btn", "aria-label": `Stop blocking ${blockLabel(key)}` }, "×");
-      x.addEventListener("click", () => save(list.length > 1 ? list.filter((k) => k !== key) : null));
-      return h("span", { class: "slot-chip" }, blockLabel(key), x);
-    });
-    const listId = `block-choices-${s.id}`;
-    const input = h("input", { class: "filter", list: listId, placeholder: "Add an app or site", "aria-label": "Add an app or site", autocomplete: "off" }) as HTMLInputElement;
-    const options = h(
-      "datalist",
-      { id: listId },
-      ...(blockChoices ?? []).filter((c) => !list.includes(c.key)).map((c) => h("option", { value: c.label }, c.key.startsWith("site:") ? "Site" : "App")),
-    );
-    input.addEventListener("change", () => {
-      const text = input.value.trim().toLowerCase();
-      const found = (blockChoices ?? []).find((c) => c.label.toLowerCase() === text || c.key === text);
-      if (!found) {
-        status.textContent = text ? "Pick an app or site Kairo has seen." : "";
-        return;
-      }
-      pendingOnly = null;
-      save([...list, found.key]);
-    });
-    box.append(
-      h("div", { class: "slot-chips" }, ...chips, input, options),
-      h("p", { class: "muted" }, list.length ? "Only these are blocked while this slot runs; everything else is let through." : "Add what this slot should block. Until then it blocks as usual."),
-    );
+    // A saved list, or one of its own.
+    if (savedLists.length) {
+      const which = h("select", { "aria-label": "Which list" }, h("option", { value: "" }, "Its own list"), ...savedLists.map((l) => h("option", { value: l.name }, l.name))) as HTMLSelectElement;
+      which.value = s.list ?? "";
+      which.addEventListener("change", () => {
+        pendingOnly = which.value ? null : s.id;
+        run(() => api.setSlotList(s.id, which.value || null));
+      });
+      box.append(h("label", { class: "field" }, "Use", which));
+    }
+    if (s.list) {
+      box.append(h("p", { class: "muted" }, `Blocks what your “${s.list}” list holds; change it under Block lists below.`));
+    } else {
+      const save = (keys: string[]) => {
+        pendingOnly = keys.length ? null : s.id;
+        run(() => api.setSlotBlocks(s.id, keys.length ? keys : null));
+      };
+      box.append(
+        keyPicker(own, save, (t) => (status.textContent = t), `slot-${s.id}`),
+        h("p", { class: "muted" }, own.length ? "Only these are blocked while this slot runs; everything else is let through." : "Add what this slot should block. Until then it blocks as usual."),
+      );
+    }
   }
   box.append(status);
   return box;
@@ -1570,6 +1603,58 @@ function slotBlocksEditor(s: FocusSlot) {
 
 /// The slot just switched to "Only these", before anything is on its list.
 let pendingOnly: number | null = null;
+
+/// The saved block lists, each renamed or changed in place, and the list sessions started by hand
+/// block.
+function renderBlockLists(b: BlockLists) {
+  savedLists = b.lists;
+  const status = $("#block-list-status");
+  const run = async (change: () => Promise<BlockLists>) => {
+    try {
+      renderBlockLists(await change());
+      status.textContent = "";
+      // A slot's summary names its list, which may have been renamed or removed.
+      renderSchedule(await api.focusSchedule());
+    } catch (err) {
+      status.textContent = String(err);
+    }
+  };
+  const fallback = h("select", { id: "default-block-list", "aria-label": "Sessions you start block" }, h("option", { value: "" }, "Distracting apps and sites"), ...b.lists.map((l) => h("option", { value: l.name }, `Your “${l.name}” list`))) as HTMLSelectElement;
+  fallback.value = b.default ?? "";
+  // Beside Start focus, say when a session will block a list rather than everything distracting.
+  const note = $("#focus-blocks-note");
+  note.hidden = !b.default;
+  note.textContent = b.default ? `Blocks your “${b.default}” list. Choose another under Block lists, or name one in the label.` : "";
+  fallback.addEventListener("change", () => run(() => api.setDefaultBlockList(fallback.value || null)));
+  $("#default-block-list").replaceWith(fallback);
+  $("#block-lists").replaceChildren(
+    ...b.lists.map((l, i) => {
+      const name = h("input", { class: "filter block-list-name", value: l.name, maxlength: "40", "aria-label": "List name" }) as HTMLInputElement;
+      name.addEventListener("change", () => run(() => api.saveBlockList(l.name, name.value, l.keys)));
+      const remove = h("button", { class: "link-btn" }, "Remove");
+      remove.addEventListener("click", () => run(() => api.removeBlockList(l.name)));
+      const picker = keyPicker(l.keys, (keys) => run(() => api.saveBlockList(l.name, l.name, keys)), (t) => (status.textContent = t), `list-${i}`);
+      return h(
+        "div",
+        { class: "block-list" },
+        h("div", { class: "row-buttons" }, name, remove),
+        picker,
+        ...(l.keys.length ? [] : [h("p", { class: "muted" }, "Empty, so anything using it blocks as usual.")]),
+      );
+    }),
+  );
+}
+
+$("#block-list-add").addEventListener("click", async () => {
+  const name = $<HTMLInputElement>("#block-list-name");
+  try {
+    renderBlockLists(await api.saveBlockList(null, name.value, []));
+    name.value = "";
+    $("#block-list-status").textContent = "";
+  } catch (err) {
+    $("#block-list-status").textContent = String(err);
+  }
+});
 
 /// The add row: day toggles (weekdays to start), and the lengths to choose from.
 function setUpScheduleForm() {
@@ -1740,6 +1825,9 @@ async function load(v: View = view) {
     if (v === "focus") {
       paintTimer();
       renderFocusPage(await api.focusOverview());
+      // Slots name the apps, sites and saved lists they block, so those come first.
+      await loadBlockChoices();
+      renderBlockLists(await api.blockLists());
       renderSchedule(await api.focusSchedule());
     }
     if (v === "settings") {

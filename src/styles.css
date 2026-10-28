@@ -1413,6 +1413,31 @@ html.palette-root {
   gap: 6px;
 }
 
+.slot-blocks p,
+.block-list p {
+  margin: 0;
+}
+
+.focus-blocks-note {
+  margin: 0;
+  font-size: 13px;
+}
+
+.block-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.block-list .block-list-name {
+  width: 220px;
+}
+
+.block-list-add {
+  margin-top: 8px;
+}
+
 .slot-chip {
   display: inline-flex;
   align-items: center;
