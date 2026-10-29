@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.19.1"
+version = "1.19.2"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
