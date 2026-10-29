@@ -24,16 +24,17 @@ On Windows and a Mac:
 1. **Click.** Left-click the tray icon (menu bar icon on a Mac), then try a double-click.
    *Expect:* the dashboard opens either way, once, never two windows. Right-click (or, on a Mac,
    any other click) shows the menu.
-2. **Menu.** *Expect:* Open dashboard, Open Chrono, Command palette (with its shortcut),
-   Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and if it's
-   already open, brings it forward.
+2. **Menu.** *Expect:* Open dashboard, Open Chrono, Open settings, Command palette (with its
+   shortcut), Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and
+   if it's already open, brings it forward. Open settings opens the dashboard on its Settings tab,
+   and switches to that tab if the dashboard is already open on Home.
 3. **Settings.** On the dashboard's Home, press Chrono's Settings while Chrono is closed.
    *Expect:* Chrono opens on its Settings page, which starts with a line pointing to Kairo's
    settings; its link opens the dashboard's Settings tab. Change the theme there with Chrono open.
    *Expect:* Chrono repaints without a restart.
 
-On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same five items,
-and Open dashboard opens the dashboard.
+On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same six items,
+and Open dashboard and Open settings work as above.
 
 ## Mac
 
