@@ -72,6 +72,10 @@ pub struct PaletteItem(pub MenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(query) = startup::search_files_query(&std::env::args().collect::<Vec<_>>()) {
+        palette::files::print_search(&query);
+        return;
+    }
     tauri::Builder::default()
         // Must be first: a second launch (e.g. from Start while Kairo sits in the tray) reaches the
         // running copy instead of starting another collector. Kairo itself is the command

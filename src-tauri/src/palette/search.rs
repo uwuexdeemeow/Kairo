@@ -233,6 +233,8 @@ pub enum Tone {
 pub enum Icon {
     /// A Start menu app's own icon, by its shortcut's path.
     App(String),
+    /// A file, by its path.
+    File(String),
     Glyph(Glyph, Tone),
 }
 
@@ -265,13 +267,18 @@ pub enum Action {
     ExportTime,
     Backup,
     Restore,
+    /// Opens a file with its default app, or shows it in its folder.
+    OpenFile(String),
+    RevealFile(String),
+    /// Does nothing, for a row that only says something.
+    Nothing,
 }
 
 impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore)
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..))
     }
 }
 
@@ -300,11 +307,13 @@ pub struct Item {
     pub action: Action,
     /// A card to show above the results while this item is selected.
     pub preview: Option<Preview>,
+    /// What Ctrl+Enter (Command+Enter on a Mac) does instead, and the label shown for it.
+    pub second: Option<(Action, &'static str)>,
 }
 
 impl Item {
-    fn new(title: impl Into<String>, icon: Icon, section: &'static str, action: Action) -> Self {
-        Item { title: title.into(), at: Vec::new(), sub: None, detail: None, icon, score: 0.0, section, action, preview: None }
+    pub(super) fn new(title: impl Into<String>, icon: Icon, section: &'static str, action: Action) -> Self {
+        Item { title: title.into(), at: Vec::new(), sub: None, detail: None, icon, score: 0.0, section, action, preview: None, second: None }
     }
 }
 

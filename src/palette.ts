@@ -131,7 +131,7 @@ function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): H
   } else {
     const text = h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, ...highlighted(item.title, item.at)));
     if (item.sub && kind === "row") text.append(h("span", { class: "palette-sub" }, item.sub));
-    const icon = item.icon.kind === "app" ? appIcon(item.icon.path, item.title) : strokeIcon(item.icon.glyph, item.icon.tone);
+    const icon = item.icon.kind === "app" || item.icon.kind === "file" ? appIcon(item.icon.path, item.title) : strokeIcon(item.icon.glyph, item.icon.tone);
     el.append(icon, text);
     if (item.detail) el.append(h("span", { class: "palette-detail" }, item.detail));
     if (isSelected && kind === "row") el.append(h("kbd", {}, "Enter"));

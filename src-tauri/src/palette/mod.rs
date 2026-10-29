@@ -19,6 +19,7 @@ use crate::{db, focus, goals};
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
 pub mod cards;
+pub mod files;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
@@ -400,6 +401,11 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             with_file_dialog(app, action.clone());
             Ok(())
         }
+        Action::OpenFile(path) if std::path::Path::new(path).exists() && crate::platform::open_path(path) => Ok(()),
+        Action::OpenFile(_) => Err("Couldn't open it: it was moved or deleted.".into()),
+        Action::RevealFile(path) if files::reveal(path) => Ok(()),
+        Action::RevealFile(_) => Err("Couldn't show it in its folder.".into()),
+        Action::Nothing => Ok(()),
     }
 }
 
@@ -441,12 +447,20 @@ pub struct ItemView {
     section: &'static str,
     /// Whether it has a card to show while it's selected (`palette_card`).
     preview: bool,
+    /// The label of what Ctrl+Enter does instead.
+    second: Option<&'static str>,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum IconView {
     App { path: String },
+    /// The kind is `file_kind` because `kind` already names the variant.
+    File {
+        path: String,
+        #[serde(rename = "fileKind")]
+        file_kind: &'static str,
+    },
     Glyph { glyph: &'static str, tone: &'static str },
 }
 
@@ -454,6 +468,7 @@ impl From<&Item> for ItemView {
     fn from(item: &Item) -> Self {
         let icon = match &item.icon {
             Icon::App(path) => IconView::App { path: path.clone() },
+            Icon::File(path) => IconView::File { path: path.clone(), file_kind: files::file_kind(path) },
             Icon::Glyph(glyph, tone) => IconView::Glyph {
                 glyph: match glyph {
                     Glyph::Focus => "focus",
@@ -480,6 +495,7 @@ impl From<&Item> for ItemView {
             icon,
             section: item.section,
             preview: item.preview.is_some(),
+            second: item.second.as_ref().map(|(_, label)| *label),
         }
     }
 }

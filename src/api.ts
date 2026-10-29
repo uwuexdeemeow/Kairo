@@ -133,8 +133,13 @@ export interface PaletteItem {
   at: number[];
   sub: string | null;
   detail: string | null;
-  icon: { kind: "app"; path: string } | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
+  icon:
+    | { kind: "app"; path: string }
+    | { kind: "file"; path: string; fileKind: "folder" | "image" | "document" | "other" }
+    | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
   section: string;
+  /** The label of what Ctrl+Enter (Command+Enter on a Mac) does instead. */
+  second: string | null;
   /** Whether it has a card to show while it's selected (`paletteCard`). */
   preview: boolean;
 }

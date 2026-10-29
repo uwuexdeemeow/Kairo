@@ -1090,7 +1090,7 @@ impl Palette {
     fn icon(&mut self, rt: &ID2D1RenderTarget, icon: &Icon, title: &str, x: f32, mid_y: f32, size: f32) -> Result<()> {
         let t = self.theme;
         match icon {
-            Icon::App(path) => {
+            Icon::App(path) | Icon::File(path) => {
                 if let Some(bitmap) = self.bitmap(rt, path)? {
                     let r = rect(x, mid_y - size / 2.0, x + size, mid_y + size / 2.0);
                     unsafe { rt.DrawBitmap(&bitmap, Some(&r), 1.0, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, None) };
@@ -1366,7 +1366,7 @@ impl Palette {
         }
         let mid = (r.top + r.bottom) / 2.0;
         // Icons sit in a 28-pixel box; an app's own is 24 within it.
-        let icon_x = if matches!(item.icon, Icon::App(_)) { r.left + 14.0 } else { r.left + 12.0 };
+        let icon_x = if matches!(item.icon, Icon::App(_) | Icon::File(_)) { r.left + 14.0 } else { r.left + 12.0 };
         self.icon(rt, &item.icon, &item.title, icon_x, mid, 24.0)?;
         let mut right = r.right - 12.0;
         if selected {
