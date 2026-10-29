@@ -66,7 +66,7 @@ fn under(path: &Path, home: &Path) -> Option<PathBuf> {
 }
 
 /// Folders whose files are clutter wherever they sit under home.
-const CLUTTER: [&str; 4] = ["node_modules", ".git", "target", "__pycache__"];
+const CLUTTER: [&str; 5] = ["node_modules", ".git", "target", "__pycache__", "site-packages"];
 /// Top-level folders in home that hold the system's and apps' own files, not the user's.
 const APP_FOLDERS: [&str; 2] = ["library", "appdata"];
 
@@ -401,6 +401,7 @@ mod tests {
             "Library/Preferences/budget.plist",
             "AppData/Roaming/budget.txt",
             "code/app/node_modules/budget.js",
+            "venv/lib/python3.12/site-packages/budget.py",
             "code/.git/budget",
             "code/app/target/budget",
             "code/__pycache__/budget.pyc",
