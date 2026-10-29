@@ -21,10 +21,6 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    fn later() -> Instant {
-        Instant::now() + Duration::from_secs(5)
-    }
-
     /// Deletes its file when dropped, even if the test failed.
     struct Cleanup(PathBuf);
 
