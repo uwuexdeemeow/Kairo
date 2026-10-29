@@ -9,7 +9,7 @@ import "./styles.css";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type Appearance, type PaletteCard, type PaletteItem, type PaletteResults } from "./api";
+import { api, type Appearance, type PaletteCard, type PaletteFiles, type PaletteItem, type PaletteResults } from "./api";
 
 const MIN_MS = 60_000;
 /// The window's width, and the room around the panel for its shadow (`.palette-page`).
@@ -44,6 +44,10 @@ const ICONS: Record<string, string> = {
   settings: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" />',
   today: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />',
   alert: '<path d="M12 8v5M12 16.5v.5" /><circle cx="12" cy="12" r="9" />',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M21 16l-5-5-9 9" />',
+  document: '<path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 17h6" />',
+  other: '<path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" />',
   update: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" />',
 };
 
@@ -76,6 +80,9 @@ function highlighted(text: string, at: number[]): Node[] {
   flush();
   return out;
 }
+
+const isMac = () => navigator.userAgent.includes("Macintosh");
+const isLinux = () => navigator.userAgent.includes("Linux");
 
 // ---------- icons ----------
 
@@ -118,6 +125,14 @@ let selected = 0;
 let queryToken = 0;
 let previewToken = 0;
 
+/// An app's icon, a file's (a glyph by its kind where the system can't give one), or a glyph.
+function rowIcon(item: PaletteItem): HTMLElement {
+  const icon = item.icon;
+  if (icon.kind === "app") return appIcon(icon.path, item.title);
+  if (icon.kind === "file") return isLinux() ? strokeIcon(icon.fileKind, "") : appIcon(icon.path, item.title);
+  return strokeIcon(icon.glyph, icon.tone);
+}
+
 function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): HTMLElement {
   const isSelected = index === selected;
   const el = h("div", {
@@ -131,8 +146,7 @@ function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): H
   } else {
     const text = h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, ...highlighted(item.title, item.at)));
     if (item.sub && kind === "row") text.append(h("span", { class: "palette-sub" }, item.sub));
-    const icon = item.icon.kind === "app" || item.icon.kind === "file" ? appIcon(item.icon.path, item.title) : strokeIcon(item.icon.glyph, item.icon.tone);
-    el.append(icon, text);
+    el.append(rowIcon(item), text);
     if (item.detail) el.append(h("span", { class: "palette-detail" }, item.detail));
     if (isSelected && kind === "row") el.append(h("kbd", {}, "Enter"));
   }
@@ -175,9 +189,18 @@ function render(r: PaletteResults) {
   if (!shown.length && typed) out.push(h("p", { class: "palette-empty" }, "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”."));
   $("#palette-results").replaceChildren(...out);
   input.setAttribute("aria-activedescendant", shown.length ? `palette-item-${selected}` : "");
+  renderHint();
   loadIcons();
   renderPreview();
   fit();
+}
+
+/// The footer's note on what Ctrl+Enter (Command+Enter on a Mac) does for the selected item.
+function renderHint() {
+  const box = $("#palette-second");
+  const second = shown[selected]?.second;
+  box.hidden = !second;
+  box.replaceChildren(...(second ? [h("kbd", {}, isMac() ? "⌘" : "Ctrl"), " ", h("kbd", {}, "Enter"), ` ${second}`] : []));
 }
 
 function select(index: number) {
@@ -191,6 +214,7 @@ function select(index: number) {
   }
   input.setAttribute("aria-activedescendant", `palette-item-${selected}`);
   document.getElementById(`palette-item-${selected}`)?.scrollIntoView({ block: "nearest" });
+  renderHint();
   renderPreview();
 }
 
@@ -281,13 +305,30 @@ function fit() {
     .catch(() => {});
 }
 
+function showError(err: unknown) {
+  $("#palette-results").prepend(h("p", { class: "palette-error" }, String(err)));
+  fit();
+}
+
+/// Runs an item. A switch flips and the palette stays open on fresh results, with the
+/// selection where it was; anything else hides the palette.
 async function run(index: number) {
   if (!shown[index]) return;
   try {
-    await api.paletteRun(results.seq, index);
+    const fresh = await api.paletteRun(results.seq, index);
+    if (fresh) render(fresh);
   } catch (err) {
-    $("#palette-results").prepend(h("p", { class: "palette-error" }, String(err)));
-    fit();
+    showError(err);
+  }
+}
+
+/// Runs what Ctrl+Enter (Command+Enter on a Mac) does for an item.
+async function runSecond(index: number) {
+  if (!shown[index]?.second) return;
+  try {
+    await api.paletteRunSecond(results.seq, index);
+  } catch (err) {
+    showError(err);
   }
 }
 
@@ -316,7 +357,8 @@ document.addEventListener("keydown", (e) => {
     select(selected - 1);
   } else if (e.key === "Enter" && !e.isComposing) {
     e.preventDefault();
-    run(selected);
+    if (e.ctrlKey || e.metaKey) runSecond(selected);
+    else run(selected);
   }
 });
 
@@ -346,6 +388,12 @@ async function open() {
   }
   await refresh();
 }
+
+/// File rows for the current query follow the rows already shown; the selection stays on its item.
+listen<PaletteFiles>("palette:files", (e) => {
+  if (e.payload.seq !== results.seq || !e.payload.rows.length) return;
+  render({ ...results, rows: [...results.rows, ...e.payload.rows] });
+});
 
 listen("palette:open", open);
 open();

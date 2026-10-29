@@ -1118,6 +1118,10 @@ html.palette-root {
   gap: 6px;
 }
 
+.palette-footer > span[hidden] {
+  display: none;
+}
+
 .palette-today {
   margin-left: auto;
   font-family: var(--mono);
