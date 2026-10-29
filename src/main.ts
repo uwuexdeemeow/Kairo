@@ -3,7 +3,7 @@ import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
-import { useDropdowns } from "./dropdown";
+import { shownControl, useDropdowns } from "./dropdown";
 import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -2072,7 +2072,8 @@ for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) 
   link.addEventListener("click", async () => {
     $<HTMLButtonElement>(`[data-view="${link.dataset.goto}"]`).click();
     await load(link.dataset.goto as View);
-    const target = document.querySelector<HTMLElement>(link.dataset.gotoTarget ?? "");
+    const found = document.querySelector<HTMLElement>(link.dataset.gotoTarget ?? "");
+    const target = found && shownControl(found);
     target?.scrollIntoView({ block: "center" });
     target?.focus();
   });
@@ -2207,8 +2208,13 @@ $<HTMLSelectElement>("#shown-computer").addEventListener("change", async (e) => 
   load();
 });
 api.sync().then(renderComputerPick, () => {});
-// Kairo's settings can change who is combined while Chrono is open in the background.
+// Kairo's settings can change who is combined while Chrono is open in the background, and other
+// computers can join the folder.
 window.addEventListener("focus", () => api.sync().then(renderComputerPick, () => {}));
+listen("kairo:sync", () => {
+  api.sync().then(renderComputerPick, () => {});
+  load();
+});
 $("#open-kairo-settings").addEventListener("click", () => api.openDashboard("settings"));
 
 $("#demo-load").addEventListener("click", async () => {

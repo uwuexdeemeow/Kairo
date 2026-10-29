@@ -177,6 +177,13 @@ function next(select: HTMLSelectElement, from: number, step: number): number {
   return from;
 }
 
+/// Adds `key` to what's been typed, and gives the first option that starts with it (-1 for none).
+function typeAhead(select: HTMLSelectElement, key: string): number {
+  typed = Date.now() - typedAt > TYPEAHEAD_MS ? key.toLowerCase() : typed + key.toLowerCase();
+  typedAt = Date.now();
+  return [...select.options].findIndex((o) => !o.disabled && o.text.toLowerCase().startsWith(typed));
+}
+
 function onKey(select: HTMLSelectElement, e: KeyboardEvent) {
   const isOpen = open?.select === select;
   const current = isOpen ? open!.active : Math.max(select.selectedIndex, 0);
@@ -199,8 +206,15 @@ function onKey(select: HTMLSelectElement, e: KeyboardEvent) {
     case "End":
       target = next(select, select.options.length, -1);
       break;
-    case "Enter":
     case " ":
+      // Mid type-ahead, a space is part of what's typed ("this o"), as in a native select.
+      if (typed && Date.now() - typedAt <= TYPEAHEAD_MS) {
+        target = typeAhead(select, e.key);
+        if (target < 0) return;
+        break;
+      }
+    // falls through
+    case "Enter":
       e.preventDefault();
       if (isOpen) choose(open!.active);
       else show(select);
@@ -216,9 +230,7 @@ function onKey(select: HTMLSelectElement, e: KeyboardEvent) {
       return;
     default:
       if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
-      typed = Date.now() - typedAt > TYPEAHEAD_MS ? e.key.toLowerCase() : typed + e.key.toLowerCase();
-      typedAt = Date.now();
-      target = [...select.options].findIndex((o) => !o.disabled && o.text.toLowerCase().startsWith(typed));
+      target = typeAhead(select, e.key);
       if (target < 0) return;
   }
   e.preventDefault();
@@ -250,6 +262,12 @@ function followSetters() {
       },
     });
   }
+}
+
+/// What's on screen for `el`: a select's themed button, since the select itself is hidden; anything
+/// else as it is. For code that scrolls to or focuses a control.
+export function shownControl(el: HTMLElement): HTMLElement {
+  return (el instanceof HTMLSelectElement && enhanced.get(el)?.button) || el;
 }
 
 /// Gives every select on the page, and every one added later, a themed dropdown. Call once.

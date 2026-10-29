@@ -1204,14 +1204,17 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
         privacy::refresh(&conn, &state.privacy_rules).map_err(err)?;
     }
     nudge::invalidate(&state.window_cache);
+    let _ = app.emit("kairo:sync", ());
     sync_state(&conn).map(Some)
 }
 
 #[tauri::command]
-pub fn stop_sync(state: State<AppState>) -> CmdResult<SyncState> {
+pub fn stop_sync(app: AppHandle, state: State<AppState>) -> CmdResult<SyncState> {
     let conn = state.db.lock().map_err(err)?;
     sync::stop(&conn)?;
     nudge::invalidate(&state.window_cache);
+    // Chrono, if it's open, shows whose time it shows from this.
+    let _ = app.emit("kairo:sync", ());
     sync_state(&conn)
 }
 
