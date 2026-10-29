@@ -10,6 +10,10 @@ use super::search::{Action, Icon, Item};
 mod windows;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(not(any(windows, target_os = "macos")))]
+mod linux;
+#[cfg(unix)]
+mod process;
 
 /// Fewest characters typed before the index is asked.
 pub const MIN_CHARS: usize = 2;
@@ -161,12 +165,8 @@ pub fn ask_system(query: &str, home: &Path, deadline: Instant) -> Result<Vec<Pat
     return windows::ask(query, home, deadline);
     #[cfg(target_os = "macos")]
     return macos::ask(query, home, deadline);
-    // The other systems' indexes are asked by their own modules, once they exist.
     #[cfg(not(any(windows, target_os = "macos")))]
-    {
-        let _ = (query, home, deadline);
-        Err(Unavailable::NoIndexer)
-    }
+    return linux::ask(query, home, deadline);
 }
 
 /// Opens a file's folder with the file picked out where the file manager allows, else the folder.
