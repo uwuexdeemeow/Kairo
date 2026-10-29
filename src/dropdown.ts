@@ -209,6 +209,8 @@ function onKey(select: HTMLSelectElement, e: KeyboardEvent) {
     case " ":
       // Mid type-ahead, a space is part of what's typed ("this o"), as in a native select.
       if (typed && Date.now() - typedAt <= TYPEAHEAD_MS) {
+        // Else the button takes the space as a click and opens the list.
+        e.preventDefault();
         target = typeAhead(select, e.key);
         if (target < 0) return;
         break;
