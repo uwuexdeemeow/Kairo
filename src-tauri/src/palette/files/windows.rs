@@ -1,29 +1,25 @@
-//! Windows file search: asks the Windows Search index through a `search-ms:` query, listed with the
-//! shell's own item enumeration.
+//! Windows file search: asks the Windows Search index through the Storage API's file query, which
+//! answers straight from the index. (A `search-ms:` folder enumerated through the shell fails with
+//! E_UNEXPECTED, so it can't be used here.)
 
-use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use windows::core::{HSTRING, PWSTR};
+use windows::core::HSTRING;
+use windows::Storage::Search::{FolderDepth, IndexerOption, QueryOptions};
+use windows::Storage::StorageFolder;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
-use windows::Win32::System::Com::{CoInitializeEx, CoTaskMemFree, CoUninitialize, COINIT_MULTITHREADED};
-use windows::Win32::UI::Shell::{IEnumShellItems, IShellItem, SHCreateItemFromParsingName, BHID_EnumItems, SIGDN_FILESYSPATH};
+use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
 use super::Unavailable;
 
 /// The most paths one search lists.
-const MAX_PATHS: usize = 50;
+const MAX_PATHS: u32 = 50;
 
-/// Percent-encodes everything but ASCII letters and digits, as a `search-ms:` URL wants.
-fn escape(text: &str) -> String {
-    text.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
-}
-
-/// The `search-ms:` URL asking for files named like the query anywhere under the folder.
-fn search_url(query: &str, home: &Path) -> String {
-    format!("search-ms:query={}&crumb=location:{}", escape(query), escape(&home.to_string_lossy()))
+/// The Advanced Query Syntax filter for file names containing the query. AQS has no way to escape
+/// a double quote inside a phrase, so those are dropped.
+fn name_filter(query: &str) -> String {
+    format!("System.FileName:~~\"{}\"", query.replace('"', ""))
 }
 
 /// Balances a successful `CoInitializeEx` when dropped.
@@ -37,8 +33,9 @@ impl Drop for Com {
     }
 }
 
-/// Asks Windows Search for files named like the query under `home`, up to 50 or until the deadline.
-pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+/// Asks Windows Search for files named like the query under `home`, up to 50. The index answers in
+/// one call, so the deadline is left to the caller, which stops waiting for a late answer.
+pub fn ask(query: &str, home: &Path, _deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
     let failed = |e: windows::core::Error| Unavailable::Failed(e.to_string());
     // Initialised on this thread, whichever it is; a thread already set up the other way is left alone.
     let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
@@ -46,24 +43,22 @@ pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, 
         return Err(Unavailable::Failed(windows::core::Error::from(hr).to_string()));
     }
     let _com = Com(hr.is_ok());
-    unsafe {
-        let folder: IShellItem = SHCreateItemFromParsingName(&HSTRING::from(search_url(query, home)), None).map_err(failed)?;
-        let items: IEnumShellItems = folder.BindToHandler(None, &BHID_EnumItems).map_err(failed)?;
-        let mut found = Vec::new();
-        while found.len() < MAX_PATHS && Instant::now() < deadline {
-            let mut next = [None];
-            let mut fetched = 0;
-            items.Next(&mut next, Some(&mut fetched)).map_err(failed)?;
-            let Some(Some(item)) = next.into_iter().next().filter(|_| fetched > 0) else { break };
-            let name: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH).map_err(failed)?;
-            // Copied as the system wrote it, which can't fail even for a name that isn't valid
-            // UTF-16, and freed before anything else can return.
-            let path = PathBuf::from(OsString::from_wide(name.as_wide()));
-            CoTaskMemFree(Some(name.0 as *const _));
-            found.push(path);
-        }
-        Ok(found)
+    let folder = StorageFolder::GetFolderFromPathAsync(&HSTRING::from(home.as_os_str())).and_then(|op| op.join()).map_err(failed)?;
+    let options = QueryOptions::new().map_err(failed)?;
+    options.SetFolderDepth(FolderDepth::Deep).map_err(failed)?;
+    // Only the index: without it, a folder outside the index would be walked file by file.
+    options.SetIndexerOption(IndexerOption::OnlyUseIndexer).map_err(failed)?;
+    options.SetApplicationSearchFilter(&HSTRING::from(name_filter(query))).map_err(failed)?;
+    let files = folder
+        .CreateFileQueryWithOptions(&options)
+        .and_then(|q| q.GetFilesAsync(0, MAX_PATHS))
+        .and_then(|op| op.join())
+        .map_err(failed)?;
+    let mut found = Vec::new();
+    for file in files {
+        found.push(PathBuf::from(file.Path().map_err(failed)?.to_os_string()));
     }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -71,10 +66,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_query_and_folder_are_escaped() {
-        assert_eq!(
-            search_url("tax & \"2026\"", Path::new(r"C:\Users\Ana")),
-            "search-ms:query=tax%20%26%20%222026%22&crumb=location:C%3A%5CUsers%5CAna"
-        );
+    fn the_filter_matches_names_containing_the_query() {
+        assert_eq!(name_filter("tax 2026"), "System.FileName:~~\"tax 2026\"");
+        assert_eq!(name_filter("say \"hi\""), "System.FileName:~~\"say hi\"");
+    }
+
+    /// Asks the real index for a file made just for this, so a search that can't answer fails here
+    /// rather than on someone's machine. Run it with `cargo test -- --ignored` on a machine whose
+    /// Windows Search indexes the user folder, as a normal Windows install does.
+    #[test]
+    #[ignore = "needs the Windows Search service and time for it to index"]
+    fn the_index_finds_a_file_under_home() {
+        let home = super::super::home().expect("a home folder");
+        let name = format!("kairo-search-probe-{}.txt", std::process::id());
+        let path = home.join("Documents").join(&name);
+        std::fs::write(&path, "probe").unwrap();
+        let mut found = Vec::new();
+        for _ in 0..60 {
+            found = ask(&name, &home, Instant::now()).unwrap();
+            if !found.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+        std::fs::remove_file(&path).ok();
+        assert!(found.iter().any(|p| p.file_name().is_some_and(|n| n == name.as_str())), "found {found:?}");
     }
 }
