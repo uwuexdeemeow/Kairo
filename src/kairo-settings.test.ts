@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   appearance: vi.fn(),
   setAppearance: vi.fn(),
   paletteSettings: vi.fn(),
+  setPaletteSearchFiles: vi.fn(),
   setPaletteShortcut: vi.fn(),
   autostart: vi.fn(),
 }));
@@ -40,7 +41,7 @@ beforeEach(async () => {
   api.version.mockResolvedValue("1.19.3");
   api.sync.mockResolvedValue(OFF);
   api.appearance.mockResolvedValue("dark");
-  api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false });
+  api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false, searchFiles: true });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.setPaletteShortcut.mockResolvedValue(undefined);
   document.body.innerHTML = markup;
@@ -55,12 +56,31 @@ describe("loading", () => {
     expect($<HTMLSelectElement>("#appearance").value).toBe("dark");
     expect(keys()).toEqual(["Ctrl", "Space"]);
     expect($<HTMLInputElement>("#palette-suggestions").checked).toBe(true);
+    expect($<HTMLInputElement>("#palette-search-files").checked).toBe(true);
     expect($("#sync-where").textContent).toBe("Off. This computer would show up as Tower.");
     expect($("#sync-stop").hidden).toBe(true);
   });
 
   it("names the Windows key the way Windows does", () => {
     expect(settings.shortcutKeys("Super+K").map((k) => k.textContent)).toEqual(["Win", "K"]);
+  });
+});
+
+describe("settings changed from the palette", () => {
+  it("reload the controls when Kairo says they changed", async () => {
+    api.paletteSettings.mockClear();
+    api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: false, overFullscreen: false, searchFiles: false });
+    for (const fn of events.get("kairo:settings") ?? []) fn({ payload: null });
+    await vi.waitFor(() => expect($<HTMLInputElement>("#palette-suggestions").checked).toBe(false));
+    expect(api.paletteSettings).toHaveBeenCalledTimes(1);
+    expect($<HTMLInputElement>("#palette-search-files").checked).toBe(false);
+  });
+
+  it("saves the Search files switch", () => {
+    const box = $<HTMLInputElement>("#palette-search-files");
+    box.checked = false;
+    box.dispatchEvent(new Event("change"));
+    expect(api.setPaletteSearchFiles).toHaveBeenCalledWith(false);
   });
 });
 

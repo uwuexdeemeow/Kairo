@@ -6,21 +6,20 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::Mutex;
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
 use windows::core::{w, Interface, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT, D2D_RECT_F,
-    D2D_SIZE_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
-    D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1, DWRITE_CONTAINER_TYPE_WOFF2,
@@ -51,7 +50,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_numerics::Vector2;
 
-use super::search::{self, fmt_dur, Context, Glyph, Icon, Item, Tone};
+use super::files::{self, Worker};
+use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
+use super::settings::{self, Switch};
 use super::cards::{self, Answer, Card, FocusPlan};
 use super::search::Preview;
 use super::{DayGlance, Segment};
@@ -61,6 +62,11 @@ use crate::{db, platform};
 /// The window, once its thread has made it; the shortcut posts to it from Tauri's thread.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 const WM_TOGGLE: u32 = WM_APP + 1;
+/// Files were found; they wait in `FILES` for the palette's thread.
+const WM_FILES: u32 = WM_APP + 2;
+/// The latest files found and the number of the results they're for, handed from the file
+/// search's thread to the palette's, which takes them when `WM_FILES` arrives.
+static FILES: Mutex<Option<(u64, Vec<Item>)>> = Mutex::new(None);
 const EN_CHANGE: u32 = 0x0300;
 const EM_SETCUEBANNER: u32 = 0x1501;
 const ES_AUTOHSCROLL: u32 = 0x0080;
@@ -229,6 +235,10 @@ struct Palette {
     scroll: f32,
     preview: Option<(Preview, Card)>,
     error: Option<String>,
+    /// Searches files for what's typed, on a thread of its own.
+    worker: Worker,
+    /// The number of the results shown, so files found for older ones are dropped.
+    seq: u64,
 }
 
 thread_local! {
@@ -286,6 +296,35 @@ unsafe fn pump() {
         let _ = TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+}
+
+// ---------- files and second actions ----------
+
+/// Adds files found for the results numbered `seq` after the rows, where they belong only while
+/// those are still the results shown (`current`). Returns whether anything changed.
+fn merge_files(items: &mut Vec<Item>, rows: &mut usize, seq: u64, current: u64, files: Vec<Item>) -> bool {
+    if seq != current || files.is_empty() {
+        return false;
+    }
+    let at = (*rows).min(items.len());
+    *rows = at + files.len();
+    items.splice(at..at, files);
+    true
+}
+
+/// The label over row `index`: when typing, the best match leads as the top hit, unless it's a
+/// file, which keeps its own section; otherwise its section.
+fn heading(typed: bool, index: usize, item: &Item) -> &'static str {
+    if typed && index == 0 && item.section != "Files" {
+        "Top hit"
+    } else {
+        item.section
+    }
+}
+
+/// What Ctrl+Enter does for the selected item, for the footer; None when it does nothing.
+fn footer_hint(item: Option<&Item>) -> Option<&'static str> {
+    item.and_then(|i| i.second.as_ref()).map(|(_, label)| *label)
 }
 
 // ---------- fonts ----------
@@ -421,6 +460,19 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
         None,
     )?;
 
+    // Called on the search's own thread, so it only leaves the files for the palette's thread and
+    // wakes it; before the window exists there's no one to show them to.
+    let worker = Worker::new(files::ask_system, |seq, items| {
+        let hwnd = WINDOW.load(Ordering::Acquire);
+        if hwnd == 0 {
+            return;
+        }
+        *FILES.lock().unwrap_or_else(|e| e.into_inner()) = Some((seq, items));
+        unsafe {
+            let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_FILES, WPARAM(0), LPARAM(0));
+        }
+    });
+
     PALETTE.with(|p| {
         *p.borrow_mut() = Some(Palette {
             app,
@@ -452,6 +504,8 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             scroll: 0.0,
             preview: None,
             error: None,
+            worker,
+            seq: 0,
         })
     });
     WINDOW.store(hwnd.0 as isize, Ordering::Release);
@@ -466,6 +520,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             } else {
                 with(|p| p.show());
             }
+            LRESULT(0)
+        }
+        WM_FILES => {
+            with(|p| {
+                if let Some((seq, items)) = FILES.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    p.add_files(seq, items);
+                }
+            });
             LRESULT(0)
         }
         WM_PAINT => {
@@ -534,8 +596,9 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             with(|p| p.select_by(-1));
             LRESULT(0)
         }
+        // Ctrl+Enter does an item's second thing, like showing a file in its folder.
         (WM_KEYDOWN, k) if k == VK_RETURN.0 => {
-            with(|p| p.run(p.selected));
+            with(|p| if ctrl { p.run_second(p.selected) } else { p.run(p.selected) });
             LRESULT(0)
         }
         (WM_KEYDOWN, k) if k == VK_ESCAPE.0 => {
@@ -550,8 +613,9 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             set_edit_text(hwnd, &text[..cut]);
             LRESULT(0)
         }
-        // Their characters would otherwise beep, or type a box for Ctrl+Backspace.
-        (WM_CHAR, 0x09 | 0x0d | 0x1b | 0x7f) => LRESULT(0),
+        // Their characters would otherwise beep, or type a box for Ctrl+Backspace; Ctrl+Enter's
+        // is a line feed.
+        (WM_CHAR, 0x09 | 0x0a | 0x0d | 0x1b | 0x7f) => LRESULT(0),
         _ => DefSubclassProc(hwnd, msg, wparam, lparam),
     }
 }
@@ -611,6 +675,7 @@ impl Palette {
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.set_theme(theme_for(&mode));
         set_edit_text(self.edit, "");
+        self.worker.opened();
         self.refresh_results();
         unsafe {
             // Over the middle of the screen the mouse is on, in its upper part, like Spotlight.
@@ -654,6 +719,8 @@ impl Palette {
         self.target = None;
         self.bitmaps.clear();
         self.preview = None;
+        // Files still coming for what was typed are dropped.
+        self.seq += 1;
     }
 
     fn set_theme(&mut self, theme: Theme) {
@@ -716,7 +783,7 @@ impl Palette {
 
     /// What's known when it opens: apps, the focus session, today's apps and limits.
     fn load(&mut self) {
-        let (ctx, footer) = super::context(&self.conn, &self.app.state::<super::Index>());
+        let (ctx, footer) = super::context(&self.app, &self.conn, &self.app.state::<super::Index>());
         self.ctx = Some(ctx);
         self.footer = footer;
     }
@@ -726,9 +793,15 @@ impl Palette {
         self.resize();
     }
 
+    /// Results for what's typed, numbered afresh, with files asked for when they're wanted; they
+    /// join the rows when found.
     fn refresh_results(&mut self) {
         let query = self.query();
         let Some(ctx) = &self.ctx else { return };
+        self.seq += 1;
+        if super::wants_files(ctx, &query) {
+            self.worker.ask(self.seq, query.clone());
+        }
         if query.trim().is_empty() {
             let s = search::suggestions(ctx);
             self.rows = s.rows.len();
@@ -744,6 +817,15 @@ impl Palette {
         self.error = None;
         self.update_preview();
         self.layout();
+    }
+
+    /// Files found for the results numbered `seq` join the end of the rows, if those are still
+    /// shown; the selection and scroll stay where they were.
+    fn add_files(&mut self, seq: u64, items: Vec<Item>) {
+        if merge_files(&mut self.items, &mut self.rows, seq, self.seq, items) {
+            self.layout();
+            self.resize();
+        }
     }
 
     /// A selected day gets a glance at how it went, above the results.
@@ -779,7 +861,7 @@ impl Palette {
         let mut section = "";
         for i in 0..self.rows {
             let item = &self.items[i];
-            let heading = if typed && i == 0 { "Top hit" } else { item.section };
+            let heading = heading(typed, i, item);
             if heading != section {
                 y += 6.0;
                 labels.push((heading.to_uppercase(), y));
@@ -886,18 +968,63 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned() else { return };
+        // A switch flips where it is, and the palette stays open to show its new state.
+        if item.action.keeps_palette_open() {
+            if let Action::Toggle(switch) = item.action {
+                self.flip(switch);
+            }
+            return;
+        }
+        self.perform(&item.action);
+    }
+
+    /// Does what Ctrl+Enter does for item `index`; nothing for an item without a second action.
+    fn run_second(&mut self, index: usize) {
+        let Some((action, _)) = self.items.get(index).and_then(|i| i.second.clone()) else { return };
+        self.perform(&action);
+    }
+
+    /// Does what an item says and puts the palette away, or shows why it couldn't.
+    fn perform(&mut self, action: &Action) {
         // Kairo's window, or a file dialog, opens over where the palette was.
-        if item.action.opens_window() {
+        if action.opens_window() {
             self.hide();
         }
-        match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), &item.action) {
+        match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), action) {
             Ok(()) => self.hide(),
-            Err(e) => {
-                self.error = Some(e);
-                self.layout();
-                self.resize();
-            }
+            Err(e) => self.fail(e),
         }
+    }
+
+    /// Flips a switch and shows the results again with its new state, the same row still selected.
+    /// A switch that refuses keeps its state and says why on its row's second line.
+    fn flip(&mut self, switch: Switch) {
+        let refused = match settings::flip(&self.app, &self.conn, switch) {
+            Ok(on) => {
+                if let Some(ctx) = self.ctx.as_mut() {
+                    super::set_switch(ctx, switch, on);
+                }
+                None
+            }
+            Err(why) => Some(why),
+        };
+        let (selected, scroll) = (self.selected, self.scroll);
+        self.refresh_results();
+        if let Some(why) = refused {
+            let rows = self.rows.min(self.items.len());
+            super::say_refused(&mut self.items[..rows], switch, &why);
+        }
+        self.selected = selected.min(self.items.len().saturating_sub(1));
+        self.update_preview();
+        self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
+        self.resize();
+    }
+
+    /// Shows why an action failed, above the results.
+    fn fail(&mut self, error: String) {
+        self.error = Some(error);
+        self.layout();
+        self.resize();
     }
 
     // ---------- drawing ----------
@@ -1063,23 +1190,6 @@ impl Palette {
                     line((12.0, 8.0), (12.0, 13.0));
                     line((12.0, 16.5), (12.0, 17.0));
                 }
-                Some(Glyph::Update) => {
-                    let geometry = self.d2d.CreatePathGeometry()?;
-                    let sink = geometry.Open()?;
-                    sink.BeginFigure(p(20.0, 12.0), D2D1_FIGURE_BEGIN_HOLLOW);
-                    sink.AddArc(&D2D1_ARC_SEGMENT {
-                        point: p(17.7, 6.3),
-                        size: D2D_SIZE_F { width: 8.0 * k, height: 8.0 * k },
-                        rotationAngle: 0.0,
-                        sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                        arcSize: D2D1_ARC_SIZE_LARGE,
-                    });
-                    sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                    sink.Close()?;
-                    rt.DrawGeometry(&geometry, &brush, width, stroke);
-                    line((20.0, 4.0), (20.0, 9.0));
-                    line((20.0, 9.0), (15.0, 9.0));
-                }
             }
         }
         Ok(())
@@ -1090,7 +1200,7 @@ impl Palette {
     fn icon(&mut self, rt: &ID2D1RenderTarget, icon: &Icon, title: &str, x: f32, mid_y: f32, size: f32) -> Result<()> {
         let t = self.theme;
         match icon {
-            Icon::App(path) => {
+            Icon::App(path) | Icon::File(path) => {
                 if let Some(bitmap) = self.bitmap(rt, path)? {
                     let r = rect(x, mid_y - size / 2.0, x + size, mid_y + size / 2.0);
                     unsafe { rt.DrawBitmap(&bitmap, Some(&r), 1.0, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, None) };
@@ -1227,7 +1337,12 @@ impl Palette {
         unsafe { rt.DrawLine(v(0.0, foot + 0.5), v(W, foot + 0.5), &rule, 1.0, None) };
         let mid = foot + FOOTER / 2.0;
         let mut x = 18.0;
-        for (keys, label) in [(&["↑", "↓"][..], "Move"), (&["Enter"][..], "Run")] {
+        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], "Run")];
+        // What Ctrl+Enter does for the selected item, when it does something.
+        if let Some(hint) = footer_hint(self.items.get(self.selected)) {
+            keys.push((&["Ctrl Enter"][..], hint));
+        }
+        for (keys, label) in keys {
             for key in keys {
                 let w = self.measure(key, &self.formats.kbd) + 12.0;
                 self.kbd(rt, key, x + w, mid)?;
@@ -1366,7 +1481,7 @@ impl Palette {
         }
         let mid = (r.top + r.bottom) / 2.0;
         // Icons sit in a 28-pixel box; an app's own is 24 within it.
-        let icon_x = if matches!(item.icon, Icon::App(_)) { r.left + 14.0 } else { r.left + 12.0 };
+        let icon_x = if matches!(item.icon, Icon::App(_) | Icon::File(_)) { r.left + 14.0 } else { r.left + 12.0 };
         self.icon(rt, &item.icon, &item.title, icon_x, mid, 24.0)?;
         let mut right = r.right - 12.0;
         if selected {
@@ -1422,5 +1537,90 @@ impl Palette {
         }
         self.text(rt, &item.title, &self.formats.chip, r.left + 13.0, r.top + 7.0, r.right - r.left, t.ink, &[], false)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(title: &str) -> Item {
+        Item::new(title, Icon::Glyph(Glyph::Today, Tone::Plain), "Go to", Action::Nothing)
+    }
+
+    fn file(name: &str) -> Item {
+        let path = format!(r"C:\Users\me\{name}");
+        let mut item = Item::new(name, Icon::File(path.clone()), "Files", Action::OpenFile(path.clone()));
+        item.second = Some((Action::RevealFile(path), "Show in folder"));
+        item
+    }
+
+    #[test]
+    fn files_join_the_end_of_the_rows() {
+        let mut items = vec![row("Today"), row("Budget")];
+        let mut rows = 2;
+        assert!(merge_files(&mut items, &mut rows, 7, 7, vec![file("budget.xlsx"), file("budget.pdf")]));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Today", "Budget", "budget.xlsx", "budget.pdf"]);
+        assert_eq!(rows, 4);
+    }
+
+    #[test]
+    fn files_go_before_tiles_and_chips() {
+        let mut items = vec![row("Today"), row("Tile"), row("Chip")];
+        let mut rows = 1;
+        assert!(merge_files(&mut items, &mut rows, 3, 3, vec![file("notes.txt")]));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Today", "notes.txt", "Tile", "Chip"]);
+        assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn files_for_older_results_are_dropped() {
+        let mut items = vec![row("Today")];
+        let mut rows = 1;
+        assert!(!merge_files(&mut items, &mut rows, 6, 7, vec![file("budget.xlsx")]));
+        assert_eq!(items.len(), 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn no_files_change_nothing() {
+        let mut items = vec![row("Today")];
+        let mut rows = 1;
+        assert!(!merge_files(&mut items, &mut rows, 7, 7, Vec::new()));
+        assert_eq!(items.len(), 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn a_file_is_never_the_top_hit() {
+        assert_eq!(heading(true, 0, &row("Today")), "Top hit");
+        assert_eq!(heading(true, 0, &file("budget.xlsx")), "Files");
+        assert_eq!(heading(false, 0, &row("Today")), "Go to");
+        assert_eq!(heading(true, 1, &row("Today")), "Go to");
+    }
+
+    #[test]
+    fn a_refused_switch_says_why_on_its_row() {
+        let mut nudges = Item::new("Focus nudges", Icon::Glyph(Glyph::Settings, Tone::Plain), "Settings", Action::Toggle(Switch::Nudges));
+        nudges.sub = Some("Chrono settings".into());
+        nudges.detail = Some("On".into());
+        let mut items = vec![row("Today"), nudges];
+        super::super::say_refused(&mut items, Switch::Nudges, "Not now.");
+        assert_eq!(items[1].sub.as_deref(), Some("Not now."));
+        assert_eq!(items[1].detail.as_deref(), Some("On"));
+        assert_eq!(items[0].sub, None);
+    }
+
+    #[test]
+    fn the_footer_names_the_second_action() {
+        assert_eq!(footer_hint(Some(&file("budget.xlsx"))), Some("Show in folder"));
+    }
+
+    #[test]
+    fn the_footer_has_no_hint_without_a_second_action() {
+        assert_eq!(footer_hint(Some(&row("Today"))), None);
+        assert_eq!(footer_hint(None), None);
     }
 }

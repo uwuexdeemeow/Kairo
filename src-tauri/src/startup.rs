@@ -25,6 +25,16 @@ pub const CHRONO_ARG: &str = "--chrono";
 /// Opens the dashboard, Kairo's own window, rather than the palette.
 pub const DASHBOARD_ARG: &str = "--dashboard";
 
+/// Prints the files the system finds for the words after it, and exits, for trying file search
+/// from a terminal.
+pub const SEARCH_FILES_ARG: &str = "--search-files";
+
+/// The words after `--search-files`, joined by spaces; None without the flag.
+pub fn search_files_query(args: &[String]) -> Option<String> {
+    let at = args.iter().position(|a| a == SEARCH_FILES_ARG)?;
+    Some(args[at + 1..].join(" "))
+}
+
 /// What a launch opens.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Launch {
@@ -64,6 +74,13 @@ mod tests {
         assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
         assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
     }
+
+    #[test]
+    fn the_words_after_the_search_flag_are_the_query() {
+        let args = |a: &[&str]| a.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert_eq!(search_files_query(&args(&["kairo", "--search-files", "tax", "2026"])), Some("tax 2026".into()));
+        assert_eq!(search_files_query(&args(&["kairo", "--palette"])), None);
+    }
 }
 
 /// Turn start-at-login on the first time an installed build runs; after that the user's choice stands.
@@ -80,9 +97,14 @@ pub fn is_enabled(app: &AppHandle) -> bool {
     AVAILABLE && app.autolaunch().is_enabled().unwrap_or(false)
 }
 
+/// Why Start at login can't be changed, when `available` says it can't.
+pub fn refusal(available: bool) -> Option<&'static str> {
+    (!available).then_some("Start at login only works in the installed app.")
+}
+
 pub fn set_enabled(app: &AppHandle, on: bool) -> Result<(), String> {
-    if !AVAILABLE {
-        return Err("Start at login only works in the installed app.".into());
+    if let Some(why) = refusal(AVAILABLE) {
+        return Err(why.into());
     }
     let launcher = app.autolaunch();
     if on { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())

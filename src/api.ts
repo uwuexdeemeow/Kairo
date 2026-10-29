@@ -133,10 +133,22 @@ export interface PaletteItem {
   at: number[];
   sub: string | null;
   detail: string | null;
-  icon: { kind: "app"; path: string } | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
+  icon:
+    | { kind: "app"; path: string }
+    | { kind: "file"; path: string; fileKind: "folder" | "image" | "document" | "other" }
+    | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
   section: string;
+  /** The label of what Ctrl+Enter (Command+Enter on a Mac) does instead. */
+  second: string | null;
   /** Whether it has a card to show while it's selected (`paletteCard`). */
   preview: boolean;
+}
+
+/** File rows found for the results numbered `seq`, sent as `palette:files` after them; they
+ *  follow the rows, so the first is item `rows.length`. */
+export interface PaletteFiles {
+  seq: number;
+  rows: PaletteItem[];
 }
 
 /** Items are numbered across rows, tiles and chips, in that order. */
@@ -461,7 +473,7 @@ export const api = {
   openExtensionsPage: (id: string) => invoke<string>("open_extensions_page", { id }),
   /** Where the command palette last asked this window to go, once; null when it hasn't. `date`
    *  (local `YYYY-MM-DD`) is for Today or Week. */
-  takeNavigation: () => invoke<{ view: string; date: string | null } | null>("take_navigation"),
+  takeNavigation: () => invoke<{ view: string; date: string | null; target: string | null } | null>("take_navigation"),
   /** The web palette (macOS and Linux) opening afresh: today's footer line and the theme. */
   paletteOpen: () => invoke<{ footer: string; appearance: Appearance }>("palette_open"),
   /** What a query finds; with nothing typed, the suggestions. */
@@ -470,13 +482,18 @@ export const api = {
   paletteIcons: (paths: string[]) => invoke<Record<string, string>>("palette_icons", { paths }),
   /** The card for item `at` of the results numbered `seq`; null for one without. */
   paletteCard: (seq: number, at: number) => invoke<PaletteCard | null>("palette_card", { seq, at }),
-  /** Runs item `at` of the results numbered `seq`, then puts the palette away. */
-  paletteRun: (seq: number, at: number) => invoke<void>("palette_run", { seq, at }),
+  /** Runs item `at` of the results numbered `seq`, then puts the palette away. A switch is
+   *  flipped with the palette left open instead, and the results showing its new state come back. */
+  paletteRun: (seq: number, at: number) => invoke<PaletteResults | null>("palette_run", { seq, at }),
+  /** Runs what Ctrl+Enter (Command+Enter on a Mac) does for item `at` of the results numbered
+   *  `seq`, then puts the palette away; nothing for an item without one. */
+  paletteRunSecond: (seq: number, at: number) => invoke<void>("palette_run_second", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),
-  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean }>("get_palette_settings"),
+  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
+  setPaletteSearchFiles: (on: boolean) => invoke<void>("set_palette_search_files", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
   /** Each asks where with the system's file dialog; null when it was closed. */
   exportTime: () => invoke<number | null>("export_time"),

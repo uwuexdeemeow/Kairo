@@ -19,9 +19,11 @@ use crate::{db, focus, goals};
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
 pub mod cards;
+pub mod files;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
+pub mod settings;
 #[cfg(not(windows))]
 pub mod web;
 
@@ -31,6 +33,7 @@ pub const LABEL: &str = "palette";
 pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
+const SEARCH_FILES_KEY: &str = "palette_search_files";
 const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
 /// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
 /// here so each key press needn't ask the database.
@@ -228,6 +231,15 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
 }
 
+/// Whether typing in the palette also looks for files; on unless turned off.
+pub fn search_files(conn: &Connection) -> Result<bool> {
+    Ok(db::get_setting(conn, SEARCH_FILES_KEY)?.as_deref() != Some("0"))
+}
+
+pub fn set_search_files(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, SEARCH_FILES_KEY, if on { "1" } else { "0" })
+}
+
 /// Off unless asked for, so the shortcut can't steal keys mid-game.
 pub fn over_fullscreen(conn: &Connection) -> Result<bool> {
     let on = db::get_setting(conn, OVER_FULLSCREEN_KEY)?.as_deref() == Some("1");
@@ -283,7 +295,7 @@ pub fn percent(part: i64, whole: i64) -> i64 {
 
 /// What's known as the palette opens (apps, the focus session, today's apps and limits, what
 /// can be asked about), and the footer's line about today.
-pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
+pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, String) {
     let now = now_ms();
     let today = Local::now().date_naive();
     let apps = apps(conn, index, now).unwrap_or_default();
@@ -306,6 +318,8 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         today_apps: glance.top_apps,
         over_limits,
         suggestions: suggestions(conn).unwrap_or(true),
+        search_files: search_files(conn).unwrap_or(true),
+        switches: settings::read(app, conn),
         subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
@@ -400,6 +414,21 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             with_file_dialog(app, action.clone());
             Ok(())
         }
+        Action::OpenFile(path) if std::path::Path::new(path).exists() && crate::platform::open_path(path) => Ok(()),
+        Action::OpenFile(_) => Err("Couldn't open it: it was moved or deleted.".into()),
+        Action::RevealFile(path) if files::reveal(path) => Ok(()),
+        Action::RevealFile(_) => Err("Couldn't show it in its folder.".into()),
+        // The caller shows the new state by asking again, so the result is of no use here.
+        Action::Toggle(switch) => settings::flip(app, conn, *switch).map(|_| ()),
+        // Opens the window that has the setting and lands on its control.
+        Action::Setting(control) => {
+            match settings::entries().iter().find(|e| e.control == *control).map(|e| e.page) {
+                Some(settings::Page::Kairo) => crate::show_dashboard(app, Some(&format!("settings#{control}"))),
+                _ => crate::open_main_to(app, "settings", None, Some(control)),
+            }
+            Ok(())
+        }
+        Action::Nothing => Ok(()),
     }
 }
 
@@ -429,7 +458,7 @@ fn with_file_dialog(app: &AppHandle, action: Action) {
 // ---------- the web palette's side ----------
 
 /// An item as the web palette draws it.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemView {
     title: String,
@@ -441,12 +470,20 @@ pub struct ItemView {
     section: &'static str,
     /// Whether it has a card to show while it's selected (`palette_card`).
     preview: bool,
+    /// The label of what Ctrl+Enter does instead.
+    second: Option<&'static str>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum IconView {
     App { path: String },
+    /// The kind is `file_kind` because `kind` already names the variant.
+    File {
+        path: String,
+        #[serde(rename = "fileKind")]
+        file_kind: &'static str,
+    },
     Glyph { glyph: &'static str, tone: &'static str },
 }
 
@@ -454,6 +491,7 @@ impl From<&Item> for ItemView {
     fn from(item: &Item) -> Self {
         let icon = match &item.icon {
             Icon::App(path) => IconView::App { path: path.clone() },
+            Icon::File(path) => IconView::File { path: path.clone(), file_kind: files::file_kind(path) },
             Icon::Glyph(glyph, tone) => IconView::Glyph {
                 glyph: match glyph {
                     Glyph::Focus => "focus",
@@ -463,7 +501,6 @@ impl From<&Item> for ItemView {
                     Glyph::Settings => "settings",
                     Glyph::Today => "today",
                     Glyph::Alert => "alert",
-                    Glyph::Update => "update",
                 },
                 tone: match tone {
                     Tone::Plain => "",
@@ -480,6 +517,7 @@ impl From<&Item> for ItemView {
             icon,
             section: item.section,
             preview: item.preview.is_some(),
+            second: item.second.as_ref().map(|(_, label)| *label),
         }
     }
 }
@@ -496,11 +534,28 @@ pub struct Results {
     chips: Vec<ItemView>,
 }
 
+impl Results {
+    /// Which query these answer.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+}
+
+/// File rows found for the results numbered `seq`, sent to the web palette as `palette:files`.
+#[cfg(not(windows))]
+#[derive(Serialize, Clone)]
+pub struct FilesFound {
+    pub seq: u64,
+    pub rows: Vec<ItemView>,
+}
+
 #[derive(Default)]
 struct SessionState {
     ctx: Option<Context>,
     items: Vec<Item>,
     seq: u64,
+    /// What was typed for the results numbered `seq`, to ask again after a switch flips.
+    query: String,
 }
 
 /// The web palette between keystrokes: what was known when it opened, and what it last showed.
@@ -508,15 +563,32 @@ struct SessionState {
 pub struct Session(Mutex<SessionState>);
 
 impl Session {
+    /// Starts afresh. The numbering moves on, so files still coming for the last opening's
+    /// query are dropped.
     pub fn open(&self, ctx: Context) {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.ctx = Some(ctx);
         s.items.clear();
+        s.query.clear();
+        s.seq += 1;
     }
 
     pub fn query(&self, query: &str) -> Results {
+        self.answer(query, None)
+    }
+
+    /// The results for what was last typed, asked again after `switch` refused to flip: its row
+    /// keeps its state and says why on its second line.
+    pub fn refused(&self, switch: settings::Switch, why: &str) -> Results {
+        let query = self.last_query();
+        self.answer(&query, Some((switch, why)))
+    }
+
+    /// Results for `query`, numbered afresh, with a refused switch's reason on its row.
+    fn answer(&self, query: &str, refused: Option<(settings::Switch, &str)>) -> Results {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.seq += 1;
+        s.query = query.to_string();
         let (rows, tiles, chips) = match &s.ctx {
             None => (Vec::new(), Vec::new(), Vec::new()),
             Some(ctx) if query.trim().is_empty() => {
@@ -525,6 +597,10 @@ impl Session {
             }
             Some(ctx) => (search::search(ctx, query), Vec::new(), Vec::new()),
         };
+        let mut rows = rows;
+        if let Some((switch, why)) = refused {
+            say_refused(&mut rows, switch, why);
+        }
         let view = |items: &[Item]| items.iter().map(ItemView::from).collect();
         let results = Results { seq: s.seq, rows: view(&rows), tiles: view(&tiles), chips: view(&chips) };
         s.items = rows.into_iter().chain(tiles).chain(chips).collect();
@@ -537,11 +613,81 @@ impl Session {
         (s.seq == seq).then(|| s.items.get(index).cloned()).flatten()
     }
 
-    /// Whether `path` is an icon the palette is showing: an installed app's, or the program of
-    /// something it answers about.
+    /// What was typed for the latest results, to ask again after a switch flips.
+    pub fn last_query(&self) -> String {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).query.clone()
+    }
+
+    /// Adds file rows after the rows of the results numbered `seq`, and returns how they're drawn.
+    /// None once newer results replaced them, or when nothing is typed, since files would then
+    /// land after the tiles and chips. Windows' own palette adds its files itself.
+    #[cfg(any(not(windows), test))]
+    pub fn add_files(&self, seq: u64, items: Vec<Item>) -> Option<Vec<ItemView>> {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if s.seq != seq || s.query.trim().is_empty() {
+            return None;
+        }
+        let views = items.iter().map(ItemView::from).collect();
+        s.items.extend(items);
+        Some(views)
+    }
+
+    /// Whether files are searched for `query`: the switch is on and enough is typed.
+    pub fn wants_files(&self, query: &str) -> bool {
+        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        s.ctx.as_ref().is_some_and(|c| wants_files(c, query))
+    }
+
+    /// Records that a switch was flipped, so the next results show its new state, and turns on
+    /// or off what the palette itself does by it.
+    pub fn set_switch(&self, switch: settings::Switch, on: bool) {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ctx) = s.ctx.as_mut() {
+            set_switch(ctx, switch, on);
+        }
+    }
+
+    /// Whether `path` is an icon the palette is showing: an installed app's, the program of
+    /// something it answers about, or a file in its rows.
     pub fn shows_icon(&self, path: &str) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)))
+        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path))) || shows_file(&s.items, path)
+    }
+
+    /// Whether `path` is a file in the palette's rows, whose icon isn't kept once it's drawn.
+    pub fn shows_file(&self, path: &str) -> bool {
+        shows_file(&self.0.lock().unwrap_or_else(|e| e.into_inner()).items, path)
+    }
+}
+
+/// Whether `path` is a file among the items.
+fn shows_file(items: &[Item], path: &str) -> bool {
+    !path.is_empty() && items.iter().any(|i| matches!(&i.icon, Icon::File(p) if p == path))
+}
+
+/// Puts why a switch couldn't flip on its row's second line, in either palette; the row keeps
+/// the state it shows.
+pub fn say_refused(items: &mut [Item], switch: settings::Switch, why: &str) {
+    for item in items.iter_mut().filter(|i| i.action == Action::Toggle(switch)) {
+        item.sub = Some(why.to_string());
+    }
+}
+
+/// Whether files are searched for `query`, in either palette: the switch is on and enough is typed.
+pub fn wants_files(ctx: &Context, query: &str) -> bool {
+    ctx.search_files && query.trim().chars().count() >= files::MIN_CHARS
+}
+
+/// Records in `ctx` that a switch was flipped, in either palette, so the next results show its new
+/// state, and turns on or off what the palette itself does by it.
+pub fn set_switch(ctx: &mut Context, switch: settings::Switch, on: bool) {
+    if let Some(entry) = ctx.switches.iter_mut().find(|(sw, _)| *sw == switch) {
+        entry.1 = on;
+    }
+    match switch {
+        settings::Switch::SearchFiles => ctx.search_files = on,
+        settings::Switch::Suggestions => ctx.suggestions = on,
+        _ => {}
     }
 }
 
@@ -767,23 +913,35 @@ mod tests {
         assert!(launch(&index, r"C:\Windows\System32\cmd.exe").is_err());
     }
 
-    #[test]
-    fn results_number_items_for_running_them() {
-        let session = Session::default();
-        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
-        session.open(Context {
+    fn ctx(today: NaiveDate) -> Context {
+        Context {
             today,
             apps: Vec::new(),
             session: None,
             today_apps: Vec::new(),
             over_limits: Vec::new(),
             suggestions: true,
+            search_files: true,
+            switches: Vec::new(),
             subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,
             block_lists: Vec::new(),
             next_meeting: None,
-        });
+        }
+    }
+
+    /// File rows for "bud", as the worker would hand them over.
+    fn budget_files() -> Vec<Item> {
+        let home = Path::new("/home/ana");
+        files::rows("bud", home, vec![home.join("budget.xlsx"), home.join("budget.txt")])
+    }
+
+    #[test]
+    fn results_number_items_for_running_them() {
+        let session = Session::default();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        session.open(ctx(today));
         let first = session.query("");
         assert!(!first.chips.is_empty());
         let second = session.query("yesterday");
@@ -791,5 +949,101 @@ mod tests {
         // An item from results that have been replaced isn't run.
         assert!(session.item(first.seq, 0).is_none());
         assert_eq!(session.item(second.seq, 0).map(|i| i.action), Some(Action::Go("today", Some(today.pred_opt().unwrap()))));
+    }
+
+    #[test]
+    fn files_for_an_old_query_are_dropped() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let first = session.query("bu");
+        let second = session.query("bud");
+        let shown = second.rows.len();
+        let before: Vec<_> = (0..shown).map(|i| session.item(second.seq, i).map(|i| i.action)).collect();
+        assert!(session.add_files(first.seq, budget_files()).is_none());
+        // The current results are as they were, with nothing after them.
+        let after: Vec<_> = (0..shown).map(|i| session.item(second.seq, i).map(|i| i.action)).collect();
+        assert_eq!(before, after);
+        assert!(session.item(second.seq, shown).is_none());
+    }
+
+    #[test]
+    fn files_for_the_last_opening_are_dropped() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let old = session.query("bud");
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        assert!(session.add_files(old.seq, budget_files()).is_none());
+        assert_eq!(session.last_query(), "");
+    }
+
+    #[test]
+    fn files_join_the_end_of_the_rows() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let results = session.query("bud");
+        let files = budget_files();
+        let first = files[0].clone();
+        let views = session.add_files(results.seq, files).expect("current files are added");
+        assert_eq!(views.len(), 2);
+        assert_eq!(session.item(results.seq, results.rows.len()).map(|i| i.action), Some(first.action));
+        // Their icons may be asked for now.
+        let Icon::File(path) = &first.icon else { panic!("a file icon") };
+        assert!(session.shows_icon(path));
+    }
+
+    #[test]
+    fn files_never_follow_the_suggestions() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let results = session.query("");
+        assert!(session.add_files(results.seq, budget_files()).is_none());
+    }
+
+    #[test]
+    fn files_are_wanted_for_two_letters_with_the_switch_on() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        assert!(!session.wants_files(" b "));
+        assert!(session.wants_files("bu"));
+        session.set_switch(settings::Switch::SearchFiles, false);
+        assert!(!session.wants_files("budget"));
+    }
+
+    #[test]
+    fn a_refused_flip_says_why_on_its_row_and_keeps_its_state() {
+        let conn = db::open(Path::new(":memory:")).unwrap();
+        crate::blocking::set_setting(&conn, "strict", true).unwrap();
+        focus::start_by_hand(&conn, 25, None, chrono::Utc::now().timestamp_millis()).unwrap();
+        let session = Session::default();
+        let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
+        c.switches = vec![(settings::Switch::Blocking, true)];
+        session.open(c);
+        let before = session.query("focus blocking");
+        let why = settings::flip_stored(&conn, settings::Switch::Blocking).unwrap_err();
+        assert_eq!(why, crate::blocking::STRICT_REFUSAL);
+        let after = session.refused(settings::Switch::Blocking, &why);
+        assert!(after.seq > before.seq);
+        let at = after.rows.iter().position(|r| r.title == "Focus blocking").expect("the switch's row");
+        assert_eq!(after.rows[at].sub.as_deref(), Some(why.as_str()));
+        assert_eq!(after.rows[at].detail.as_deref(), Some("On"));
+        assert_eq!(session.item(after.seq, at).and_then(|i| i.sub), Some(why.clone()));
+        assert!(crate::blocking::settings(&conn).unwrap().enabled);
+        // Asked again as usual, the row is back to naming its page.
+        let again = session.query(&session.last_query());
+        assert_eq!(again.rows[at].sub.as_deref(), Some("Chrono settings"));
+    }
+
+    #[test]
+    fn a_flipped_switch_shows_its_new_state_when_asked_again() {
+        let session = Session::default();
+        let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
+        c.switches = vec![(settings::Switch::Nudges, false)];
+        session.open(c);
+        session.query("focus nudges");
+        let before = session.query(&session.last_query());
+        session.set_switch(settings::Switch::Nudges, true);
+        let after = session.query(&session.last_query());
+        assert!(after.seq > before.seq);
+        assert_ne!(serde_json::to_string(&before.rows).unwrap(), serde_json::to_string(&after.rows).unwrap());
     }
 }

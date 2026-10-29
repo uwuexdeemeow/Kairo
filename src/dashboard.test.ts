@@ -25,7 +25,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   },
 }));
 // The dropdowns have tests of their own, and hook the page's setters once for good.
-vi.mock("./dropdown", () => ({ useDropdowns: () => {} }));
+vi.mock("./dropdown", () => ({ useDropdowns: () => {}, shownControl: (el: HTMLElement) => el }));
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const emit = (name: string) => events.get(name)?.forEach((fn) => fn({ payload: null }));
@@ -141,5 +141,15 @@ describe("tabs", () => {
     expect(e.defaultPrevented).toBe(false);
     expect(api.setPaletteShortcut).not.toHaveBeenCalled();
     expect($("#palette-record").textContent).toBe("Change");
+  });
+});
+
+describe("Jumping to a setting", () => {
+  it("opens Settings with the asked-for control focused", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    await open("settings#palette-suggestions");
+    await vi.waitFor(() => expect(document.activeElement).toBe($("#palette-suggestions")));
+    expect(onTab()).toBe("settings");
+    expect($("#palette-settings").classList.contains("jumped")).toBe(true);
   });
 });

@@ -831,7 +831,7 @@ pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> Cm
     let conn = state.db.lock().map_err(err)?;
     // Otherwise switching blocking off would be the easy way around strict mode.
     if blocking::strict_now(&conn).map_err(err)? {
-        return Err("Strict mode is on, so these stay as they are until the focus session ends.".into());
+        return Err(blocking::STRICT_REFUSAL.into());
     }
     match blocking::set_setting(&conn, &which, on).map_err(err)? {
         true => Ok(()),
@@ -920,28 +920,49 @@ pub struct PaletteOpening {
 
 /// Starts a fresh palette from what's known now.
 #[tauri::command]
-pub fn palette_open(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>) -> CmdResult<PaletteOpening> {
+pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>) -> CmdResult<PaletteOpening> {
     let conn = state.db.lock().map_err(err)?;
-    let (ctx, footer) = palette::context(&conn, &index);
+    let (ctx, footer) = palette::context(&app, &conn, &index);
     session.open(ctx);
+    worker.opened();
     Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
 }
 
-/// What a query finds; with nothing typed, the suggestions.
+/// What a query finds; with nothing typed, the suggestions. Files come later, as `palette:files`.
 #[tauri::command]
-pub fn palette_query(session: State<palette::Session>, query: String) -> palette::Results {
-    session.query(&query)
+pub fn palette_query(session: State<palette::Session>, worker: State<palette::files::Worker>, query: String) -> palette::Results {
+    palette_ask(&session, &worker, query)
 }
 
-/// Icons for apps the palette shows, as data URLs by path, kept for the rest of the run.
+/// Results for `query`, and a file search for them when the palette wants one.
+fn palette_ask(session: &palette::Session, worker: &palette::files::Worker, query: String) -> palette::Results {
+    let results = session.query(&query);
+    palette_ask_files(session, worker, &results, query);
+    results
+}
+
+/// Asks for files to follow `results`, when the palette wants them for `query`.
+fn palette_ask_files(session: &palette::Session, worker: &palette::files::Worker, results: &palette::Results, query: String) {
+    if session.wants_files(&query) {
+        worker.ask(results.seq(), query);
+    }
+}
+
+/// Icons for apps and files the palette shows, as data URLs by path. Apps' are kept for the rest
+/// of the run; files' aren't, so the names of files searched for don't pile up in memory.
 #[tauri::command]
 pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
     let mut cache = state.icons.lock().map_err(err)?;
     let mut out = HashMap::new();
     for path in paths.into_iter().filter(|p| index.knows(p) || session.shows_icon(p)) {
-        // Shared with app icons, under a key that can't clash with a program's name.
-        if let Some(url) = cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)) {
-            out.insert(path, url.clone());
+        let url = if !index.knows(&path) && session.shows_file(&path) {
+            palette::icon_url(&path)
+        } else {
+            // Shared with app icons, under a key that can't clash with a program's name.
+            cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)).clone()
+        };
+        if let Some(url) = url {
+            out.insert(path, url);
         }
     }
     Ok(out)
@@ -956,19 +977,51 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
     Ok(Some(palette::cards::card(&conn, &preview)))
 }
 
-/// Runs item `at` of the results numbered `seq`, then puts the palette away.
+/// Runs item `at` of the results numbered `seq`, then puts the palette away. A switch is flipped
+/// with the palette left open, and the results asked again come back to show its new state; one
+/// that refuses to flip comes back as it was, with why on its row's second line.
 #[tauri::command]
-pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    if item.action.keeps_palette_open() {
+        let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches keep the palette open") };
+        let flipped = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch);
+        let results = match flipped {
+            Ok(on) => {
+                session.set_switch(switch, on);
+                session.query(&session.last_query())
+            }
+            Err(why) => session.refused(switch, &why),
+        };
+        palette_ask_files(&session, &worker, &results, session.last_query());
+        return Ok(Some(results));
+    }
+    palette_perform(&app, &state, &index, &item.action)?;
+    Ok(None)
+}
+
+/// Runs what Ctrl+Enter (Command+Enter on a Mac) does for item `at` of the results numbered
+/// `seq`, then puts the palette away; nothing for an item without a second action.
+#[tauri::command]
+pub fn palette_run_second(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+    let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    match item.second {
+        Some((action, _)) => palette_perform(&app, &state, &index, &action),
+        None => Ok(()),
+    }
+}
+
+/// Does what an item says and puts the palette away.
+fn palette_perform(app: &AppHandle, state: &AppState, index: &palette::Index, action: &palette::search::Action) -> CmdResult<()> {
     // Kairo's window, or a file dialog, opens over where the palette was, and keeps the keyboard.
-    let go = item.action.opens_window();
+    let go = action.opens_window();
     if go {
-        palette_hide_window(&app, false);
+        palette_hide_window(app, false);
     }
     let conn = state.db.lock().map_err(err)?;
-    palette::perform(&app, &conn, &index, &item.action)?;
+    palette::perform(app, &conn, index, action)?;
     if !go {
-        palette_hide_window(&app, true);
+        palette_hide_window(app, true);
     }
     Ok(())
 }
@@ -991,6 +1044,7 @@ pub struct PaletteSettings {
     shortcut: String,
     suggestions: bool,
     over_fullscreen: bool,
+    search_files: bool,
 }
 
 #[tauri::command]
@@ -1000,6 +1054,7 @@ pub fn get_palette_settings(state: State<AppState>) -> CmdResult<PaletteSettings
         shortcut: palette::shortcut(&conn).map_err(err)?,
         suggestions: palette::suggestions(&conn).map_err(err)?,
         over_fullscreen: palette::over_fullscreen(&conn).map_err(err)?,
+        search_files: palette::search_files(&conn).map_err(err)?,
     })
 }
 
@@ -1014,6 +1069,12 @@ pub fn set_palette_over_fullscreen(state: State<AppState>, on: bool) -> CmdResul
 pub fn set_palette_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
     palette::change_shortcut(&app, &conn, &shortcut)
+}
+
+#[tauri::command]
+pub fn set_palette_search_files(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_search_files(&conn, on).map_err(err)
 }
 
 #[tauri::command]
