@@ -2,7 +2,9 @@
 //! into rows. Asking the index is each OS's own module; everything here is testable without one.
 
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::time::{Duration, Instant, SystemTime};
 
 use super::search::{Action, Icon, Item};
 
@@ -169,6 +171,141 @@ pub fn ask_system(query: &str, home: &Path, deadline: Instant) -> Result<Vec<Pat
     return linux::ask(query, home, deadline);
 }
 
+// ---------- the worker ----------
+
+/// Most index calls still running past their deadline; while this many are, new queries are
+/// dropped rather than asked, so an index that hangs can't pile up threads.
+const MAX_LATE: usize = 4;
+
+/// What a worker and its thread share, behind one lock.
+#[derive(Default)]
+struct Shared {
+    /// The newest query not yet asked: its results' number, its text and when it came.
+    pending: Option<(u64, String, Instant)>,
+    /// Whether the missing index was said since the palette last opened.
+    told_no_indexer: bool,
+    /// Set when the worker goes away, so its thread ends.
+    stop: bool,
+}
+
+/// Searches files on a thread of its own, only ever for the newest query, and hands the rows it
+/// finds to `on_done` with the number of the results they belong to.
+pub struct Worker(Arc<(Mutex<Shared>, Condvar)>);
+
+impl Worker {
+    /// A worker asking `backend`. `on_done` is called on the worker's thread, so it must be quick.
+    pub fn new(backend: Backend, on_done: impl Fn(u64, Vec<Item>) + Send + 'static) -> Self {
+        let shared = Arc::new((Mutex::new(Shared::default()), Condvar::new()));
+        let theirs = shared.clone();
+        let spawned = std::thread::Builder::new().name("palette-files".into()).spawn(move || work(&theirs, backend, on_done));
+        if let Err(e) = spawned {
+            eprintln!("palette: cannot search files: {e}");
+        }
+        Worker(shared)
+    }
+
+    /// Searches for `query` once typing pauses, in place of any query still waiting.
+    pub fn ask(&self, seq: u64, query: String) {
+        let (lock, wake) = &*self.0;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).pending = Some((seq, query, Instant::now()));
+        wake.notify_one();
+    }
+
+    /// The palette opened, so a missing index is said again.
+    pub fn opened(&self) {
+        self.0 .0.lock().unwrap_or_else(|e| e.into_inner()).told_no_indexer = false;
+    }
+}
+
+impl Drop for Worker {
+    /// Ends the thread: at once when it's waiting, or when the search it's on gives up.
+    fn drop(&mut self) {
+        let (lock, wake) = &*self.0;
+        lock.lock().unwrap_or_else(|e| e.into_inner()).stop = true;
+        wake.notify_one();
+    }
+}
+
+/// The worker's thread: waits for a query and a pause after it, asks, and hands on what's found,
+/// until the worker goes away.
+fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u64, Vec<Item>)) {
+    let (lock, wake) = shared;
+    let late = Arc::new(AtomicUsize::new(0));
+    loop {
+        let (seq, query) = {
+            let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
+            loop {
+                if s.stop {
+                    return;
+                }
+                // Each new query restarts the pause, so typing a word asks once.
+                let due = s.pending.as_ref().map(|(_, _, at)| *at + Duration::from_millis(QUIET_MS));
+                match due.map(|due| due.saturating_duration_since(Instant::now())) {
+                    None => s = wake.wait(s).unwrap_or_else(|e| e.into_inner()),
+                    Some(wait) if !wait.is_zero() => s = wake.wait_timeout(s, wait).unwrap_or_else(|e| e.into_inner()).0,
+                    Some(_) => break,
+                }
+            }
+            let Some((seq, query, _)) = s.pending.take() else { continue };
+            (seq, query)
+        };
+        let Some(home) = home() else { continue };
+        let deadline = Instant::now() + Duration::from_millis(LIMIT_MS);
+        let found = match ask_by(backend, &query, &home, deadline, &late) {
+            Some(Ok(paths)) => Ok(rows(&query, &home, paths)),
+            Some(Err(e)) => Err(e),
+            // Past the deadline: nothing shows for it.
+            None => continue,
+        };
+        let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // Gone, or a newer query is waiting, which makes these rows out of date already.
+        if s.stop {
+            return;
+        }
+        if s.pending.is_some() {
+            continue;
+        }
+        let items = match found {
+            Ok(items) => items,
+            Err(Unavailable::NoIndexer) if !s.told_no_indexer => {
+                s.told_no_indexer = true;
+                vec![no_indexer_row()]
+            }
+            Err(Unavailable::NoIndexer) => Vec::new(),
+            Err(Unavailable::Failed(e)) => {
+                eprintln!("palette: file search failed: {e}");
+                Vec::new()
+            }
+        };
+        drop(s);
+        if !items.is_empty() {
+            on_done(seq, items);
+        }
+    }
+}
+
+/// Runs `backend` on a thread of its own and waits for it until `deadline`; None when it's late
+/// (its thread ends on its own and its answer is dropped) or too many before it still are.
+fn ask_by(backend: Backend, query: &str, home: &Path, deadline: Instant, late: &Arc<AtomicUsize>) -> Option<Result<Vec<PathBuf>, Unavailable>> {
+    if late.load(Ordering::SeqCst) >= MAX_LATE {
+        return None;
+    }
+    let (tx, rx) = mpsc::channel();
+    let (query, home, running) = (query.to_string(), home.to_path_buf(), late.clone());
+    running.fetch_add(1, Ordering::SeqCst);
+    let spawned = std::thread::Builder::new().name("palette-files-ask".into()).spawn(move || {
+        let _ = tx.send(backend(&query, &home, deadline));
+        running.fetch_sub(1, Ordering::SeqCst);
+    });
+    if let Err(e) = spawned {
+        late.fetch_sub(1, Ordering::SeqCst);
+        eprintln!("palette: cannot search files: {e}");
+        return None;
+    }
+    // A backend that panics drops its sender, which ends the wait at once.
+    rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
+}
+
 /// Opens a file's folder with the file picked out where the file manager allows, else the folder.
 /// False when nothing could be started.
 pub fn reveal(path: &str) -> bool {
@@ -323,6 +460,99 @@ mod tests {
         assert_eq!(row.action, Action::OpenFile(shown.clone()));
         assert_eq!(row.second, Some((Action::RevealFile(shown), "Show in folder")));
         assert_eq!(row.at, [0, 1, 2, 3, 4, 5]);
+    }
+
+    /// What each fake backend saw, and how long the slow one takes, per test, since a
+    /// `Backend` is a plain function and can't carry its own.
+    static SEEN_NEWEST: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static NO_INDEXER_CALLS: Mutex<u32> = Mutex::new(0);
+
+    fn finds_budget(query: &str, home: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+        SEEN_NEWEST.lock().unwrap().push(query.to_string());
+        Ok(vec![home.join("budget.txt")])
+    }
+
+    fn too_slow(_: &str, home: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+        std::thread::sleep(Duration::from_millis(1600));
+        Ok(vec![home.join("budget.txt")])
+    }
+
+    fn no_indexer(_: &str, _: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+        *NO_INDEXER_CALLS.lock().unwrap() += 1;
+        Err(Unavailable::NoIndexer)
+    }
+
+    fn fails(_: &str, _: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+        Err(Unavailable::Failed("broken".into()))
+    }
+
+    /// A worker over `backend` whose answers arrive on the returned channel.
+    fn worker(backend: Backend) -> (Worker, mpsc::Receiver<(u64, Vec<Item>)>) {
+        let (tx, rx) = mpsc::channel();
+        let worker = Worker::new(backend, move |seq, items| {
+            let _ = tx.send((seq, items));
+        });
+        (worker, rx)
+    }
+
+    #[test]
+    fn only_the_newest_query_is_asked() {
+        if super::home().is_none() {
+            return;
+        }
+        let (worker, rx) = worker(finds_budget);
+        worker.ask(1, "bu".into());
+        worker.ask(2, "bud".into());
+        worker.ask(3, "budget".into());
+        let (seq, items) = rx.recv_timeout(Duration::from_secs(1)).expect("an answer");
+        assert_eq!(seq, 3);
+        assert_eq!(items[0].title, "budget.txt");
+        assert_eq!(*SEEN_NEWEST.lock().unwrap(), ["budget"]);
+        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err(), "asked once");
+    }
+
+    #[test]
+    fn a_search_past_the_limit_shows_nothing() {
+        let (worker, rx) = worker(too_slow);
+        worker.ask(1, "budget".into());
+        assert!(rx.recv_timeout(Duration::from_millis(2500)).is_err());
+    }
+
+    #[test]
+    fn no_indexer_is_said_once_per_opening() {
+        let (worker, rx) = worker(no_indexer);
+        worker.ask(1, "bu".into());
+        let (seq, items) = rx.recv_timeout(Duration::from_secs(1)).expect("the no-indexer row");
+        assert_eq!((seq, items.len(), items[0].title.as_str()), (1, 1, no_indexer_row().title.as_str()));
+        worker.ask(2, "bud".into());
+        assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+        assert_eq!(*NO_INDEXER_CALLS.lock().unwrap(), 2, "the second query was asked too");
+        worker.opened();
+        worker.ask(3, "budg".into());
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).expect("said again").0, 3);
+    }
+
+    #[test]
+    fn a_failed_search_shows_nothing() {
+        let (worker, rx) = worker(fails);
+        worker.ask(1, "budget".into());
+        assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+    }
+
+    #[test]
+    fn the_thread_ends_with_its_worker() {
+        let alive = Arc::new(());
+        let held = alive.clone();
+        let worker = Worker::new(fails, move |_, _| {
+            let _ = &held;
+        });
+        assert_eq!(Arc::strong_count(&alive), 2);
+        drop(worker);
+        let start = Instant::now();
+        while Arc::strong_count(&alive) > 1 {
+            assert!(start.elapsed() < Duration::from_secs(1), "the thread is still running");
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[test]

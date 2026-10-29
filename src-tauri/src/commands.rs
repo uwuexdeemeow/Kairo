@@ -920,20 +920,30 @@ pub struct PaletteOpening {
 
 /// Starts a fresh palette from what's known now.
 #[tauri::command]
-pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>) -> CmdResult<PaletteOpening> {
+pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>) -> CmdResult<PaletteOpening> {
     let conn = state.db.lock().map_err(err)?;
     let (ctx, footer) = palette::context(&app, &conn, &index);
     session.open(ctx);
+    worker.opened();
     Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
 }
 
-/// What a query finds; with nothing typed, the suggestions.
+/// What a query finds; with nothing typed, the suggestions. Files come later, as `palette:files`.
 #[tauri::command]
-pub fn palette_query(session: State<palette::Session>, query: String) -> palette::Results {
-    session.query(&query)
+pub fn palette_query(session: State<palette::Session>, worker: State<palette::files::Worker>, query: String) -> palette::Results {
+    palette_ask(&session, &worker, query)
 }
 
-/// Icons for apps the palette shows, as data URLs by path, kept for the rest of the run.
+/// Results for `query`, and a file search for them when the palette wants one.
+fn palette_ask(session: &palette::Session, worker: &palette::files::Worker, query: String) -> palette::Results {
+    let results = session.query(&query);
+    if session.wants_files(&query) {
+        worker.ask(results.seq(), query);
+    }
+    results
+}
+
+/// Icons for apps and files the palette shows, as data URLs by path, kept for the rest of the run.
 #[tauri::command]
 pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
     let mut cache = state.icons.lock().map_err(err)?;
@@ -956,19 +966,42 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
     Ok(Some(palette::cards::card(&conn, &preview)))
 }
 
-/// Runs item `at` of the results numbered `seq`, then puts the palette away.
+/// Runs item `at` of the results numbered `seq`, then puts the palette away. A switch is flipped
+/// with the palette left open, and the results asked again come back to show its new state.
 #[tauri::command]
-pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    if let palette::search::Action::Toggle(switch) = item.action {
+        let on = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch)?;
+        session.set_switch(switch, on);
+        return Ok(Some(palette_ask(&session, &worker, session.last_query())));
+    }
+    palette_perform(&app, &state, &index, &item.action)?;
+    Ok(None)
+}
+
+/// Runs what Ctrl+Enter (Command+Enter on a Mac) does for item `at` of the results numbered
+/// `seq`, then puts the palette away; nothing for an item without a second action.
+#[tauri::command]
+pub fn palette_run_second(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+    let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    match item.second {
+        Some((action, _)) => palette_perform(&app, &state, &index, &action),
+        None => Ok(()),
+    }
+}
+
+/// Does what an item says and puts the palette away.
+fn palette_perform(app: &AppHandle, state: &AppState, index: &palette::Index, action: &palette::search::Action) -> CmdResult<()> {
     // Kairo's window, or a file dialog, opens over where the palette was, and keeps the keyboard.
-    let go = item.action.opens_window();
+    let go = action.opens_window();
     if go {
-        palette_hide_window(&app, false);
+        palette_hide_window(app, false);
     }
     let conn = state.db.lock().map_err(err)?;
-    palette::perform(&app, &conn, &index, &item.action)?;
+    palette::perform(app, &conn, index, action)?;
     if !go {
-        palette_hide_window(&app, true);
+        palette_hide_window(app, true);
     }
     Ok(())
 }

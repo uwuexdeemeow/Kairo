@@ -458,7 +458,7 @@ fn with_file_dialog(app: &AppHandle, action: Action) {
 // ---------- the web palette's side ----------
 
 /// An item as the web palette draws it.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemView {
     title: String,
@@ -474,7 +474,7 @@ pub struct ItemView {
     second: Option<&'static str>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum IconView {
     App { path: String },
@@ -535,11 +535,27 @@ pub struct Results {
     chips: Vec<ItemView>,
 }
 
+impl Results {
+    /// Which query these answer.
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+}
+
+/// File rows found for the results numbered `seq`, sent to the web palette as `palette:files`.
+#[derive(Serialize, Clone)]
+pub struct FilesFound {
+    pub seq: u64,
+    pub rows: Vec<ItemView>,
+}
+
 #[derive(Default)]
 struct SessionState {
     ctx: Option<Context>,
     items: Vec<Item>,
     seq: u64,
+    /// What was typed for the results numbered `seq`, to ask again after a switch flips.
+    query: String,
 }
 
 /// The web palette between keystrokes: what was known when it opened, and what it last showed.
@@ -556,6 +572,7 @@ impl Session {
     pub fn query(&self, query: &str) -> Results {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.seq += 1;
+        s.query = query.to_string();
         let (rows, tiles, chips) = match &s.ctx {
             None => (Vec::new(), Vec::new(), Vec::new()),
             Some(ctx) if query.trim().is_empty() => {
@@ -576,11 +593,51 @@ impl Session {
         (s.seq == seq).then(|| s.items.get(index).cloned()).flatten()
     }
 
-    /// Whether `path` is an icon the palette is showing: an installed app's, or the program of
-    /// something it answers about.
+    /// What was typed for the latest results, to ask again after a switch flips.
+    pub fn last_query(&self) -> String {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).query.clone()
+    }
+
+    /// Adds file rows after the rows of the results numbered `seq`, and returns how they're drawn.
+    /// None once newer results replaced them, or when nothing is typed, since files would then
+    /// land after the tiles and chips.
+    pub fn add_files(&self, seq: u64, items: Vec<Item>) -> Option<Vec<ItemView>> {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if s.seq != seq || s.query.trim().is_empty() {
+            return None;
+        }
+        let views = items.iter().map(ItemView::from).collect();
+        s.items.extend(items);
+        Some(views)
+    }
+
+    /// Whether files are searched for `query`: the switch is on and enough is typed.
+    pub fn wants_files(&self, query: &str) -> bool {
+        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        s.ctx.as_ref().is_some_and(|c| c.search_files) && query.trim().chars().count() >= files::MIN_CHARS
+    }
+
+    /// Records that a switch was flipped, so the next results show its new state, and turns on
+    /// or off what the palette itself does by it.
+    pub fn set_switch(&self, switch: settings::Switch, on: bool) {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(ctx) = s.ctx.as_mut() else { return };
+        if let Some(entry) = ctx.switches.iter_mut().find(|(sw, _)| *sw == switch) {
+            entry.1 = on;
+        }
+        match switch {
+            settings::Switch::SearchFiles => ctx.search_files = on,
+            settings::Switch::Suggestions => ctx.suggestions = on,
+            _ => {}
+        }
+    }
+
+    /// Whether `path` is an icon the palette is showing: an installed app's, the program of
+    /// something it answers about, or a file in its rows.
     pub fn shows_icon(&self, path: &str) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)))
+            || (!path.is_empty() && s.items.iter().any(|i| matches!(&i.icon, Icon::File(p) if p == path)))
     }
 }
 
@@ -806,11 +863,8 @@ mod tests {
         assert!(launch(&index, r"C:\Windows\System32\cmd.exe").is_err());
     }
 
-    #[test]
-    fn results_number_items_for_running_them() {
-        let session = Session::default();
-        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
-        session.open(Context {
+    fn ctx(today: NaiveDate) -> Context {
+        Context {
             today,
             apps: Vec::new(),
             session: None,
@@ -824,7 +878,20 @@ mod tests {
             week_goals: None,
             block_lists: Vec::new(),
             next_meeting: None,
-        });
+        }
+    }
+
+    /// File rows for "bud", as the worker would hand them over.
+    fn budget_files() -> Vec<Item> {
+        let home = Path::new("/home/ana");
+        files::rows("bud", home, vec![home.join("budget.xlsx"), home.join("budget.txt")])
+    }
+
+    #[test]
+    fn results_number_items_for_running_them() {
+        let session = Session::default();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        session.open(ctx(today));
         let first = session.query("");
         assert!(!first.chips.is_empty());
         let second = session.query("yesterday");
@@ -832,5 +899,63 @@ mod tests {
         // An item from results that have been replaced isn't run.
         assert!(session.item(first.seq, 0).is_none());
         assert_eq!(session.item(second.seq, 0).map(|i| i.action), Some(Action::Go("today", Some(today.pred_opt().unwrap()))));
+    }
+
+    #[test]
+    fn files_for_an_old_query_are_dropped() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let first = session.query("bu");
+        let second = session.query("bud");
+        assert!(session.add_files(first.seq, budget_files()).is_none());
+        let shown = second.rows.len();
+        assert!(!matches!(session.item(second.seq, shown).map(|i| i.action), Some(Action::OpenFile(_))));
+    }
+
+    #[test]
+    fn files_join_the_end_of_the_rows() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let results = session.query("bud");
+        let files = budget_files();
+        let first = files[0].clone();
+        let views = session.add_files(results.seq, files).expect("current files are added");
+        assert_eq!(views.len(), 2);
+        assert_eq!(session.item(results.seq, results.rows.len()).map(|i| i.action), Some(first.action));
+        // Their icons may be asked for now.
+        let Icon::File(path) = &first.icon else { panic!("a file icon") };
+        assert!(session.shows_icon(path));
+    }
+
+    #[test]
+    fn files_never_follow_the_suggestions() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let results = session.query("");
+        assert!(session.add_files(results.seq, budget_files()).is_none());
+    }
+
+    #[test]
+    fn files_are_wanted_for_two_letters_with_the_switch_on() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        assert!(!session.wants_files(" b "));
+        assert!(session.wants_files("bu"));
+        session.set_switch(settings::Switch::SearchFiles, false);
+        assert!(!session.wants_files("budget"));
+    }
+
+    #[test]
+    fn a_flipped_switch_shows_its_new_state_when_asked_again() {
+        let session = Session::default();
+        let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
+        c.switches = vec![(settings::Switch::Nudges, false)];
+        session.open(c);
+        session.query("focus nudges");
+        let before = session.query(&session.last_query());
+        session.set_switch(settings::Switch::Nudges, true);
+        let after = session.query(&session.last_query());
+        assert!(after.seq > before.seq);
+        assert_ne!(serde_json::to_string(&before.rows).unwrap(), serde_json::to_string(&after.rows).unwrap());
     }
 }

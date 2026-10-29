@@ -148,6 +148,15 @@ pub fn run() {
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
             app.manage(palette::Index::default());
             app.manage(palette::Session::default());
+            // Files join the web palette's rows when the index answers, if they're still wanted.
+            let handle = app.handle().clone();
+            app.manage(palette::files::Worker::new(palette::files::ask_system, move |seq, items| {
+                if let Some(rows) = handle.state::<palette::Session>().add_files(seq, items) {
+                    if let Err(e) = handle.emit_to(palette::LABEL, "palette:files", palette::FilesFound { seq, rows }) {
+                        eprintln!("palette: cannot show files: {e}");
+                    }
+                }
+            }));
             #[cfg(windows)]
             palette::native::spawn(app.handle().clone(), db_path.clone(), launch == Launch::Palette);
             let scripted_tab = browser::SharedScripted::default();
@@ -313,6 +322,7 @@ pub fn run() {
             commands::palette_icons,
             commands::palette_card,
             commands::palette_run,
+            commands::palette_run_second,
             commands::palette_hide,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
