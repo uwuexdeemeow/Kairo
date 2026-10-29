@@ -151,7 +151,7 @@ mod tests {
         let mut c = Command::new("sh");
         c.args(["-c", "echo /a; sleep 30"]);
         let start = Instant::now();
-        let r = lines(c, Instant::now() + Duration::from_millis(300), 5).unwrap();
+        let r = lines(c, Instant::now() + Duration::from_millis(300), 5, &[0]).unwrap();
         assert_eq!(r, vec!["/a"]);
         assert!(start.elapsed() < Duration::from_secs(5));
     }
