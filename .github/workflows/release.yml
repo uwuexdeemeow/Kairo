@@ -36,6 +36,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Test the web code
+        run: npm test
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +73,9 @@ jobs:
           workspaces: src-tauri
 
       - run: npm ci
+
+      - name: Test the web code
+        run: npm test
 
       # Ad-hoc signed (tauri.conf.json); the update itself is signed with the updater key.
       - uses: tauri-apps/tauri-action@v0
@@ -112,6 +118,9 @@ jobs:
           workspaces: src-tauri
 
       - run: npm ci
+
+      - name: Test the web code
+        run: npm test
 
       - uses: tauri-apps/tauri-action@v0
         env:

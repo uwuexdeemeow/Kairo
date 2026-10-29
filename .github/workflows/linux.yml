@@ -41,6 +41,9 @@ jobs:
         working-directory: src-tauri
         run: cargo test
 
+      - name: Test the web code
+        run: npm test
+
       # Without updater files, which need the release signing key.
       - name: Build
         run: >
