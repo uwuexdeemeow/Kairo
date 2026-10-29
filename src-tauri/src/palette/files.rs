@@ -6,6 +6,9 @@ use std::time::{Instant, SystemTime};
 
 use super::search::{Action, Icon, Item};
 
+#[cfg(windows)]
+mod windows;
+
 /// Fewest characters typed before the index is asked.
 pub const MIN_CHARS: usize = 2;
 /// Most file rows shown.
@@ -152,9 +155,14 @@ pub fn file_kind(path: &str) -> &'static str {
 
 /// Asks this computer's own index for files named like the query.
 pub fn ask_system(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
-    let _ = (query, home, deadline);
-    // Each OS's index is asked by its own module, once it exists.
-    Err(Unavailable::NoIndexer)
+    #[cfg(windows)]
+    return windows::ask(query, home, deadline);
+    // The other systems' indexes are asked by their own modules, once they exist.
+    #[cfg(not(windows))]
+    {
+        let _ = (query, home, deadline);
+        Err(Unavailable::NoIndexer)
+    }
 }
 
 /// Opens a file's folder with the file picked out where the file manager allows, else the folder.

@@ -1,0 +1,39 @@
+# Tests Kairo on Windows, which proves the Windows-only code compiles and its tests pass. It makes
+# no installer; the release workflow does that.
+name: Windows tests
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Test
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Test the web code
+        run: npm test
