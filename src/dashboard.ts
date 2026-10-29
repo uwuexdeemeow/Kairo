@@ -21,15 +21,23 @@ interface KairoApp {
   settings?: { covers: string; open: () => void };
 }
 
+/// Today's local date, as Kairo's commands take it ("2026-10-29").
+function today(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 const APPS: KairoApp[] = [
   {
     id: "chrono",
     name: "Chrono",
     what: "Screen time tracker",
+    // Only today's two totals: the full day summary (timeline, apps, sites) is far more work to
+    // build every 30 seconds.
     line: async () => {
-      const [status, day] = await Promise.all([api.status(), api.day()]);
+      const [status, [day]] = await Promise.all([api.status(), api.dayTotals(today(), today())]);
       if (!status.tracking) return "Paused";
-      if (!day.activeMs) return "Nothing tracked yet today";
+      if (!day?.activeMs) return "Nothing tracked yet today";
       return `${fmtDur(day.activeMs)} on screen · ${pct(day.productiveMs, day.activeMs)}% productive`;
     },
     open: () => api.openChrono(),
