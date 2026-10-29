@@ -1,3 +1,4 @@
+import { jumpTo } from "./jump";
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
@@ -110,7 +111,8 @@ async function refreshLines() {
   );
 }
 
-function showTab(tab: Tab) {
+/// Resolves once the tab has what it shows.
+async function showTab(tab: Tab): Promise<void> {
   if (tab === current) return;
   current = tab;
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
@@ -128,12 +130,12 @@ function showTab(tab: Tab) {
       settingsWired = true;
     }
     // Read again each time, since Chrono's window can change some of these too.
-    loadKairoSettings().catch(() => {});
+    await loadKairoSettings().catch(() => {});
   }
 }
 
 /// Shows the tab whoever opened the window asked for; with no ask, the current tab stays (Home
-/// the first time).
+/// the first time). An ask of `settings#id` also lands on that control once the tab is filled.
 async function followTab() {
   let asked: string | null = null;
   try {
@@ -141,7 +143,9 @@ async function followTab() {
   } catch {
     // Nothing asked.
   }
-  showTab(asked === "settings" ? "settings" : asked === "home" ? "home" : (current ?? "home"));
+  const [tab, control] = (asked ?? "").split("#");
+  await showTab(tab === "settings" ? "settings" : tab === "home" ? "home" : (current ?? "home"));
+  if (control && tab === "settings") jumpTo(control);
 }
 
 followTheme();

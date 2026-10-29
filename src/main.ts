@@ -4,6 +4,7 @@ import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
 import { shownControl, useDropdowns } from "./dropdown";
+import { jumpTo } from "./jump";
 import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -1916,15 +1917,18 @@ async function load(v: View = view) {
   }
 }
 
+/// Switches to a view and loads it; resolves once it's filled.
+function showView(next: View): Promise<void> {
+  view = next;
+  for (const t of document.querySelectorAll<HTMLButtonElement>("[data-view]")) t.setAttribute("aria-selected", String(t.dataset.view === next));
+  for (const sec of document.querySelectorAll<HTMLElement>(".view")) sec.hidden = sec.id !== `view-${next}`;
+  // Each view starts at its top, not wherever the last one was scrolled to.
+  window.scrollTo(0, 0);
+  return load();
+}
+
 for (const tab of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
-  tab.addEventListener("click", () => {
-    view = tab.dataset.view as View;
-    for (const t of document.querySelectorAll<HTMLButtonElement>("[data-view]")) t.setAttribute("aria-selected", String(t === tab));
-    for (const sec of document.querySelectorAll<HTMLElement>(".view")) sec.hidden = sec.id !== `view-${view}`;
-    // Each view starts at its top, not wherever the last one was scrolled to.
-    window.scrollTo(0, 0);
-    load();
-  });
+  tab.addEventListener("click", () => showView(tab.dataset.view as View));
 }
 
 for (const btn of document.querySelectorAll<HTMLButtonElement>("#range button")) {
@@ -2037,21 +2041,26 @@ $("#category-filter").addEventListener("input", paintCategories);
 
 // ---------- command palette ----------
 
-/// Shows the view, and for Today or Week the date, the command palette asked for. The request
+/// Shows the view, and for Today or Week the date, the command palette asked for, and for
+/// Settings the control to land on. The request
 /// waits in Kairo until taken: a window opened for it is still loading when it's made.
 async function followNavigation() {
   const target = await api.takeNavigation().catch(() => null);
   if (!target) return;
-  const { view: next, date } = target;
+  const { view: next, date, target: control } = target;
   if (next === "today") selectedDay = date && date < todayIso() ? date : null;
   if (next === "week") {
     setSpan("week");
     selectedWeek = date && mondayOf(date) < mondayOf(todayIso()) ? mondayOf(date) : null;
   }
-  $<HTMLButtonElement>(`[data-view="${next}"]`).click();
+  // Waits for the view's own load, so the control exists and is filled before the jump.
+  await showView(next as View);
+  if (control) jumpTo(control);
 }
 
 listen("kairo:navigate", () => followNavigation());
+// Kairo's settings window can change what Chrono's Settings shows too.
+listen("kairo:settings", () => view === "settings" && load());
 
 for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
   $<HTMLInputElement>(id).addEventListener("change", async (e) => {

@@ -396,6 +396,31 @@ h2 {
   margin-top: 64px;
 }
 
+/* The section a jump from the command palette landed on: the focus ring's accent, fading out. */
+.block.jumped {
+  border-radius: 8px;
+  animation: jumped 1.5s ease-out forwards;
+}
+
+@keyframes jumped {
+  from {
+    outline: 2px solid var(--productive);
+    outline-offset: 8px;
+  }
+  to {
+    outline: 2px solid transparent;
+    outline-offset: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block.jumped {
+    animation: none;
+    outline: 2px solid var(--productive);
+    outline-offset: 8px;
+  }
+}
+
 .section-head {
   display: flex;
   flex-wrap: wrap;

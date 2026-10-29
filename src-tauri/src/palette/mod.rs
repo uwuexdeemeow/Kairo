@@ -420,11 +420,11 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::RevealFile(_) => Err("Couldn't show it in its folder.".into()),
         // The caller shows the new state by asking again, so the result is of no use here.
         Action::Toggle(switch) => settings::flip(app, conn, *switch).map(|_| ()),
-        // Until the pages scroll to the control, this opens the right window on its settings.
+        // Opens the window that has the setting and lands on its control.
         Action::Setting(control) => {
             match settings::entries().iter().find(|e| e.control == *control).map(|e| e.page) {
-                Some(settings::Page::Kairo) => crate::show_dashboard(app, Some("settings")),
-                _ => crate::open_main_at(app, "settings", None),
+                Some(settings::Page::Kairo) => crate::show_dashboard(app, Some(&format!("settings#{control}"))),
+                _ => crate::open_main_to(app, "settings", None, Some(control)),
             }
             Ok(())
         }

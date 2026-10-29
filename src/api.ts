@@ -466,7 +466,7 @@ export const api = {
   openExtensionsPage: (id: string) => invoke<string>("open_extensions_page", { id }),
   /** Where the command palette last asked this window to go, once; null when it hasn't. `date`
    *  (local `YYYY-MM-DD`) is for Today or Week. */
-  takeNavigation: () => invoke<{ view: string; date: string | null } | null>("take_navigation"),
+  takeNavigation: () => invoke<{ view: string; date: string | null; target: string | null } | null>("take_navigation"),
   /** The web palette (macOS and Linux) opening afresh: today's footer line and the theme. */
   paletteOpen: () => invoke<{ footer: string; appearance: Appearance }>("palette_open"),
   /** What a query finds; with nothing typed, the suggestions. */

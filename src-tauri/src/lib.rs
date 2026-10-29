@@ -60,11 +60,13 @@ pub struct AppState {
     pub dashboard_tab: Mutex<Option<String>>,
 }
 
-/// A view, and for Today or Week a local `YYYY-MM-DD` date.
+/// A view, and for Today or Week a local `YYYY-MM-DD` date, and for Settings the id of the
+/// control to land on.
 #[derive(Serialize, Clone)]
 pub struct Navigation {
     view: String,
     date: Option<String>,
+    target: Option<String>,
 }
 
 /// The tray's palette item, which shows the shortcut and follows it when it changes.
@@ -488,7 +490,12 @@ fn open_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
 /// when this runs, so the page asks where to go (`take_navigation`) once it's ready, and again
 /// whenever it's told to.
 pub(crate) fn open_main_at(app: &AppHandle, view: &str, date: Option<NaiveDate>) {
-    let target = Navigation { view: view.to_string(), date: date.map(|d| d.format("%Y-%m-%d").to_string()) };
+    open_main_to(app, view, date, None);
+}
+
+/// Like `open_main_at`, and lands on the control with this element id once the view is shown.
+pub(crate) fn open_main_to(app: &AppHandle, view: &str, date: Option<NaiveDate>, target: Option<&str>) {
+    let target = Navigation { view: view.to_string(), date: date.map(|d| d.format("%Y-%m-%d").to_string()), target: target.map(str::to_string) };
     *app.state::<AppState>().navigation.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
     show_main(app);
     let _ = app.emit_to("main", "kairo:navigate", ());
