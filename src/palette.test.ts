@@ -145,3 +145,58 @@ describe("switches", () => {
     expect(api.paletteRun).toHaveBeenLastCalledWith(2, 1);
   });
 });
+
+describe("racing answers", () => {
+  const flip = () => results(2, [item("Pause tracking", { detail: "Off" })]);
+  const deferred = <T>() => {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+
+  it("ignore an older query that resolves after a flip", async () => {
+    await open(results(1, [item("Pause tracking", { detail: "On" })]));
+    const late = deferred<PaletteResults>();
+    api.paletteQuery.mockReturnValueOnce(late.promise);
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    api.paletteRun.mockResolvedValueOnce(flip());
+    key("Enter");
+    await vi.waitFor(() => expect($(".palette-detail").textContent).toBe("Off"));
+    late.resolve(results(0, [item("Stale"), item("Rows")]));
+    await new Promise((r) => setTimeout(r));
+    expect(titles()).toEqual(["Pause tracking"]);
+  });
+
+  it("ignore a flip's answer once the user has typed again", async () => {
+    await open(results(1, [item("Pause tracking", { detail: "On" })]));
+    const slow = deferred<PaletteResults | null>();
+    api.paletteRun.mockReturnValueOnce(slow.promise);
+    key("Enter");
+    api.paletteQuery.mockResolvedValueOnce(results(3, [item("Newer")]));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(titles()).toEqual(["Newer"]));
+    slow.resolve(flip());
+    await new Promise((r) => setTimeout(r));
+    expect(titles()).toEqual(["Newer"]);
+  });
+});
+
+describe("running", () => {
+  it("does nothing on Ctrl+Enter for a row without a second action", async () => {
+    await open(results(1, [item("Plain")]));
+    key("Enter", { ctrlKey: true });
+    expect(api.paletteRunSecond).not.toHaveBeenCalled();
+    expect(document.querySelector(".palette-error")).toBeNull();
+  });
+
+  it("shows an error from either run", async () => {
+    await open(results(1, [file("a.txt")]));
+    api.paletteRun.mockRejectedValueOnce("no luck");
+    key("Enter");
+    await vi.waitFor(() => expect($(".palette-error").textContent).toBe("no luck"));
+    $(".palette-error").remove();
+    api.paletteRunSecond.mockRejectedValueOnce("not there");
+    key("Enter", { ctrlKey: true });
+    await vi.waitFor(() => expect($(".palette-error").textContent).toBe("not there"));
+  });
+});

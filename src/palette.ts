@@ -314,9 +314,11 @@ function showError(err: unknown) {
 /// selection where it was; anything else hides the palette.
 async function run(index: number) {
   if (!shown[index]) return;
+  // A flip counts as a query: an older answer still in flight, or a newer query, wins or loses by the token.
+  const token = ++queryToken;
   try {
     const fresh = await api.paletteRun(results.seq, index);
-    if (fresh) render(fresh);
+    if (fresh && token === queryToken) render(fresh);
   } catch (err) {
     showError(err);
   }
@@ -389,6 +391,8 @@ async function open() {
   await refresh();
 }
 
+/// Files for a query not rendered yet are dropped; that's fine, as Kairo waits for a pause in typing
+/// before searching, so a query's answer is drawn long before its files.
 /// File rows for the current query follow the rows already shown; the selection stays on its item.
 listen<PaletteFiles>("palette:files", (e) => {
   if (e.payload.seq !== results.seq || !e.payload.rows.length) return;
