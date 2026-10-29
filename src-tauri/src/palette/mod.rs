@@ -563,10 +563,14 @@ struct SessionState {
 pub struct Session(Mutex<SessionState>);
 
 impl Session {
+    /// Starts afresh. The numbering moves on, so files still coming for the last opening's
+    /// query are dropped.
     pub fn open(&self, ctx: Context) {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.ctx = Some(ctx);
         s.items.clear();
+        s.query.clear();
+        s.seq += 1;
     }
 
     pub fn query(&self, query: &str) -> Results {
@@ -907,9 +911,23 @@ mod tests {
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
         let first = session.query("bu");
         let second = session.query("bud");
-        assert!(session.add_files(first.seq, budget_files()).is_none());
         let shown = second.rows.len();
-        assert!(!matches!(session.item(second.seq, shown).map(|i| i.action), Some(Action::OpenFile(_))));
+        let before: Vec<_> = (0..shown).map(|i| session.item(second.seq, i).map(|i| i.action)).collect();
+        assert!(session.add_files(first.seq, budget_files()).is_none());
+        // The current results are as they were, with nothing after them.
+        let after: Vec<_> = (0..shown).map(|i| session.item(second.seq, i).map(|i| i.action)).collect();
+        assert_eq!(before, after);
+        assert!(session.item(second.seq, shown).is_none());
+    }
+
+    #[test]
+    fn files_for_the_last_opening_are_dropped() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let old = session.query("bud");
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        assert!(session.add_files(old.seq, budget_files()).is_none());
+        assert_eq!(session.last_query(), "");
     }
 
     #[test]

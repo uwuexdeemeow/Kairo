@@ -971,7 +971,8 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
-    if let palette::search::Action::Toggle(switch) = item.action {
+    if item.action.keeps_palette_open() {
+        let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches keep the palette open") };
         let on = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch)?;
         session.set_switch(switch, on);
         return Ok(Some(palette_ask(&session, &worker, session.last_query())));
