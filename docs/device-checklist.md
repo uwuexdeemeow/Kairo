@@ -88,6 +88,36 @@ and Open dashboard opens the dashboard.
    "Open the command palette".
 5. **Focus blocking**, as on GNOME, step 7.
 
+## Palette: files and settings
+
+On Windows, a Mac and Linux. Open the palette with Ctrl+Space (Option+Space on a Mac). Below,
+"Ctrl+Enter" means ⌘+Enter on a Mac.
+
+1. **Find a file.** Type part of a file's name from your Documents folder (at least 2 letters).
+   *Expect:* the file shows under Files, after the other results, within a second. Up to 5 files
+   show.
+2. **Open and show.** Press Enter on a file row. *Expect:* the file opens. Search again and press
+   Ctrl+Enter. *Expect:* its folder opens (Explorer, Finder or your file manager) with the file
+   selected, and the footer said "Show in folder" while the row was selected.
+3. **Flip a switch.** Type "login" and press Enter. *Expect:* the row under Settings shows On or
+   Off and flips, and the palette stays open. It's titled "Start with Windows", "Open at login"
+   (Mac) or "Start at login" (Linux). Open the dashboard's Settings. *Expect:* its switch matches.
+4. **Jump to a setting.** Type "evening" and press Ctrl+Enter. *Expect:* Chrono opens on its
+   Settings page, scrolled to Evening summary, focused and highlighted for about a second and a
+   half. Do the same with "theme", and flip it with Enter instead. *Expect:* Chrono or the
+   dashboard repaints.
+5. **Turn file search off.** In the dashboard's Settings → Command palette, turn off "Search
+   files", then type the same file name. *Expect:* no Files section.
+
+**Windows only:** from a terminal, run `kairo.exe --search-files <word>`. *Expect:* it prints what
+file search finds, a quick way to check Windows Search by itself.
+
+**Linux only:**
+
+- On a system without localsearch (tracker) or plocate/locate, type 2 or more letters. *Expect:*
+  one row, "File search needs localsearch or plocate".
+- On a system with plocate. *Expect:* results come only from the home folder.
+
 ## Two computers combined
 
 Use two machines (any systems) with the same cloud drive.
