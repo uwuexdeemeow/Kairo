@@ -8,6 +8,8 @@ use super::search::{Action, Icon, Item};
 
 #[cfg(windows)]
 mod windows;
+#[cfg(target_os = "macos")]
+mod macos;
 
 /// Fewest characters typed before the index is asked.
 pub const MIN_CHARS: usize = 2;
@@ -157,8 +159,10 @@ pub fn file_kind(path: &str) -> &'static str {
 pub fn ask_system(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
     #[cfg(windows)]
     return windows::ask(query, home, deadline);
+    #[cfg(target_os = "macos")]
+    return macos::ask(query, home, deadline);
     // The other systems' indexes are asked by their own modules, once they exist.
-    #[cfg(not(windows))]
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (query, home, deadline);
         Err(Unavailable::NoIndexer)
