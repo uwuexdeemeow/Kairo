@@ -920,9 +920,9 @@ pub struct PaletteOpening {
 
 /// Starts a fresh palette from what's known now.
 #[tauri::command]
-pub fn palette_open(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>) -> CmdResult<PaletteOpening> {
+pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>) -> CmdResult<PaletteOpening> {
     let conn = state.db.lock().map_err(err)?;
-    let (ctx, footer) = palette::context(&conn, &index);
+    let (ctx, footer) = palette::context(&app, &conn, &index);
     session.open(ctx);
     Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
 }
@@ -991,6 +991,7 @@ pub struct PaletteSettings {
     shortcut: String,
     suggestions: bool,
     over_fullscreen: bool,
+    search_files: bool,
 }
 
 #[tauri::command]
@@ -1000,6 +1001,7 @@ pub fn get_palette_settings(state: State<AppState>) -> CmdResult<PaletteSettings
         shortcut: palette::shortcut(&conn).map_err(err)?,
         suggestions: palette::suggestions(&conn).map_err(err)?,
         over_fullscreen: palette::over_fullscreen(&conn).map_err(err)?,
+        search_files: palette::search_files(&conn).map_err(err)?,
     })
 }
 
@@ -1014,6 +1016,12 @@ pub fn set_palette_over_fullscreen(state: State<AppState>, on: bool) -> CmdResul
 pub fn set_palette_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
     palette::change_shortcut(&app, &conn, &shortcut)
+}
+
+#[tauri::command]
+pub fn set_palette_search_files(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_search_files(&conn, on).map_err(err)
 }
 
 #[tauri::command]

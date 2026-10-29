@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
 
+use super::settings::{self, Switch};
 use super::AppEntry;
 use crate::analysis::Category;
 
@@ -270,6 +271,10 @@ pub enum Action {
     /// Opens a file with its default app, or shows it in its folder.
     OpenFile(String),
     RevealFile(String),
+    /// Flips a switch among the settings, in place.
+    Toggle(Switch),
+    /// Jumps to a setting's control, by its element id.
+    Setting(&'static str),
     /// Does nothing, for a row that only says something.
     Nothing,
 }
@@ -278,7 +283,12 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..))
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
+    }
+
+    /// Whether the palette stays open after it, to show the new state.
+    pub fn keeps_palette_open(&self) -> bool {
+        matches!(self, Action::Toggle(..))
     }
 }
 
@@ -328,6 +338,10 @@ pub struct Context {
     /// Limits passed today: (name, used, limit).
     pub over_limits: Vec<(String, i64, i64)>,
     pub suggestions: bool,
+    /// Whether files are looked for too.
+    pub search_files: bool,
+    /// Which of the settings' switches are on.
+    pub switches: Vec<(Switch, bool)>,
     /// What Kairo has recorded lately, to answer questions about.
     pub subjects: Vec<Subject>,
     /// Daily limits by key, in milliseconds.
@@ -530,18 +544,13 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 12] = [
+    let actions: [(&str, String, Glyph, Action, bool); 7] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
-        ("check for updates update version", "Check for updates".into(), Glyph::Update, Action::CheckUpdates, true),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
-        ("settings theme appearance dark light palette shortcut startup sign in login updates backup restore combine computers", "Kairo settings".into(), Glyph::Settings, Action::Dashboard(Some("settings")), true),
-        ("export csv spreadsheet data download time", "Export time as CSV".into(), Glyph::Settings, Action::ExportTime, true),
-        ("backup back up save data copy", "Back up everything".into(), Glyph::Settings, Action::Backup, true),
-        ("restore backup load data", "Restore a backup".into(), Glyph::Settings, Action::Restore, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
     ];
     for (words, title, glyph, action, offered) in actions {
@@ -557,6 +566,11 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         if let Action::StartFocus(minutes, None) = item.action {
             item.preview = Some(Preview::Focus(minutes, None));
         }
+        items.push(item);
+    }
+
+    for mut item in settings::search(query, &ctx.switches) {
+        item.score -= 8.0;
         items.push(item);
     }
 
@@ -648,6 +662,8 @@ mod tests {
             today_apps: vec![("Cursor".into(), 2 * HOUR_MS), ("THE FINALS".into(), HOUR_MS), ("Brave".into(), HOUR_MS / 2)],
             over_limits: vec![("THE FINALS".into(), 132 * 60_000, 120 * 60_000)],
             suggestions: true,
+            search_files: true,
+            switches: Vec::new(),
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
@@ -671,13 +687,20 @@ mod tests {
         let settings = search(&c, "settings");
         assert!(settings.iter().any(|i| i.title == "Kairo settings" && i.action == Action::Dashboard(Some("settings"))));
         assert!(settings.iter().any(|i| i.title == "Chrono settings" && i.action == Action::Go("settings", None)));
-        assert_eq!(search(&c, "theme")[0].action, Action::Dashboard(Some("settings")));
+        // The theme leads to Kairo's settings, to its own control.
+        let theme = &search(&c, "theme")[0];
+        assert_eq!((theme.title.as_str(), theme.action.clone()), ("Theme", Action::Setting("appearance")));
+        assert!(theme.action.opens_window() && !theme.action.keeps_palette_open());
     }
 
     #[test]
     fn data_and_goals_are_a_few_letters_away() {
         let c = ctx();
         assert_eq!(search(&c, "export")[0].action, Action::ExportTime);
+        // A switch flips in place and keeps the palette open.
+        let flip = &search(&Context { switches: vec![(Switch::Evening, true)], ..ctx() }, "evening")[0];
+        assert_eq!((flip.action.clone(), flip.detail.as_deref()), (Action::Toggle(Switch::Evening), Some("On")));
+        assert!(flip.action.keeps_palette_open() && !Action::Backup.keeps_palette_open());
         assert_eq!(search(&c, "backup")[0].action, Action::Backup);
         assert!(search(&c, "restore").iter().any(|i| i.action == Action::Restore));
         let goals = search(&c, "weekly goals");
@@ -731,7 +754,7 @@ mod tests {
         assert_eq!((social.action.clone(), social.sub.as_deref()), (Action::StartFocus(25, Some("social".into())), Some("Blocks your “Social” list")));
         let found = search(&c, "foc");
         assert_eq!(found[0].title, "Focus");
-        assert!(found[1..].iter().all(|i| i.section == "Actions"));
+        assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings"));
         assert!(search(&c, "zzzq").is_empty());
     }
 

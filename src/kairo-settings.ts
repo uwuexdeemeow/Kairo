@@ -146,6 +146,8 @@ export function wireKairoSettings(): void {
     api.setPaletteOverFullscreen((e.target as HTMLInputElement).checked),
   );
 
+  $<HTMLInputElement>("#palette-search-files").addEventListener("change", (e) => api.setPaletteSearchFiles((e.target as HTMLInputElement).checked));
+
   $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
     const mode = (e.target as HTMLSelectElement).value as Appearance;
     applyTheme(mode);
@@ -153,6 +155,8 @@ export function wireKairoSettings(): void {
   });
   // Chrono's window or the palette can change it too.
   listen<Appearance>("kairo:appearance", (e) => ($<HTMLSelectElement>("#appearance").value = e.payload));
+  // The palette flipped a switch.
+  listen("kairo:settings", () => loadKairoSettings());
 
   $("#update-check").addEventListener("click", async () => {
     const out = $("#update-status");
@@ -227,6 +231,7 @@ export async function loadKairoSettings(): Promise<void> {
   showShortcut(palette.shortcut);
   $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
   $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
+  $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
   const auto = await api.autostart();
   const box = $<HTMLInputElement>("#autostart-enabled");
   box.checked = auto.enabled;

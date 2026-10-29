@@ -478,10 +478,11 @@ export const api = {
   /** Runs item `at` of the results numbered `seq`, then puts the palette away. */
   paletteRun: (seq: number, at: number) => invoke<void>("palette_run", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),
-  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean }>("get_palette_settings"),
+  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
+  setPaletteSearchFiles: (on: boolean) => invoke<void>("set_palette_search_files", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
   /** Each asks where with the system's file dialog; null when it was closed. */
   exportTime: () => invoke<number | null>("export_time"),

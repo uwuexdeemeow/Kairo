@@ -23,6 +23,7 @@ pub mod files;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
+pub mod settings;
 #[cfg(not(windows))]
 pub mod web;
 
@@ -32,6 +33,7 @@ pub const LABEL: &str = "palette";
 pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
+const SEARCH_FILES_KEY: &str = "palette_search_files";
 const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
 /// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
 /// here so each key press needn't ask the database.
@@ -229,6 +231,15 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
 }
 
+/// Whether typing in the palette also looks for files; on unless turned off.
+pub fn search_files(conn: &Connection) -> Result<bool> {
+    Ok(db::get_setting(conn, SEARCH_FILES_KEY)?.as_deref() != Some("0"))
+}
+
+pub fn set_search_files(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, SEARCH_FILES_KEY, if on { "1" } else { "0" })
+}
+
 /// Off unless asked for, so the shortcut can't steal keys mid-game.
 pub fn over_fullscreen(conn: &Connection) -> Result<bool> {
     let on = db::get_setting(conn, OVER_FULLSCREEN_KEY)?.as_deref() == Some("1");
@@ -284,7 +295,7 @@ pub fn percent(part: i64, whole: i64) -> i64 {
 
 /// What's known as the palette opens (apps, the focus session, today's apps and limits, what
 /// can be asked about), and the footer's line about today.
-pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
+pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, String) {
     let now = now_ms();
     let today = Local::now().date_naive();
     let apps = apps(conn, index, now).unwrap_or_default();
@@ -307,6 +318,8 @@ pub fn context(conn: &Connection, index: &Index) -> (Context, String) {
         today_apps: glance.top_apps,
         over_limits,
         suggestions: suggestions(conn).unwrap_or(true),
+        search_files: search_files(conn).unwrap_or(true),
+        switches: settings::read(app, conn),
         subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
@@ -405,6 +418,16 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::OpenFile(_) => Err("Couldn't open it: it was moved or deleted.".into()),
         Action::RevealFile(path) if files::reveal(path) => Ok(()),
         Action::RevealFile(_) => Err("Couldn't show it in its folder.".into()),
+        // The caller shows the new state by asking again, so the result is of no use here.
+        Action::Toggle(switch) => settings::flip(app, conn, *switch).map(|_| ()),
+        // Until the pages scroll to the control, this opens the right window on its settings.
+        Action::Setting(control) => {
+            match settings::entries().iter().find(|e| e.control == *control).map(|e| e.page) {
+                Some(settings::Page::Kairo) => crate::show_dashboard(app, Some("settings")),
+                _ => crate::open_main_at(app, "settings", None),
+            }
+            Ok(())
+        }
         Action::Nothing => Ok(()),
     }
 }
@@ -794,6 +817,8 @@ mod tests {
             today_apps: Vec::new(),
             over_limits: Vec::new(),
             suggestions: true,
+            search_files: true,
+            switches: Vec::new(),
             subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,

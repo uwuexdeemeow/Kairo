@@ -716,7 +716,7 @@ impl Palette {
 
     /// What's known when it opens: apps, the focus session, today's apps and limits.
     fn load(&mut self) {
-        let (ctx, footer) = super::context(&self.conn, &self.app.state::<super::Index>());
+        let (ctx, footer) = super::context(&self.app, &self.conn, &self.app.state::<super::Index>());
         self.ctx = Some(ctx);
         self.footer = footer;
     }

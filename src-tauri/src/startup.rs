@@ -97,9 +97,14 @@ pub fn is_enabled(app: &AppHandle) -> bool {
     AVAILABLE && app.autolaunch().is_enabled().unwrap_or(false)
 }
 
+/// Why Start at login can't be changed, when `available` says it can't.
+pub fn refusal(available: bool) -> Option<&'static str> {
+    (!available).then_some("Start at login only works in the installed app.")
+}
+
 pub fn set_enabled(app: &AppHandle, on: bool) -> Result<(), String> {
-    if !AVAILABLE {
-        return Err("Start at login only works in the installed app.".into());
+    if let Some(why) = refusal(AVAILABLE) {
+        return Err(why.into());
     }
     let launcher = app.autolaunch();
     if on { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())
