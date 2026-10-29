@@ -543,6 +543,7 @@ impl Results {
 }
 
 /// File rows found for the results numbered `seq`, sent to the web palette as `palette:files`.
+#[cfg(not(windows))]
 #[derive(Serialize, Clone)]
 pub struct FilesFound {
     pub seq: u64,
@@ -604,7 +605,8 @@ impl Session {
 
     /// Adds file rows after the rows of the results numbered `seq`, and returns how they're drawn.
     /// None once newer results replaced them, or when nothing is typed, since files would then
-    /// land after the tiles and chips.
+    /// land after the tiles and chips. Windows' own palette adds its files itself.
+    #[cfg(any(not(windows), test))]
     pub fn add_files(&self, seq: u64, items: Vec<Item>) -> Option<Vec<ItemView>> {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if s.seq != seq || s.query.trim().is_empty() {
