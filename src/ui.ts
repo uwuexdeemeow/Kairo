@@ -45,10 +45,6 @@ const THEME_KEY = "kairo.theme";
 const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 let appearance: Appearance = "system";
 
-export function getAppearance(): Appearance {
-  return appearance;
-}
-
 /// Puts the palette for a choice on the page. "Match Windows" asks the system, and the choice
 /// is kept for the next launch so the window opens in the right colors straight away.
 export function applyTheme(mode: Appearance) {

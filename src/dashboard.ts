@@ -3,7 +3,7 @@ import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
-import { loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
+import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
@@ -112,6 +112,7 @@ function showTab(tab: Tab) {
   $("#settings-version").hidden = tab !== "settings";
   $("#dash-title").textContent = tab === "home" ? "Your apps" : "Settings";
   if (tab === "home") {
+    cancelShortcutRecording();
     refreshLines();
   } else {
     if (!settingsWired) {

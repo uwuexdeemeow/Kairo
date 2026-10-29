@@ -1,5 +1,6 @@
+import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type SyncState } from "./api";
-import { $, IS_LINUX, IS_MAC, applyTheme, getAppearance, h } from "./ui";
+import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
 // palette, starting at login, your data, combining computers and updates. Only the dashboard
@@ -43,6 +44,12 @@ function stopRecording(note: string) {
   $("#palette-record").textContent = "Change";
   showShortcut(savedShortcut);
   $("#palette-note").textContent = note;
+}
+
+/// Stops recording a shortcut, if one is being recorded, keeping the one saved; for leaving
+/// Settings, so keys pressed elsewhere don't set it.
+export function cancelShortcutRecording(): void {
+  if (recording) stopRecording("Kept as it was.");
 }
 
 /// While recording, the next key press with a modifier becomes the shortcut.
@@ -144,6 +151,8 @@ export function wireKairoSettings(): void {
     applyTheme(mode);
     await api.setAppearance(mode);
   });
+  // Chrono's window or the palette can change it too.
+  listen<Appearance>("kairo:appearance", (e) => ($<HTMLSelectElement>("#appearance").value = e.payload));
 
   $("#update-check").addEventListener("click", async () => {
     const out = $("#update-status");
@@ -198,8 +207,14 @@ export function wireKairoSettings(): void {
     }
   });
   $("#sync-stop").addEventListener("click", async () => {
-    renderSync(await api.stopSync());
-    $("#sync-status").textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
+    const out = $("#sync-status");
+    out.textContent = "";
+    try {
+      renderSync(await api.stopSync());
+      out.textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
+    } catch (err) {
+      out.textContent = `Couldn't stop: ${err}`;
+    }
   });
 }
 
@@ -207,7 +222,7 @@ export function wireKairoSettings(): void {
 export async function loadKairoSettings(): Promise<void> {
   $("#settings-version").textContent = `Kairo ${await api.version()}`;
   renderSync(await api.sync());
-  $<HTMLSelectElement>("#appearance").value = getAppearance();
+  $<HTMLSelectElement>("#appearance").value = await api.appearance();
   const palette = await api.paletteSettings();
   showShortcut(palette.shortcut);
   $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
