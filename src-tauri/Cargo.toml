@@ -80,6 +80,11 @@ windows-sys = { version = "0.59", features = [
 # The command palette draws itself with Direct2D and DirectWrite, and browsers' address bars are
 # read with UI Automation, all COM APIs; the same versions Tauri already builds.
 windows = { version = "0.62", features = [
+  "Foundation",
+  "Foundation_Collections",
+  "Storage",
+  "Storage_Search",
+  "Storage_Streams",
   "Win32_Foundation",
   "Win32_Graphics_Direct2D",
   "Win32_Graphics_Direct2D_Common",
