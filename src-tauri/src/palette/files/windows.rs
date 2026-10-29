@@ -11,15 +11,23 @@ use windows::Storage::StorageFolder;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED};
 
-use super::Unavailable;
+use super::{Unavailable, APP_FOLDERS, CLUTTER};
 
 /// The most paths one search lists.
 const MAX_PATHS: u32 = 50;
 
-/// The Advanced Query Syntax filter for file names containing the query. AQS has no way to escape
-/// a double quote inside a phrase, so those are dropped.
-fn name_filter(query: &str) -> String {
-    format!("System.FileName:~~\"{}\"", query.replace('"', ""))
+/// The Advanced Query Syntax filter for file names containing the query, outside clutter folders
+/// and home's app folders. The index leaves those out itself: a folder like `node_modules` can
+/// hold thousands of matches, which would otherwise fill every result before the user's own files.
+/// AQS has no way to escape a double quote inside a phrase, so those are dropped.
+fn name_filter(query: &str, home: &Path) -> String {
+    let mut filter = format!("System.FileName:~~\"{}\"", query.replace('"', ""));
+    let clutter = CLUTTER.iter().map(|name| format!(r"\{name}\"));
+    let apps = APP_FOLDERS.iter().map(|name| format!(r"{}\{name}\", home.display()));
+    for folder in clutter.chain(apps) {
+        filter += &format!(" NOT System.ItemFolderPathDisplay:~~\"{folder}\"");
+    }
+    filter
 }
 
 /// Balances a successful `CoInitializeEx` when dropped.
@@ -48,7 +56,7 @@ pub fn ask(query: &str, home: &Path, _deadline: Instant) -> Result<Vec<PathBuf>,
     options.SetFolderDepth(FolderDepth::Deep).map_err(failed)?;
     // Only the index: without it, a folder outside the index would be walked file by file.
     options.SetIndexerOption(IndexerOption::OnlyUseIndexer).map_err(failed)?;
-    options.SetApplicationSearchFilter(&HSTRING::from(name_filter(query))).map_err(failed)?;
+    options.SetApplicationSearchFilter(&HSTRING::from(name_filter(query, home))).map_err(failed)?;
     let files = folder
         .CreateFileQueryWithOptions(&options)
         .and_then(|q| q.GetFilesAsync(0, MAX_PATHS))
@@ -66,9 +74,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_filter_matches_names_containing_the_query() {
-        assert_eq!(name_filter("tax 2026"), "System.FileName:~~\"tax 2026\"");
-        assert_eq!(name_filter("say \"hi\""), "System.FileName:~~\"say hi\"");
+    fn the_filter_matches_names_containing_the_query_outside_clutter() {
+        let home = Path::new(r"C:\Users\Ana");
+        let filter = name_filter("tax 2026", home);
+        assert!(filter.starts_with(r#"System.FileName:~~"tax 2026" NOT "#), "{filter}");
+        assert!(filter.contains(r#"NOT System.ItemFolderPathDisplay:~~"\node_modules\""#), "{filter}");
+        assert!(filter.contains(r#"NOT System.ItemFolderPathDisplay:~~"C:\Users\Ana\appdata\""#), "{filter}");
+        assert!(name_filter("say \"hi\"", home).starts_with(r#"System.FileName:~~"say hi" "#));
     }
 
     /// Asks the real index for a file made just for this, so a search that can't answer fails here
