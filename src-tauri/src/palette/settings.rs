@@ -49,8 +49,6 @@ pub const AUTOSTART_TITLE: &str = if cfg!(windows) {
     "Start at login"
 };
 
-const STRICT_REFUSAL: &str = "Strict mode is on, so these stay as they are until the focus session ends.";
-
 fn chrono(title: &'static str, words: &'static str, control: &'static str, switch: Option<Switch>) -> Entry {
     Entry { title, words, page: Page::Chrono, control, switch, runs: None }
 }
@@ -152,14 +150,14 @@ pub fn read(app: &AppHandle, conn: &Connection) -> Vec<(Switch, bool)> {
 }
 
 /// Flips a saved switch through the code the settings pages use, and says what it is now.
-fn flip_stored(conn: &Connection, switch: Switch) -> Result<bool, String> {
+pub(super) fn flip_stored(conn: &Connection, switch: Switch) -> Result<bool, String> {
     let err = |e: rusqlite::Error| e.to_string();
     let on = !stored(conn, switch).map_err(err)?;
     match switch {
         Switch::Nudges => nudge::set_enabled(conn, on).map_err(err)?,
         Switch::Evening => evening::set(conn, on, evening::settings(conn).map_err(err)?.minute).map_err(err)?,
         // Otherwise switching blocking off would be the easy way around strict mode.
-        Switch::Blocking | Switch::Launchers if blocking::strict_now(conn).map_err(err)? => return Err(STRICT_REFUSAL.into()),
+        Switch::Blocking | Switch::Launchers if blocking::strict_now(conn).map_err(err)? => return Err(blocking::STRICT_REFUSAL.into()),
         Switch::Blocking => drop(blocking::set_setting(conn, "enabled", on).map_err(err)?),
         Switch::Launchers => drop(blocking::set_setting(conn, "launchers", on).map_err(err)?),
         Switch::Suggestions => super::set_suggestions(conn, on).map_err(err)?,
@@ -289,7 +287,7 @@ mod tests {
         crate::focus::start_by_hand(&conn, 25, None, chrono::Utc::now().timestamp_millis()).unwrap();
         let before = crate::blocking::settings(&conn).unwrap();
         for switch in [Switch::Blocking, Switch::Launchers] {
-            assert_eq!(flip_stored(&conn, switch), Err("Strict mode is on, so these stay as they are until the focus session ends.".to_string()));
+            assert_eq!(flip_stored(&conn, switch), Err(crate::blocking::STRICT_REFUSAL.to_string()));
         }
         let after = crate::blocking::settings(&conn).unwrap();
         assert_eq!((before.enabled, before.launchers), (after.enabled, after.launchers));

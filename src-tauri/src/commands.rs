@@ -831,7 +831,7 @@ pub fn set_focus_blocking(state: State<AppState>, which: String, on: bool) -> Cm
     let conn = state.db.lock().map_err(err)?;
     // Otherwise switching blocking off would be the easy way around strict mode.
     if blocking::strict_now(&conn).map_err(err)? {
-        return Err("Strict mode is on, so these stay as they are until the focus session ends.".into());
+        return Err(blocking::STRICT_REFUSAL.into());
     }
     match blocking::set_setting(&conn, &which, on).map_err(err)? {
         true => Ok(()),
@@ -937,21 +937,32 @@ pub fn palette_query(session: State<palette::Session>, worker: State<palette::fi
 /// Results for `query`, and a file search for them when the palette wants one.
 fn palette_ask(session: &palette::Session, worker: &palette::files::Worker, query: String) -> palette::Results {
     let results = session.query(&query);
-    if session.wants_files(&query) {
-        worker.ask(results.seq(), query);
-    }
+    palette_ask_files(session, worker, &results, query);
     results
 }
 
-/// Icons for apps and files the palette shows, as data URLs by path, kept for the rest of the run.
+/// Asks for files to follow `results`, when the palette wants them for `query`.
+fn palette_ask_files(session: &palette::Session, worker: &palette::files::Worker, results: &palette::Results, query: String) {
+    if session.wants_files(&query) {
+        worker.ask(results.seq(), query);
+    }
+}
+
+/// Icons for apps and files the palette shows, as data URLs by path. Apps' are kept for the rest
+/// of the run; files' aren't, so the names of files searched for don't pile up in memory.
 #[tauri::command]
 pub fn palette_icons(state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, paths: Vec<String>) -> CmdResult<HashMap<String, String>> {
     let mut cache = state.icons.lock().map_err(err)?;
     let mut out = HashMap::new();
     for path in paths.into_iter().filter(|p| index.knows(p) || session.shows_icon(p)) {
-        // Shared with app icons, under a key that can't clash with a program's name.
-        if let Some(url) = cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)) {
-            out.insert(path, url.clone());
+        let url = if !index.knows(&path) && session.shows_file(&path) {
+            palette::icon_url(&path)
+        } else {
+            // Shared with app icons, under a key that can't clash with a program's name.
+            cache.entry(format!("path:{path}")).or_insert_with(|| palette::icon_url(&path)).clone()
+        };
+        if let Some(url) = url {
+            out.insert(path, url);
         }
     }
     Ok(out)
@@ -967,15 +978,23 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 }
 
 /// Runs item `at` of the results numbered `seq`, then puts the palette away. A switch is flipped
-/// with the palette left open, and the results asked again come back to show its new state.
+/// with the palette left open, and the results asked again come back to show its new state; one
+/// that refuses to flip comes back as it was, with why on its row's second line.
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
     if item.action.keeps_palette_open() {
         let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches keep the palette open") };
-        let on = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch)?;
-        session.set_switch(switch, on);
-        return Ok(Some(palette_ask(&session, &worker, session.last_query())));
+        let flipped = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch);
+        let results = match flipped {
+            Ok(on) => {
+                session.set_switch(switch, on);
+                session.query(&session.last_query())
+            }
+            Err(why) => session.refused(switch, &why),
+        };
+        palette_ask_files(&session, &worker, &results, session.last_query());
+        return Ok(Some(results));
     }
     palette_perform(&app, &state, &index, &item.action)?;
     Ok(None)

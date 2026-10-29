@@ -104,9 +104,16 @@ On Windows, a Mac and Linux. Open the palette with Ctrl+Space (Option+Space on a
    (Mac) or "Start at login" (Linux). Open the dashboard's Settings. *Expect:* its switch matches.
 4. **Jump to a setting.** Type "evening" and press Ctrl+Enter. *Expect:* Chrono opens on its
    Settings page, scrolled to Evening summary, focused and highlighted for about a second and a
-   half. Do the same with "theme", and flip it with Enter instead. *Expect:* Chrono or the
-   dashboard repaints.
-5. **Turn file search off.** In the dashboard's Settings → Command palette, turn off "Search
+   half. Do the same with "theme". *Expect:* the dashboard opens on Theme the same way (Theme
+   isn't a switch, so Enter jumps there too).
+5. **Flip a switch with its page open.** Open Chrono's Settings page, then the palette, type
+   "nudges" and press Enter. *Expect:* the Focus nudges row flips between On and Off, and the
+   switch on the open Settings page changes to match without reopening it.
+6. **Strict mode holds.** In Chrono, turn on Strict blocking and start a focus session. In the
+   palette, type "focus blocking" and press Enter. *Expect:* the row keeps its On or Off, its
+   second line says "Strict mode is on, so these stay as they are until the focus session ends.",
+   and it stays selected. End the session afterwards.
+7. **Turn file search off.** In the dashboard's Settings → Command palette, turn off "Search
    files", then type the same file name. *Expect:* no Files section.
 
 **Windows only:** from a terminal, run `kairo.exe --search-files <word>`. *Expect:* it prints what
@@ -117,6 +124,8 @@ file search finds, a quick way to check Windows Search by itself.
 - On a system without localsearch (tracker) or plocate/locate, type 2 or more letters. *Expect:*
   one row, "File search needs localsearch or plocate".
 - On a system with plocate. *Expect:* results come only from the home folder.
+- On a system with plocate, type a short query that matches many system files, like "conf" or
+  "lib", with a file in your home folder named so too. *Expect:* that home file still shows.
 
 ## Two computers combined
 

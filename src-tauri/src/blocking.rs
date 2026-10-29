@@ -109,6 +109,9 @@ pub fn set_setting(conn: &Connection, which: &str, on: bool) -> Result<bool> {
     Ok(true)
 }
 
+/// Why blocking's switches can't change while strict mode holds them, wherever they're changed from.
+pub const STRICT_REFUSAL: &str = "Strict mode is on, so these stay as they are until the focus session ends.";
+
 /// Strict mode only bites while a session is on, paused or not.
 pub fn strict_now(conn: &Connection) -> Result<bool> {
     Ok(settings(conn)?.strict && focus::active(conn)?.is_some())

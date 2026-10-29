@@ -4,16 +4,18 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use super::{process, Unavailable};
+use super::{kept, process, Unavailable};
 
-/// The most paths one search lists.
+/// The most paths worth showing one search lists.
 const MAX_PATHS: usize = 50;
 
-/// Asks Spotlight for files named like the query under `home`, up to 50 or until the deadline.
+/// Asks Spotlight for files named like the query under `home`, up to 50 worth showing or until
+/// the deadline. Spotlight lists ~/Library, hidden folders and the like first as often as not,
+/// so only paths worth showing count toward the 50.
 pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
     let mut cmd = Command::new("mdfind");
     cmd.arg("-onlyin").arg(home).arg("-name").arg(query);
-    Ok(process::lines(cmd, deadline, MAX_PATHS, &[0])?.into_iter().map(PathBuf::from).collect())
+    Ok(process::lines(cmd, deadline, MAX_PATHS, &[0], |line| kept(Path::new(line), home))?.into_iter().map(PathBuf::from).collect())
 }
 
 #[cfg(test)]

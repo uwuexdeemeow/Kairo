@@ -146,6 +146,44 @@ describe("switches", () => {
   });
 });
 
+describe("refused switches", () => {
+  it("say why on their row's second line, keeping their state and the selection", async () => {
+    const why = "Strict mode is on, so these stay as they are until the focus session ends.";
+    await open(results(1, [item("Open Chrono"), item("Focus blocking", { detail: "On", sub: "Chrono settings" })]));
+    key("ArrowDown");
+    api.paletteRun.mockResolvedValueOnce(results(2, [item("Open Chrono"), item("Focus blocking", { detail: "On", sub: why })]));
+    key("Enter");
+    await vi.waitFor(() => expect($(".selected .palette-sub").textContent).toBe(why));
+    expect($(".selected .palette-title").textContent).toBe("Focus blocking");
+    expect($(".selected .palette-detail").textContent).toBe("On");
+    expect(document.querySelector(".palette-error")).toBeNull();
+  });
+});
+
+describe("headings", () => {
+  it("never call a file the top hit", async () => {
+    Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux)", configurable: true });
+    api.paletteQuery.mockResolvedValue(results(1, []));
+    await import("./palette");
+    $<HTMLInputElement>("#palette-input").value = "budget";
+    api.paletteQuery.mockResolvedValueOnce(results(2, [file("budget.txt")]));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(titles()).toEqual(["budget.txt"]));
+    expect(labels()).toEqual(["Files"]);
+  });
+
+  it("still lead with the top hit for anything else", async () => {
+    Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux)", configurable: true });
+    api.paletteQuery.mockResolvedValue(results(1, []));
+    await import("./palette");
+    $<HTMLInputElement>("#palette-input").value = "chrono";
+    api.paletteQuery.mockResolvedValueOnce(results(2, [item("Open Chrono"), file("chrono.txt")]));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(titles()).toEqual(["Open Chrono", "chrono.txt"]));
+    expect(labels()).toEqual(["Top hit", "Files"]);
+  });
+});
+
 describe("racing answers", () => {
   const flip = () => results(2, [item("Pause tracking", { detail: "Off" })]);
   const deferred = <T>() => {
@@ -153,17 +191,40 @@ describe("racing answers", () => {
     const promise = new Promise<T>((r) => (resolve = r));
     return { promise, resolve };
   };
+  const type = () => $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+  const settle = () => new Promise((r) => setTimeout(r));
+
+  it("draw a query that lands after an Enter on the rows it replaced, so the next Enter works", async () => {
+    await open(results(1, [item("Old row")]));
+    const b = deferred<PaletteResults>();
+    api.paletteQuery.mockReturnValueOnce(b.promise);
+    type();
+    // The query was asked before Enter, so Kairo has moved on and refuses the old row.
+    expect(api.paletteQuery).toHaveBeenCalledTimes(2);
+    api.paletteRun.mockRejectedValueOnce("The results changed as you chose; try again.");
+    key("Enter");
+    expect(api.paletteRun).toHaveBeenCalledWith(1, 0);
+    expect(api.paletteRun.mock.invocationCallOrder[0]).toBeGreaterThan(api.paletteQuery.mock.invocationCallOrder[1]);
+    await vi.waitFor(() => expect($(".palette-error").textContent).toBe("The results changed as you chose; try again."));
+    b.resolve(results(2, [item("New row")]));
+    await vi.waitFor(() => expect(titles()).toEqual(["New row"]));
+    expect(document.querySelector(".palette-error")).toBeNull();
+    key("Enter");
+    expect(api.paletteRun).toHaveBeenLastCalledWith(2, 0);
+  });
 
   it("ignore an older query that resolves after a flip", async () => {
     await open(results(1, [item("Pause tracking", { detail: "On" })]));
     const late = deferred<PaletteResults>();
     api.paletteQuery.mockReturnValueOnce(late.promise);
-    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    type();
     api.paletteRun.mockResolvedValueOnce(flip());
     key("Enter");
+    // The query went out first, and the flip's answer came back before it.
+    expect(api.paletteRun.mock.invocationCallOrder[0]).toBeGreaterThan(api.paletteQuery.mock.invocationCallOrder[1]);
     await vi.waitFor(() => expect($(".palette-detail").textContent).toBe("Off"));
     late.resolve(results(0, [item("Stale"), item("Rows")]));
-    await new Promise((r) => setTimeout(r));
+    await settle();
     expect(titles()).toEqual(["Pause tracking"]);
   });
 
@@ -173,10 +234,12 @@ describe("racing answers", () => {
     api.paletteRun.mockReturnValueOnce(slow.promise);
     key("Enter");
     api.paletteQuery.mockResolvedValueOnce(results(3, [item("Newer")]));
-    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    type();
+    // The flip started before the typing.
+    expect(api.paletteQuery.mock.invocationCallOrder[1]).toBeGreaterThan(api.paletteRun.mock.invocationCallOrder[0]);
     await vi.waitFor(() => expect(titles()).toEqual(["Newer"]));
     slow.resolve(flip());
-    await new Promise((r) => setTimeout(r));
+    await settle();
     expect(titles()).toEqual(["Newer"]);
   });
 });

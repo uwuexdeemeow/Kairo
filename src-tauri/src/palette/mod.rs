@@ -501,7 +501,6 @@ impl From<&Item> for ItemView {
                     Glyph::Settings => "settings",
                     Glyph::Today => "today",
                     Glyph::Alert => "alert",
-                    Glyph::Update => "update",
                 },
                 tone: match tone {
                     Tone::Plain => "",
@@ -575,6 +574,18 @@ impl Session {
     }
 
     pub fn query(&self, query: &str) -> Results {
+        self.answer(query, None)
+    }
+
+    /// The results for what was last typed, asked again after `switch` refused to flip: its row
+    /// keeps its state and says why on its second line.
+    pub fn refused(&self, switch: settings::Switch, why: &str) -> Results {
+        let query = self.last_query();
+        self.answer(&query, Some((switch, why)))
+    }
+
+    /// Results for `query`, numbered afresh, with a refused switch's reason on its row.
+    fn answer(&self, query: &str, refused: Option<(settings::Switch, &str)>) -> Results {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.seq += 1;
         s.query = query.to_string();
@@ -586,6 +597,10 @@ impl Session {
             }
             Some(ctx) => (search::search(ctx, query), Vec::new(), Vec::new()),
         };
+        let mut rows = rows;
+        if let Some((switch, why)) = refused {
+            say_refused(&mut rows, switch, why);
+        }
         let view = |items: &[Item]| items.iter().map(ItemView::from).collect();
         let results = Results { seq: s.seq, rows: view(&rows), tiles: view(&tiles), chips: view(&chips) };
         s.items = rows.into_iter().chain(tiles).chain(chips).collect();
@@ -636,8 +651,25 @@ impl Session {
     /// something it answers about, or a file in its rows.
     pub fn shows_icon(&self, path: &str) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)))
-            || (!path.is_empty() && s.items.iter().any(|i| matches!(&i.icon, Icon::File(p) if p == path)))
+        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path))) || shows_file(&s.items, path)
+    }
+
+    /// Whether `path` is a file in the palette's rows, whose icon isn't kept once it's drawn.
+    pub fn shows_file(&self, path: &str) -> bool {
+        shows_file(&self.0.lock().unwrap_or_else(|e| e.into_inner()).items, path)
+    }
+}
+
+/// Whether `path` is a file among the items.
+fn shows_file(items: &[Item], path: &str) -> bool {
+    !path.is_empty() && items.iter().any(|i| matches!(&i.icon, Icon::File(p) if p == path))
+}
+
+/// Puts why a switch couldn't flip on its row's second line, in either palette; the row keeps
+/// the state it shows.
+pub fn say_refused(items: &mut [Item], switch: settings::Switch, why: &str) {
+    for item in items.iter_mut().filter(|i| i.action == Action::Toggle(switch)) {
+        item.sub = Some(why.to_string());
     }
 }
 
@@ -975,6 +1007,30 @@ mod tests {
         assert!(session.wants_files("bu"));
         session.set_switch(settings::Switch::SearchFiles, false);
         assert!(!session.wants_files("budget"));
+    }
+
+    #[test]
+    fn a_refused_flip_says_why_on_its_row_and_keeps_its_state() {
+        let conn = db::open(Path::new(":memory:")).unwrap();
+        crate::blocking::set_setting(&conn, "strict", true).unwrap();
+        focus::start_by_hand(&conn, 25, None, chrono::Utc::now().timestamp_millis()).unwrap();
+        let session = Session::default();
+        let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
+        c.switches = vec![(settings::Switch::Blocking, true)];
+        session.open(c);
+        let before = session.query("focus blocking");
+        let why = settings::flip_stored(&conn, settings::Switch::Blocking).unwrap_err();
+        assert_eq!(why, crate::blocking::STRICT_REFUSAL);
+        let after = session.refused(settings::Switch::Blocking, &why);
+        assert!(after.seq > before.seq);
+        let at = after.rows.iter().position(|r| r.title == "Focus blocking").expect("the switch's row");
+        assert_eq!(after.rows[at].sub.as_deref(), Some(why.as_str()));
+        assert_eq!(after.rows[at].detail.as_deref(), Some("On"));
+        assert_eq!(session.item(after.seq, at).and_then(|i| i.sub), Some(why.clone()));
+        assert!(crate::blocking::settings(&conn).unwrap().enabled);
+        // Asked again as usual, the row is back to naming its page.
+        let again = session.query(&session.last_query());
+        assert_eq!(again.rows[at].sub.as_deref(), Some("Chrono settings"));
     }
 
     #[test]

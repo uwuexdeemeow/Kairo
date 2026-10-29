@@ -48,7 +48,6 @@ const ICONS: Record<string, string> = {
   image: '<rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M21 16l-5-5-9 9" />',
   document: '<path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 17h6" />',
   other: '<path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" />',
-  update: '<path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" />',
 };
 
 function strokeIcon(name: string, tone: string): HTMLElement {
@@ -172,8 +171,8 @@ function render(r: PaletteResults) {
   let section = "";
   const typed = !!input.value.trim();
   for (const item of r.rows) {
-    // When typing, the best match leads under its own heading.
-    const heading = typed && index === 0 ? "Top hit" : item.section;
+    // When typing, the best match leads under its own heading; a file keeps its section.
+    const heading = typed && index === 0 && item.section !== "Files" ? "Top hit" : item.section;
     if (heading !== section) out.push(label(heading));
     section = heading;
     out.push(row(item, index++, "row"));
@@ -311,14 +310,18 @@ function showError(err: unknown) {
 }
 
 /// Runs an item. A switch flips and the palette stays open on fresh results, with the
-/// selection where it was; anything else hides the palette.
+/// selection where it was (one that refuses says why on its row); anything else hides the palette.
 async function run(index: number) {
   if (!shown[index]) return;
-  // A flip counts as a query: an older answer still in flight, or a newer query, wins or loses by the token.
-  const token = ++queryToken;
+  // Running doesn't bump the token, so a query still in flight is drawn when it lands. A flip's
+  // results are drawn only if no query was asked meanwhile, and then outdate any older one.
+  const token = queryToken;
   try {
     const fresh = await api.paletteRun(results.seq, index);
-    if (fresh && token === queryToken) render(fresh);
+    if (fresh && token === queryToken) {
+      ++queryToken;
+      render(fresh);
+    }
   } catch (err) {
     showError(err);
   }
@@ -380,6 +383,8 @@ function applyTheme(mode: Appearance) {
 async function open() {
   input.value = "";
   selected = 0;
+  // Files' icons aren't kept from one opening to the next; apps' come back from Kairo's cache.
+  icons.clear();
   input.focus();
   try {
     const opening = await api.paletteOpen();

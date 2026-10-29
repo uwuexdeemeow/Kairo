@@ -9,10 +9,11 @@ use std::time::Instant;
 
 use super::{kept, process, Unavailable};
 
-/// The most files tracker is asked for.
+/// The most files worth showing read from tracker.
 const TRACKER_FILES: usize = 50;
-/// The most lines read from tracker: its files plus the headers around them.
-const TRACKER_LINES: usize = TRACKER_FILES * 4;
+/// The most files tracker is asked for, worth showing or not: far more than are kept, since its
+/// own limit counts the ones left out too. Reading stops at `TRACKER_FILES` kept ones.
+const TRACKER_ASKED: usize = process::MAX_READ;
 /// The most paths locate is asked for.
 const LOCATE_PATHS: usize = 200;
 
@@ -94,18 +95,20 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
+/// The path on one of localsearch's or tracker3's `file://` lines; None for the headers and
+/// anything else around them. Colour codes are taken out first.
+fn tracker_path(line: &str) -> Option<PathBuf> {
+    let line = plain(line);
+    let uri = line.trim().strip_prefix("file://")?;
+    // Any host part is empty for local files: the path starts at the next slash.
+    let path = percent_decode(&uri[uri.find('/')?..])?;
+    Some(PathBuf::from(path))
+}
+
 /// The paths among the `file://` lines of localsearch's or tracker3's output, which also holds
 /// headers and may hold colour codes.
 fn from_tracker(out: &[String]) -> Vec<PathBuf> {
-    out.iter()
-        .filter_map(|line| {
-            let line = plain(line);
-            let uri = line.trim().strip_prefix("file://")?;
-            // Any host part is empty for local files: the path starts at the next slash.
-            let path = percent_decode(&uri[uri.find('/')?..])?;
-            Some(PathBuf::from(path))
-        })
-        .collect()
+    out.iter().filter_map(|line| tracker_path(line)).collect()
 }
 
 /// The absolute paths among plocate's or locate's lines that are under `home`.
@@ -119,7 +122,8 @@ pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, 
     let mut cmd = Command::new(tool.program());
     match tool {
         Tool::Localsearch | Tool::Tracker3 => {
-            cmd.args(["search", "--files", "--limit"]).arg(TRACKER_FILES.to_string()).arg(query);
+            // `--` keeps a query starting with a dash from being read as an option.
+            cmd.args(["search", "--files", "--limit"]).arg(TRACKER_ASKED.to_string()).arg("--").arg(query);
         }
         // The home folder is a second pattern that must match too (plocate wants every pattern to
         // match; locate needs -A for that), so the limit counts only paths under home rather than
@@ -131,11 +135,17 @@ pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, 
             cmd.args(["-i", "-A", "-l"]).arg(LOCATE_PATHS.to_string()).arg("--").arg(home).arg(query);
         }
     }
-    // Tracker's lines carry headers, so more are read to find the paths among them. The locate
-    // tools exit with 1 when nothing matches.
+    // Only lines with paths worth showing count toward the most read: tracker's headers and the
+    // hidden and app folders under home don't. The locate tools exit with 1 when nothing matches.
     Ok(match tool {
-        Tool::Localsearch | Tool::Tracker3 => from_tracker(&process::lines(cmd, deadline, TRACKER_LINES, &[0])?),
-        Tool::Plocate | Tool::Locate => from_locate(&process::lines(cmd, deadline, LOCATE_PATHS, &[0, 1])?, home),
+        Tool::Localsearch | Tool::Tracker3 => {
+            let worth = |line: &str| tracker_path(line).is_some_and(|p| kept(&p, home));
+            from_tracker(&process::lines(cmd, deadline, TRACKER_FILES, &[0], worth)?)
+        }
+        Tool::Plocate | Tool::Locate => {
+            let worth = |line: &str| Path::new(line).is_absolute() && kept(Path::new(line), home);
+            from_locate(&process::lines(cmd, deadline, LOCATE_PATHS, &[0, 1], worth)?, home)
+        }
     })
 }
 
@@ -163,6 +173,12 @@ mod tests {
     fn tracker_colour_codes_are_stripped() {
         let out = lines("\x1b[1mFiles\x1b[0m\n  \x1b[34mfile:///home/ana/a%20b.txt\x1b[0m\n");
         assert_eq!(from_tracker(&out), vec![PathBuf::from("/home/ana/a b.txt")]);
+    }
+
+    #[test]
+    fn a_tracker_line_names_its_path_and_a_header_none() {
+        assert_eq!(tracker_path("  \x1b[34mfile:///home/ana/a%20b.txt\x1b[0m"), Some(PathBuf::from("/home/ana/a b.txt")));
+        assert_eq!(tracker_path("Results:"), None);
     }
 
     #[test]

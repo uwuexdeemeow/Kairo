@@ -13,15 +13,13 @@ use tauri::{AppHandle, Manager};
 use windows::core::{w, Interface, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT, D2D_RECT_F,
-    D2D_SIZE_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
-    D2D1_SWEEP_DIRECTION_CLOCKWISE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1, DWRITE_CONTAINER_TYPE_WOFF2,
@@ -312,6 +310,16 @@ fn merge_files(items: &mut Vec<Item>, rows: &mut usize, seq: u64, current: u64, 
     *rows = at + files.len();
     items.splice(at..at, files);
     true
+}
+
+/// The label over row `index`: when typing, the best match leads as the top hit, unless it's a
+/// file, which keeps its own section; otherwise its section.
+fn heading(typed: bool, index: usize, item: &Item) -> &'static str {
+    if typed && index == 0 && item.section != "Files" {
+        "Top hit"
+    } else {
+        item.section
+    }
 }
 
 /// What Ctrl+Enter does for the selected item, for the footer; None when it does nothing.
@@ -853,7 +861,7 @@ impl Palette {
         let mut section = "";
         for i in 0..self.rows {
             let item = &self.items[i];
-            let heading = if typed && i == 0 { "Top hit" } else { item.section };
+            let heading = heading(typed, i, item);
             if heading != section {
                 y += 6.0;
                 labels.push((heading.to_uppercase(), y));
@@ -989,21 +997,27 @@ impl Palette {
     }
 
     /// Flips a switch and shows the results again with its new state, the same row still selected.
+    /// A switch that refuses keeps its state and says why on its row's second line.
     fn flip(&mut self, switch: Switch) {
-        match settings::flip(&self.app, &self.conn, switch) {
+        let refused = match settings::flip(&self.app, &self.conn, switch) {
             Ok(on) => {
                 if let Some(ctx) = self.ctx.as_mut() {
                     super::set_switch(ctx, switch, on);
                 }
-                let (selected, scroll) = (self.selected, self.scroll);
-                self.refresh_results();
-                self.selected = selected.min(self.items.len().saturating_sub(1));
-                self.update_preview();
-                self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
-                self.resize();
+                None
             }
-            Err(e) => self.fail(e),
+            Err(why) => Some(why),
+        };
+        let (selected, scroll) = (self.selected, self.scroll);
+        self.refresh_results();
+        if let Some(why) = refused {
+            let rows = self.rows.min(self.items.len());
+            super::say_refused(&mut self.items[..rows], switch, &why);
         }
+        self.selected = selected.min(self.items.len().saturating_sub(1));
+        self.update_preview();
+        self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
+        self.resize();
     }
 
     /// Shows why an action failed, above the results.
@@ -1175,23 +1189,6 @@ impl Palette {
                     circle(12.0, 12.0, 9.0);
                     line((12.0, 8.0), (12.0, 13.0));
                     line((12.0, 16.5), (12.0, 17.0));
-                }
-                Some(Glyph::Update) => {
-                    let geometry = self.d2d.CreatePathGeometry()?;
-                    let sink = geometry.Open()?;
-                    sink.BeginFigure(p(20.0, 12.0), D2D1_FIGURE_BEGIN_HOLLOW);
-                    sink.AddArc(&D2D1_ARC_SEGMENT {
-                        point: p(17.7, 6.3),
-                        size: D2D_SIZE_F { width: 8.0 * k, height: 8.0 * k },
-                        rotationAngle: 0.0,
-                        sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                        arcSize: D2D1_ARC_SIZE_LARGE,
-                    });
-                    sink.EndFigure(D2D1_FIGURE_END_OPEN);
-                    sink.Close()?;
-                    rt.DrawGeometry(&geometry, &brush, width, stroke);
-                    line((20.0, 4.0), (20.0, 9.0));
-                    line((20.0, 9.0), (15.0, 9.0));
                 }
             }
         }
@@ -1594,6 +1591,26 @@ mod tests {
         assert!(!merge_files(&mut items, &mut rows, 7, 7, Vec::new()));
         assert_eq!(items.len(), 1);
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn a_file_is_never_the_top_hit() {
+        assert_eq!(heading(true, 0, &row("Today")), "Top hit");
+        assert_eq!(heading(true, 0, &file("budget.xlsx")), "Files");
+        assert_eq!(heading(false, 0, &row("Today")), "Go to");
+        assert_eq!(heading(true, 1, &row("Today")), "Go to");
+    }
+
+    #[test]
+    fn a_refused_switch_says_why_on_its_row() {
+        let mut nudges = Item::new("Focus nudges", Icon::Glyph(Glyph::Settings, Tone::Plain), "Settings", Action::Toggle(Switch::Nudges));
+        nudges.sub = Some("Chrono settings".into());
+        nudges.detail = Some("On".into());
+        let mut items = vec![row("Today"), nudges];
+        super::super::say_refused(&mut items, Switch::Nudges, "Not now.");
+        assert_eq!(items[1].sub.as_deref(), Some("Not now."));
+        assert_eq!(items[1].detail.as_deref(), Some("On"));
+        assert_eq!(items[0].sub, None);
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! Windows file search: asks the Windows Search index through a `search-ms:` query, listed with the
 //! shell's own item enumeration.
 
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -54,8 +56,11 @@ pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, 
             items.Next(&mut next, Some(&mut fetched)).map_err(failed)?;
             let Some(Some(item)) = next.into_iter().next().filter(|_| fetched > 0) else { break };
             let name: PWSTR = item.GetDisplayName(SIGDN_FILESYSPATH).map_err(failed)?;
-            found.push(PathBuf::from(name.to_string().map_err(|e| Unavailable::Failed(e.to_string()))?));
+            // Copied as the system wrote it, which can't fail even for a name that isn't valid
+            // UTF-16, and freed before anything else can return.
+            let path = PathBuf::from(OsString::from_wide(name.as_wide()));
             CoTaskMemFree(Some(name.0 as *const _));
+            found.push(path);
         }
         Ok(found)
     }

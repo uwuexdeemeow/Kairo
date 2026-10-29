@@ -184,6 +184,9 @@ struct Shared {
     pending: Option<(u64, String, Instant)>,
     /// Whether the missing index was said since the palette last opened.
     told_no_indexer: bool,
+    /// Whether a failed search was logged since the palette last opened, so an index that's
+    /// broken logs once rather than at every pause in typing.
+    logged_failure: bool,
     /// Set when the worker goes away, so its thread ends.
     stop: bool,
 }
@@ -211,9 +214,11 @@ impl Worker {
         wake.notify_one();
     }
 
-    /// The palette opened, so a missing index is said again.
+    /// The palette opened, so a missing index is said again, and a failing one logged again.
     pub fn opened(&self) {
-        self.0 .0.lock().unwrap_or_else(|e| e.into_inner()).told_no_indexer = false;
+        let mut s = self.0 .0.lock().unwrap_or_else(|e| e.into_inner());
+        s.told_no_indexer = false;
+        s.logged_failure = false;
     }
 }
 
@@ -272,8 +277,12 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
                 vec![no_indexer_row()]
             }
             Err(Unavailable::NoIndexer) => Vec::new(),
+            // The reason names the program and how it failed, never the query or a path.
             Err(Unavailable::Failed(e)) => {
-                eprintln!("palette: file search failed: {e}");
+                if !s.logged_failure {
+                    s.logged_failure = true;
+                    eprintln!("palette: file search failed: {e}");
+                }
                 Vec::new()
             }
         };
@@ -537,6 +546,18 @@ mod tests {
         let (worker, rx) = worker(fails);
         worker.ask(1, "budget".into());
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+    }
+
+    #[test]
+    fn a_failed_search_is_logged_once_per_opening() {
+        let (worker, rx) = worker(fails);
+        let logged = || worker.0 .0.lock().unwrap().logged_failure;
+        assert!(!logged());
+        worker.ask(1, "budget".into());
+        assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+        assert!(logged());
+        worker.opened();
+        assert!(!logged());
     }
 
     #[test]

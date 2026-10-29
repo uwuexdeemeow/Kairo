@@ -220,7 +220,6 @@ pub enum Glyph {
     Settings,
     Today,
     Alert,
-    Update,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
