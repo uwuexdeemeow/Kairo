@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::Mutex;
 
 use rusqlite::Connection;
 use tauri::{AppHandle, Manager};
@@ -51,7 +52,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_numerics::Vector2;
 
-use super::search::{self, fmt_dur, Context, Glyph, Icon, Item, Tone};
+use super::files::{self, Worker};
+use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
+use super::settings::{self, Switch};
 use super::cards::{self, Answer, Card, FocusPlan};
 use super::search::Preview;
 use super::{DayGlance, Segment};
@@ -61,6 +64,11 @@ use crate::{db, platform};
 /// The window, once its thread has made it; the shortcut posts to it from Tauri's thread.
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 const WM_TOGGLE: u32 = WM_APP + 1;
+/// Files were found; they wait in `FILES` for the palette's thread.
+const WM_FILES: u32 = WM_APP + 2;
+/// The latest files found and the number of the results they're for, handed from the file
+/// search's thread to the palette's, which takes them when `WM_FILES` arrives.
+static FILES: Mutex<Option<(u64, Vec<Item>)>> = Mutex::new(None);
 const EN_CHANGE: u32 = 0x0300;
 const EM_SETCUEBANNER: u32 = 0x1501;
 const ES_AUTOHSCROLL: u32 = 0x0080;
@@ -229,6 +237,10 @@ struct Palette {
     scroll: f32,
     preview: Option<(Preview, Card)>,
     error: Option<String>,
+    /// Searches files for what's typed, on a thread of its own.
+    worker: Worker,
+    /// The number of the results shown, so files found for older ones are dropped.
+    seq: u64,
 }
 
 thread_local! {
@@ -293,14 +305,18 @@ unsafe fn pump() {
 /// Adds files found for the results numbered `seq` after the rows, where they belong only while
 /// those are still the results shown (`current`). Returns whether anything changed.
 fn merge_files(items: &mut Vec<Item>, rows: &mut usize, seq: u64, current: u64, files: Vec<Item>) -> bool {
-    let _ = (items, rows, seq, current, files);
-    false
+    if seq != current || files.is_empty() {
+        return false;
+    }
+    let at = (*rows).min(items.len());
+    *rows = at + files.len();
+    items.splice(at..at, files);
+    true
 }
 
 /// What Ctrl+Enter does for the selected item, for the footer; None when it does nothing.
 fn footer_hint(item: Option<&Item>) -> Option<&'static str> {
-    let _ = item;
-    None
+    item.and_then(|i| i.second.as_ref()).map(|(_, label)| *label)
 }
 
 // ---------- fonts ----------
@@ -436,6 +452,19 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
         None,
     )?;
 
+    // Called on the search's own thread, so it only leaves the files for the palette's thread and
+    // wakes it; before the window exists there's no one to show them to.
+    let worker = Worker::new(files::ask_system, |seq, items| {
+        let hwnd = WINDOW.load(Ordering::Acquire);
+        if hwnd == 0 {
+            return;
+        }
+        *FILES.lock().unwrap_or_else(|e| e.into_inner()) = Some((seq, items));
+        unsafe {
+            let _ = PostMessageW(Some(HWND(hwnd as *mut _)), WM_FILES, WPARAM(0), LPARAM(0));
+        }
+    });
+
     PALETTE.with(|p| {
         *p.borrow_mut() = Some(Palette {
             app,
@@ -467,6 +496,8 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             scroll: 0.0,
             preview: None,
             error: None,
+            worker,
+            seq: 0,
         })
     });
     WINDOW.store(hwnd.0 as isize, Ordering::Release);
@@ -481,6 +512,14 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             } else {
                 with(|p| p.show());
             }
+            LRESULT(0)
+        }
+        WM_FILES => {
+            with(|p| {
+                if let Some((seq, items)) = FILES.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                    p.add_files(seq, items);
+                }
+            });
             LRESULT(0)
         }
         WM_PAINT => {
@@ -549,8 +588,9 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             with(|p| p.select_by(-1));
             LRESULT(0)
         }
+        // Ctrl+Enter does an item's second thing, like showing a file in its folder.
         (WM_KEYDOWN, k) if k == VK_RETURN.0 => {
-            with(|p| p.run(p.selected));
+            with(|p| if ctrl { p.run_second(p.selected) } else { p.run(p.selected) });
             LRESULT(0)
         }
         (WM_KEYDOWN, k) if k == VK_ESCAPE.0 => {
@@ -565,8 +605,9 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             set_edit_text(hwnd, &text[..cut]);
             LRESULT(0)
         }
-        // Their characters would otherwise beep, or type a box for Ctrl+Backspace.
-        (WM_CHAR, 0x09 | 0x0d | 0x1b | 0x7f) => LRESULT(0),
+        // Their characters would otherwise beep, or type a box for Ctrl+Backspace; Ctrl+Enter's
+        // is a line feed.
+        (WM_CHAR, 0x09 | 0x0a | 0x0d | 0x1b | 0x7f) => LRESULT(0),
         _ => DefSubclassProc(hwnd, msg, wparam, lparam),
     }
 }
@@ -626,6 +667,7 @@ impl Palette {
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.set_theme(theme_for(&mode));
         set_edit_text(self.edit, "");
+        self.worker.opened();
         self.refresh_results();
         unsafe {
             // Over the middle of the screen the mouse is on, in its upper part, like Spotlight.
@@ -669,6 +711,8 @@ impl Palette {
         self.target = None;
         self.bitmaps.clear();
         self.preview = None;
+        // Files still coming for what was typed are dropped.
+        self.seq += 1;
     }
 
     fn set_theme(&mut self, theme: Theme) {
@@ -741,9 +785,15 @@ impl Palette {
         self.resize();
     }
 
+    /// Results for what's typed, numbered afresh, with files asked for when they're wanted; they
+    /// join the rows when found.
     fn refresh_results(&mut self) {
         let query = self.query();
         let Some(ctx) = &self.ctx else { return };
+        self.seq += 1;
+        if super::wants_files(ctx, &query) {
+            self.worker.ask(self.seq, query.clone());
+        }
         if query.trim().is_empty() {
             let s = search::suggestions(ctx);
             self.rows = s.rows.len();
@@ -759,6 +809,15 @@ impl Palette {
         self.error = None;
         self.update_preview();
         self.layout();
+    }
+
+    /// Files found for the results numbered `seq` join the end of the rows, if those are still
+    /// shown; the selection and scroll stay where they were.
+    fn add_files(&mut self, seq: u64, items: Vec<Item>) {
+        if merge_files(&mut self.items, &mut self.rows, seq, self.seq, items) {
+            self.layout();
+            self.resize();
+        }
     }
 
     /// A selected day gets a glance at how it went, above the results.
@@ -901,18 +960,57 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned() else { return };
+        // A switch flips where it is, and the palette stays open to show its new state.
+        if item.action.keeps_palette_open() {
+            if let Action::Toggle(switch) = item.action {
+                self.flip(switch);
+            }
+            return;
+        }
+        self.perform(&item.action);
+    }
+
+    /// Does what Ctrl+Enter does for item `index`; nothing for an item without a second action.
+    fn run_second(&mut self, index: usize) {
+        let Some((action, _)) = self.items.get(index).and_then(|i| i.second.clone()) else { return };
+        self.perform(&action);
+    }
+
+    /// Does what an item says and puts the palette away, or shows why it couldn't.
+    fn perform(&mut self, action: &Action) {
         // Kairo's window, or a file dialog, opens over where the palette was.
-        if item.action.opens_window() {
+        if action.opens_window() {
             self.hide();
         }
-        match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), &item.action) {
+        match super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), action) {
             Ok(()) => self.hide(),
-            Err(e) => {
-                self.error = Some(e);
-                self.layout();
+            Err(e) => self.fail(e),
+        }
+    }
+
+    /// Flips a switch and shows the results again with its new state, the same row still selected.
+    fn flip(&mut self, switch: Switch) {
+        match settings::flip(&self.app, &self.conn, switch) {
+            Ok(on) => {
+                if let Some(ctx) = self.ctx.as_mut() {
+                    super::set_switch(ctx, switch, on);
+                }
+                let (selected, scroll) = (self.selected, self.scroll);
+                self.refresh_results();
+                self.selected = selected.min(self.items.len().saturating_sub(1));
+                self.update_preview();
+                self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
                 self.resize();
             }
+            Err(e) => self.fail(e),
         }
+    }
+
+    /// Shows why an action failed, above the results.
+    fn fail(&mut self, error: String) {
+        self.error = Some(error);
+        self.layout();
+        self.resize();
     }
 
     // ---------- drawing ----------
@@ -1242,7 +1340,12 @@ impl Palette {
         unsafe { rt.DrawLine(v(0.0, foot + 0.5), v(W, foot + 0.5), &rule, 1.0, None) };
         let mid = foot + FOOTER / 2.0;
         let mut x = 18.0;
-        for (keys, label) in [(&["↑", "↓"][..], "Move"), (&["Enter"][..], "Run")] {
+        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], "Run")];
+        // What Ctrl+Enter does for the selected item, when it does something.
+        if let Some(hint) = footer_hint(self.items.get(self.selected)) {
+            keys.push((&["Ctrl Enter"][..], hint));
+        }
+        for (keys, label) in keys {
             for key in keys {
                 let w = self.measure(key, &self.formats.kbd) + 12.0;
                 self.kbd(rt, key, x + w, mid)?;
@@ -1443,7 +1546,6 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::search::Action;
 
     fn row(title: &str) -> Item {
         Item::new(title, Icon::Glyph(Glyph::Today, Tone::Plain), "Go to", Action::Nothing)
