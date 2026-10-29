@@ -149,7 +149,10 @@ pub fn run() {
             app.manage(palette::Index::default());
             app.manage(palette::Session::default());
             // Files join the web palette's rows when the index answers, if they're still wanted.
+            // Windows' own palette keeps a worker of its own.
+            #[cfg(not(windows))]
             let handle = app.handle().clone();
+            #[cfg(not(windows))]
             app.manage(palette::files::Worker::new(palette::files::ask_system, move |seq, items| {
                 if let Some(rows) = handle.state::<palette::Session>().add_files(seq, items) {
                     if let Err(e) = handle.emit_to(palette::LABEL, "palette:files", palette::FilesFound { seq, rows }) {

@@ -288,6 +288,21 @@ unsafe fn pump() {
     }
 }
 
+// ---------- files and second actions ----------
+
+/// Adds files found for the results numbered `seq` after the rows, where they belong only while
+/// those are still the results shown (`current`). Returns whether anything changed.
+fn merge_files(items: &mut Vec<Item>, rows: &mut usize, seq: u64, current: u64, files: Vec<Item>) -> bool {
+    let _ = (items, rows, seq, current, files);
+    false
+}
+
+/// What Ctrl+Enter does for the selected item, for the footer; None when it does nothing.
+fn footer_hint(item: Option<&Item>) -> Option<&'static str> {
+    let _ = item;
+    None
+}
+
 // ---------- fonts ----------
 
 /// Geist and Geist Mono from Kairo's own copies, for DirectWrite, and Geist's raw data for the
@@ -1422,5 +1437,71 @@ impl Palette {
         }
         self.text(rt, &item.title, &self.formats.chip, r.left + 13.0, r.top + 7.0, r.right - r.left, t.ink, &[], false)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::search::Action;
+
+    fn row(title: &str) -> Item {
+        Item::new(title, Icon::Glyph(Glyph::Today, Tone::Plain), "Go to", Action::Nothing)
+    }
+
+    fn file(name: &str) -> Item {
+        let path = format!(r"C:\Users\me\{name}");
+        let mut item = Item::new(name, Icon::File(path.clone()), "Files", Action::OpenFile(path.clone()));
+        item.second = Some((Action::RevealFile(path), "Show in folder"));
+        item
+    }
+
+    #[test]
+    fn files_join_the_end_of_the_rows() {
+        let mut items = vec![row("Today"), row("Budget")];
+        let mut rows = 2;
+        assert!(merge_files(&mut items, &mut rows, 7, 7, vec![file("budget.xlsx"), file("budget.pdf")]));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Today", "Budget", "budget.xlsx", "budget.pdf"]);
+        assert_eq!(rows, 4);
+    }
+
+    #[test]
+    fn files_go_before_tiles_and_chips() {
+        let mut items = vec![row("Today"), row("Tile"), row("Chip")];
+        let mut rows = 1;
+        assert!(merge_files(&mut items, &mut rows, 3, 3, vec![file("notes.txt")]));
+        let titles: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["Today", "notes.txt", "Tile", "Chip"]);
+        assert_eq!(rows, 2);
+    }
+
+    #[test]
+    fn files_for_older_results_are_dropped() {
+        let mut items = vec![row("Today")];
+        let mut rows = 1;
+        assert!(!merge_files(&mut items, &mut rows, 6, 7, vec![file("budget.xlsx")]));
+        assert_eq!(items.len(), 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn no_files_change_nothing() {
+        let mut items = vec![row("Today")];
+        let mut rows = 1;
+        assert!(!merge_files(&mut items, &mut rows, 7, 7, Vec::new()));
+        assert_eq!(items.len(), 1);
+        assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn the_footer_names_the_second_action() {
+        assert_eq!(footer_hint(Some(&file("budget.xlsx"))), Some("Show in folder"));
+    }
+
+    #[test]
+    fn the_footer_has_no_hint_without_a_second_action() {
+        assert_eq!(footer_hint(Some(&row("Today"))), None);
+        assert_eq!(footer_hint(None), None);
     }
 }

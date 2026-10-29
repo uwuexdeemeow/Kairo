@@ -618,21 +618,15 @@ impl Session {
     /// Whether files are searched for `query`: the switch is on and enough is typed.
     pub fn wants_files(&self, query: &str) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        s.ctx.as_ref().is_some_and(|c| c.search_files) && query.trim().chars().count() >= files::MIN_CHARS
+        s.ctx.as_ref().is_some_and(|c| wants_files(c, query))
     }
 
     /// Records that a switch was flipped, so the next results show its new state, and turns on
     /// or off what the palette itself does by it.
     pub fn set_switch(&self, switch: settings::Switch, on: bool) {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(ctx) = s.ctx.as_mut() else { return };
-        if let Some(entry) = ctx.switches.iter_mut().find(|(sw, _)| *sw == switch) {
-            entry.1 = on;
-        }
-        match switch {
-            settings::Switch::SearchFiles => ctx.search_files = on,
-            settings::Switch::Suggestions => ctx.suggestions = on,
-            _ => {}
+        if let Some(ctx) = s.ctx.as_mut() {
+            set_switch(ctx, switch, on);
         }
     }
 
@@ -642,6 +636,24 @@ impl Session {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)))
             || (!path.is_empty() && s.items.iter().any(|i| matches!(&i.icon, Icon::File(p) if p == path)))
+    }
+}
+
+/// Whether files are searched for `query`, in either palette: the switch is on and enough is typed.
+pub fn wants_files(ctx: &Context, query: &str) -> bool {
+    ctx.search_files && query.trim().chars().count() >= files::MIN_CHARS
+}
+
+/// Records in `ctx` that a switch was flipped, in either palette, so the next results show its new
+/// state, and turns on or off what the palette itself does by it.
+pub fn set_switch(ctx: &mut Context, switch: settings::Switch, on: bool) {
+    if let Some(entry) = ctx.switches.iter_mut().find(|(sw, _)| *sw == switch) {
+        entry.1 = on;
+    }
+    match switch {
+        settings::Switch::SearchFiles => ctx.search_files = on,
+        settings::Switch::Suggestions => ctx.suggestions = on,
+        _ => {}
     }
 }
 
