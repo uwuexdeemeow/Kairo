@@ -62,8 +62,9 @@ impl Read for UntilDeadline {
 
 /// Runs the command and returns up to `max` non-empty lines of its output, until the deadline.
 /// The command is killed unless its output ended by itself, and always waited for. A missing
-/// program is `NoIndexer`; a failing exit is `Failed`, but only when it finished on its own.
-pub fn lines(mut cmd: Command, deadline: Instant, max: usize) -> Result<Vec<String>, Unavailable> {
+/// program is `NoIndexer`; an exit code outside `ok_codes` is `Failed`, but only when it finished
+/// on its own.
+pub fn lines(mut cmd: Command, deadline: Instant, max: usize, ok_codes: &[i32]) -> Result<Vec<String>, Unavailable> {
     let name = cmd.get_program().to_string_lossy().into_owned();
     let mut child = cmd
         .stdin(Stdio::null())
@@ -90,7 +91,7 @@ pub fn lines(mut cmd: Command, deadline: Instant, max: usize) -> Result<Vec<Stri
     }
     // Always reaped, so searches leave no zombies behind.
     let status = child.wait().map_err(|e| Unavailable::Failed(e.to_string()))?;
-    if finished && !status.success() {
+    if finished && !status.code().is_some_and(|c| ok_codes.contains(&c)) {
         return Err(Unavailable::Failed(format!("{name} {status}")));
     }
     Ok(found)
@@ -123,7 +124,7 @@ mod tests {
 
     #[test]
     fn a_missing_program_is_no_indexer() {
-        let r = lines(Command::new("kairo-no-such-program"), later(), 5);
+        let r = lines(Command::new("kairo-no-such-program"), later(), 5, &[0]);
         assert!(matches!(r, Err(Unavailable::NoIndexer)));
     }
 
@@ -131,7 +132,18 @@ mod tests {
     fn a_failing_command_is_failed() {
         let mut c = Command::new("sh");
         c.args(["-c", "echo /a; exit 3"]);
-        assert!(matches!(lines(c, later(), 5), Err(Unavailable::Failed(_))));
+        assert!(matches!(lines(c, later(), 5, &[0]), Err(Unavailable::Failed(_))));
+    }
+
+    #[test]
+    fn an_exit_code_that_means_no_matches_is_an_empty_answer() {
+        let exit1 = || {
+            let mut c = Command::new("sh");
+            c.args(["-c", "exit 1"]);
+            c
+        };
+        assert_eq!(lines(exit1(), later(), 5, &[0, 1]).unwrap(), Vec::<String>::new());
+        assert!(matches!(lines(exit1(), later(), 5, &[0]), Err(Unavailable::Failed(_))));
     }
 
     #[test]

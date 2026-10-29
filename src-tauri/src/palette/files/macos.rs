@@ -13,7 +13,7 @@ const MAX_PATHS: usize = 50;
 pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, Unavailable> {
     let mut cmd = Command::new("mdfind");
     cmd.arg("-onlyin").arg(home).arg("-name").arg(query);
-    Ok(process::lines(cmd, deadline, MAX_PATHS)?.into_iter().map(PathBuf::from).collect())
+    Ok(process::lines(cmd, deadline, MAX_PATHS, &[0])?.into_iter().map(PathBuf::from).collect())
 }
 
 #[cfg(test)]
