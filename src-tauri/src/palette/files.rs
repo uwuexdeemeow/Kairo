@@ -20,6 +20,7 @@ pub const LIMIT_MS: u64 = 1500;
 pub enum Unavailable {
     /// There is no index to ask, like a Linux desktop without localsearch or plocate.
     NoIndexer,
+    /// The index was asked and could not answer, for the reason given.
     Failed(String),
 }
 
@@ -32,17 +33,40 @@ pub fn home() -> Option<PathBuf> {
     std::env::var_os(var).filter(|h| !h.is_empty()).map(PathBuf::from)
 }
 
-/// Folders whose files are clutter rather than something to open, wherever they sit under home.
-const CLUTTER: [&str; 5] = ["node_modules", "target", "__pycache__", "appdata", "caches"];
+/// What follows `home` in a path, or None when it isn't under it. Windows paths differ in case
+/// between indexers, so there the folders compare without it.
+fn under(path: &Path, home: &Path) -> Option<PathBuf> {
+    if let Ok(rest) = path.strip_prefix(home) {
+        return Some(rest.to_path_buf());
+    }
+    #[cfg(windows)]
+    {
+        let same = |a: std::path::Component, b: std::path::Component| a.as_os_str().to_string_lossy().to_lowercase() == b.as_os_str().to_string_lossy().to_lowercase();
+        let mut parts = path.components();
+        for h in home.components() {
+            if !same(parts.next()?, h) {
+                return None;
+            }
+        }
+        return Some(parts.as_path().to_path_buf());
+    }
+    #[allow(unreachable_code)]
+    None
+}
 
-/// Whether a path is worth showing: under home, and not hidden or inside a hidden, cache or
-/// build folder.
+/// Folders whose files are clutter wherever they sit under home.
+const CLUTTER: [&str; 4] = ["node_modules", ".git", "target", "__pycache__"];
+/// Top-level folders in home that hold the system's and apps' own files, not the user's.
+const APP_FOLDERS: [&str; 2] = ["library", "appdata"];
+
+/// Whether a path is worth showing: under home, and not hidden, inside a build or cache folder,
+/// or in the app data folders at the top of home.
 pub fn kept(path: &Path, home: &Path) -> bool {
-    let Ok(inside) = path.strip_prefix(home) else { return false };
+    let Some(inside) = under(path, home) else { return false };
     let mut any = false;
-    for part in inside.components() {
+    for (i, part) in inside.components().enumerate() {
         let name = part.as_os_str().to_string_lossy().to_lowercase();
-        if name.starts_with('.') || CLUTTER.contains(&name.as_str()) {
+        if name.starts_with('.') || CLUTTER.contains(&name.as_str()) || (i == 0 && APP_FOLDERS.contains(&name.as_str())) {
             return false;
         }
         any = true;
@@ -97,7 +121,7 @@ pub fn rows(query: &str, home: &Path, found: Vec<PathBuf>) -> Vec<Item> {
         .into_iter()
         .map(|(_, _, at, path)| {
             let shown = path.to_string_lossy().to_string();
-            let folder = path.parent().and_then(|p| p.strip_prefix(home).ok()).unwrap_or(Path::new(""));
+            let folder = path.parent().and_then(|p| under(p, home)).unwrap_or_default();
             let mut item = Item::new(path.file_name().unwrap_or_default().to_string_lossy(), Icon::File(shown.clone()), "Files", Action::OpenFile(shown.clone()));
             item.at = at;
             item.sub = Some(if folder.as_os_str().is_empty() { "~".to_string() } else { format!("~{}{}", std::path::MAIN_SEPARATOR, folder.display()) });
@@ -141,7 +165,11 @@ pub fn reveal(path: &str) -> bool {
     #[cfg(windows)]
     {
         // Explorer exits 1 even when it worked, so only starting it counts.
-        started(Command::new("explorer").arg(format!("/select,{path}")))
+        {
+            use std::os::windows::process::CommandExt;
+            // Explorer wants the path quoted on its own, not the whole argument.
+            started(Command::new("explorer").raw_arg(format!("/select,\"{path}\"")))
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -212,17 +240,29 @@ mod tests {
         assert!(kept(&home.join("Documents/budget.xlsx"), home));
         for p in [
             ".config/budget",
+            "Library/Preferences/budget.plist",
+            "AppData/Roaming/budget.txt",
             "code/app/node_modules/budget.js",
             "code/.git/budget",
             "code/app/target/budget",
             "code/__pycache__/budget.pyc",
-            "AppData/Local/budget.txt",
-            "Library/Caches/budget",
-            "Documents/.budget.swp",
+                        "Documents/.budget.swp",
         ] {
             assert!(!kept(&home.join(p), home), "{p}");
         }
         assert!(!kept(Path::new("/etc/budget"), home));
+        for p in ["Documents/Caches/budget.txt", "Documents/Library/budget.txt"] {
+            assert!(kept(&home.join(p), home), "{p}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_match_home_whatever_their_case() {
+        let home = Path::new(r"C:\Users\Ana");
+        let path = PathBuf::from(r"c:\users\ana\Documents\Taxes\budget.xlsx");
+        assert!(kept(&path, home));
+        assert_eq!(rows("budget", home, vec![path]).remove(0).sub.as_deref(), Some(r"~\Documents\Taxes"));
     }
 
     #[test]
