@@ -366,7 +366,7 @@ fn tray_click_opens_dashboard(button: MouseButton, state: MouseButtonState) -> b
 fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str) -> tauri::Result<()> {
     let dashboard = MenuItem::with_id(app, "dashboard", "Open dashboard", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Chrono", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Open settings", true, None::<&str>)?;
+    let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
     // like over a game, since choosing it from the tray is no stray key press.
     let palette_item = MenuItem::with_id(app, "palette", "Command palette", true, Some(palette_shortcut))?;
@@ -374,7 +374,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&dashboard, &open, &settings, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&dashboard, &open, &updates, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
     app.manage(PaletteItem(palette_item));
 
@@ -387,7 +387,11 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "dashboard" => show_dashboard(app, None),
             "open" => show_main(app),
-            "settings" => show_dashboard(app, Some("settings")),
+            // As in Kairo's settings: the result arrives as a notification.
+            "updates" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
+            }
             "palette" => palette::toggle(app),
             "pause" => {
                 let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
