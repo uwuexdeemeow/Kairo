@@ -128,6 +128,18 @@ file search finds, a quick way to check Windows Search by itself.
 - On a system with plocate, type a short query that matches many system files, like "conf" or
   "lib", with a file in your home folder named so too. *Expect:* that home file still shows.
 
+## Palette: calculator
+
+On Windows, a Mac and Linux. Open the palette.
+
+1. **Maths.** Type `12*7+3`. *Expect:* "87" first, under Calculator. Press Enter and paste
+   somewhere. *Expect:* 87.
+2. **Units.** Type `5 km in mi`. *Expect:* "3.10686 mi", with "5 km in mi" underneath. Ctrl+Enter
+   (⌘+Enter on a Mac) copies 3.10686; the footer said "Copy number".
+3. **Shorthand.** `30 c in f` gives 86 °F; `2 gb in mb` gives 2000 MB.
+4. **Searches stay searches.** `focus 50`, `14 oct`, `2026-10-30` and `2026` show what they did
+   before, with no Calculator row.
+
 ## Two computers combined
 
 Use two machines (any systems) with the same cloud drive.

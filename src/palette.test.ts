@@ -182,6 +182,19 @@ describe("headings", () => {
     await vi.waitFor(() => expect(titles()).toEqual(["Open Chrono", "chrono.txt"]));
     expect(labels()).toEqual(["Top hit", "Files"]);
   });
+
+  it("keep the calculator's heading and draw its glyph", async () => {
+    Object.defineProperty(navigator, "userAgent", { value: "Mozilla/5.0 (Linux)", configurable: true });
+    api.paletteQuery.mockResolvedValue(results(1, []));
+    await import("./palette");
+    $<HTMLInputElement>("#palette-input").value = "5 km in mi";
+    const sum = item("3.10686 mi", { section: "Calculator", second: "Copy number", icon: { kind: "glyph", glyph: "calc", tone: "accent" } });
+    api.paletteQuery.mockResolvedValueOnce(results(2, [sum, item("Open Chrono")]));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(titles()).toEqual(["3.10686 mi", "Open Chrono"]));
+    expect(labels()).toEqual(["Calculator", "Actions"]);
+    expect(document.querySelector(".palette-glyph svg path")).not.toBeNull();
+  });
 });
 
 describe("racing answers", () => {

@@ -18,6 +18,7 @@ use crate::goals::Kind;
 use crate::{db, focus, goals};
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
+pub mod calc;
 pub mod cards;
 pub mod files;
 #[cfg(windows)]
@@ -410,6 +411,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             use tauri_plugin_clipboard_manager::ClipboardExt;
             app.clipboard().write_text(cards::answer(conn, subject, *period).text).map_err(|e| e.to_string())
         }
+        Action::Copy(text) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())
+        }
         Action::ExportTime | Action::Backup | Action::Restore => {
             with_file_dialog(app, action.clone());
             Ok(())
@@ -501,6 +506,7 @@ impl From<&Item> for ItemView {
                     Glyph::Settings => "settings",
                     Glyph::Today => "today",
                     Glyph::Alert => "alert",
+                    Glyph::Calc => "calc",
                 },
                 tone: match tone {
                     Tone::Plain => "",

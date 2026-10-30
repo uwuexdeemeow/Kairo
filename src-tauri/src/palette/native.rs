@@ -313,9 +313,9 @@ fn merge_files(items: &mut Vec<Item>, rows: &mut usize, seq: u64, current: u64, 
 }
 
 /// The label over row `index`: when typing, the best match leads as the top hit, unless it's a
-/// file, which keeps its own section; otherwise its section.
+/// file or the calculator's answer, which keep their own section; otherwise its section.
 fn heading(typed: bool, index: usize, item: &Item) -> &'static str {
-    if typed && index == 0 && item.section != "Files" {
+    if typed && index == 0 && item.section != "Files" && item.section != "Calculator" {
         "Top hit"
     } else {
         item.section
@@ -1190,6 +1190,14 @@ impl Palette {
                     line((12.0, 8.0), (12.0, 13.0));
                     line((12.0, 16.5), (12.0, 17.0));
                 }
+                Some(Glyph::Calc) => {
+                    let r = D2D1_ROUNDED_RECT { rect: rect(x + 5.0 * k, y + 3.0 * k, x + 19.0 * k, y + 21.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
+                    rt.DrawRoundedRectangle(&r, &brush, width, stroke);
+                    line((8.0, 7.0), (16.0, 7.0));
+                    for (kx, ky) in [(8.5, 12.0), (14.5, 12.0), (8.5, 17.0), (14.5, 17.0)] {
+                        line((kx, ky), (kx + 1.0, ky));
+                    }
+                }
             }
         }
         Ok(())
@@ -1594,9 +1602,11 @@ mod tests {
     }
 
     #[test]
-    fn a_file_is_never_the_top_hit() {
+    fn a_file_or_an_answer_is_never_the_top_hit() {
         assert_eq!(heading(true, 0, &row("Today")), "Top hit");
         assert_eq!(heading(true, 0, &file("budget.xlsx")), "Files");
+        let sum = Item::new("87", Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy("87".into()));
+        assert_eq!(heading(true, 0, &sum), "Calculator");
         assert_eq!(heading(false, 0, &row("Today")), "Go to");
         assert_eq!(heading(true, 1, &row("Today")), "Go to");
     }

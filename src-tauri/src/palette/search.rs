@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
 
+use super::calc;
 use super::settings::{self, Switch};
 use super::AppEntry;
 use crate::analysis::Category;
@@ -220,6 +221,7 @@ pub enum Glyph {
     Settings,
     Today,
     Alert,
+    Calc,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -262,6 +264,8 @@ pub enum Action {
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
     CopyAnswer(Subject, Period),
+    /// Puts this text on the clipboard.
+    Copy(String),
     /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
     /// with the system's file dialog.
     ExportTime,
@@ -469,6 +473,17 @@ fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
+
+    // Maths leads with its answer; a focus command or a day keeps its own meaning.
+    if focus_command(query).is_none() && parse_day(query, ctx.today).is_none() {
+        if let Some(answer) = calc::answer(query) {
+            let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
+            item.sub = Some(query.trim().to_string());
+            item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
+            item.score = 2000.0;
+            items.push(item);
+        }
+    }
 
     if let Some((minutes, label)) = focus_command(query) {
         let mut item = Item::new(format!("Start a {minutes}-minute focus session"), Icon::Glyph(Glyph::Focus, Tone::Accent), "Focus", Action::StartFocus(minutes, label.clone()));
@@ -798,5 +813,24 @@ mod tests {
         let cursor = search(&c, "cursor");
         assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
         assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
+    }
+
+    #[test]
+    fn maths_leads_with_a_row_that_copies_the_answer() {
+        let items = search(&ctx(), "5 km in mi");
+        let first = &items[0];
+        assert_eq!(first.section, "Calculator");
+        assert_eq!(first.title, "3.10686 mi");
+        assert_eq!(first.sub.as_deref(), Some("5 km in mi"));
+        assert_eq!(first.action, Action::Copy("3.10686 mi".into()));
+        assert_eq!(first.second, Some((Action::Copy("3.10686".into()), "Copy number")));
+        assert!(search(&ctx(), "12*7+3")[0].second.is_none());
+    }
+
+    #[test]
+    fn focus_commands_and_days_never_become_sums() {
+        for q in ["focus 50", "2026-10-30", "14 oct"] {
+            assert!(search(&ctx(), q).iter().all(|i| i.section != "Calculator"), "{q}");
+        }
     }
 }
