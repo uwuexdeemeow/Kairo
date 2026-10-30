@@ -18,6 +18,7 @@ use crate::goals::Kind;
 use crate::{db, focus, goals};
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
+pub mod calc;
 pub mod cards;
 pub mod files;
 #[cfg(windows)]

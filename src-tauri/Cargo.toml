@@ -23,6 +23,8 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 # File pickers for exporting, backing up and restoring.
 tauri-plugin-dialog = "2"
+# The palette's calculator: maths and unit conversions, worked out offline.
+fend-core = "1.5"
 tiny_http = "0.12"
 png = "0.18"
 base64 = "0.22"
