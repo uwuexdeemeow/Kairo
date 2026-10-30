@@ -474,10 +474,8 @@ fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
 
-    // Maths leads with its answer; a focus command or a day keeps its own meaning, and a date
-    // written 2026-10-30 is never a subtraction.
-    let date = NaiveDate::parse_from_str(query.trim(), "%Y-%m-%d").is_ok();
-    if focus_command(query).is_none() && parse_day(query, ctx.today).is_none() && !date {
+    // Maths leads with its answer; a focus command or a day keeps its own meaning.
+    if focus_command(query).is_none() && parse_day(query, ctx.today).is_none() {
         if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
             item.sub = Some(query.trim().to_string());

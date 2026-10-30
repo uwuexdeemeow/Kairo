@@ -9,8 +9,22 @@ const LIMIT: Duration = Duration::from_millis(100);
 const DIGITS: i32 = 6;
 const OPERATORS: [char; 10] = ['+', '-', '*', '/', '×', '÷', '^', '%', '(', ')'];
 const CONVERSIONS: [&str; 3] = ["in", "to", "as"];
-/// Data sizes as fend wants them; written in lower case, fend reads `mb` as millibits.
-const DATA_SIZES: [&str; 8] = ["KB", "MB", "GB", "TB", "KiB", "MiB", "GiB", "TiB"];
+/// Data sizes and speeds as fend wants them, by how people type them in lower case; fend reads
+/// `mb` as millibits and `mbps` as millibits a second. Capitals the user typed are kept.
+const UNITS: [(&str, &str); 10] = [
+    ("kb", "KB"),
+    ("mb", "MB"),
+    ("gb", "GB"),
+    ("tb", "TB"),
+    ("kib", "KiB"),
+    ("mib", "MiB"),
+    ("gib", "GiB"),
+    ("tib", "TiB"),
+    ("mbps", "Mbps"),
+    ("gbps", "Gbps"),
+];
+/// How dates are written, so one is never taken for a sum.
+const DATES: [&str; 5] = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d.%m.%Y"];
 
 /// A worked-out answer.
 #[derive(Debug, PartialEq)]
@@ -26,14 +40,38 @@ pub struct Answer {
 fn conversion_at(words: &[&str]) -> Option<usize> {
     let starts_with_number = words.first()?.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-');
     let has_letters = |side: &[&str]| side.iter().any(|w| w.chars().any(char::is_alphabetic));
-    let at = words.iter().position(|w| CONVERSIONS.contains(&w.to_lowercase().as_str()))?;
-    (starts_with_number && at > 0 && has_letters(&words[..at]) && has_letters(&words[at + 1..])).then_some(at)
+    // The first that has a unit on both sides, so the `in` of "3 in to cm" stays inches.
+    (1..words.len()).find(|&at| starts_with_number && CONVERSIONS.contains(&words[at].to_lowercase().as_str()) && has_letters(&words[..at]) && has_letters(&words[at + 1..]))
 }
 
-/// Whether the query is maths or a conversion: a digit, and an operator or a conversion.
+/// Whether the query is a date, part of one being typed (2026-10), a range of years
+/// (2024-2025) or a number like a phone number (555-1234): numbers joined by `-` or `/` that
+/// aren't a sum anyone means.
+fn date_like(query: &str) -> bool {
+    let query = query.trim();
+    if DATES.iter().any(|f| chrono::NaiveDate::parse_from_str(query, f).is_ok()) {
+        return true;
+    }
+    let Some(sep) = query.chars().find(|c| *c == '-' || *c == '/') else { return false };
+    let parts: Vec<&str> = query.split(sep).collect();
+    let numbers = (2..=3).contains(&parts.len()) && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+    numbers && (parts[0].len() == 4 || parts.iter().all(|p| p.len() >= 3))
+}
+
+/// Whether a comma is followed by other than three digits, like "1,5": a decimal comma, which fend
+/// would read as a thousands separator and answer wrongly.
+fn decimal_comma(query: &str) -> bool {
+    query.match_indices(',').any(|(i, _)| query[i + 1..].chars().take_while(char::is_ascii_digit).count() != 3)
+}
+
+/// Whether the query is maths or a conversion: a digit, and an operator or a conversion, and not
+/// a date or a decimal comma.
 pub fn is_maths(query: &str) -> bool {
     let words: Vec<&str> = query.split_whitespace().collect();
-    query.chars().any(|c| c.is_ascii_digit()) && (query.contains(OPERATORS) || conversion_at(&words).is_some())
+    query.chars().any(|c| c.is_ascii_digit())
+        && (query.contains(OPERATORS) || conversion_at(&words).is_some())
+        && !date_like(query)
+        && !decimal_comma(query)
 }
 
 /// A temperature unit as fend wants it, for a word that is one.
@@ -49,24 +87,33 @@ fn temperature(word: &str) -> Option<&'static str> {
     }
 }
 
-/// The query with everyday shorthand written the way fend reads it: data sizes in capitals, and
-/// the lone letters of a temperature conversion as degrees ("30 c in f" → "30 °C in °F"; fend
-/// alone reads `c` as the speed of light).
+/// A lower-case data size or speed as fend wants it.
+fn unit(word: &str) -> Option<&'static str> {
+    UNITS.iter().find(|(typed, _)| *typed == word).map(|(_, unit)| *unit)
+}
+
+/// The query with everyday shorthand written the way fend reads it: data sizes and speeds in
+/// capitals, a number stuck to one split off ("16gb" → "16 GB"), inches written out (fend takes a
+/// lone `in` for the conversion), and the lone letters of a temperature conversion as degrees
+/// ("30 c in f" → "30 °C in °F"; fend alone reads `c` as the speed of light).
 pub fn rewrite(query: &str) -> String {
-    let mut words: Vec<String> = query.split(' ').map(str::to_string).collect();
-    for word in &mut words {
-        if let Some(size) = DATA_SIZES.iter().find(|s| s.eq_ignore_ascii_case(word)) {
-            *word = size.to_string();
+    let mut words: Vec<String> = Vec::new();
+    for word in query.split_whitespace() {
+        let digits = word.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(word.len());
+        match unit(&word[digits..]) {
+            Some(size) if digits > 0 => words.extend([word[..digits].to_string(), size.to_string()]),
+            Some(size) => words.push(size.to_string()),
+            None => words.push(word.to_string()),
         }
     }
-    let solid: Vec<&str> = query.split_whitespace().collect();
+    let solid: Vec<&str> = words.iter().map(String::as_str).collect();
+    let Some(at) = conversion_at(&solid) else { return words.join(" ") };
     // Only "<number> <temperature> in <temperature>", so a lone letter elsewhere stays as typed.
-    if let (4, Some(2)) = (solid.len(), conversion_at(&solid)) {
-        if let (Some(from), Some(to)) = (temperature(solid[1]), temperature(solid[3])) {
-            return format!("{} {from} {} {to}", solid[0], solid[2]);
-        }
+    if let (4, 2, Some(from), Some(to)) = (solid.len(), at, temperature(solid[1]), temperature(solid[3])) {
+        return format!("{} {from} {} {to}", solid[0], solid[2]);
     }
-    words.join(" ")
+    let inches = |(i, w): (usize, &str)| if i != at && w.eq_ignore_ascii_case("in") { "inches".to_string() } else { w.to_string() };
+    solid.into_iter().enumerate().map(inches).collect::<Vec<_>>().join(" ")
 }
 
 /// Stops fend at a deadline.
@@ -163,6 +210,41 @@ mod tests {
         let start = std::time::Instant::now();
         assert!(answer("10^10^10").is_none());
         assert!(start.elapsed() < std::time::Duration::from_millis(500));
+    }
+
+    #[test]
+    fn sizes_and_speeds_typed_any_way_give_the_right_number() {
+        let text = |q: &str| answer(q).map(|a| a.text);
+        assert_eq!(text("16gb to mb").as_deref(), Some("16000 MB"));
+        assert_eq!(text("1.5gb to mb").as_deref(), Some("1500 MB"));
+        assert_eq!(text("500mb in gb").as_deref(), Some("0.5 GB"));
+        assert_eq!(text("100 mbps to kbps").as_deref(), Some("100000 kbps"));
+        assert_eq!(text("1 gbps in mbps").as_deref(), Some("1000 Mbps"));
+        // Capitals the user chose stay: Mb is megabits.
+        assert_eq!(text("1 MB in Mb").as_deref(), Some("8 Mb"));
+    }
+
+    #[test]
+    fn inches_are_a_unit_not_the_conversion() {
+        let text = |q: &str| answer(q).map(|a| a.text);
+        assert_eq!(text("3 in to cm").as_deref(), Some("7.62 cm"));
+        assert_eq!(text("12 in to ft").as_deref(), Some("1 ft"));
+        assert!(text("1 m in in").is_some_and(|t| t.starts_with("39.3701")));
+    }
+
+    #[test]
+    fn dates_ranges_and_numbers_like_phone_numbers_are_not_sums() {
+        for q in ["2026-10-30", "2026-1", "2026-10", "30/10/2026", "2026/10/30", "10/30/2026", "30.10.2026", "2024-2025", "555-1234"] {
+            assert!(!is_maths(q), "{q}");
+        }
+        // Plain fractions still are.
+        assert!(is_maths("3/4"));
+    }
+
+    #[test]
+    fn a_comma_decimal_is_never_read_as_thousands() {
+        assert!(answer("1,5+1").is_none());
+        assert_eq!(answer("1,500+1").map(|a| a.text).as_deref(), Some("1501"));
     }
 
     #[test]
