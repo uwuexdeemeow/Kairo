@@ -128,6 +128,24 @@ file search finds, a quick way to check Windows Search by itself.
 - On a system with plocate, type a short query that matches many system files, like "conf" or
   "lib", with a file in your home folder named so too. *Expect:* that home file still shows.
 
+## Tasks
+
+On Windows, a Mac and Linux. Open Chrono's Focus page.
+
+1. **Add.** Type "Essay" in "Add a task" and press Enter. *Expect:* it shows under Tasks.
+2. **Start.** Press its Start. *Expect:* a focus session for the length picked on the timer,
+   labelled "Essay", and the row says "Focusing now". End the session. *Expect:* the row shows
+   its time, like "1m".
+3. **Done.** Tick it. *Expect:* it moves under "Done (1)", folded away; untick it there and it
+   comes back at the bottom of the list.
+4. **Rename.** Click its title, type "Essay draft", press Enter. *Expect:* the new title. Click
+   it again, type something, press Esc. *Expect:* the title stays.
+5. **Palette.** Type `focus 25 ess`. *Expect:* "For your task “Essay draft”" under the row.
+   Type `tasks`. *Expect:* your open tasks; Ctrl+Enter (⌘+Enter on a Mac) on one marks it done.
+   Type `task buy milk` and press Enter. *Expect:* "buy milk" on the Focus page.
+6. **Two computers.** With two combined computers, add a task on one. *Expect:* within about
+   10 minutes it shows on the other, with no time there until a session runs on it there.
+
 ## Palette: calculator
 
 On Windows, a Mac and Linux. Open the palette.
