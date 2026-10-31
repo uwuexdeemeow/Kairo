@@ -325,6 +325,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, S
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
+        tasks: crate::tasks::list(conn, now).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
             Some((m.title, at, m.start_ms - now))
@@ -401,7 +402,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
-        Action::StartFocus(minutes, label) => focus::start_by_hand(conn, *minutes, label.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
+        Action::StartFocus(minutes, label, task) => focus::start_by_hand(conn, *minutes, label.as_deref(), task.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
+        Action::AddTask(title) => {
+            crate::tasks::add(conn, title, now_ms()).map_err(|e| e.to_string())?;
+            crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)
+        }
+        Action::FinishTask(id) => {
+            crate::tasks::set_done(conn, id, true, now_ms()).map_err(|e| e.to_string())?;
+            crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)
+        }
         Action::CheckUpdates => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
@@ -933,6 +942,7 @@ mod tests {
             limits: HashMap::new(),
             week_goals: None,
             block_lists: Vec::new(),
+            tasks: Vec::new(),
             next_meeting: None,
         }
     }
@@ -1019,7 +1029,7 @@ mod tests {
     fn a_refused_flip_says_why_on_its_row_and_keeps_its_state() {
         let conn = db::open(Path::new(":memory:")).unwrap();
         crate::blocking::set_setting(&conn, "strict", true).unwrap();
-        focus::start_by_hand(&conn, 25, None, chrono::Utc::now().timestamp_millis()).unwrap();
+        focus::start_by_hand(&conn, 25, None, None, chrono::Utc::now().timestamp_millis()).unwrap();
         let session = Session::default();
         let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
         c.switches = vec![(settings::Switch::Blocking, true)];

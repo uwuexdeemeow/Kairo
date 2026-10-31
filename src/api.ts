@@ -261,6 +261,18 @@ export interface FocusSession {
   /** Set while paused. */
   pausedAt: number | null;
   label: string | null;
+  /** The task it was started on, by id. */
+  task: string | null;
+}
+
+/** A task on the Focus page; `focusedMs` is this computer's focus time on it. */
+export interface Task {
+  id: string;
+  title: string;
+  createdMs: number;
+  doneMs: number | null;
+  position: number;
+  focusedMs: number;
 }
 
 export interface FocusBlock {
@@ -396,7 +408,12 @@ export const api = {
   /** The weeks with notes in the month or year containing `date`, by their Monday. */
   notesBetween: (date: string | undefined, span: "month" | "year") => invoke<(WeekNote & { monday: string })[]>("get_notes_between", { date, span }),
   focus: () => invoke<FocusSession | null>("get_focus"),
-  startFocus: (minutes: number, label?: string) => invoke<FocusSession>("start_focus", { minutes, label }),
+  startFocus: (minutes: number, label?: string, task?: string) => invoke<FocusSession>("start_focus", { minutes, label, task }),
+  tasks: () => invoke<Task[]>("get_tasks"),
+  addTask: (title: string) => invoke<Task[]>("add_task", { title }),
+  renameTask: (id: string, title: string) => invoke<Task[]>("rename_task", { id, title }),
+  setTaskDone: (id: string, done: boolean) => invoke<Task[]>("set_task_done", { id, done }),
+  removeTask: (id: string) => invoke<Task[]>("remove_task", { id }),
   /** Returns the session as it stands afterwards; null once it has ended. */
   controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusControl>("control_focus", { action, minutes }),
   focusOverview: () => invoke<FocusOverview>("get_focus_overview"),

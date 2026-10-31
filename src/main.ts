@@ -2,9 +2,10 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Usage } from "./api";
+import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { shownControl, useDropdowns } from "./dropdown";
 import { jumpTo } from "./jump";
+import { renderTasks, type TaskActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -1384,6 +1385,10 @@ function focusLeft(s: FocusSession, now = Date.now()): number {
 }
 
 /// Kairo closes a finished session within seconds; until the next poll, treat it as over here.
+/// The session the Tasks block was drawn for: its task (null for none), or undefined with no
+/// session. A session that starts, ends or runs out redraws it, wherever it was started from.
+let shownTaskSession: string | null | undefined;
+
 const runningFocus = () => (focusSession && (focusSession.pausedAt !== null || focusLeft(focusSession) > 0) ? focusSession : null);
 
 /// The sidebar's focus box: start buttons when idle, a countdown while a session runs.
@@ -1400,6 +1405,7 @@ function paintFocus() {
     $("#focus-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
   }
   if (view === "focus") paintTimer();
+  tasksFollowFocus();
 }
 
 /// After any change to the session: repaint, and reload the views that list sessions.
@@ -1410,7 +1416,7 @@ function focusChanged(s: FocusSession | null) {
   if (view === "focus") load("focus");
 }
 
-const startFocus = async (minutes: number, label?: string) => focusChanged(await api.startFocus(minutes, label));
+const startFocus = async (minutes: number, label?: string, task?: string) => focusChanged(await api.startFocus(minutes, label, task));
 const controlFocus = async (action: FocusAction, minutes?: number) => focusChanged((await api.controlFocus(action, minutes)).session);
 
 /// How long a finished strict-mode wait stays good for its confirming click (matches Kairo's).
@@ -1798,6 +1804,27 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("[data-minutes]")) 
 }
 $("#timer-less").addEventListener("click", () => setTimerMinutes(timerMinutes - TIMER_STEP_MIN));
 $("#timer-more").addEventListener("click", () => setTimerMinutes(timerMinutes + TIMER_STEP_MIN));
+/// The Focus page's Tasks block; each change redraws it with the list the change returns.
+async function drawTasks(tasks?: Task[]) {
+  const running = runningFocus();
+  shownTaskSession = running ? running.task : undefined;
+  renderTasks($("#focus-tasks"), tasks ?? (await api.tasks()), running ? { task: running.task } : null, taskActions);
+}
+
+function tasksFollowFocus() {
+  const running = runningFocus();
+  if (view === "focus" && (running ? running.task : undefined) !== shownTaskSession) void drawTasks();
+}
+
+const taskActions: TaskActions = {
+  add: async (title) => drawTasks(await api.addTask(title)),
+  rename: async (id, title) => drawTasks(await api.renameTask(id, title)),
+  done: async (id, done) => drawTasks(await api.setTaskDone(id, done)),
+  remove: async (id) => drawTasks(await api.removeTask(id)),
+  // For the length picked on the timer, like Start focus; the page then reloads, tasks and all.
+  start: (id) => startFocus(timerMinutes, undefined, id),
+};
+
 $("#timer-start").addEventListener("click", async () => {
   const label = $<HTMLInputElement>("#timer-label");
   await startFocus(timerMinutes, label.value.trim() || undefined);
@@ -1887,6 +1914,7 @@ async function load(v: View = view) {
     if (v === "focus") {
       paintTimer();
       renderFocusPage(await api.focusOverview());
+      await drawTasks();
       // Slots name the apps, sites and saved lists they block, so those come first.
       await loadBlockChoices();
       renderBlockLists(await api.blockLists());

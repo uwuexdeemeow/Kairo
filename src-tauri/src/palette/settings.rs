@@ -284,7 +284,7 @@ mod tests {
     fn flipping_blocking_in_strict_mode_is_refused() {
         let conn = memory();
         crate::blocking::set_setting(&conn, "strict", true).unwrap();
-        crate::focus::start_by_hand(&conn, 25, None, chrono::Utc::now().timestamp_millis()).unwrap();
+        crate::focus::start_by_hand(&conn, 25, None, None, chrono::Utc::now().timestamp_millis()).unwrap();
         let before = crate::blocking::settings(&conn).unwrap();
         for switch in [Switch::Blocking, Switch::Launchers] {
             assert_eq!(flip_stored(&conn, switch), Err(crate::blocking::STRICT_REFUSAL.to_string()));

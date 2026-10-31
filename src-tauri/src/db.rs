@@ -101,6 +101,16 @@ pub fn open(path: &Path) -> Result<Connection> {
          );
          -- Block lists (lists.rs): named sets of apps and sites, as a JSON array of keys, that
          -- slots and sessions block instead of everything distracting.
+         -- Tasks on the Focus page (tasks.rs). The id is random text so it's the same on every
+         -- combined computer, where the list is rewritten whole.
+         CREATE TABLE IF NOT EXISTS tasks (
+             id         TEXT    PRIMARY KEY,
+             title      TEXT    NOT NULL,
+             created_ms INTEGER NOT NULL,
+             -- NULL while open.
+             done_ms    INTEGER,
+             position   INTEGER NOT NULL
+         );
          CREATE TABLE IF NOT EXISTS block_lists (
              name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
              keys     TEXT    NOT NULL,
@@ -153,6 +163,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("focus_schedule", "list", "TEXT"),
         // The saved block list a session started by hand blocks, by name.
         ("focus_sessions", "list", "TEXT"),
+        // The task a session was started on, by its id (tasks.rs).
+        ("focus_sessions", "task", "TEXT"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {

@@ -2741,3 +2741,52 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .app-settings .link-btn {
   flex: none;
 }
+
+/* Tasks on the Focus page: a tick box, the title (a button that turns into a field), its focus
+   time, Start or "Focusing now", and a delete cross. */
+.focus-tasks .task-add {
+  width: 100%;
+  margin: 4px 0 8px;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.task-title {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.task-row.done .task-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.task-now {
+  color: var(--productive);
+  font-size: 12px;
+}
+
+.task-done summary {
+  padding: 8px 0;
+  color: var(--muted);
+  cursor: pointer;
+}

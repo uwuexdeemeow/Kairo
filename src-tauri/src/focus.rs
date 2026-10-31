@@ -47,6 +47,8 @@ pub struct Active {
     /// Set while paused.
     paused_at: Option<i64>,
     label: Option<String>,
+    /// The task it was started on, by id (tasks.rs).
+    task: Option<String>,
 }
 
 impl Active {
@@ -109,9 +111,9 @@ fn block(r: &rusqlite::Row) -> Result<Block> {
 /// The running session, if any; an unfinished one survives a restart.
 pub fn active(conn: &Connection) -> Result<Option<Active>> {
     conn.query_row(
-        "SELECT start_ms, planned_ms, paused_ms, paused_at, label FROM focus_sessions WHERE end_ms IS NULL ORDER BY id DESC LIMIT 1",
+        "SELECT start_ms, planned_ms, paused_ms, paused_at, label, task FROM focus_sessions WHERE end_ms IS NULL ORDER BY id DESC LIMIT 1",
         [],
-        |r| Ok(Active { start_ms: r.get(0)?, planned_ms: r.get(1)?, paused_ms: r.get(2)?, paused_at: r.get(3)?, label: r.get(4)? }),
+        |r| Ok(Active { start_ms: r.get(0)?, planned_ms: r.get(1)?, paused_ms: r.get(2)?, paused_at: r.get(3)?, label: r.get(4)?, task: r.get(5)? }),
     )
     .optional()
 }
@@ -126,7 +128,7 @@ pub fn running_until(conn: &Connection, now: i64) -> Result<Option<i64>> {
 pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
     stop(conn, now)?;
     let label = label.map(str::trim).filter(|l| !l.is_empty()).map(|l| l.chars().take(MAX_LABEL_CHARS).collect::<String>());
-    let a = Active { start_ms: now, planned_ms: minutes.min(MAX_MINUTES) as i64 * MIN_MS, paused_ms: 0, paused_at: None, label };
+    let a = Active { start_ms: now, planned_ms: minutes.min(MAX_MINUTES) as i64 * MIN_MS, paused_ms: 0, paused_at: None, label, task: None };
     conn.execute(
         "INSERT INTO focus_sessions (start_ms, planned_ms, label) VALUES (?1, ?2, ?3)",
         params![a.start_ms, a.planned_ms, a.label],
@@ -135,11 +137,17 @@ pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> 
 }
 
 /// Starts a session someone asked for: it blocks the saved list its label names, or else the
-/// default list, or else as usual (see `lists::for_session`).
-pub fn start_by_hand(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
+/// default list, or else as usual (see `lists::for_session`). Started on a task that exists, it
+/// counts for the task and takes its title as the label; the typed label still picks the list.
+pub fn start_by_hand(conn: &Connection, minutes: u32, label: Option<&str>, task: Option<&str>, now: i64) -> Result<Active> {
     let list = crate::lists::for_session(conn, label)?;
-    let a = start(conn, minutes, label, now)?;
-    conn.execute("UPDATE focus_sessions SET list = ?1 WHERE end_ms IS NULL", [list])?;
+    let task = match task {
+        Some(id) => crate::tasks::title(conn, id)?.map(|title| (id.to_string(), title)),
+        None => None,
+    };
+    let mut a = start(conn, minutes, task.as_ref().map_or(label, |(_, title)| Some(title.as_str())), now)?;
+    a.task = task.map(|(id, _)| id);
+    conn.execute("UPDATE focus_sessions SET list = ?1, task = ?2 WHERE end_ms IS NULL", params![list, a.task])?;
     Ok(a)
 }
 
@@ -540,5 +548,18 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    #[test]
+    fn starting_on_a_task_labels_it_with_the_title_and_keeps_the_typed_label_for_lists() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        crate::lists::save(&conn, None, "Social", vec!["site:reddit".into()]).unwrap().unwrap();
+        let task = crate::tasks::add(&conn, "Social post", 0).unwrap().unwrap();
+        let a = start_by_hand(&conn, 25, Some("social"), Some(&task.id), 1_000).unwrap();
+        assert_eq!((a.label(), a.task.as_deref()), (Some("Social post"), Some(task.id.as_str())));
+        assert_eq!(active(&conn).unwrap().unwrap().task.as_deref(), Some(task.id.as_str()));
+        assert_eq!(crate::lists::of_session(&conn).unwrap().as_deref(), Some("Social"));
+        let b = start_by_hand(&conn, 25, Some("social"), Some("gone"), 2_000).unwrap();
+        assert_eq!((b.label(), b.task.as_deref()), (Some("social"), None));
     }
 }
