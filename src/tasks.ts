@@ -70,6 +70,8 @@ function row(t: Task, session: RunningSession, act: TaskActions): HTMLElement {
 export function renderTasks(root: HTMLElement, tasks: Task[], session: RunningSession, act: TaskActions): void {
   // Typing several tasks in a row keeps the field, though each add draws the block anew.
   const typing = document.activeElement?.classList.contains("task-add") && root.contains(document.activeElement);
+  // Done stays open once opened, so reopening several doesn't mean unfolding it each time.
+  const doneOpen = root.querySelector<HTMLDetailsElement>("details.task-done")?.open ?? false;
   const add = h("input", { class: "filter task-add", maxlength: "80", placeholder: "Add a task", "aria-label": "Add a task", autocomplete: "off" }) as HTMLInputElement;
   add.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
@@ -83,7 +85,11 @@ export function renderTasks(root: HTMLElement, tasks: Task[], session: RunningSe
   const parts: Node[] = [h("h2", {}, "Tasks"), add];
   if (!tasks.length) parts.push(h("p", { class: "muted" }, "Add what you're working on, then start a focus session on it."));
   parts.push(h("div", { class: "task-list" }, ...open.map((t) => row(t, session, act))));
-  if (done.length) parts.push(h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act))));
+  if (done.length) {
+    const folded = h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act))) as HTMLDetailsElement;
+    folded.open = doneOpen;
+    parts.push(folded);
+  }
   root.replaceChildren(...parts);
   if (typing) add.focus();
 }
