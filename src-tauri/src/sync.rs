@@ -82,7 +82,7 @@ pub fn device_id(conn: &Connection) -> Result<String> {
     Ok(id)
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     use std::hash::{BuildHasher, Hasher};
     // RandomState is seeded randomly for each run of Kairo.
     let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();

@@ -24,6 +24,7 @@ mod recap;
 mod schedule;
 mod startup;
 mod sync;
+mod tasks;
 mod updater;
 
 use std::collections::{HashMap, HashSet};
