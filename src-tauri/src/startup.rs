@@ -61,28 +61,6 @@ pub fn launch_for(args: &[String]) -> Launch {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_launch_opens_what_it_names() {
-        let run = |args: &[&str]| launch_for(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
-        assert_eq!(run(&["kairo"]), Launch::Palette);
-        assert_eq!(run(&["kairo", PALETTE_ARG]), Launch::Palette);
-        assert_eq!(run(&["kairo", CHRONO_ARG]), Launch::Chrono);
-        assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
-        assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
-    }
-
-    #[test]
-    fn the_words_after_the_search_flag_are_the_query() {
-        let args = |a: &[&str]| a.iter().map(|a| a.to_string()).collect::<Vec<_>>();
-        assert_eq!(search_files_query(&args(&["kairo", "--search-files", "tax", "2026"])), Some("tax 2026".into()));
-        assert_eq!(search_files_query(&args(&["kairo", "--palette"])), None);
-    }
-}
-
 /// Turn start-at-login on the first time an installed build runs; after that the user's choice stands.
 pub fn apply_default(app: &AppHandle, conn: &Connection) -> Result<(), Box<dyn std::error::Error>> {
     if !AVAILABLE || db::get_setting(conn, INITIALIZED_KEY)?.is_some() {
@@ -108,4 +86,26 @@ pub fn set_enabled(app: &AppHandle, on: bool) -> Result<(), String> {
     }
     let launcher = app.autolaunch();
     if on { launcher.enable() } else { launcher.disable() }.map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_launch_opens_what_it_names() {
+        let run = |args: &[&str]| launch_for(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>());
+        assert_eq!(run(&["kairo"]), Launch::Palette);
+        assert_eq!(run(&["kairo", PALETTE_ARG]), Launch::Palette);
+        assert_eq!(run(&["kairo", CHRONO_ARG]), Launch::Chrono);
+        assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
+        assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
+    }
+
+    #[test]
+    fn the_words_after_the_search_flag_are_the_query() {
+        let args = |a: &[&str]| a.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert_eq!(search_files_query(&args(&["kairo", "--search-files", "tax", "2026"])), Some("tax 2026".into()));
+        assert_eq!(search_files_query(&args(&["kairo", "--palette"])), None);
+    }
 }

@@ -49,6 +49,13 @@ describe("the Tasks block", () => {
     expect(act.done).toHaveBeenCalledWith("b", false);
   });
 
+  it("keeps Done open across a redraw once opened", () => {
+    draw([task("a", "Essay", { doneMs: 5 }), task("b", "Taxes", { doneMs: 6 })]);
+    root.querySelector("details")!.open = true;
+    draw([task("a", "Essay", { doneMs: 5 })]);
+    expect(root.querySelector("details")!.open).toBe(true);
+  });
+
   it("renames in place, Esc cancels", () => {
     draw([task("a", "Essay")]);
     root.querySelector<HTMLElement>('[data-task="a"] .task-title')!.click();

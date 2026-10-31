@@ -564,7 +564,8 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
             (true, None) => "No label".into(),
         });
         item.score = 1000.0;
-        item.preview = Some(Preview::Focus(minutes, label));
+        // The card shows what the session will be called: a task's title, or the label.
+        item.preview = Some(Preview::Focus(minutes, task.map(|t| t.title.clone()).or(label)));
         items.push(item);
     }
     items.extend(task_items(ctx, query));
@@ -917,6 +918,8 @@ mod tests {
         let first = &search(&c, "focus 50 essay")[0];
         assert_eq!(first.action, Action::StartFocus(50, Some("essay".into()), Some("t1".into())));
         assert_eq!(first.sub.as_deref(), Some("For your task “Essay”"));
+        // The card shows what the session will be called: the task's title.
+        assert_eq!(first.preview, Some(Preview::Focus(50, Some("Essay".into()))));
     }
 
     #[test]

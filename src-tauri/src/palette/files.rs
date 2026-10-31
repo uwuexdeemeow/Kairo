@@ -29,7 +29,9 @@ pub const LIMIT_MS: u64 = 1500;
 /// Why the system's index gave no answer.
 #[derive(Debug, PartialEq)]
 pub enum Unavailable {
-    /// There is no index to ask, like a Linux desktop without localsearch or plocate.
+    /// There is no index to ask, like a Linux desktop without localsearch or plocate. Windows
+    /// always has Windows Search, so it never says this.
+    #[cfg_attr(windows, allow(dead_code))]
     NoIndexer,
     /// The index was asked and could not answer, for the reason given.
     Failed(String),
@@ -482,8 +484,9 @@ mod tests {
         Ok(vec![home.join("budget.txt")])
     }
 
+    /// Answers well past the limit, so a slow test runner can't bring it back inside.
     fn too_slow(_: &str, home: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
-        std::thread::sleep(Duration::from_millis(1600));
+        std::thread::sleep(Duration::from_millis(LIMIT_MS + 500));
         Ok(vec![home.join("budget.txt")])
     }
 
@@ -525,7 +528,8 @@ mod tests {
     fn a_search_past_the_limit_shows_nothing() {
         let (worker, rx) = worker(too_slow);
         worker.ask(1, "budget".into());
-        assert!(rx.recv_timeout(Duration::from_millis(2500)).is_err());
+        // Waits longer than the slow answer takes, so one let through late would arrive.
+        assert!(rx.recv_timeout(Duration::from_millis(QUIET_MS + LIMIT_MS + 1500)).is_err());
     }
 
     #[test]
