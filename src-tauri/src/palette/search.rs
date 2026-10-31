@@ -11,6 +11,10 @@ use super::AppEntry;
 use crate::analysis::Category;
 
 const MAX_APPS: usize = 6;
+/// Rows `tasks` lists at most.
+const MAX_TASKS: usize = 8;
+/// How long a session started on a task from the palette runs.
+const TASK_MINUTES: u32 = 25;
 const RECENT_APPS: usize = 3;
 const HOUR_MS: i64 = 60 * 60_000;
 pub const MAX_FOCUS_MINUTES: u32 = 240;
@@ -260,7 +264,12 @@ pub enum Action {
     Go(&'static str, Option<NaiveDate>),
     /// Kairo's dashboard: `None` for Home, or the tab by name.
     Dashboard(Option<&'static str>),
-    StartFocus(u32, Option<String>),
+    /// A focus session: minutes, label, and the task it's for, by id.
+    StartFocus(u32, Option<String>, Option<String>),
+    /// Adds a task to the Focus page's list.
+    AddTask(String),
+    /// Ticks a task off, by id.
+    FinishTask(String),
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
     CopyAnswer(Subject, Period),
@@ -353,6 +362,8 @@ pub struct Context {
     pub week_goals: Option<String>,
     /// The saved block lists' names; "focus 50 social" blocks the one called Social.
     pub block_lists: Vec<String>,
+    /// The open tasks, in the Focus page's order.
+    pub tasks: Vec<crate::tasks::Task>,
     /// The next meeting on the user's calendars: its title, when it starts, and how far off that
     /// is from now, in milliseconds.
     pub next_meeting: Option<(String, NaiveDateTime, i64)>,
@@ -470,6 +481,56 @@ fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
     Some((minutes.clamp(1, MAX_FOCUS_MINUTES), label))
 }
 
+/// The open task a focus label is for: the best match with the whole label at the start of a
+/// word in its title, the older one on a tie; None when none matches that well.
+fn task_for<'a>(tasks: &'a [crate::tasks::Task], label: &str) -> Option<&'a crate::tasks::Task> {
+    let mut best: Option<(&crate::tasks::Task, f64)> = None;
+    for task in tasks {
+        let Some(m) = fuzzy(label, &task.title).filter(|m| m.score >= 100.0) else { continue };
+        if best.is_none_or(|(_, score)| m.score > score) {
+            best = Some((task, m.score));
+        }
+    }
+    best.map(|(task, _)| task)
+}
+
+/// Rows for the task list: `tasks` lists the open ones (more words filter them), and
+/// `task <title>` or `add task <title>` offers to add one.
+fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let lower = q.to_lowercase();
+    let adding = ["add task ", "task "].iter().find_map(|p| lower.starts_with(p).then(|| q[p.len()..].trim())).filter(|t| !t.is_empty());
+    if let Some(title) = adding {
+        let mut item = Item::new(format!("Add task “{title}”"), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
+        item.sub = Some("To the list on Chrono's Focus page".into());
+        item.score = 1000.0;
+        return vec![item];
+    }
+    let rest = if lower == "tasks" {
+        ""
+    } else if lower.starts_with("tasks ") {
+        q[6..].trim()
+    } else {
+        return Vec::new();
+    };
+    ctx.tasks
+        .iter()
+        .filter_map(|t| fuzzy(rest, &t.title).map(|m| (t, m)))
+        .take(MAX_TASKS)
+        .enumerate()
+        .map(|(i, (t, m))| {
+            let mut item = Item::new(t.title.clone(), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::StartFocus(TASK_MINUTES, None, Some(t.id.clone())));
+            item.at = m.at;
+            item.sub = Some(format!("Start a {TASK_MINUTES}-minute focus session on it"));
+            item.detail = (t.focused_ms > 0).then(|| fmt_dur(t.focused_ms));
+            item.second = Some((Action::FinishTask(t.id.clone()), "Mark done"));
+            // Above the other matches, in the list's own order.
+            item.score = 1100.0 - i as f64;
+            item
+        })
+        .collect()
+}
+
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
@@ -486,17 +547,21 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     }
 
     if let Some((minutes, label)) = focus_command(query) {
-        let mut item = Item::new(format!("Start a {minutes}-minute focus session"), Icon::Glyph(Glyph::Focus, Tone::Accent), "Focus", Action::StartFocus(minutes, label.clone()));
+        let task = label.as_deref().and_then(|l| task_for(&ctx.tasks, l));
+        let action = Action::StartFocus(minutes, label.clone(), task.map(|t| t.id.clone()));
+        let mut item = Item::new(format!("Start a {minutes}-minute focus session"), Icon::Glyph(Glyph::Focus, Tone::Accent), "Focus", action);
         let list = label.as_ref().and_then(|l| ctx.block_lists.iter().find(|n| n.eq_ignore_ascii_case(l.trim())));
-        item.sub = Some(match (list, &label) {
-            (Some(list), _) => format!("Blocks your “{list}” list"),
-            (None, Some(l)) => format!("Labelled “{l}”"),
-            (None, None) => "No label".into(),
+        let says: Vec<String> = [list.map(|l| format!("Blocks your “{l}” list")), task.map(|t| format!("For your task “{}”", t.title))].into_iter().flatten().collect();
+        item.sub = Some(match (says.is_empty(), &label) {
+            (false, _) => says.join(" · "),
+            (true, Some(l)) => format!("Labelled “{l}”"),
+            (true, None) => "No label".into(),
         });
         item.score = 1000.0;
         item.preview = Some(Preview::Focus(minutes, label));
         items.push(item);
     }
+    items.extend(task_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
     match split_period(query) {
         (asked, Some(period)) => {
@@ -559,9 +624,9 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     }
     let idle = ctx.session.is_none();
     let actions: [(&str, String, Glyph, Action, bool); 7] = [
-        ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None), idle),
-        ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None), idle),
-        ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None), idle),
+        ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
+        ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
+        ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
@@ -577,7 +642,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         let mut item = Item::new(title.clone(), Icon::Glyph(glyph, Tone::Accent), "Actions", action);
         item.at = fuzzy(query, &title).map(|m| m.at).unwrap_or_default();
         item.score = m.score - 8.0;
-        if let Action::StartFocus(minutes, None) = item.action {
+        if let Action::StartFocus(minutes, None, None) = item.action {
             item.preview = Some(Preview::Focus(minutes, None));
         }
         items.push(item);
@@ -637,7 +702,7 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
             rows.push(item);
         }
         None => {
-            let mut item = Item::new("Start a 25-minute focus session", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::StartFocus(25, None));
+            let mut item = Item::new("Start a 25-minute focus session", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::StartFocus(25, None, None));
             item.sub = Some("Or type “focus 50 essay” for any length and a label".into());
             rows.push(item);
         }
@@ -682,6 +747,7 @@ mod tests {
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
+            tasks: Vec::new(),
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
         }
     }
@@ -762,10 +828,10 @@ mod tests {
         assert_eq!(titles(&search(&c, "vsc")), ["Visual Studio Code"]);
         assert_eq!(search(&c, "last tue")[0].preview, Some(Preview::Day(NaiveDate::from_ymd_opt(2026, 10, 20).unwrap())));
         let focus = &search(&c, "focus 50 essay")[0];
-        assert_eq!(focus.action, Action::StartFocus(50, Some("essay".into())));
+        assert_eq!(focus.action, Action::StartFocus(50, Some("essay".into()), None));
         assert_eq!(focus.sub.as_deref(), Some("Labelled “essay”"));
         let social = &search(&c, "focus 25 social")[0];
-        assert_eq!((social.action.clone(), social.sub.as_deref()), (Action::StartFocus(25, Some("social".into())), Some("Blocks your “Social” list")));
+        assert_eq!((social.action.clone(), social.sub.as_deref()), (Action::StartFocus(25, Some("social".into()), None), Some("Blocks your “Social” list")));
         let found = search(&c, "foc");
         assert_eq!(found[0].title, "Focus");
         assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings"));
@@ -832,5 +898,66 @@ mod tests {
         for q in ["focus 50", "2026-10-30", "14 oct"] {
             assert!(search(&ctx(), q).iter().all(|i| i.section != "Calculator"), "{q}");
         }
+    }
+
+    fn task(id: &str, title: &str) -> crate::tasks::Task {
+        crate::tasks::Task { id: id.into(), title: title.into(), created_ms: 0, done_ms: None, position: 0, focused_ms: 80 * 60_000 }
+    }
+
+    #[test]
+    fn focus_on_a_task_counts_for_it() {
+        let mut c = ctx();
+        c.tasks = vec![task("t1", "Essay")];
+        let first = &search(&c, "focus 50 essay")[0];
+        assert_eq!(first.action, Action::StartFocus(50, Some("essay".into()), Some("t1".into())));
+        assert_eq!(first.sub.as_deref(), Some("For your task “Essay”"));
+    }
+
+    #[test]
+    fn a_label_naming_a_list_and_a_task_says_both() {
+        let mut c = ctx();
+        c.tasks = vec![task("t1", "Social post")];
+        let first = &search(&c, "focus 25 social")[0];
+        assert_eq!(first.sub.as_deref(), Some("Blocks your “Social” list · For your task “Social post”"));
+        assert_eq!(first.action, Action::StartFocus(25, Some("social".into()), Some("t1".into())));
+    }
+
+    #[test]
+    fn an_unmatched_label_stays_a_label() {
+        let first = &search(&ctx(), "focus 50 essay")[0];
+        assert_eq!(first.action, Action::StartFocus(50, Some("essay".into()), None));
+        assert_eq!(first.sub.as_deref(), Some("Labelled “essay”"));
+    }
+
+    #[test]
+    fn equal_matches_go_to_the_older_task() {
+        let mut c = ctx();
+        c.tasks = vec![task("t1", "Report A"), task("t2", "Report B")];
+        assert_eq!(search(&c, "focus 25 report")[0].action, Action::StartFocus(25, Some("report".into()), Some("t1".into())));
+    }
+
+    #[test]
+    fn tasks_lists_open_ones_and_typing_adds_one() {
+        let mut c = ctx();
+        c.tasks = vec![task("t1", "Essay"), task("t2", "Taxes")];
+        let found = search(&c, "tasks");
+        let rows: Vec<&Item> = found.iter().filter(|i| i.section == "Tasks").collect();
+        assert_eq!(rows.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["Essay", "Taxes"]);
+        assert_eq!(rows[0].action, Action::StartFocus(25, None, Some("t1".into())));
+        assert_eq!(rows[0].second, Some((Action::FinishTask("t1".into()), "Mark done")));
+        assert_eq!(rows[0].detail.as_deref(), Some("1h 20m"));
+        let filtered: Vec<String> = search(&c, "tasks ess").into_iter().filter(|i| i.section == "Tasks").map(|i| i.title).collect();
+        assert_eq!(filtered, ["Essay"]);
+        for q in ["task buy milk", "add task buy milk"] {
+            let add = search(&c, q).into_iter().find(|i| i.action == Action::AddTask("buy milk".into())).expect(q);
+            assert_eq!(add.title, "Add task “buy milk”");
+        }
+    }
+
+    #[test]
+    fn tasks_rows_are_capped() {
+        let mut c = ctx();
+        c.tasks = (0..20).map(|n| task(&format!("t{n}"), &format!("Task {n}"))).collect();
+        assert_eq!(search(&c, "tasks").iter().filter(|i| i.section == "Tasks").count(), 8);
     }
 }
