@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(for_session(&conn, Some("essay")).unwrap().as_deref(), Some("Games"));
         assert_eq!(for_session(&conn, None).unwrap().as_deref(), Some("Games"));
 
-        focus::start_by_hand(&conn, 25, Some("social"), 1_000).unwrap();
+        focus::start_by_hand(&conn, 25, Some("social"), None, 1_000).unwrap();
         assert_eq!(of_session(&conn).unwrap().as_deref(), Some("Social"));
         assert_eq!(schedule::session_blocks(&conn).unwrap(), Some(keys(&["site:reddit"])));
         // Renamed mid-session, the session follows.

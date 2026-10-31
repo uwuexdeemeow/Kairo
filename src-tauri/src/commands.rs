@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, updater, AppState, Navigation};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, tasks, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -184,9 +184,9 @@ pub fn get_focus(state: State<AppState>) -> CmdResult<Option<focus::Active>> {
     focus::active(&conn).map_err(err)
 }
 
-/// Starts a focus session of `minutes`, ending any that is running.
+/// Starts a focus session of `minutes`, ending any that is running; on `task` when given.
 #[tauri::command]
-pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>) -> CmdResult<focus::Active> {
+pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>, task: Option<String>) -> CmdResult<focus::Active> {
     if !(1..=focus::MAX_MINUTES).contains(&minutes) {
         return Err(format!("a focus session runs 1 to {} minutes, not {minutes}", focus::MAX_MINUTES));
     }
@@ -195,7 +195,48 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>) 
     if blocking::strict_now(&conn).map_err(err)? {
         return Err("Strict mode is on: end the current session first.".into());
     }
-    focus::start_by_hand(&conn, minutes, label.as_deref(), now_ms()).map_err(err)
+    focus::start_by_hand(&conn, minutes, label.as_deref(), task.as_deref(), now_ms()).map_err(err)
+}
+
+/// Every change to the task list travels to combined computers, then the page gets the new list.
+fn tasks_changed(conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
+    sync::record(conn, "tasks:all", &tasks::to_json(conn).map_err(err)?)?;
+    tasks::list(conn, now_ms()).map_err(err)
+}
+
+/// The Focus page's tasks: open ones in order, then done ones, each with its focus time.
+#[tauri::command]
+pub fn get_tasks(state: State<AppState>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::list(&conn, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+pub fn add_task(state: State<AppState>, title: String) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::add(&conn, &title, now_ms()).map_err(err)?;
+    tasks_changed(&conn)
+}
+
+#[tauri::command]
+pub fn rename_task(state: State<AppState>, id: String, title: String) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::rename(&conn, &id, &title).map_err(err)?;
+    tasks_changed(&conn)
+}
+
+#[tauri::command]
+pub fn set_task_done(state: State<AppState>, id: String, done: bool) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::set_done(&conn, &id, done, now_ms()).map_err(err)?;
+    tasks_changed(&conn)
+}
+
+#[tauri::command]
+pub fn remove_task(state: State<AppState>, id: String) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::remove(&conn, &id).map_err(err)?;
+    tasks_changed(&conn)
 }
 
 #[derive(Serialize)]
