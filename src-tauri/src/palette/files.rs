@@ -29,7 +29,9 @@ pub const LIMIT_MS: u64 = 1500;
 /// Why the system's index gave no answer.
 #[derive(Debug, PartialEq)]
 pub enum Unavailable {
-    /// There is no index to ask, like a Linux desktop without localsearch or plocate.
+    /// There is no index to ask, like a Linux desktop without localsearch or plocate. Windows
+    /// always has Windows Search, so it never says this.
+    #[cfg_attr(windows, allow(dead_code))]
     NoIndexer,
     /// The index was asked and could not answer, for the reason given.
     Failed(String),
