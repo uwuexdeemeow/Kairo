@@ -1385,6 +1385,10 @@ function focusLeft(s: FocusSession, now = Date.now()): number {
 }
 
 /// Kairo closes a finished session within seconds; until the next poll, treat it as over here.
+/// The session the Tasks block was drawn for: its task (null for none), or undefined with no
+/// session. A session that starts, ends or runs out redraws it, wherever it was started from.
+let shownTaskSession: string | null | undefined;
+
 const runningFocus = () => (focusSession && (focusSession.pausedAt !== null || focusLeft(focusSession) > 0) ? focusSession : null);
 
 /// The sidebar's focus box: start buttons when idle, a countdown while a session runs.
@@ -1401,6 +1405,7 @@ function paintFocus() {
     $("#focus-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
   }
   if (view === "focus") paintTimer();
+  tasksFollowFocus();
 }
 
 /// After any change to the session: repaint, and reload the views that list sessions.
@@ -1801,7 +1806,14 @@ $("#timer-less").addEventListener("click", () => setTimerMinutes(timerMinutes - 
 $("#timer-more").addEventListener("click", () => setTimerMinutes(timerMinutes + TIMER_STEP_MIN));
 /// The Focus page's Tasks block; each change redraws it with the list the change returns.
 async function drawTasks(tasks?: Task[]) {
-  renderTasks($("#focus-tasks"), tasks ?? (await api.tasks()), runningFocus()?.task ?? null, taskActions);
+  const running = runningFocus();
+  shownTaskSession = running ? running.task : undefined;
+  renderTasks($("#focus-tasks"), tasks ?? (await api.tasks()), running ? { task: running.task } : null, taskActions);
+}
+
+function tasksFollowFocus() {
+  const running = runningFocus();
+  if (view === "focus" && (running ? running.task : undefined) !== shownTaskSession) void drawTasks();
 }
 
 const taskActions: TaskActions = {

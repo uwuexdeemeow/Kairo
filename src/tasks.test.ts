@@ -7,8 +7,8 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({ 
 let root: HTMLElement;
 let act: { [K in keyof TaskActions]: ReturnType<typeof vi.fn> };
 
-function draw(tasks: Task[], running: string | null = null) {
-  renderTasks(root, tasks, running, act as unknown as TaskActions);
+function draw(tasks: Task[], session: { task: string | null } | null = null) {
+  renderTasks(root, tasks, session, act as unknown as TaskActions);
 }
 
 const field = () => root.querySelector<HTMLInputElement>(".task-add")!;
@@ -29,6 +29,10 @@ describe("the Tasks block", () => {
     draw([]);
     type(field(), "Essay");
     expect(act.add).toHaveBeenCalledWith("Essay");
+    // Cleared at once, so a second Enter before the redraw adds nothing more.
+    expect(field().value).toBe("");
+    type(field(), "");
+    expect(act.add).toHaveBeenCalledTimes(1);
     act.add.mockClear();
     type(field(), "   ");
     expect(act.add).not.toHaveBeenCalled();
@@ -59,18 +63,29 @@ describe("the Tasks block", () => {
     expect(root.querySelector('[data-task="a"] .task-title')!.textContent).toBe("Essay");
   });
 
-  it("shows Focusing now for the running task", () => {
-    draw([task("a", "Essay"), task("b", "Taxes")], "a");
+  it("keeps the add field focused across a redraw, to add several in a row", () => {
+    draw([]);
+    field().focus();
+    type(field(), "Essay");
+    draw([task("a", "Essay")]);
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("shows Focusing now for the running task, and no Start anywhere while a session runs", () => {
+    draw([task("a", "Essay"), task("b", "Taxes")], { task: "a" });
     expect(root.querySelector('[data-task="a"]')!.textContent).toContain("Focusing now");
-    expect(root.querySelector('[data-task="a"] .task-start')).toBeNull();
+    expect(root.querySelectorAll(".task-start")).toHaveLength(0);
+    draw([task("a", "Essay"), task("b", "Taxes")], { task: null });
+    expect(root.querySelectorAll(".task-start")).toHaveLength(0);
+    draw([task("a", "Essay"), task("b", "Taxes")]);
     root.querySelector<HTMLButtonElement>('[data-task="b"] .task-start')!.click();
     expect(act.start).toHaveBeenCalledWith("b");
   });
 
   it("survives a running task that was deleted", () => {
-    draw([task("a", "Essay")], "gone");
+    draw([task("a", "Essay")], { task: "gone" });
     expect(root.textContent).not.toContain("Focusing now");
-    expect(root.querySelector('[data-task="a"] .task-start')).not.toBeNull();
+    expect(root.querySelector('[data-task="a"]')).not.toBeNull();
   });
 
   it("deletes with ×", () => {

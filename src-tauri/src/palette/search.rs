@@ -487,29 +487,35 @@ fn task_for<'a>(tasks: &'a [crate::tasks::Task], label: &str) -> Option<&'a crat
     let mut best: Option<(&crate::tasks::Task, f64)> = None;
     for task in tasks {
         let Some(m) = fuzzy(label, &task.title).filter(|m| m.score >= 100.0) else { continue };
-        if best.is_none_or(|(_, score)| m.score > score) {
+        if best.is_none_or(|(b, score)| m.score > score || (m.score == score && task.created_ms < b.created_ms)) {
             best = Some((task, m.score));
         }
     }
     best.map(|(task, _)| task)
 }
 
+/// What follows `prefix` at the start of `query`, ignoring case; None without it. Compared on the
+/// query itself, so a character whose lower case is longer can't shift where it's cut.
+fn after<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
+    query.get(..prefix.len()).filter(|head| head.eq_ignore_ascii_case(prefix)).map(|_| &query[prefix.len()..])
+}
+
 /// Rows for the task list: `tasks` lists the open ones (more words filter them), and
 /// `task <title>` or `add task <title>` offers to add one.
 fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
-    let lower = q.to_lowercase();
-    let adding = ["add task ", "task "].iter().find_map(|p| lower.starts_with(p).then(|| q[p.len()..].trim())).filter(|t| !t.is_empty());
-    if let Some(title) = adding {
+    // "add task" always means it; a bare "task" ranks below an app it names, like Task Manager.
+    let adding = [("add task ", 1000.0), ("task ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
+    if let Some((title, score)) = adding {
         let mut item = Item::new(format!("Add task “{title}”"), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
         item.sub = Some("To the list on Chrono's Focus page".into());
-        item.score = 1000.0;
+        item.score = score;
         return vec![item];
     }
-    let rest = if lower == "tasks" {
+    let rest = if q.eq_ignore_ascii_case("tasks") {
         ""
-    } else if lower.starts_with("tasks ") {
-        q[6..].trim()
+    } else if let Some(rest) = after(q, "tasks ") {
+        rest.trim()
     } else {
         return Vec::new();
     };
@@ -959,5 +965,36 @@ mod tests {
         let mut c = ctx();
         c.tasks = (0..20).map(|n| task(&format!("t{n}"), &format!("Task {n}"))).collect();
         assert_eq!(search(&c, "tasks").iter().filter(|i| i.section == "Tasks").count(), 8);
+    }
+
+    #[test]
+    fn an_app_named_task_still_leads() {
+        let mut c = ctx();
+        c.apps.push(app("Task Manager", 0));
+        for q in ["task manager", "Task Manager"] {
+            assert_eq!(search(&c, q)[0].title, "Task Manager", "{q}");
+        }
+        // With nothing else matching, it still offers to add one; "add task" always does first.
+        assert_eq!(search(&c, "task buy milk")[0].action, Action::AddTask("buy milk".into()));
+        assert_eq!(search(&c, "add task manager")[0].action, Action::AddTask("manager".into()));
+    }
+
+    #[test]
+    fn equal_matches_go_to_the_older_task_whatever_the_order() {
+        let mut c = ctx();
+        let mut newer = task("new", "Report B");
+        newer.created_ms = 200;
+        let mut older = task("old", "Report A");
+        older.created_ms = 100;
+        c.tasks = vec![newer, older];
+        assert_eq!(search(&c, "focus 25 report")[0].action, Action::StartFocus(25, Some("report".into()), Some("old".into())));
+    }
+
+    #[test]
+    fn odd_characters_near_task_words_never_panic() {
+        let c = ctx();
+        for q in ["tas\u{212A} manager", "task\u{212A} x", "add tas\u{212A} y", "\u{212A}asks"] {
+            let _ = search(&c, q);
+        }
     }
 }
