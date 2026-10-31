@@ -56,10 +56,6 @@ impl Active {
         self.label.as_deref()
     }
 
-    pub fn task(&self) -> Option<&str> {
-        self.task.as_deref()
-    }
-
     /// When the session will end, given that a pause in progress pushes the end back.
     fn ends_ms(&self, now: i64) -> i64 {
         self.start_ms + self.planned_ms + self.paused_ms + self.paused_at.map_or(0, |p| now - p)
@@ -560,10 +556,10 @@ mod tests {
         crate::lists::save(&conn, None, "Social", vec!["site:reddit".into()]).unwrap().unwrap();
         let task = crate::tasks::add(&conn, "Social post", 0).unwrap().unwrap();
         let a = start_by_hand(&conn, 25, Some("social"), Some(&task.id), 1_000).unwrap();
-        assert_eq!((a.label(), a.task()), (Some("Social post"), Some(task.id.as_str())));
-        assert_eq!(active(&conn).unwrap().unwrap().task(), Some(task.id.as_str()));
+        assert_eq!((a.label(), a.task.as_deref()), (Some("Social post"), Some(task.id.as_str())));
+        assert_eq!(active(&conn).unwrap().unwrap().task.as_deref(), Some(task.id.as_str()));
         assert_eq!(crate::lists::of_session(&conn).unwrap().as_deref(), Some("Social"));
         let b = start_by_hand(&conn, 25, Some("social"), Some("gone"), 2_000).unwrap();
-        assert_eq!((b.label(), b.task()), (Some("social"), None));
+        assert_eq!((b.label(), b.task.as_deref()), (Some("social"), None));
     }
 }
