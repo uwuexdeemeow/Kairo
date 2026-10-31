@@ -32,7 +32,8 @@ it. On Windows, macOS and Linux; all data stays on the device.
   row's second line says `For your task “Essay”` (in place of `Labelled “essay”`). The label
   matches a task when it scores 100 or more with the palette's `fuzzy` matching against the
   task's title (the whole label at the start of a word); the best score wins, ties to the older
-  task. No match: a plain label, as today.
+  task. The session is then labelled with the task's title, as if started from the page. No
+  match: a plain label, as today.
 - A label that names a block list still picks that list for blocking, as today. A task can match
   the same label; then the list decides what's blocked and the task gets the time, and the
   second line says `Blocks your “Social” list · For your task “Social post”`.
@@ -106,5 +107,5 @@ it. On Windows, macOS and Linux; all data stays on the device.
 
 ## Out of scope
 
-Due dates, priorities, subtasks, tasks inside projects, dragging to reorder, reminders, and
-counting other computers' sessions.
+Due dates, priorities, subtasks, tasks inside projects, dragging to reorder, reminders,
+scheduled focus slots tied to tasks, and counting other computers' sessions.
