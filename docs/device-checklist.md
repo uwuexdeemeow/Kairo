@@ -146,6 +146,18 @@ On Windows, a Mac and Linux. Open Chrono's Focus page.
 6. **Two computers.** With two combined computers, add a task on one. *Expect:* within about
    10 minutes it shows on the other, with no time there until a session runs on it there.
 
+## Palette: web search
+
+On Windows, a Mac and Linux. Open the palette.
+
+1. **Shortcuts.** Type `yt lofi beats` and press Enter. *Expect:* "Search YouTube for “lofi
+   beats”" first, and YouTube's results open in your browser. Try `g`, `ddg`, `w`, `gh` and
+   `maps` the same way.
+2. **Fallback.** Type something nothing matches, like `zzqx tickets`. *Expect:* one row, "Search
+   the web for “zzqx tickets”", which opens Google.
+3. **Apps first.** With an app whose name starts like a shortcut (GitHub Desktop for `gh`),
+   type just `gh`. *Expect:* the app, not a search.
+
 ## Palette: windows
 
 On Windows, a Mac and Linux. Open a few windows first: a document, a browser, a folder.

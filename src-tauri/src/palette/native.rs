@@ -1137,8 +1137,8 @@ impl Palette {
             let line = |a: (f32, f32), b: (f32, f32)| rt.DrawLine(p(a.0, a.1), p(b.0, b.1), &brush, width, stroke);
             let circle = |cx: f32, cy: f32, r: f32| rt.DrawEllipse(&D2D1_ELLIPSE { point: p(cx, cy), radiusX: r * k, radiusY: r * k }, &brush, width, stroke);
             match kind {
-                // The search box's magnifier.
-                None => {
+                // The search box's magnifier, and a web search's.
+                None | Some(Glyph::Search) => {
                     circle(11.0, 11.0, 7.0);
                     line((20.0, 20.0), (16.5, 16.5));
                 }
