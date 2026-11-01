@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{db, privacy};
 
+pub mod seal;
+
 const FOLDER_KEY: &str = "sync_folder";
 const DEVICE_KEY: &str = "device_id";
 const DIR: &str = "Kairo computers";
