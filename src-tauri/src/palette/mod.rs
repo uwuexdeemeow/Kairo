@@ -67,8 +67,6 @@ impl Index {
     }
 }
 
-/// Opens the palette, or puts it away if it's open.
-
 /// Prints what the palette would list as open windows: id, process, title and program, a line
 /// each.
 pub fn print_windows() {
@@ -90,6 +88,7 @@ fn open_windows() -> Vec<search::WindowEntry> {
         .collect()
 }
 
+/// Opens the palette, or puts it away if it's open.
 pub fn toggle(app: &AppHandle) {
     #[cfg(windows)]
     {
