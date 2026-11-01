@@ -168,8 +168,14 @@ On Windows, a Mac and Linux. Open a few windows first: a document, a browser, a 
 **Windows only:** from a terminal, `kairo.exe --list-windows` prints what the palette would
 list, without touching any window.
 
+**Mac only:** open an app's Settings window and close it, then type "settings". *Expect:* no
+row for the closed window. Open two Finder windows on the same folder, pick the second's row
+and press Enter. *Expect:* that one comes forward, not the first.
+
 **Mac only:** turn Kairo off under Privacy & Security → Accessibility. *Expect:* Enter still
 brings the window's app forward, and window rows have no "Close window".
+
+**Linux, X11:** type `windows`. *Expect:* no panel or desktop among them.
 
 **Linux:** on GNOME's Wayland session, the Windows section appears after the first log out and
 back in following the update. On KDE Plasma's, it works straight away.
