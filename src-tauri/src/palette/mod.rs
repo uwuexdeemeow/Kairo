@@ -69,6 +69,16 @@ impl Index {
 
 /// Opens the palette, or puts it away if it's open.
 
+/// Prints what the palette would list as open windows: id, process, title and program, a line
+/// each.
+pub fn print_windows() {
+    #[cfg(windows)]
+    files::attach_console();
+    for w in crate::platform::switchable(crate::platform::open_windows(), std::process::id()) {
+        println!("{}\t{}\t{}\t{}", w.id, w.pid, w.title, w.path.unwrap_or_default());
+    }
+}
+
 /// The open windows the palette can switch to, named and with their program for an icon.
 fn open_windows() -> Vec<search::WindowEntry> {
     crate::platform::switchable(crate::platform::open_windows(), std::process::id())
