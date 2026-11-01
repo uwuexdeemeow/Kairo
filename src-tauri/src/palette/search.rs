@@ -13,6 +13,19 @@ use crate::analysis::Category;
 const MAX_APPS: usize = 6;
 /// Rows `tasks` lists at most.
 const MAX_TASKS: usize = 8;
+/// Web searches by a short word before what's searched for: the word, the site's name, and the
+/// address the search goes on the end of.
+const WEB: [(&str, &str, &str); 6] = [
+    ("g", "Google", "https://www.google.com/search?q="),
+    ("yt", "YouTube", "https://www.youtube.com/results?search_query="),
+    ("ddg", "DuckDuckGo", "https://duckduckgo.com/?q="),
+    ("w", "Wikipedia", "https://en.wikipedia.org/w/index.php?search="),
+    ("gh", "GitHub", "https://github.com/search?q="),
+    ("maps", "Google Maps", "https://www.google.com/maps/search/"),
+];
+/// Where a web search ranks: below the commands and above most matches, though an app whose
+/// name the whole query starts, like GitHub Desktop for "gh", is no web search anyway.
+const WEB_SCORE: f64 = 800.0;
 /// Window rows shown at most.
 const MAX_WINDOWS: usize = 8;
 /// A window that matches by its app's name ranks this far below one that matches by title.
@@ -235,6 +248,7 @@ pub enum Glyph {
     Today,
     Alert,
     Calc,
+    Search,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -279,6 +293,8 @@ pub enum Action {
     AddTask(String),
     /// Ticks a task off, by id.
     FinishTask(String),
+    /// Opens a web address in the default browser.
+    OpenUrl(String),
     /// Brings an open window forward, by the system's id for it.
     FocusWindow(String),
     /// Asks an open window to close, by the system's id for it.
@@ -308,7 +324,7 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
     }
 
     /// Whether the palette stays open after it, to show the new state.
@@ -597,6 +613,27 @@ fn window_items(ctx: &Context, query: &str) -> Vec<Item> {
         .collect()
 }
 
+/// Text made safe for a web address: everything but ASCII letters, digits and `-_.~` written as
+/// %XX bytes, spaces included.
+fn url_escape(text: &str) -> String {
+    text.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+fn web_item(title: String, url: String, score: f64) -> Item {
+    let mut item = Item::new(title, Icon::Glyph(Glyph::Search, Tone::Plain), "Web", Action::OpenUrl(url));
+    item.sub = Some("Opens in your browser".into());
+    item.score = score;
+    item
+}
+
+/// A web search when the query starts with one of the short words and a space, like "yt lofi".
+fn web_shortcut(query: &str) -> Option<Item> {
+    let (word, rest) = query.trim().split_once(' ')?;
+    let rest = rest.trim();
+    let (_, site, address) = WEB.iter().find(|(w, _, _)| w.eq_ignore_ascii_case(word)).filter(|_| !rest.is_empty())?;
+    Some(web_item(format!("Search {site} for “{rest}”"), format!("{address}{}", url_escape(rest)), WEB_SCORE))
+}
+
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
@@ -719,6 +756,13 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     for mut item in settings::search(query, &ctx.switches) {
         item.score -= 8.0;
         items.push(item);
+    }
+
+    items.extend(web_shortcut(query));
+    // With nothing else to offer, the web is.
+    if items.is_empty() && !query.trim().is_empty() {
+        let q = query.trim();
+        items.push(web_item(format!("Search the web for “{q}”"), format!("{}{}", WEB[0].2, url_escape(q)), 0.0));
     }
 
     items.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -905,7 +949,8 @@ mod tests {
         let found = search(&c, "foc");
         assert_eq!(found[0].title, "Focus");
         assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings"));
-        assert!(search(&c, "zzzq").is_empty());
+        // Nothing of Kairo's matches; only the web is offered.
+        assert_eq!(search(&c, "zzzq").iter().map(|i| i.section).collect::<Vec<_>>(), ["Web"]);
     }
 
     #[test]
@@ -1131,5 +1176,55 @@ mod tests {
     #[test]
     fn bringing_a_window_forward_happens_before_the_palette_hides() {
         assert!(!Action::FocusWindow("1".into()).opens_window());
+    }
+
+    fn web_row(items: &[Item]) -> Option<&Item> {
+        items.iter().find(|i| i.section == "Web")
+    }
+
+    #[test]
+    fn web_shortcuts_search_the_right_site() {
+        let first = &search(&ctx(), "yt lofi beats")[0];
+        assert_eq!(first.title, "Search YouTube for “lofi beats”");
+        assert_eq!(first.action, Action::OpenUrl("https://www.youtube.com/results?search_query=lofi%20beats".into()));
+        for (q, url) in [
+            ("g kairo", "https://www.google.com/search?q=kairo"),
+            ("G Kairo", "https://www.google.com/search?q=Kairo"),
+            ("ddg rust", "https://duckduckgo.com/?q=rust"),
+            ("w Kairos", "https://en.wikipedia.org/w/index.php?search=Kairos"),
+            ("gh tauri", "https://github.com/search?q=tauri"),
+            ("maps changi airport", "https://www.google.com/maps/search/changi%20airport"),
+        ] {
+            assert_eq!(web_row(&search(&ctx(), q)).map(|i| &i.action), Some(&Action::OpenUrl(url.into())), "{q}");
+        }
+    }
+
+    #[test]
+    fn searches_are_encoded_for_an_address() {
+        assert_eq!(web_row(&search(&ctx(), "g a&b ü/#")).map(|i| &i.action), Some(&Action::OpenUrl("https://www.google.com/search?q=a%26b%20%C3%BC%2F%23".into())));
+    }
+
+    #[test]
+    fn a_prefix_alone_never_searches() {
+        for q in ["gh", "yt", "g ", "maps"] {
+            assert!(search(&ctx(), q).iter().all(|i| !matches!(i.action, Action::OpenUrl(_)) || i.title.starts_with("Search the web")), "{q}");
+        }
+    }
+
+    #[test]
+    fn the_web_is_offered_only_when_nothing_else_matches() {
+        let none = search(&ctx(), "zzqx nothing here");
+        assert_eq!(none.len(), 1);
+        assert_eq!(none[0].title, "Search the web for “zzqx nothing here”");
+        assert_eq!(none[0].action, Action::OpenUrl("https://www.google.com/search?q=zzqx%20nothing%20here".into()));
+        assert!(web_row(&search(&ctx(), "cursor")).is_none());
+    }
+
+    #[test]
+    fn commands_still_lead_over_web_shortcuts() {
+        let mut c = ctx();
+        c.apps.push(app("GitHub Desktop", 0));
+        assert_eq!(search(&c, "gh")[0].title, "GitHub Desktop");
+        assert_eq!(search(&c, "focus 50")[0].section, "Focus");
     }
 }
