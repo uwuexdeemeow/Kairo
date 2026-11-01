@@ -59,7 +59,7 @@ pub fn windows() -> Option<Vec<super::OpenWindow>> {
         Ok(reply) => reply,
         Err(e) => {
             if !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                eprintln!("gnome: cannot list windows until the next login: {e}");
+                eprintln!("gnome: Kairo's GNOME extension doesn't list windows (it's off, or updates at the next login): {e}");
             }
             return None;
         }

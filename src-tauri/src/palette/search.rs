@@ -19,6 +19,9 @@ const MAX_WINDOWS: usize = 8;
 const WINDOW_APP_PENALTY: f64 = 20.0;
 /// Window rows stay below commands (a focus session, a day, an answer), whatever they match.
 const MAX_WINDOW_SCORE: f64 = 300.0;
+/// Where `windows` lists them: below an app whose name starts with the word, like Windows
+/// Terminal, so typing it and pressing Enter still opens that app.
+const LISTED_WINDOW_SCORE: f64 = 140.0;
 /// How long a session started on a task from the palette runs.
 const TASK_MINUTES: u32 = 25;
 const RECENT_APPS: usize = 3;
@@ -305,7 +308,7 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::FocusWindow(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
     }
 
     /// Whether the palette stays open after it, to show the new state.
@@ -567,7 +570,7 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
 fn window_items(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
     let mut found: Vec<(f64, Vec<usize>, &WindowEntry)> = if q.eq_ignore_ascii_case("windows") {
-        ctx.windows.iter().enumerate().map(|(i, w)| (MAX_WINDOW_SCORE - i as f64, Vec::new(), w)).collect()
+        ctx.windows.iter().enumerate().map(|(i, w)| (LISTED_WINDOW_SCORE - i as f64, Vec::new(), w)).collect()
     } else {
         ctx.windows
             .iter()
@@ -1114,5 +1117,19 @@ mod tests {
     fn no_windows_among_suggestions() {
         let s = suggestions(&with_windows());
         assert!(s.rows.iter().all(|i| i.section != "Windows"));
+    }
+
+    #[test]
+    fn typing_windows_still_opens_an_app_named_windows() {
+        let mut c = with_windows();
+        c.apps.push(app("Windows Terminal", 0));
+        let found = search(&c, "windows");
+        assert_eq!(found[0].title, "Windows Terminal");
+        assert!(found.iter().any(|i| i.section == "Windows"));
+    }
+
+    #[test]
+    fn bringing_a_window_forward_happens_before_the_palette_hides() {
+        assert!(!Action::FocusWindow("1".into()).opens_window());
     }
 }

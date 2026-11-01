@@ -77,15 +77,17 @@ pub fn print_windows() {
     }
 }
 
-/// The open windows the palette can switch to, named and with their program for an icon.
-fn open_windows() -> Vec<search::WindowEntry> {
-    crate::platform::switchable(crate::platform::open_windows(), std::process::id())
-        .into_iter()
-        .map(|w| {
-            let app = w.path.as_deref().map_or(String::new(), |p| crate::classify::app_name(p, &crate::classify::exe_stem(p), ""));
-            search::WindowEntry { id: w.id, title: w.title, app, icon: w.path }
-        })
-        .collect()
+/// The open windows the palette can switch to, named and with their program for an icon. Taken
+/// before anything locks the database: on Plasma it waits a moment for KWin.
+pub fn open_windows() -> Vec<search::WindowEntry> {
+    crate::platform::switchable(crate::platform::open_windows(), std::process::id()).into_iter().map(window_entry).collect()
+}
+
+/// A window as the palette shows it. Its title helps name the app: Store apps all run in one
+/// host program, which names them only through their windows.
+fn window_entry(w: crate::platform::OpenWindow) -> search::WindowEntry {
+    let app = w.path.as_deref().map_or(String::new(), |p| crate::classify::app_name(p, &crate::classify::exe_stem(p), &w.title));
+    search::WindowEntry { id: w.id, title: w.title, app, icon: w.path }
 }
 
 /// Opens the palette, or puts it away if it's open.
@@ -317,7 +319,7 @@ pub fn percent(part: i64, whole: i64) -> i64 {
 
 /// What's known as the palette opens (apps, the focus session, today's apps and limits, what
 /// can be asked about), and the footer's line about today.
-pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, String) {
+pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<search::WindowEntry>) -> (Context, String) {
     let now = now_ms();
     let today = Local::now().date_naive();
     let apps = apps(conn, index, now).unwrap_or_default();
@@ -347,7 +349,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, S
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         tasks: crate::tasks::list(conn, now).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
-        windows: open_windows(),
+        windows,
         can_close_windows: crate::platform::can_close_windows(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
@@ -695,10 +697,11 @@ impl Session {
     }
 
     /// Whether `path` is an icon the palette is showing: an installed app's, the program of
-    /// something it answers about, or a file in its rows.
+    /// something it answers about or of an open window, or a file in its rows.
     pub fn shows_icon(&self, path: &str) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        s.ctx.as_ref().is_some_and(|c| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path))) || shows_file(&s.items, path)
+        let shown = |c: &Context| c.subjects.iter().any(|sub| sub.icon.as_deref() == Some(path)) || c.windows.iter().any(|w| w.icon.as_deref() == Some(path));
+        s.ctx.as_ref().is_some_and(shown) || shows_file(&s.items, path)
     }
 
     /// Whether `path` is a file in the palette's rows, whose icon isn't kept once it's drawn.
@@ -1095,5 +1098,11 @@ mod tests {
         let after = session.query(&session.last_query());
         assert!(after.seq > before.seq);
         assert_ne!(serde_json::to_string(&before.rows).unwrap(), serde_json::to_string(&after.rows).unwrap());
+    }
+
+    #[test]
+    fn a_store_app_window_is_named_from_its_title() {
+        let w = crate::platform::OpenWindow { id: "1".into(), title: "Calculator".into(), pid: 9, path: Some(r"C:\Windows\System32\ApplicationFrameHost.exe".into()) };
+        assert_eq!(window_entry(w).app, "Calculator");
     }
 }

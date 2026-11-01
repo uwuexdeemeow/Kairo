@@ -23,13 +23,19 @@ pub struct OpenWindow {
 /// Window titles past this are cut, so one odd window can't stretch the palette.
 const MAX_WINDOW_TITLE: usize = 200;
 
-/// The windows worth listing, in the order given: not Kairo's own, and with a title.
+/// Characters that take no space, which some apps (games like THE FINALS) scatter through their
+/// titles so they can't be matched by name.
+const INVISIBLE: [char; 5] = ['\u{200B}', '\u{200C}', '\u{200D}', '\u{2060}', '\u{FEFF}'];
+
+/// The windows worth listing, in the order given: not Kairo's own, and with a title, which is
+/// cleared of invisible characters so it can be typed.
 pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
     windows
         .into_iter()
         .filter(|w| w.pid != own_pid)
         .filter_map(|w| {
-            let title: String = w.title.trim().chars().take(MAX_WINDOW_TITLE).collect();
+            let visible: String = w.title.chars().filter(|c| !INVISIBLE.contains(c)).collect();
+            let title: String = visible.trim().chars().take(MAX_WINDOW_TITLE).collect();
             (!title.is_empty()).then_some(OpenWindow { title, ..w })
         })
         .collect()
@@ -202,13 +208,19 @@ mod win {
         }
         let mut found: Vec<HWND> = Vec::new();
         unsafe { EnumWindows(Some(each), &mut found as *mut Vec<HWND> as LPARAM) };
+        let own = std::process::id();
         found
             .into_iter()
             .filter_map(|hwnd| unsafe {
-                let mut title = [0u16; 512];
-                let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0);
                 let mut pid = 0u32;
                 GetWindowThreadProcessId(hwnd, &mut pid);
+                // Kairo's own are skipped before their titles are read, which would wait on its
+                // main thread.
+                if pid == own {
+                    return None;
+                }
+                let mut title = [0u16; 512];
+                let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0);
                 (len > 0).then(|| OpenWindow { id: window_id(hwnd), title: String::from_utf16_lossy(&title[..len as usize]), pid, path: process_path(pid) })
             })
             .collect()
@@ -217,14 +229,15 @@ mod win {
     /// Restores a minimized window and brings it forward. Windows lets the app that just had
     /// the keyboard (the palette) hand it on.
     pub fn activate_window(id: &str) -> bool {
-        use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow, SetForegroundWindow, ShowWindow, SW_RESTORE};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow, SetForegroundWindow, ShowWindowAsync, SW_RESTORE};
         let Some(hwnd) = hwnd(id) else { return false };
         unsafe {
             if IsWindow(hwnd) == 0 {
                 return false;
             }
+            // Async, so an app that's stopped answering can't hold the palette up.
             if IsIconic(hwnd) != 0 {
-                ShowWindow(hwnd, SW_RESTORE);
+                ShowWindowAsync(hwnd, SW_RESTORE);
             }
             SetForegroundWindow(hwnd) != 0
         }
@@ -691,7 +704,7 @@ mod mac {
     pub use ax::AddressBars;
 
     /// Each listed window's title by its id, from the last listing: the Accessibility API finds a
-    /// window by its title, since it doesn't know Core Graphics' numbers.
+    /// window by its number where it can, and by its title where it can't.
     static TITLES: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
 
     /// "<pid>:<window number>", as `open_windows` names a window.
@@ -724,6 +737,10 @@ mod mac {
         found
     }
 
+    fn number_of(id: &str) -> u32 {
+        window_of(id).map_or(0, |(_, number)| number)
+    }
+
     fn title_of(id: &str) -> Option<String> {
         TITLES.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(known, _)| known == id).map(|(_, t)| t.clone())
     }
@@ -737,7 +754,7 @@ mod mac {
         });
         if ax::trusted() {
             if let Some(title) = title_of(id) {
-                ax::raise(pid, &title);
+                ax::raise(pid, number_of(id), &title);
             }
         }
         activated
@@ -745,8 +762,8 @@ mod mac {
 
     /// Presses the window's close button; only with Accessibility access.
     pub fn close_window(id: &str) -> bool {
-        let (Some((pid, _)), Some(title)) = (window_of(id), title_of(id)) else { return false };
-        ax::trusted() && ax::close(pid, &title)
+        let (Some((pid, number)), Some(title)) = (window_of(id), title_of(id)) else { return false };
+        ax::trusted() && ax::close(pid, number, &title)
     }
 
     /// Closing one window needs Accessibility access (Privacy & Security → Accessibility).
@@ -1333,14 +1350,45 @@ mod x11 {
         id.parse().ok().filter(|&w: &Window| w != 0)
     }
 
+    /// The window types and states that decide whether a window is listed.
+    pub(super) struct Kinds {
+        pub normal: u32,
+        pub dialog: u32,
+        pub dock: u32,
+        pub desktop: u32,
+        pub skip_taskbar: u32,
+    }
+
+    /// Whether a window is one a person would switch to: an ordinary one (a normal window, or one
+    /// with no type), not belonging to another window, and not keeping off the taskbar. Panels
+    /// and desktops are left out, since closing them could take the desktop down.
+    pub(super) fn listed(types: &[u32], states: &[u32], transient: bool, k: &Kinds) -> bool {
+        let ordinary = types.is_empty() || types.contains(&k.normal);
+        let other = types.iter().any(|t| [k.dialog, k.dock, k.desktop].contains(t));
+        ordinary && !other && !transient && !states.contains(&k.skip_taskbar)
+    }
+
     /// The windows the window manager manages, front first (its stacking list runs bottom up).
     pub fn open_windows() -> Vec<super::OpenWindow> {
         let Some(x) = Display::open() else { return Vec::new() };
         let Some(stack) = x.property(x.root, "_NET_CLIENT_LIST_STACKING", AtomEnum::WINDOW, 4096) else { return Vec::new() };
         let windows: Vec<Window> = stack.value32().map(|v| v.collect()).unwrap_or_default();
+        let atom = |name| x.atom(name).unwrap_or(0);
+        let kinds = Kinds {
+            normal: atom("_NET_WM_WINDOW_TYPE_NORMAL"),
+            dialog: atom("_NET_WM_WINDOW_TYPE_DIALOG"),
+            dock: atom("_NET_WM_WINDOW_TYPE_DOCK"),
+            desktop: atom("_NET_WM_WINDOW_TYPE_DESKTOP"),
+            skip_taskbar: atom("_NET_WM_STATE_SKIP_TASKBAR"),
+        };
+        let atoms = |w: Window, name: &str| -> Vec<u32> { x.property(w, name, AtomEnum::ATOM, 32).and_then(|p| p.value32().map(|v| v.collect())).unwrap_or_default() };
         windows
             .into_iter()
             .rev()
+            .filter(|&w| {
+                let transient = x.property(w, "WM_TRANSIENT_FOR", AtomEnum::WINDOW, 1).is_some_and(|p| p.value32().is_some_and(|mut v| v.next().is_some_and(|t| t != 0)));
+                listed(&atoms(w, "_NET_WM_WINDOW_TYPE"), &atoms(w, "_NET_WM_STATE"), transient, &kinds)
+            })
             .map(|w| {
                 let pid = x.pid(w).unwrap_or(0);
                 super::OpenWindow { id: w.to_string(), title: x.title(w), pid, path: super::program(pid) }
@@ -1618,10 +1666,30 @@ mod window_tests {
         assert_eq!(kept.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
         assert_eq!(kept[1].title.chars().count(), 200);
     }
+
+    #[test]
+    fn invisible_characters_are_taken_out_of_titles() {
+        // How THE FINALS titles its window, to keep it from being matched by name.
+        let kept = switchable(vec![window("a", "\u{FEFF}\u{200B}T\u{FEFF}H\u{200B}E \u{200C}FINALS\u{2060}", 5), window("b", "\u{200B}\u{FEFF}", 6)], 99);
+        assert_eq!(kept.iter().map(|w| w.title.as_str()).collect::<Vec<_>>(), ["THE FINALS"]);
+    }
 }
 
 #[cfg(all(test, not(any(windows, target_os = "macos"))))]
 mod linux_window_tests {
+    #[test]
+    fn x11_lists_only_ordinary_windows() {
+        use super::x11::{listed, Kinds};
+        let k = Kinds { normal: 1, dialog: 2, dock: 3, desktop: 4, skip_taskbar: 5 };
+        assert!(listed(&[], &[], false, &k));
+        assert!(listed(&[1], &[], false, &k));
+        // Panels, desktops and dialogs aren't; nor are windows that keep off the taskbar or
+        // belong to another window.
+        for (types, states, transient) in [(vec![3], vec![], false), (vec![4], vec![], false), (vec![2], vec![], false), (vec![1], vec![5], false), (vec![], vec![], true)] {
+            assert!(!listed(&types, &states, transient, &k), "{types:?} {states:?} {transient}");
+        }
+    }
+
     #[test]
     fn x11_window_ids_are_read() {
         assert_eq!(super::x11::window_of("4194307"), Some(4194307));

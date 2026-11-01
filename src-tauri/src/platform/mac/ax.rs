@@ -40,6 +40,9 @@ extern "C" {
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
     fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFTypeRef, value: CFTypeRef) -> i32;
     fn AXUIElementPerformAction(element: CFTypeRef, action: CFTypeRef) -> i32;
+    /// The Core Graphics number of an accessibility window. Private, but what window switchers
+    /// on the Mac rely on (alt-tab-macos, Hammerspoon).
+    fn _AXUIElementGetWindow(element: CFTypeRef, number: *mut u32) -> i32;
 }
 
 const UTF8: u32 = 0x0800_0100;
@@ -101,8 +104,9 @@ pub fn trusted() -> bool {
     unsafe { AXIsProcessTrusted() }
 }
 
-/// App `pid`'s window with this title.
-fn window_titled(pid: i32, title: &str) -> Option<Owned> {
+/// App `pid`'s window with this Core Graphics number, or else the first with this title, so two
+/// windows with one title aren't mixed up where the number can be read.
+fn window_titled(pid: i32, number: u32, title: &str) -> Option<Owned> {
     let app = Owned::new(unsafe { AXUIElementCreateApplication(pid) })?;
     unsafe { AXUIElementSetMessagingTimeout(app.0, TIMEOUT_SECONDS) };
     let windows = attribute(app.0, "AXWindows")?;
@@ -110,9 +114,13 @@ fn window_titled(pid: i32, title: &str) -> Option<Owned> {
         if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
             return None;
         }
-        (0..CFArrayGetCount(windows.0))
-            .filter_map(|i| Owned::retain(CFArrayGetValueAtIndex(windows.0, i)))
-            .find(|w| text_attribute(w.0, "AXTitle").as_deref() == Some(title))
+        let all: Vec<Owned> = (0..CFArrayGetCount(windows.0)).filter_map(|i| Owned::retain(CFArrayGetValueAtIndex(windows.0, i))).collect();
+        let numbered = |w: &Owned| {
+            let mut n = 0u32;
+            _AXUIElementGetWindow(w.0, &mut n) == 0 && n == number
+        };
+        let at = all.iter().position(numbered).or_else(|| all.iter().position(|w| text_attribute(w.0, "AXTitle").as_deref() == Some(title)))?;
+        all.into_iter().nth(at)
     }
 }
 
@@ -122,8 +130,8 @@ fn perform(element: CFTypeRef, action: &str) -> bool {
 }
 
 /// Brings one window of app `pid` to the front of its app, out of the Dock if minimized.
-pub fn raise(pid: i32, title: &str) -> bool {
-    let Some(window) = window_titled(pid, title) else { return false };
+pub fn raise(pid: i32, number: u32, title: &str) -> bool {
+    let Some(window) = window_titled(pid, number, title) else { return false };
     if bool_attribute(window.0, "AXMinimized") == Some(true) {
         let minimized = cf_string("AXMinimized");
         unsafe { AXUIElementSetAttributeValue(window.0, minimized.0, kCFBooleanFalse) };
@@ -133,8 +141,8 @@ pub fn raise(pid: i32, title: &str) -> bool {
 
 /// Presses the close button of one window of app `pid`, so the app can still ask about unsaved
 /// work.
-pub fn close(pid: i32, title: &str) -> bool {
-    let Some(window) = window_titled(pid, title) else { return false };
+pub fn close(pid: i32, number: u32, title: &str) -> bool {
+    let Some(window) = window_titled(pid, number, title) else { return false };
     attribute(window.0, "AXCloseButton").is_some_and(|button| perform(button.0, "AXPress"))
 }
 
