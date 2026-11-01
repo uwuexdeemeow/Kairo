@@ -208,7 +208,7 @@ On Windows, a Mac and Linux. Open the palette.
 
 Use two machines (any systems) with the same cloud drive.
 
-1. On each, Kairo's settings → Combine computers → Choose a folder, and pick the **same** synced folder.
+1. On each, Kairo's settings → Combine computers → Use a folder instead, and pick the **same** synced folder.
 2. Wait 5–10 minutes for the drive to sync. *Expect:* each lists both computers, and Today on
    each adds up both.
 3. **Showing switch.** In the sidebar, pick "This one". *Expect:* only that computer's time.
@@ -217,6 +217,35 @@ Use two machines (any systems) with the same cloud drive.
 5. **Use another folder** on one computer. *Expect:* its folder leaves the old location, and the
    other computer drops its time on its next sync.
 6. **Stop combining** on one. *Expect:* each shows only its own time again.
+
+## Linking with a code
+
+Use two machines (any systems), both online, neither combining through a folder.
+
+1. **Show a code.** On the first, Kairo's settings → Combine computers → Link a computer.
+   *Expect:* a code like `K7QX-49MP` in a mono face, "Type this on your other computer. It works
+   once, for 10 minutes." and a countdown.
+2. **Type it.** On the second, Enter a code, type it in lowercase with a space instead of the
+   dash, and Link. *Expect:* "Linking…", then "Linked with" the first computer's name; the
+   first says "Linked with" the second's. Within a minute both list both computers, and Today
+   on each adds up both. The sidebar's switch (All computers / This one) shows on both.
+3. **Shared choices.** Change a site's category on one. *Expect:* the other takes it within
+   about 5 minutes.
+4. **A wrong code.** Link a computer on the first again, and on a third machine (or the second
+   after Stop combining) type the code with its last character changed. *Expect:* "That code
+   didn't match, or it's been used. Make a new one on the other computer." on the one typing,
+   and "That code didn't match. Make a new one." on the one showing it. The right code no longer
+   works either.
+5. **Running out.** Show a code and wait 10 minutes. *Expect:* "The code ran out. Make a new
+   one."
+6. **Offline.** Turn the network off on one for a sync round (5 minutes). *Expect:* tracking
+   carries on, and Settings says "Last synced … Can't reach Kairo's relay right now." until
+   the network is back.
+7. **Stop combining** on one. *Expect:* each shows only its own time after the other's next
+   sync.
+8. **Start over.** Link both again, then on the first, Start over → Start over. *Expect:* a new
+   code shows at once; at its next sync the second says "This computer was unlinked. Enter a
+   new code to combine again." and only its own time shows.
 
 ## Any system: backup and restore
 
