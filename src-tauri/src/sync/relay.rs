@@ -15,7 +15,7 @@ use super::{err, Result};
 use crate::db;
 
 /// Where Kairo's relay answers. `KAIRO_RELAY` in the environment overrides it, for local runs.
-pub const RELAY_URL: &str = "https://kairo-relay.uwuexdeemeow.workers.dev";
+pub const RELAY_URL: &str = "https://kairo-relay.kairo-relay.workers.dev";
 const TIMEOUT: Duration = Duration::from_secs(20);
 /// What a store error says when the relay doesn't know the group (or its token) any more.
 pub const GONE: &str = "Kairo's relay doesn't know this group any more.";
