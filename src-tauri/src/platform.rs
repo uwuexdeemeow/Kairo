@@ -42,24 +42,7 @@ pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
 pub use win::{activate_window, can_close_windows, close_window, open_windows};
 
 #[cfg(target_os = "macos")]
-pub fn open_windows() -> Vec<OpenWindow> {
-    Vec::new()
-}
-
-#[cfg(target_os = "macos")]
-pub fn activate_window(_id: &str) -> bool {
-    false
-}
-
-#[cfg(target_os = "macos")]
-pub fn close_window(_id: &str) -> bool {
-    false
-}
-
-#[cfg(target_os = "macos")]
-pub fn can_close_windows() -> bool {
-    false
-}
+pub use mac::{activate_window, can_close_windows, close_window, open_windows};
 
 /// On Wayland, the GNOME extension or KWin script lists windows, with their ids marked "g" or
 /// "k"; other Wayland desktops can't. On X11, the window manager does.
@@ -707,6 +690,70 @@ mod mac {
     mod ax;
     pub use ax::AddressBars;
 
+    /// Each listed window's title by its id, from the last listing: the Accessibility API finds a
+    /// window by its title, since it doesn't know Core Graphics' numbers.
+    static TITLES: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+    /// "<pid>:<window number>", as `open_windows` names a window.
+    pub(super) fn window_of(id: &str) -> Option<(i32, u32)> {
+        let (pid, number) = id.split_once(':')?;
+        Some((pid.parse().ok().filter(|&p| p > 0)?, number.parse().ok()?))
+    }
+
+    /// Other apps' ordinary windows (layer 0) with a title, front to back, minimized ones too.
+    /// Titles need the Screen Recording access Kairo already asks for.
+    pub fn open_windows() -> Vec<super::OpenWindow> {
+        let mut found = Vec::new();
+        unsafe {
+            let list = CGWindowListCopyWindowInfo(ALL_WINDOWS | EXCLUDE_DESKTOP_ELEMENTS, 0);
+            if list.is_null() {
+                return found;
+            }
+            for i in 0..CFArrayGetCount(list) {
+                let window = CFArrayGetValueAtIndex(list, i);
+                let (Some(pid), Some(layer), Some(number)) = (number(window, kCGWindowOwnerPID), number(window, kCGWindowLayer), number(window, kCGWindowNumber)) else { continue };
+                let Some(title) = string(CFDictionaryGetValue(window, kCGWindowName)).filter(|t| !t.trim().is_empty()) else { continue };
+                if layer != 0 {
+                    continue;
+                }
+                found.push(super::OpenWindow { id: format!("{pid}:{number}"), title, pid: pid as u32, path: process_path(pid as i32) });
+            }
+            CFRelease(list);
+        }
+        *TITLES.lock().unwrap_or_else(|e| e.into_inner()) = found.iter().map(|w| (w.id.clone(), w.title.clone())).collect();
+        found
+    }
+
+    fn title_of(id: &str) -> Option<String> {
+        TITLES.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(known, _)| known == id).map(|(_, t)| t.clone())
+    }
+
+    /// Brings the window's app forward, then, with Accessibility access, the window itself.
+    pub fn activate_window(id: &str) -> bool {
+        use objc2_app_kit::NSApplicationActivationOptions;
+        let Some((pid, _)) = window_of(id) else { return false };
+        let activated = autoreleasepool(|_| {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(pid).is_some_and(|app| app.activateWithOptions(NSApplicationActivationOptions(0)))
+        });
+        if ax::trusted() {
+            if let Some(title) = title_of(id) {
+                ax::raise(pid, &title);
+            }
+        }
+        activated
+    }
+
+    /// Presses the window's close button; only with Accessibility access.
+    pub fn close_window(id: &str) -> bool {
+        let (Some((pid, _)), Some(title)) = (window_of(id), title_of(id)) else { return false };
+        ax::trusted() && ax::close(pid, &title)
+    }
+
+    /// Closing one window needs Accessibility access (Privacy & Security → Accessibility).
+    pub fn can_close_windows() -> bool {
+        ax::trusted()
+    }
+
     type CFTypeRef = *const c_void;
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -724,6 +771,7 @@ mod mac {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         static kCGWindowOwnerPID: CFTypeRef;
+        static kCGWindowNumber: CFTypeRef;
         static kCGWindowLayer: CFTypeRef;
         static kCGWindowName: CFTypeRef;
         static kCGWindowBounds: CFTypeRef;
@@ -746,6 +794,8 @@ mod mac {
     }
 
     const ON_SCREEN_ONLY: u32 = 1 << 0;
+    /// Every window, minimized and other desktops' too, not only those on screen.
+    const ALL_WINDOWS: u32 = 0;
     const EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
     const COMBINED_SESSION_STATE: i32 = 0;
     const ANY_INPUT_EVENT: u32 = !0;
@@ -1074,6 +1124,13 @@ mod mac {
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
+    #[test]
+    fn mac_window_ids_are_parsed() {
+        assert_eq!(super::mac::window_of("501:77"), Some((501, 77)));
+        assert_eq!(super::mac::window_of("0:77"), None);
+        assert_eq!(super::mac::window_of("junk"), None);
+    }
+
     #[test]
     fn idle_time_is_never_negative() {
         assert!(super::idle_ms() >= 0);

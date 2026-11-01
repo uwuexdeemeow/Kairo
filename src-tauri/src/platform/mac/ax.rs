@@ -11,6 +11,7 @@ use crate::platform::Address;
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFBooleanTrue: CFTypeRef;
+    static kCFBooleanFalse: CFTypeRef;
     static kCFTypeDictionaryKeyCallBacks: c_void;
     static kCFTypeDictionaryValueCallBacks: c_void;
     fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
@@ -37,6 +38,8 @@ extern "C" {
     fn AXUIElementCreateApplication(pid: i32) -> CFTypeRef;
     fn AXUIElementCopyAttributeValue(element: CFTypeRef, attribute: CFTypeRef, value: *mut CFTypeRef) -> i32;
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
+    fn AXUIElementSetAttributeValue(element: CFTypeRef, attribute: CFTypeRef, value: CFTypeRef) -> i32;
+    fn AXUIElementPerformAction(element: CFTypeRef, action: CFTypeRef) -> i32;
 }
 
 const UTF8: u32 = 0x0800_0100;
@@ -91,6 +94,48 @@ fn text_attribute(element: CFTypeRef, name: &str) -> Option<String> {
 fn bool_attribute(element: CFTypeRef, name: &str) -> Option<bool> {
     let value = attribute(element, name)?;
     unsafe { (CFGetTypeID(value.0) == CFBooleanGetTypeID()).then(|| CFBooleanGetValue(value.0)) }
+}
+
+/// Whether macOS lets Kairo act on other apps' windows, without asking.
+pub fn trusted() -> bool {
+    unsafe { AXIsProcessTrusted() }
+}
+
+/// App `pid`'s window with this title.
+fn window_titled(pid: i32, title: &str) -> Option<Owned> {
+    let app = Owned::new(unsafe { AXUIElementCreateApplication(pid) })?;
+    unsafe { AXUIElementSetMessagingTimeout(app.0, TIMEOUT_SECONDS) };
+    let windows = attribute(app.0, "AXWindows")?;
+    unsafe {
+        if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
+            return None;
+        }
+        (0..CFArrayGetCount(windows.0))
+            .filter_map(|i| Owned::retain(CFArrayGetValueAtIndex(windows.0, i)))
+            .find(|w| text_attribute(w.0, "AXTitle").as_deref() == Some(title))
+    }
+}
+
+fn perform(element: CFTypeRef, action: &str) -> bool {
+    let action = cf_string(action);
+    unsafe { AXUIElementPerformAction(element, action.0) == 0 }
+}
+
+/// Brings one window of app `pid` to the front of its app, out of the Dock if minimized.
+pub fn raise(pid: i32, title: &str) -> bool {
+    let Some(window) = window_titled(pid, title) else { return false };
+    if bool_attribute(window.0, "AXMinimized") == Some(true) {
+        let minimized = cf_string("AXMinimized");
+        unsafe { AXUIElementSetAttributeValue(window.0, minimized.0, kCFBooleanFalse) };
+    }
+    perform(window.0, "AXRaise")
+}
+
+/// Presses the close button of one window of app `pid`, so the app can still ask about unsaved
+/// work.
+pub fn close(pid: i32, title: &str) -> bool {
+    let Some(window) = window_titled(pid, title) else { return false };
+    attribute(window.0, "AXCloseButton").is_some_and(|button| perform(button.0, "AXPress"))
 }
 
 /// Address bars found so far, by app.
