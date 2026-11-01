@@ -75,8 +75,13 @@ pub struct PaletteItem(pub MenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    if let Some(query) = startup::search_files_query(&std::env::args().collect::<Vec<_>>()) {
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(query) = startup::search_files_query(&args) {
         palette::files::print_search(&query);
+        return;
+    }
+    if startup::lists_windows(&args) {
+        palette::print_windows();
         return;
     }
     tauri::Builder::default()

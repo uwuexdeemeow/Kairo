@@ -959,11 +959,13 @@ pub struct PaletteOpening {
     appearance: String,
 }
 
-/// Starts a fresh palette from what's known now.
-#[tauri::command]
+/// Starts a fresh palette from what's known now. Off the main thread, since listing windows can
+/// wait a moment for the desktop (KWin on Plasma).
+#[tauri::command(async)]
 pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>) -> CmdResult<PaletteOpening> {
+    let windows = palette::open_windows();
     let conn = state.db.lock().map_err(err)?;
-    let (ctx, footer) = palette::context(&app, &conn, &index);
+    let (ctx, footer) = palette::context(&app, &conn, &index, windows);
     session.open(ctx);
     worker.opened();
     Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })

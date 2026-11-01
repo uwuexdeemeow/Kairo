@@ -8,6 +8,81 @@ pub struct Foreground {
     pub window: usize,
 }
 
+/// An open window a person could switch to, as the palette lists it. The id is the system's own
+/// for the window, as text: a window handle on Windows, "<pid>:<window number>" on a Mac, an X11
+/// id, or the GNOME extension's ("g…") or KWin's ("k…").
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenWindow {
+    pub id: String,
+    pub title: String,
+    pub pid: u32,
+    /// The program's path, for its name and icon; None when the system won't say.
+    pub path: Option<String>,
+}
+
+/// Window titles past this are cut, so one odd window can't stretch the palette.
+const MAX_WINDOW_TITLE: usize = 200;
+
+/// Characters that take no space, which some apps (games like THE FINALS) scatter through their
+/// titles so they can't be matched by name.
+const INVISIBLE: [char; 5] = ['\u{200B}', '\u{200C}', '\u{200D}', '\u{2060}', '\u{FEFF}'];
+
+/// The windows worth listing, in the order given: not Kairo's own, and with a title, which is
+/// cleared of invisible characters so it can be typed.
+pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
+    windows
+        .into_iter()
+        .filter(|w| w.pid != own_pid)
+        .filter_map(|w| {
+            let visible: String = w.title.chars().filter(|c| !INVISIBLE.contains(c)).collect();
+            let title: String = visible.trim().chars().take(MAX_WINDOW_TITLE).collect();
+            (!title.is_empty()).then_some(OpenWindow { title, ..w })
+        })
+        .collect()
+}
+
+// Each system gives `open_windows` (front to back), `activate_window` (forward, restored when
+// minimized), `close_window` (as its close button would) and `can_close_windows`; the last two
+// say false when the window is gone or the system refused.
+#[cfg(windows)]
+pub use win::{activate_window, can_close_windows, close_window, open_windows};
+
+#[cfg(target_os = "macos")]
+pub use mac::{activate_window, can_close_windows, close_window, open_windows};
+
+/// On Wayland, the GNOME extension or KWin script lists windows, with their ids marked "g" or
+/// "k"; other Wayland desktops can't. On X11, the window manager does.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn open_windows() -> Vec<OpenWindow> {
+    if wayland() {
+        return gnome::windows().or_else(kde::windows).unwrap_or_default();
+    }
+    x11::open_windows()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn activate_window(id: &str) -> bool {
+    match id.split_at_checked(1) {
+        Some(("g", rest)) => gnome::activate(rest),
+        Some(("k", rest)) => kde::activate(rest),
+        _ => x11::activate(id),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn close_window(id: &str) -> bool {
+    match id.split_at_checked(1) {
+        Some(("g", rest)) => gnome::close(rest),
+        Some(("k", rest)) => kde::close(rest),
+        _ => x11::close(id),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn can_close_windows() -> bool {
+    true
+}
+
 /// What a browser's address bar shows, read the way a screen reader would: through UI Automation
 /// on Windows, the Accessibility API on a Mac.
 #[cfg(any(windows, target_os = "macos"))]
@@ -28,6 +103,7 @@ pub use win::{app_path, close_process, foreground, fullscreen_in_front, icon_pix
 
 #[cfg(windows)]
 mod win {
+    use super::OpenWindow;
     use std::sync::Mutex;
 
     use super::Foreground;
@@ -60,6 +136,13 @@ mod win {
                 return None;
             }
 
+            Some(Foreground { exe_path: process_path(pid)?, title, window: hwnd as usize })
+        }
+    }
+
+    /// The full path of a process's program; None when Windows won't say.
+    fn process_path(pid: u32) -> Option<String> {
+        unsafe {
             // Limited access is enough to read the image name and works for most elevated processes too.
             let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if process.is_null() {
@@ -69,16 +152,106 @@ mod win {
             let mut size = path.len() as u32;
             let ok = QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, path.as_mut_ptr(), &mut size);
             CloseHandle(process);
-            if ok == 0 {
-                return None;
-            }
-
-            Some(Foreground {
-                exe_path: String::from_utf16_lossy(&path[..size as usize]),
-                title,
-                window: hwnd as usize,
-            })
+            (ok != 0).then(|| String::from_utf16_lossy(&path[..size as usize]))
         }
+    }
+
+    pub(super) fn window_id(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+        (hwnd as usize).to_string()
+    }
+
+    pub(super) fn hwnd(id: &str) -> Option<windows_sys::Win32::Foundation::HWND> {
+        id.parse::<usize>().ok().filter(|&h| h != 0).map(|h| h as windows_sys::Win32::Foundation::HWND)
+    }
+
+    /// Whether a window's styles make it one to switch to: not one that never takes focus, and
+    /// not a popup without a title bar (system surfaces like DWM's notification window), unless
+    /// its app marks it for the taskbar.
+    pub(super) fn styled_for_switching(style: u32, ex_style: u32) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_POPUP};
+        if ex_style & WS_EX_APPWINDOW != 0 {
+            return true;
+        }
+        ex_style & WS_EX_NOACTIVATE == 0 && (style & WS_POPUP == 0 || style & WS_CAPTION != 0)
+    }
+
+    /// Whether a top-level window is one a person would switch to: shown or minimized, not owned
+    /// by another (dialogs, tool palettes), not a tool window, and not cloaked (the suspended
+    /// Store apps and other desktops' windows Windows keeps around unseen).
+    unsafe fn switchable_window(hwnd: windows_sys::Win32::Foundation::HWND) -> bool {
+        use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED};
+        use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindow, GetWindowLongW, IsIconic, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, GW_OWNER, WS_EX_TOOLWINDOW};
+        if IsWindowVisible(hwnd) == 0 && IsIconic(hwnd) == 0 {
+            return false;
+        }
+        if !GetWindow(hwnd, GW_OWNER).is_null() || GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW != 0 {
+            return false;
+        }
+        if !styled_for_switching(GetWindowLongW(hwnd, GWL_STYLE) as u32, GetWindowLongW(hwnd, GWL_EXSTYLE) as u32) {
+            return false;
+        }
+        let mut cloaked = 0u32;
+        let read = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED as u32, (&mut cloaked as *mut u32).cast(), std::mem::size_of::<u32>() as u32);
+        read != 0 || cloaked == 0
+    }
+
+    /// Top-level windows a person would switch to, front to back (`EnumWindows` goes in z-order).
+    pub fn open_windows() -> Vec<OpenWindow> {
+        use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM};
+        use windows_sys::Win32::UI::WindowsAndMessaging::EnumWindows;
+        unsafe extern "system" fn each(hwnd: HWND, found: LPARAM) -> BOOL {
+            let found = &mut *(found as *mut Vec<HWND>);
+            if switchable_window(hwnd) {
+                found.push(hwnd);
+            }
+            1
+        }
+        let mut found: Vec<HWND> = Vec::new();
+        unsafe { EnumWindows(Some(each), &mut found as *mut Vec<HWND> as LPARAM) };
+        let own = std::process::id();
+        found
+            .into_iter()
+            .filter_map(|hwnd| unsafe {
+                let mut pid = 0u32;
+                GetWindowThreadProcessId(hwnd, &mut pid);
+                // Kairo's own are skipped before their titles are read, which would wait on its
+                // main thread.
+                if pid == own {
+                    return None;
+                }
+                let mut title = [0u16; 512];
+                let len = GetWindowTextW(hwnd, title.as_mut_ptr(), title.len() as i32).max(0);
+                (len > 0).then(|| OpenWindow { id: window_id(hwnd), title: String::from_utf16_lossy(&title[..len as usize]), pid, path: process_path(pid) })
+            })
+            .collect()
+    }
+
+    /// Restores a minimized window and brings it forward. Windows lets the app that just had
+    /// the keyboard (the palette) hand it on.
+    pub fn activate_window(id: &str) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow, SetForegroundWindow, ShowWindowAsync, SW_RESTORE};
+        let Some(hwnd) = hwnd(id) else { return false };
+        unsafe {
+            if IsWindow(hwnd) == 0 {
+                return false;
+            }
+            // Async, so an app that's stopped answering can't hold the palette up.
+            if IsIconic(hwnd) != 0 {
+                ShowWindowAsync(hwnd, SW_RESTORE);
+            }
+            SetForegroundWindow(hwnd) != 0
+        }
+    }
+
+    /// Asks a window to close, as its close button would, so it can still ask about unsaved work.
+    pub fn close_window(id: &str) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, PostMessageW, WM_CLOSE};
+        let Some(hwnd) = hwnd(id) else { return false };
+        unsafe { IsWindow(hwnd) != 0 && PostMessageW(hwnd, WM_CLOSE, 0, 0) != 0 }
+    }
+
+    pub fn can_close_windows() -> bool {
+        true
     }
 
     /// Minimizes a window; false when Windows refuses, as it does for programs running with more
@@ -461,6 +634,24 @@ mod win {
 #[cfg(all(test, windows))]
 mod tests {
     #[test]
+    fn window_ids_round_trip() {
+        assert_eq!(super::win::window_id(super::win::hwnd("123456").unwrap()), "123456");
+        assert!(super::win::hwnd("junk").is_none());
+        assert!(super::win::hwnd("0").is_none());
+    }
+
+    #[test]
+    fn caption_less_popups_and_unfocusable_windows_are_left_out() {
+        use super::win::styled_for_switching as ok;
+        // Brave, and the DWM notification window seen on a real desktop.
+        assert!(ok(0x17CF_0000, 0x0020_0100));
+        assert!(!ok(0xA400_0000, 0));
+        // A frameless popup the app marks for the taskbar stays; one that never takes focus goes.
+        assert!(ok(0x8000_0000, 0x0004_0000));
+        assert!(!ok(0x14CF_0000, 0x0800_0000));
+    }
+
+    #[test]
     fn idle_time_with_controller_polling_stays_cheap() {
         // The collector asks every second; empty controller slots must not make that slow.
         let start = std::time::Instant::now();
@@ -512,6 +703,74 @@ mod mac {
     mod ax;
     pub use ax::AddressBars;
 
+    /// Each listed window's title by its id, from the last listing: the Accessibility API finds a
+    /// window by its number where it can, and by its title where it can't.
+    static TITLES: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+    /// "<pid>:<window number>", as `open_windows` names a window.
+    pub(super) fn window_of(id: &str) -> Option<(i32, u32)> {
+        let (pid, number) = id.split_once(':')?;
+        Some((pid.parse().ok().filter(|&p| p > 0)?, number.parse().ok()?))
+    }
+
+    /// Other apps' ordinary windows (layer 0) with a title, front to back, minimized ones too.
+    /// Titles need the Screen Recording access Kairo already asks for.
+    pub fn open_windows() -> Vec<super::OpenWindow> {
+        let mut found = Vec::new();
+        unsafe {
+            let list = CGWindowListCopyWindowInfo(ALL_WINDOWS | EXCLUDE_DESKTOP_ELEMENTS, 0);
+            if list.is_null() {
+                return found;
+            }
+            for i in 0..CFArrayGetCount(list) {
+                let window = CFArrayGetValueAtIndex(list, i);
+                let (Some(pid), Some(layer), Some(number)) = (number(window, kCGWindowOwnerPID), number(window, kCGWindowLayer), number(window, kCGWindowNumber)) else { continue };
+                let Some(title) = string(CFDictionaryGetValue(window, kCGWindowName)).filter(|t| !t.trim().is_empty()) else { continue };
+                if layer != 0 {
+                    continue;
+                }
+                found.push(super::OpenWindow { id: format!("{pid}:{number}"), title, pid: pid as u32, path: process_path(pid as i32) });
+            }
+            CFRelease(list);
+        }
+        *TITLES.lock().unwrap_or_else(|e| e.into_inner()) = found.iter().map(|w| (w.id.clone(), w.title.clone())).collect();
+        found
+    }
+
+    fn number_of(id: &str) -> u32 {
+        window_of(id).map_or(0, |(_, number)| number)
+    }
+
+    fn title_of(id: &str) -> Option<String> {
+        TITLES.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(known, _)| known == id).map(|(_, t)| t.clone())
+    }
+
+    /// Brings the window's app forward, then, with Accessibility access, the window itself.
+    pub fn activate_window(id: &str) -> bool {
+        use objc2_app_kit::NSApplicationActivationOptions;
+        let Some((pid, _)) = window_of(id) else { return false };
+        let activated = autoreleasepool(|_| {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(pid).is_some_and(|app| app.activateWithOptions(NSApplicationActivationOptions(0)))
+        });
+        if ax::trusted() {
+            if let Some(title) = title_of(id) {
+                ax::raise(pid, number_of(id), &title);
+            }
+        }
+        activated
+    }
+
+    /// Presses the window's close button; only with Accessibility access.
+    pub fn close_window(id: &str) -> bool {
+        let (Some((pid, number)), Some(title)) = (window_of(id), title_of(id)) else { return false };
+        ax::trusted() && ax::close(pid, number, &title)
+    }
+
+    /// Closing one window needs Accessibility access (Privacy & Security → Accessibility).
+    pub fn can_close_windows() -> bool {
+        ax::trusted()
+    }
+
     type CFTypeRef = *const c_void;
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -529,6 +788,7 @@ mod mac {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         static kCGWindowOwnerPID: CFTypeRef;
+        static kCGWindowNumber: CFTypeRef;
         static kCGWindowLayer: CFTypeRef;
         static kCGWindowName: CFTypeRef;
         static kCGWindowBounds: CFTypeRef;
@@ -551,6 +811,8 @@ mod mac {
     }
 
     const ON_SCREEN_ONLY: u32 = 1 << 0;
+    /// Every window, minimized and other desktops' too, not only those on screen.
+    const ALL_WINDOWS: u32 = 0;
     const EXCLUDE_DESKTOP_ELEMENTS: u32 = 1 << 4;
     const COMBINED_SESSION_STATE: i32 = 0;
     const ANY_INPUT_EVENT: u32 = !0;
@@ -880,6 +1142,13 @@ mod mac {
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
     #[test]
+    fn mac_window_ids_are_parsed() {
+        assert_eq!(super::mac::window_of("501:77"), Some((501, 77)));
+        assert_eq!(super::mac::window_of("0:77"), None);
+        assert_eq!(super::mac::window_of("junk"), None);
+    }
+
+    #[test]
     fn idle_time_is_never_negative() {
         assert!(super::idle_ms() >= 0);
     }
@@ -1046,19 +1315,97 @@ mod x11 {
         }
     }
 
+    impl Display {
+        /// A window's title: the modern UTF-8 one, or the old one older programs set instead.
+        fn title(&self, window: Window) -> String {
+            ["_NET_WM_NAME", "WM_NAME"]
+                .iter()
+                .find_map(|name| {
+                    let p = self.property(window, name, AtomEnum::ANY, 1024)?;
+                    (!p.value.is_empty()).then(|| String::from_utf8_lossy(&p.value).into_owned())
+                })
+                .unwrap_or_default()
+        }
+
+        fn pid(&self, window: Window) -> Option<u32> {
+            self.property(window, "_NET_WM_PID", AtomEnum::CARDINAL, 1)?.value32()?.next()
+        }
+
+        /// Asks the window manager about a window with a client message to the root, as pagers do.
+        fn ask(&self, window: Window, message: &str, data: [u32; 5]) -> bool {
+            let Some(kind) = self.atom(message) else { return false };
+            let event = ClientMessageEvent::new(32, window, kind, data);
+            self.conn.send_event(false, self.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event).is_ok() && self.conn.flush().is_ok()
+        }
+    }
+
     pub fn foreground() -> Option<Foreground> {
         let x = Display::open()?;
         let window = x.active_window()?;
-        let pid = x.property(window, "_NET_WM_PID", AtomEnum::CARDINAL, 1)?.value32()?.next()?;
-        // The modern UTF-8 title, or the old one older programs set instead.
-        let title = ["_NET_WM_NAME", "WM_NAME"]
-            .iter()
-            .find_map(|name| {
-                let p = x.property(window, name, AtomEnum::ANY, 1024)?;
-                (!p.value.is_empty()).then(|| String::from_utf8_lossy(&p.value).into_owned())
+        let pid = x.pid(window)?;
+        Some(Foreground { exe_path: super::program(pid)?, title: x.title(window), window: window as usize })
+    }
+
+    pub(super) fn window_of(id: &str) -> Option<Window> {
+        id.parse().ok().filter(|&w: &Window| w != 0)
+    }
+
+    /// The window types and states that decide whether a window is listed.
+    pub(super) struct Kinds {
+        pub normal: u32,
+        pub dialog: u32,
+        pub dock: u32,
+        pub desktop: u32,
+        pub skip_taskbar: u32,
+    }
+
+    /// Whether a window is one a person would switch to: an ordinary one (a normal window, or one
+    /// with no type), not belonging to another window, and not keeping off the taskbar. Panels
+    /// and desktops are left out, since closing them could take the desktop down.
+    pub(super) fn listed(types: &[u32], states: &[u32], transient: bool, k: &Kinds) -> bool {
+        let ordinary = types.is_empty() || types.contains(&k.normal);
+        let other = types.iter().any(|t| [k.dialog, k.dock, k.desktop].contains(t));
+        ordinary && !other && !transient && !states.contains(&k.skip_taskbar)
+    }
+
+    /// The windows the window manager manages, front first (its stacking list runs bottom up).
+    pub fn open_windows() -> Vec<super::OpenWindow> {
+        let Some(x) = Display::open() else { return Vec::new() };
+        let Some(stack) = x.property(x.root, "_NET_CLIENT_LIST_STACKING", AtomEnum::WINDOW, 4096) else { return Vec::new() };
+        let windows: Vec<Window> = stack.value32().map(|v| v.collect()).unwrap_or_default();
+        let atom = |name| x.atom(name).unwrap_or(0);
+        let kinds = Kinds {
+            normal: atom("_NET_WM_WINDOW_TYPE_NORMAL"),
+            dialog: atom("_NET_WM_WINDOW_TYPE_DIALOG"),
+            dock: atom("_NET_WM_WINDOW_TYPE_DOCK"),
+            desktop: atom("_NET_WM_WINDOW_TYPE_DESKTOP"),
+            skip_taskbar: atom("_NET_WM_STATE_SKIP_TASKBAR"),
+        };
+        let atoms = |w: Window, name: &str| -> Vec<u32> { x.property(w, name, AtomEnum::ATOM, 32).and_then(|p| p.value32().map(|v| v.collect())).unwrap_or_default() };
+        windows
+            .into_iter()
+            .rev()
+            .filter(|&w| {
+                let transient = x.property(w, "WM_TRANSIENT_FOR", AtomEnum::WINDOW, 1).is_some_and(|p| p.value32().is_some_and(|mut v| v.next().is_some_and(|t| t != 0)));
+                listed(&atoms(w, "_NET_WM_WINDOW_TYPE"), &atoms(w, "_NET_WM_STATE"), transient, &kinds)
             })
-            .unwrap_or_default();
-        Some(Foreground { exe_path: super::program(pid)?, title, window: window as usize })
+            .map(|w| {
+                let pid = x.pid(w).unwrap_or(0);
+                super::OpenWindow { id: w.to_string(), title: x.title(w), pid, path: super::program(pid) }
+            })
+            .collect()
+    }
+
+    /// Asks the window manager to bring a window forward, as a pager would (source 2).
+    pub fn activate(id: &str) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        x.ask(w, "_NET_ACTIVE_WINDOW", [2, 0, 0, 0, 0])
+    }
+
+    /// Asks the window manager to close a window, as its close button would.
+    pub fn close(id: &str) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        x.ask(w, "_NET_CLOSE_WINDOW", [0, 2, 0, 0, 0])
     }
 
     /// Whether the active window is full screen, as the window manager marks it for a game or
@@ -1301,5 +1648,52 @@ mod linux_tests {
             assert!(super::foreground().is_none());
             assert!(!super::fullscreen_in_front());
         }
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    fn window(id: &str, title: &str, pid: u32) -> OpenWindow {
+        OpenWindow { id: id.into(), title: title.into(), pid, path: None }
+    }
+
+    #[test]
+    fn switchable_drops_kairo_and_blank_titles_and_keeps_order() {
+        let long = "x".repeat(300);
+        let kept = switchable(vec![window("a", "Budget", 5), window("b", "  ", 6), window("c", "Chrono", 99), window("d", &long, 7)], 99);
+        assert_eq!(kept.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
+        assert_eq!(kept[1].title.chars().count(), 200);
+    }
+
+    #[test]
+    fn invisible_characters_are_taken_out_of_titles() {
+        // How THE FINALS titles its window, to keep it from being matched by name.
+        let kept = switchable(vec![window("a", "\u{FEFF}\u{200B}T\u{FEFF}H\u{200B}E \u{200C}FINALS\u{2060}", 5), window("b", "\u{200B}\u{FEFF}", 6)], 99);
+        assert_eq!(kept.iter().map(|w| w.title.as_str()).collect::<Vec<_>>(), ["THE FINALS"]);
+    }
+}
+
+#[cfg(all(test, not(any(windows, target_os = "macos"))))]
+mod linux_window_tests {
+    #[test]
+    fn x11_lists_only_ordinary_windows() {
+        use super::x11::{listed, Kinds};
+        let k = Kinds { normal: 1, dialog: 2, dock: 3, desktop: 4, skip_taskbar: 5 };
+        assert!(listed(&[], &[], false, &k));
+        assert!(listed(&[1], &[], false, &k));
+        // Panels, desktops and dialogs aren't; nor are windows that keep off the taskbar or
+        // belong to another window.
+        for (types, states, transient) in [(vec![3], vec![], false), (vec![4], vec![], false), (vec![2], vec![], false), (vec![1], vec![5], false), (vec![], vec![], true)] {
+            assert!(!listed(&types, &states, transient, &k), "{types:?} {states:?} {transient}");
+        }
+    }
+
+    #[test]
+    fn x11_window_ids_are_read() {
+        assert_eq!(super::x11::window_of("4194307"), Some(4194307));
+        assert_eq!(super::x11::window_of("0"), None);
+        assert_eq!(super::x11::window_of("g12"), None);
     }
 }

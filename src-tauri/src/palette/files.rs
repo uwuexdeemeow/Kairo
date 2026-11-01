@@ -373,7 +373,7 @@ pub fn print_search(query: &str) {
 
 /// A release build has no console of its own, so print to the one it was run from.
 #[cfg(windows)]
-fn attach_console() {
+pub(crate) fn attach_console() {
     use std::os::windows::io::IntoRawHandle;
     use windows_sys::Win32::System::Console::{AttachConsole, SetStdHandle, ATTACH_PARENT_PROCESS, STD_OUTPUT_HANDLE};
     unsafe {

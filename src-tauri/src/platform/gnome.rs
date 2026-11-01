@@ -31,6 +31,65 @@ pub fn focused() -> Option<Option<WaylandWindow>> {
     Some((pid != 0).then(|| WaylandWindow { pid, title, window: id as usize | WINDOW, fullscreen }))
 }
 
+/// One window as the extension lists it.
+#[derive(serde::Deserialize)]
+struct Listed {
+    id: u64,
+    title: String,
+    pid: u32,
+}
+
+/// The extension's window list, newest first, with ids marked "g"; empty when it can't be read.
+fn parse_windows(json: &str) -> Vec<super::OpenWindow> {
+    serde_json::from_str::<Vec<Listed>>(json)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|w| super::OpenWindow { id: format!("g{}", w.id), title: w.title, pid: w.pid, path: None })
+        .collect()
+}
+
+/// The windows the extension lists: None off GNOME, or when the extension running is one from
+/// before it could list them (it's replaced at the next login), which is said once.
+pub fn windows() -> Option<Vec<super::OpenWindow>> {
+    static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !desktop_is("GNOME") {
+        return None;
+    }
+    let reply = match session()?.call_method(Some("org.gnome.Shell"), PATH, Some(INTERFACE), "Windows", &()) {
+        Ok(reply) => reply,
+        Err(e) => {
+            if !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("gnome: Kairo's GNOME extension doesn't list windows (it's off, or updates at the next login): {e}");
+            }
+            return None;
+        }
+    };
+    let json: String = reply.body().deserialize().ok()?;
+    let mut windows = parse_windows(&json);
+    for w in &mut windows {
+        w.path = super::program(w.pid);
+    }
+    Some(windows)
+}
+
+fn ask(method: &str, id: &str) -> bool {
+    let (Some(bus), Ok(id)) = (session(), id.parse::<u64>()) else { return false };
+    bus.call_method(Some("org.gnome.Shell"), PATH, Some(INTERFACE), method, &(id,))
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<bool>().ok())
+        .unwrap_or(false)
+}
+
+/// Brings forward a window the extension listed, by its id without the "g".
+pub fn activate(id: &str) -> bool {
+    ask("Activate", id)
+}
+
+/// Asks a window the extension listed to close, by its id without the "g".
+pub fn close(id: &str) -> bool {
+    ask("Close", id)
+}
+
 /// Minimizes a window the extension named.
 pub fn minimize(window: usize) -> bool {
     let Some(bus) = session() else { return false };
@@ -210,5 +269,12 @@ mod tests {
         assert_eq!(parse_version("GNOME Shell 46.0\n"), Some(46));
         assert_eq!(parse_version("GNOME Shell 42.9"), Some(42));
         assert_eq!(parse_version(""), None);
+    }
+
+    #[test]
+    fn window_lists_are_read() {
+        let got = parse_windows(r#"[{"id": 12, "title": "Files", "pid": 300}, {"id": 7, "title": "", "pid": 0}]"#);
+        assert_eq!(got.iter().map(|w| (w.id.as_str(), w.title.as_str(), w.pid)).collect::<Vec<_>>(), [("g12", "Files", 300), ("g7", "", 0)]);
+        assert!(parse_windows("not json").is_empty());
     }
 }

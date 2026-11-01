@@ -13,6 +13,11 @@ const NAME: &str = "io.github.uwuexdeemeow.Kairo";
 const PATH: &str = "/Kairo";
 const FOCUS_SCRIPT: &str = "kairo-focus";
 const MINIMIZE_SCRIPT: &str = "kairo-minimize";
+const WINDOWS_SCRIPT: &str = "kairo-windows";
+const ACTIVATE_SCRIPT: &str = "kairo-activate";
+const CLOSE_SCRIPT: &str = "kairo-close";
+/// How long the palette waits for the window list a fresh script sends.
+const WINDOWS_WAIT: std::time::Duration = std::time::Duration::from_millis(150);
 /// Windows KWin names are told apart from X11 and GNOME ones by this bit.
 pub const WINDOW: usize = 1 << (usize::BITS - 2);
 
@@ -26,6 +31,8 @@ struct Front {
 
 /// The window in front as the script last said; None until it first has.
 static FRONT: Mutex<Option<Option<Front>>> = Mutex::new(None);
+/// The window list the script last sent, and how many it has sent.
+static WINDOWS: Mutex<(Vec<super::OpenWindow>, u64)> = Mutex::new((Vec::new(), 0));
 /// KWin's ids, which are text, at the number Kairo gives each window.
 static IDS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static BUS: OnceLock<Connection> = OnceLock::new();
@@ -39,6 +46,68 @@ impl Listener {
         let front = (pid != 0).then(|| Front { pid, title: caption, id, fullscreen: fullscreen == "1" });
         *FRONT.lock().unwrap_or_else(|e| e.into_inner()) = Some(front);
     }
+
+    fn windows(&self, json: String) {
+        let mut list = WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
+        *list = (parse_windows(&json), list.1 + 1);
+    }
+}
+
+/// One window as the script lists it; all text, as KWin sends it.
+#[derive(serde::Deserialize)]
+struct Listed {
+    id: String,
+    title: String,
+    pid: String,
+}
+
+/// The script's window list, front first, with ids marked "k"; ids that aren't KWin's own are
+/// left out, since they go back into scripts.
+fn parse_windows(json: &str) -> Vec<super::OpenWindow> {
+    serde_json::from_str::<Vec<Listed>>(json)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|w| is_window_id(&w.id))
+        .map(|w| super::OpenWindow { id: format!("k{}", w.id), title: w.title, pid: w.pid.parse().unwrap_or(0), path: None })
+        .collect()
+}
+
+/// The windows KWin lists, asked for afresh and waited for briefly: None off Plasma's Wayland
+/// session; the last list when the fresh one is slow.
+pub fn windows() -> Option<Vec<super::OpenWindow>> {
+    let bus = BUS.get()?;
+    let before = WINDOWS.lock().unwrap_or_else(|e| e.into_inner()).1;
+    if let Some(script) = write_script("windows.js", include_str!("../../kwin-script/windows.js")) {
+        let _ = run_script(bus, &script, WINDOWS_SCRIPT);
+    }
+    let until = std::time::Instant::now() + WINDOWS_WAIT;
+    while WINDOWS.lock().unwrap_or_else(|e| e.into_inner()).1 == before && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let mut windows = WINDOWS.lock().unwrap_or_else(|e| e.into_inner()).0.clone();
+    for w in &mut windows {
+        w.path = super::program(w.pid);
+    }
+    Some(windows)
+}
+
+/// Runs a one-off script on one window, by KWin's id.
+fn on_window(id: &str, file: &str, text: &str, name: &str) -> bool {
+    let Some(bus) = BUS.get() else { return false };
+    if !is_window_id(id) {
+        return false;
+    }
+    write_script(file, &text.replace("KAIRO_WINDOW", id)).is_some_and(|script| run_script(bus, &script, name).is_ok())
+}
+
+/// Brings forward a window the script listed, by its id without the "k".
+pub fn activate(id: &str) -> bool {
+    on_window(id, "activate.js", include_str!("../../kwin-script/activate.js"), ACTIVATE_SCRIPT)
+}
+
+/// Asks a window the script listed to close, by its id without the "k".
+pub fn close(id: &str) -> bool {
+    on_window(id, "close.js", include_str!("../../kwin-script/close.js"), CLOSE_SCRIPT)
 }
 
 /// Starts listening and loads the script into KWin, on Plasma's Wayland session.
@@ -234,5 +303,12 @@ mod tests {
         let first = number("{a}");
         assert_eq!(number("{b}"), first + 1);
         assert_eq!(number("{a}"), first);
+    }
+
+    #[test]
+    fn window_lists_are_read() {
+        let got = parse_windows(r#"[{"id": "{a1b2-c3}", "title": "Dolphin", "pid": "41"}, {"id": "x\"); evil()", "title": "Bad", "pid": "1"}]"#);
+        assert_eq!(got.iter().map(|w| (w.id.as_str(), w.title.as_str(), w.pid)).collect::<Vec<_>>(), [("k{a1b2-c3}", "Dolphin", 41)]);
+        assert!(parse_windows("[").is_empty());
     }
 }

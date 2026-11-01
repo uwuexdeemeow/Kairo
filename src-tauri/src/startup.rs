@@ -29,6 +29,14 @@ pub const DASHBOARD_ARG: &str = "--dashboard";
 /// from a terminal.
 pub const SEARCH_FILES_ARG: &str = "--search-files";
 
+/// Prints the open windows the palette would list, and exits, for trying the window switcher
+/// from a terminal.
+pub const LIST_WINDOWS_ARG: &str = "--list-windows";
+
+pub fn lists_windows(args: &[String]) -> bool {
+    args.iter().any(|a| a == LIST_WINDOWS_ARG)
+}
+
 /// The words after `--search-files`, joined by spaces; None without the flag.
 pub fn search_files_query(args: &[String]) -> Option<String> {
     let at = args.iter().position(|a| a == SEARCH_FILES_ARG)?;
@@ -107,5 +115,12 @@ mod tests {
         let args = |a: &[&str]| a.iter().map(|a| a.to_string()).collect::<Vec<_>>();
         assert_eq!(search_files_query(&args(&["kairo", "--search-files", "tax", "2026"])), Some("tax 2026".into()));
         assert_eq!(search_files_query(&args(&["kairo", "--palette"])), None);
+    }
+
+    #[test]
+    fn list_windows_flag_is_read() {
+        let args = |a: &[&str]| a.iter().map(|a| a.to_string()).collect::<Vec<_>>();
+        assert!(lists_windows(&args(&["kairo", "--list-windows"])));
+        assert!(!lists_windows(&args(&["kairo"])));
     }
 }

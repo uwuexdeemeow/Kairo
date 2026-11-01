@@ -146,6 +146,40 @@ On Windows, a Mac and Linux. Open Chrono's Focus page.
 6. **Two computers.** With two combined computers, add a task on one. *Expect:* within about
    10 minutes it shows on the other, with no time there until a session runs on it there.
 
+## Palette: windows
+
+On Windows, a Mac and Linux. Open a few windows first: a document, a browser, a folder.
+
+1. **Find one.** Open the palette and type a word from a window's title. *Expect:* it shows
+   under Windows, with its app's name and icon. Press Enter. *Expect:* that window comes to the
+   front.
+2. **Minimized.** Minimize that window, then find it again and press Enter. *Expect:* it comes
+   back.
+3. **By app.** Type an app's name, like "explorer" or "finder". *Expect:* the app first, its
+   windows just under.
+4. **All of them.** Type `windows`. *Expect:* your open windows, most recently used first, at
+   most 8, and none of Kairo's own.
+5. **Close.** Type something into a document without saving, find its window, press Ctrl+Enter
+   (⌘+Enter on a Mac). *Expect:* the footer said "Close window", and the app asks whether to
+   save rather than closing outright.
+6. **Commands win.** With a window titled like a command, `focus 25` and `12*7` still lead with
+   the focus session and the answer.
+
+**Windows only:** from a terminal, `kairo.exe --list-windows` prints what the palette would
+list, without touching any window.
+
+**Mac only:** open an app's Settings window and close it, then type "settings". *Expect:* no
+row for the closed window. Open two Finder windows on the same folder, pick the second's row
+and press Enter. *Expect:* that one comes forward, not the first.
+
+**Mac only:** turn Kairo off under Privacy & Security → Accessibility. *Expect:* Enter still
+brings the window's app forward, and window rows have no "Close window".
+
+**Linux, X11:** type `windows`. *Expect:* no panel or desktop among them.
+
+**Linux:** on GNOME's Wayland session, the Windows section appears after the first log out and
+back in following the update. On KDE Plasma's, it works straight away.
+
 ## Palette: calculator
 
 On Windows, a Mac and Linux. Open the palette.
