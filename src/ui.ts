@@ -1,5 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance } from "./api";
+import { api, type Appearance, type SyncState } from "./api";
+
+/// Whether another computer's time is combined here, through a folder or the relay, so there's a
+/// choice of whose time to show.
+export function combinedWithOthers(sync: SyncState): boolean {
+  return sync.mode !== "off" && sync.computers.some((c) => !c.thisOne);
+}
 
 // ---------- helpers ----------
 

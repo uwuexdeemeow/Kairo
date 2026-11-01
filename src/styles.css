@@ -2423,6 +2423,54 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   display: none;
 }
 
+/* A code for another computer to type: large, and in a face where 0 and O can't be mixed up. */
+.sync-code {
+  margin: 4px 0 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.sync-code p {
+  margin: 0 0 4px;
+}
+
+.sync-code-text {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
+}
+
+#sync-code-left {
+  font-variant-numeric: tabular-nums;
+}
+
+.sync-join {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 4px 0 12px;
+}
+
+.sync-join .filter {
+  width: 14ch;
+  font-family: var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sync-confirm {
+  margin: 4px 0 12px;
+}
+
+.sync-confirm p {
+  margin: 0 0 4px;
+}
+
 .link-btn {
   min-height: 40px;
   padding: 0 2px;

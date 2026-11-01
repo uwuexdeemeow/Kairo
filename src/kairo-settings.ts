@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type SyncState } from "./api";
+import { api, type Appearance, type Linking, type SyncState } from "./api";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
@@ -99,18 +99,103 @@ function ago(ms: number): string {
   return new Date(ms).toLocaleDateString();
 }
 
+function whereText(sync: SyncState): string {
+  if (sync.mode === "folder") return `Combining through ${sync.folder}.`;
+  if (sync.mode === "relay") {
+    const line = "Combined through Kairo's relay, encrypted end to end: the relay can't read your time.";
+    if (!sync.error) return line;
+    const last = sync.syncedMs === null ? "Not synced yet." : `Last synced ${ago(sync.syncedMs)}.`;
+    return `${line} ${last} Can't reach Kairo's relay right now.`;
+  }
+  if (sync.error === "unlinked") return "This computer was unlinked. Enter a new code to combine again.";
+  return `Off. This computer would show up as ${sync.name}.`;
+}
+
 function renderSync(sync: SyncState) {
-  const on = sync.folder !== null;
-  $("#sync-where").textContent = on
-    ? `Combining through ${sync.folder}.`
-    : `Off. This computer would show up as ${sync.name}.`;
+  $("#sync-where").textContent = whereText(sync);
   $("#sync-computers").replaceChildren(
     ...sync.computers.map((c) =>
       h("li", {}, h("strong", {}, c.name), h("span", { class: "muted" }, c.thisOne ? " (this computer)" : ` updated ${ago(c.updatedMs)}`)),
     ),
   );
-  $("#sync-choose").textContent = on ? "Use another folder" : "Choose a folder";
-  $("#sync-stop").hidden = !on;
+  const { mode } = sync;
+  $("#sync-link").hidden = mode === "folder";
+  $("#sync-link").textContent = mode === "relay" ? "Link another computer" : "Link a computer";
+  $("#sync-enter").hidden = mode !== "off";
+  $("#sync-choose").hidden = mode === "relay";
+  $("#sync-choose").textContent = mode === "folder" ? "Use another folder" : "Use a folder instead";
+  $("#sync-stop").hidden = mode === "off";
+  $("#sync-over").hidden = mode !== "relay";
+  if (mode !== "off") $("#sync-join").hidden = true;
+  if (mode !== "relay") $("#sync-confirm").hidden = true;
+}
+
+async function refreshSync() {
+  renderSync(await api.sync());
+}
+
+// ---------- a code being shown ----------
+
+let codeTimer: ReturnType<typeof setInterval> | undefined;
+
+function hideCode() {
+  clearInterval(codeTimer);
+  codeTimer = undefined;
+  $("#sync-code").hidden = true;
+}
+
+function timeLeft(expiresMs: number): string {
+  const seconds = Math.max(0, Math.round((expiresMs - Date.now()) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left`;
+}
+
+/// What a finished code says, or null while it's still waiting.
+function codeOutcome(linking: Linking): string | null {
+  switch (linking.state) {
+    case "waiting":
+      return null;
+    case "linked":
+      return `Linked with ${linking.name}.`;
+    case "expired":
+      return "The code ran out. Make a new one.";
+    case "mismatch":
+      return "That code didn't match. Make a new one.";
+    case "failed":
+      return linking.message === "Cancelled." ? "" : linking.message;
+  }
+}
+
+/// Shows a code, counting down, and checks once a second how it's going.
+function showCode(linking: Linking) {
+  hideCode();
+  $("#sync-join").hidden = true;
+  $("#sync-confirm").hidden = true;
+  $("#sync-status").textContent = "";
+  $("#sync-code-text").textContent = linking.code;
+  $("#sync-code-left").textContent = timeLeft(linking.expiresMs);
+  $("#sync-code").hidden = false;
+  codeTimer = setInterval(async () => {
+    $("#sync-code-left").textContent = timeLeft(linking.expiresMs);
+    let now: Linking | null;
+    try {
+      now = await api.pairStatus();
+    } catch {
+      return;
+    }
+    const said = now ? codeOutcome(now) : "";
+    if (said === null) return;
+    hideCode();
+    $("#sync-status").textContent = said;
+    if (now?.state === "linked") await refreshSync();
+  }, 1000);
+}
+
+async function codeAction(run: () => Promise<Linking>) {
+  try {
+    showCode(await run());
+  } catch (err) {
+    $("#sync-status").textContent = String(err);
+  }
 }
 
 /// Attaches every handler once.
@@ -210,9 +295,48 @@ export function wireKairoSettings(): void {
       out.textContent = String(err);
     }
   });
+  $("#sync-link").addEventListener("click", () => codeAction(api.pairStart));
+  $("#sync-code-cancel").addEventListener("click", () => {
+    hideCode();
+    api.pairCancel();
+  });
+  $("#sync-enter").addEventListener("click", () => {
+    hideCode();
+    $("#sync-status").textContent = "";
+    $("#sync-join").hidden = false;
+    $<HTMLInputElement>("#sync-join-code").focus();
+  });
+  $("#sync-join-cancel").addEventListener("click", () => ($("#sync-join").hidden = true));
+  $("#sync-join").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = $("#sync-status");
+    out.textContent = "Linking…";
+    try {
+      const joined = await api.pairJoin($<HTMLInputElement>("#sync-join-code").value);
+      $<HTMLInputElement>("#sync-join-code").value = "";
+      renderSync(joined.sync);
+      out.textContent = `Linked with ${joined.from}.`;
+    } catch (err) {
+      out.textContent = String(err);
+    }
+  });
+  $("#sync-over").addEventListener("click", () => {
+    hideCode();
+    $("#sync-confirm").hidden = false;
+  });
+  $("#sync-confirm-no").addEventListener("click", () => ($("#sync-confirm").hidden = true));
+  $("#sync-confirm-yes").addEventListener("click", async () => {
+    $("#sync-confirm").hidden = true;
+    await codeAction(api.startOver);
+    await refreshSync();
+  });
+  // A sync round finished: the computers and when they last synced.
+  listen("kairo:sync", () => refreshSync());
+
   $("#sync-stop").addEventListener("click", async () => {
     const out = $("#sync-status");
     out.textContent = "";
+    hideCode();
     try {
       renderSync(await api.stopSync());
       out.textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
@@ -226,6 +350,9 @@ export function wireKairoSettings(): void {
 export async function loadKairoSettings(): Promise<void> {
   $("#settings-version").textContent = `Kairo ${await api.version()}`;
   renderSync(await api.sync());
+  // A code still waiting from before the window was last open.
+  const linking = await api.pairStatus();
+  if (linking?.state === "waiting" && !codeTimer) showCode(linking);
   $<HTMLSelectElement>("#appearance").value = await api.appearance();
   const palette = await api.paletteSettings();
   showShortcut(palette.shortcut);

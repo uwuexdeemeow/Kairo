@@ -6,7 +6,7 @@ import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectT
 import { shownControl, useDropdowns } from "./dropdown";
 import { jumpTo } from "./jump";
 import { renderTasks, type TaskActions } from "./tasks";
-import { $, IS_LINUX, IS_MAC, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
+import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
@@ -2228,7 +2228,7 @@ $("#calendar-save").addEventListener("click", async () => {
 /// The sidebar's choice of whose time to show, while more than one computer is combined.
 function renderComputerPick(sync: SyncState) {
   const others = sync.computers.filter((c) => !c.thisOne);
-  $("#computer-pick").hidden = sync.folder === null || others.length === 0;
+  $("#computer-pick").hidden = !combinedWithOthers(sync);
   const pick = $<HTMLSelectElement>("#shown-computer");
   pick.replaceChildren(
     h("option", { value: "all" }, "All computers"),
