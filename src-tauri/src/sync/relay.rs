@@ -112,30 +112,40 @@ impl RelayStore {
     }
 }
 
+impl RelayStore {
+    /// A file's name on the relay: sealed together with its computer, so the same file on two
+    /// computers doesn't share a name and the relay can't line up which days they both tracked.
+    fn object(&self, computer: &str, name: &str) -> String {
+        self.keys.seal_name(&format!("{computer}/{name}"))
+    }
+}
+
 impl Store for RelayStore {
     fn list(&self) -> Result<Listing> {
         let mut out = Listing::new();
         for (computer, sealed, version) in self.api.list(&self.group, &self.token)? {
-            // A name this key doesn't open isn't one of ours; it's left alone.
-            if let Ok(name) = self.keys.open_name(&sealed) {
-                out.entry(computer).or_default().insert(name, version);
+            // A name this key doesn't open, or one filed under another computer, isn't one of
+            // ours; it's left alone.
+            let opened = self.keys.open_name(&sealed).ok();
+            if let Some(name) = opened.as_deref().and_then(|n| n.strip_prefix(&format!("{computer}/"))) {
+                out.entry(computer.clone()).or_default().insert(name.to_string(), version);
             }
         }
         Ok(out)
     }
 
     fn get(&self, computer: &str, name: &str) -> Result<Vec<u8>> {
-        let sealed = self.api.get(&self.group, &self.token, computer, &self.keys.seal_name(name))?;
+        let sealed = self.api.get(&self.group, &self.token, computer, &self.object(computer, name))?;
         self.keys.open(&format!("{computer}/{name}"), &sealed)
     }
 
     fn put(&self, name: &str, bytes: &[u8]) -> Result<()> {
         let sealed = self.keys.seal(&format!("{}/{name}", self.me), bytes);
-        Ok(self.api.put(&self.group, &self.token, &self.me, &self.keys.seal_name(name), &sealed)?)
+        Ok(self.api.put(&self.group, &self.token, &self.me, &self.object(&self.me, name), &sealed)?)
     }
 
     fn delete(&self, name: &str) -> Result<()> {
-        Ok(self.api.delete(&self.group, &self.token, &self.me, &self.keys.seal_name(name))?)
+        Ok(self.api.delete(&self.group, &self.token, &self.me, &self.object(&self.me, name))?)
     }
 
     fn remove_me(&self) -> Result<()> {

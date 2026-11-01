@@ -869,8 +869,14 @@ mod tests {
         crate::analysis::set_category(&desk.conn, "site:reddit", crate::analysis::Category::Distracting).unwrap();
         record_at(&desk.conn, "category:site:reddit", "distracting", 5).unwrap();
         run_relay(&desk.conn, api.clone(), now).unwrap();
+        laptop.track("discord", now);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
         let stored = api.stored();
-        assert!(stored.len() >= 3);
+        assert!(stored.len() >= 6);
+        // The same file on two computers doesn't share a name, so the relay can't line up which
+        // days they both tracked.
+        let names: HashSet<&String> = stored.iter().map(|(n, _)| n).collect();
+        assert_eq!(names.len(), stored.len());
         for (name, bytes) in stored {
             assert!(!name.contains("choices") && !name.contains("kairo-day") && !name.contains("computer"), "{name}");
             let text = String::from_utf8_lossy(&bytes);
