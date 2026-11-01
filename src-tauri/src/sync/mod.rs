@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{db, privacy};
 
 pub mod seal;
+pub mod relay;
 pub mod store;
 
 use store::Store;
@@ -142,7 +143,65 @@ fn forget_everyone(conn: &Connection) -> Result<()> {
 
 /// Whether this computer is combining with others, through a folder or the relay.
 pub fn combining(conn: &Connection) -> Result<bool> {
-    Ok(folder(conn)?.is_some())
+    Ok(folder(conn)?.is_some() || relay::group(conn)?.is_some())
+}
+
+const SYNCED_KEY: &str = "relay_synced_ms";
+const ERROR_KEY: &str = "relay_error";
+/// `relay_error` when another computer started over and this one's group went away.
+pub const UNLINKED: &str = "unlinked";
+
+/// When this computer last synced through the relay, and what went wrong since, if anything.
+pub fn relay_status(conn: &Connection) -> Result<(Option<i64>, Option<String>)> {
+    let synced = db::get_setting(conn, SYNCED_KEY).map_err(err)?.and_then(|s| s.parse().ok());
+    let error = db::get_setting(conn, ERROR_KEY).map_err(err)?.filter(|e| !e.is_empty());
+    Ok((synced, error))
+}
+
+/// Starts combining through a relay group this computer just made or joined.
+pub fn join_relay(conn: &Connection, group: &relay::Group) -> Result<()> {
+    forget_everyone(conn)?;
+    db::set_setting(conn, FOLDER_KEY, "").map_err(err)?;
+    db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+    relay::set_group(conn, Some(group))
+}
+
+/// One round through the relay. When the relay no longer knows the group (another computer
+/// started over), this computer stops combining and notes that it was unlinked.
+pub fn run_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>, now_ms: i64) -> Result<bool> {
+    let Some(group) = relay::group(conn)? else { return Ok(false) };
+    let store = relay::RelayStore::new(api, &group, &device_id(conn)?);
+    match run_with(conn, &store, now_ms) {
+        Ok(changed) => {
+            db::set_setting(conn, SYNCED_KEY, &now_ms.to_string()).map_err(err)?;
+            db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+            Ok(changed)
+        }
+        Err(e) if e == relay::GONE => {
+            relay::set_group(conn, None)?;
+            forget_everyone(conn)?;
+            db::set_setting(conn, ERROR_KEY, UNLINKED).map_err(err)?;
+            Err(e)
+        }
+        Err(e) => {
+            db::set_setting(conn, ERROR_KEY, &e).map_err(err)?;
+            Err(e)
+        }
+    }
+}
+
+/// Stops combining through the relay: this computer's files leave it, so the others drop its
+/// time, and theirs leaves this one. The group is forgotten even when the relay can't be reached.
+pub fn leave_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>) -> Result<()> {
+    let Some(group) = relay::group(conn)? else { return Ok(()) };
+    let left = match relay::RelayStore::new(api, &group, &device_id(conn)?).remove_me() {
+        Err(e) if e == relay::GONE => Ok(()),
+        other => other,
+    };
+    relay::set_group(conn, None)?;
+    db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+    forget_everyone(conn)?;
+    left
 }
 
 const COMPUTERS_KEY: &str = "sync_computers";
@@ -173,7 +232,12 @@ fn note_computers(conn: &Connection, store: &dyn Store, listing: &store::Listing
 /// True when another computer's choices came in, which the caller passes on to what keeps them in
 /// memory.
 pub fn run_once(conn: &Connection, now_ms: i64) -> Result<bool> {
-    let Some(root) = folder(conn)? else { return Ok(false) };
+    let Some(root) = folder(conn)? else {
+        if relay::group(conn)?.is_some() {
+            return run_relay(conn, std::sync::Arc::new(relay::Http::default()), now_ms);
+        }
+        return Ok(false);
+    };
     if !root.is_dir() {
         return Err(format!("{} isn't there; is the drive connected?", root.display()));
     }
@@ -730,6 +794,83 @@ mod tests {
         run_with(&laptop.conn, &laptop_store, now).unwrap();
         assert_eq!(laptop.apps(), [("figma".into(), false)]);
         assert_eq!(computers(&laptop.conn).unwrap().len(), 1);
+    }
+
+    /// Two computers in one relay group.
+    fn linked(desk: &Computer, laptop: &Computer) -> std::sync::Arc<relay::MemApi> {
+        let api = std::sync::Arc::new(relay::MemApi::default());
+        let group = relay::new_group();
+        relay::register(api.as_ref(), &group).unwrap();
+        relay::set_group(&desk.conn, Some(&group)).unwrap();
+        relay::set_group(&laptop.conn, Some(&group)).unwrap();
+        api
+    }
+
+    #[test]
+    fn combines_through_the_relay() {
+        let (desk, laptop) = (Computer::new("desk-r"), Computer::new("laptop-r"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let code = desk.track("code", now - DAY_MS);
+        desk.track("discord", now);
+        laptop.track("figma", now + 1_000);
+        assert!(combining(&desk.conn).unwrap());
+
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("code".into(), true), ("discord".into(), true), ("figma".into(), false)]);
+        assert_eq!(desk.apps(), [("code".into(), false), ("discord".into(), false), ("figma".into(), true)]);
+        assert_eq!(computers(&desk.conn).unwrap().len(), 2);
+        assert_eq!(db::get_setting(&desk.conn, "relay_synced_ms").unwrap().as_deref(), Some(now.to_string().as_str()));
+
+        desk.conn.execute("DELETE FROM sessions WHERE id = ?1", [code]).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
+
+        // Leaving takes this computer's files off the relay, and the others drop its time.
+        leave_relay(&desk.conn, api.clone()).unwrap();
+        assert!(!combining(&desk.conn).unwrap());
+        assert_eq!(desk.apps(), [("discord".into(), false)]);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("figma".into(), false)]);
+    }
+
+    #[test]
+    fn relay_sees_no_names_or_contents() {
+        let (desk, laptop) = (Computer::new("desk-n"), Computer::new("laptop-n"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("discord", now);
+        crate::analysis::set_category(&desk.conn, "site:reddit", crate::analysis::Category::Distracting).unwrap();
+        record_at(&desk.conn, "category:site:reddit", "distracting", 5).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        let stored = api.stored();
+        assert!(stored.len() >= 3);
+        for (name, bytes) in stored {
+            assert!(!name.contains("choices") && !name.contains("kairo-day") && !name.contains("computer"), "{name}");
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(!text.contains("discord") && !text.contains("reddit") && !text.contains("SQLite"));
+        }
+    }
+
+    #[test]
+    fn gone_group_stops_combining() {
+        let (desk, laptop) = (Computer::new("desk-g"), Computer::new("laptop-g"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("discord", now);
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true)]);
+
+        // Another computer started over: the old group is gone from the relay.
+        api.forget_groups();
+        assert!(run_relay(&laptop.conn, api.clone(), now).is_err());
+        assert!(!combining(&laptop.conn).unwrap());
+        assert!(laptop.apps().is_empty());
+        assert_eq!(db::get_setting(&laptop.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
     }
 
     #[test]

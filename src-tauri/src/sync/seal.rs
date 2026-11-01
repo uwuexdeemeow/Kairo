@@ -75,7 +75,7 @@ pub fn random<const N: usize>() -> [u8; N] {
 }
 
 /// What the relay keeps in place of the token: its SHA-256, in hex.
-pub fn token_hash(token: &[u8; 32]) -> String {
+pub fn token_hash(token: &[u8]) -> String {
     Sha256::digest(token).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn token_hash_is_hex_sha256() {
-        assert_eq!(token_hash(&[0u8; 32]), "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925");
+        assert_eq!(token_hash(&[0u8; 32][..]),"66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925");
     }
 
     #[test]
