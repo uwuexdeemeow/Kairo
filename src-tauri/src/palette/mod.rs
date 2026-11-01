@@ -439,10 +439,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::platform::activate_window(id);
             Ok(())
         }
-        Action::CloseWindow(id) => {
-            crate::platform::close_window(id);
-            Ok(())
-        }
+        // A window still there after it was asked to close refused: Windows keeps an app from
+        // closing one that runs as administrator.
+        Action::CloseWindow(id) if crate::platform::close_window(id) || !crate::platform::window_exists(id) => Ok(()),
+        Action::CloseWindow(_) => Err("That window didn't let Kairo close it. It may be running as administrator.".into()),
         Action::FinishTask(id) => {
             crate::tasks::set_done(conn, id, true, now_ms()).map_err(|e| e.to_string())?;
             crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)

@@ -131,8 +131,11 @@ pub fn answer(query: &str) -> Option<Answer> {
     if !is_maths(query) {
         return None;
     }
-    let mut context = fend_core::Context::new();
-    let result = fend_core::evaluate_with_interrupt(&rewrite(query.trim()), &mut context, &Deadline(Instant::now() + LIMIT)).ok()?;
+    let deadline = Deadline(Instant::now() + LIMIT);
+    let ask = |q: &str| fend_core::evaluate_with_interrupt(&rewrite(q), &mut fend_core::Context::new(), &deadline).ok();
+    let q = query.trim();
+    // fend's units are lower case ("km"); typed in capitals, they're asked again in lower case.
+    let result = ask(q).or_else(|| q.chars().any(char::is_uppercase).then(|| ask(&q.to_lowercase())).flatten())?;
     let (text, number) = format(result.get_main_result())?;
     let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace() && *c != '(' && *c != ')').collect::<String>();
     (bare(&text) != bare(query)).then_some(Answer { text, number })
@@ -154,13 +157,41 @@ fn number(x: f64) -> String {
     trim(format!("{x:.decimals$}"))
 }
 
+/// A whole number too big for a float, written out in digits as fend gives it, in scientific
+/// notation; None when it isn't one.
+fn big_number(digits: &str) -> Option<String> {
+    let (sign, digits) = digits.strip_prefix('-').map_or(("", digits), |d| ("-", d));
+    if digits.len() <= DIGITS as usize || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    // The leading digits as d.dddddd, rounded to `DIGITS` significant ones.
+    let lead: f64 = digits[..=DIGITS as usize].parse().ok()?;
+    let scale = 10f64.powi(DIGITS - 1);
+    let (mut mantissa, mut exponent) = ((lead / 10.0 / scale * scale).round() / scale, digits.len() - 1);
+    if mantissa >= 10.0 {
+        (mantissa, exponent) = (mantissa / 10.0, exponent + 1);
+    }
+    let mantissa = format!("{mantissa:.*}", (DIGITS - 1) as usize);
+    Some(format!("{sign}{}e{exponent}", mantissa.trim_end_matches('0').trim_end_matches('.')))
+}
+
 /// fend's answer tidied: "approx." dropped and the number rounded. Gives the text with its unit
-/// and the number alone when there is a unit; None when it doesn't start with a number.
+/// and the number alone when there is a unit (a percent counts); None when it doesn't start with
+/// a number.
 fn format(result: &str) -> Option<(String, Option<String>)> {
     let result = result.trim().trim_start_matches("approx. ");
     let (value, unit) = result.split_once(' ').unwrap_or((result, ""));
-    let value = number(value.parse::<f64>().ok().filter(|x| x.is_finite())?);
-    Some(if unit.is_empty() { (value, None) } else { (format!("{value} {unit}"), Some(value)) })
+    // A percent comes stuck to its number, "100%".
+    let (value, percent) = value.strip_suffix('%').map_or((value, false), |v| (v, true));
+    let value = match value.parse::<f64>() {
+        Ok(x) if x.is_finite() => number(x),
+        _ => big_number(value)?,
+    };
+    Some(match (percent, unit.is_empty()) {
+        (true, _) => (format!("{value}%{}", if unit.is_empty() { String::new() } else { format!(" {unit}") }), Some(value)),
+        (false, true) => (value, None),
+        (false, false) => (format!("{value} {unit}"), Some(value)),
+    })
 }
 
 #[cfg(test)]
@@ -254,5 +285,27 @@ mod tests {
         assert_eq!(format("2.5"), Some(("2.5".into(), None)));
         assert_eq!(format("18446744073709551616"), Some(("1.84467e19".into(), None)));
         assert_eq!(format("0.0000000032 s"), Some(("3.2e-9 s".into(), Some("3.2e-9".into()))));
+    }
+
+    #[test]
+    fn percent_answers_show() {
+        let got = |q: &str| answer(q).map(|a| (a.text, a.number));
+        assert_eq!(got("50%*2"), Some(("100%".into(), Some("100".into()))));
+        assert_eq!(got("15% + 5%"), Some(("20%".into(), Some("20".into()))));
+        assert_eq!(format("12.5%"), Some(("12.5%".into(), Some("12.5".into()))));
+    }
+
+    #[test]
+    fn units_typed_in_capitals_work() {
+        assert_eq!(answer("5 KM IN MI").map(|a| a.text).as_deref(), Some("3.10686 mi"));
+        assert_eq!(answer("180 LB TO KG").map(|a| a.text).as_deref(), Some("81.6466 kg"));
+        // Capitals that mean something stay as typed.
+        assert_eq!(answer("1 MB in Mb").map(|a| a.text).as_deref(), Some("8 Mb"));
+    }
+
+    #[test]
+    fn answers_too_big_for_a_float_still_show() {
+        assert_eq!(answer("2^1024").map(|a| a.text).as_deref(), Some("1.79769e308"));
+        assert_eq!(format(&format!("-1234567{}", "0".repeat(302))), Some(("-1.23457e308".into(), None)));
     }
 }

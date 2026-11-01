@@ -45,7 +45,14 @@ pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
 // minimized), `close_window` (as its close button would) and `can_close_windows`; the last two
 // say false when the window is gone or the system refused.
 #[cfg(windows)]
-pub use win::{activate_window, can_close_windows, close_window, open_windows};
+pub use win::{activate_window, can_close_windows, close_window, open_windows, window_exists};
+
+/// Whether a window is still open. Only Windows can say; elsewhere a window that didn't close
+/// counts as gone.
+#[cfg(not(windows))]
+pub fn window_exists(_id: &str) -> bool {
+    false
+}
 
 #[cfg(target_os = "macos")]
 pub use mac::{activate_window, can_close_windows, close_window, open_windows};
@@ -252,6 +259,11 @@ mod win {
 
     pub fn can_close_windows() -> bool {
         true
+    }
+
+    pub fn window_exists(id: &str) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
+        hwnd(id).is_some_and(|hwnd| unsafe { IsWindow(hwnd) != 0 })
     }
 
     /// Minimizes a window; false when Windows refuses, as it does for programs running with more
@@ -1665,6 +1677,12 @@ mod window_tests {
         let kept = switchable(vec![window("a", "Budget", 5), window("b", "  ", 6), window("c", "Chrono", 99), window("d", &long, 7)], 99);
         assert_eq!(kept.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
         assert_eq!(kept[1].title.chars().count(), 200);
+    }
+
+    #[test]
+    fn a_window_that_isnt_there_doesnt_exist() {
+        assert!(!window_exists("0"));
+        assert!(!window_exists("not a window"));
     }
 
     #[test]
