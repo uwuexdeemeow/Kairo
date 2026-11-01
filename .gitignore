@@ -5,3 +5,5 @@ src-tauri/gen/
 *.db
 *.db-*
 .vite/
+.superpowers/
+.wrangler/
