@@ -1,0 +1,26 @@
+# Tests Kairo's relay (relay/), the Cloudflare Worker that carries linked computers' sealed files.
+name: Relay
+
+on:
+  push:
+    paths:
+      - "relay/**"
+      - ".github/workflows/relay.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

@@ -1,5 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+describe("whose time can be picked", () => {
+  const sync = (mode: "off" | "folder" | "relay", others: number) => ({
+    mode,
+    folder: mode === "folder" ? "C:/Drive" : null,
+    name: "Tower",
+    shown: "all",
+    syncedMs: null,
+    error: null,
+    computers: [
+      { id: "a", name: "Tower", thisOne: true, updatedMs: 0 },
+      ...Array.from({ length: others }, (_, i) => ({ id: `o${i}`, name: `Other ${i}`, thisOne: false, updatedMs: 0 })),
+    ],
+  });
+
+  it("offers a choice whenever another computer is combined, through a folder or the relay", async () => {
+    const { combinedWithOthers } = await import("./ui");
+    expect(combinedWithOthers(sync("folder", 1))).toBe(true);
+    expect(combinedWithOthers(sync("relay", 1))).toBe(true);
+    expect(combinedWithOthers(sync("relay", 0))).toBe(false);
+    expect(combinedWithOthers(sync("off", 1))).toBe(false);
+  });
+});
+
 const api = vi.hoisted(() => ({ appearance: vi.fn() }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
 vi.mock("./api", () => ({ api }));

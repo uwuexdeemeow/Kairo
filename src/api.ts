@@ -2,14 +2,26 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type Category = "productive" | "neutral" | "distracting";
 
-/** Combining computers: the synced folder while it's on, and the computers found there. */
+/** Combining computers: how (a folder, or the relay), and the computers combined. */
 export interface SyncState {
+  mode: "off" | "folder" | "relay";
   folder: string | null;
   computers: { id: string; name: string; updatedMs: number; thisOne: boolean }[];
   name: string;
   /** Whose time the views show: "all", "this" or a computer's id. */
   shown: string;
+  /** When this computer last synced through the relay. */
+  syncedMs: number | null;
+  /** What went wrong with the relay since, or "unlinked" when another computer started over. */
+  error: string | null;
 }
+
+/** A code Settings shows for another computer to type, and how it's going. */
+export type Linking = { code: string; expiresMs: number } & (
+  | { state: "waiting" | "expired" | "mismatch" }
+  | { state: "linked"; name: string }
+  | { state: "failed"; message: string }
+);
 
 export interface Usage {
   /** `app:<exe>` or `site:<name>`, for the icon. */
@@ -521,6 +533,14 @@ export const api = {
   /** Null when the folder dialog was closed. */
   chooseSyncFolder: () => invoke<SyncState | null>("choose_sync_folder"),
   stopSync: () => invoke<SyncState>("stop_sync"),
+  /** Shows a code for another computer to type; refused while combining through a folder. */
+  pairStart: () => invoke<Linking>("pair_start"),
+  pairStatus: () => invoke<Linking | null>("pair_status"),
+  pairCancel: () => invoke<void>("pair_cancel"),
+  /** Links with another computer's code; rejects with what to tell the person. */
+  pairJoin: (code: string) => invoke<{ from: string; sync: SyncState }>("pair_join", { code }),
+  /** Leaves every other computer out and shows a code to link the ones still used again. */
+  startOver: () => invoke<Linking>("start_over"),
   setShownComputer: (computer: string) => invoke<void>("set_shown_computer", { computer }),
   appearance: () => invoke<Appearance>("get_appearance"),
   setAppearance: (mode: Appearance) => invoke<void>("set_appearance", { mode }),

@@ -89,12 +89,35 @@
 
         <section class="block">
           <h2>Combine computers</h2>
-          <p class="muted">See the time from all your computers together. Pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer; Chrono keeps its time there every few minutes, and adds in the others'. Your time, including window titles, goes to that drive. Categories, limits, goals and blocking rules you change are shared too, the latest change winning everywhere.</p>
+          <p class="muted">See the time from all your computers together. Link them with a short code: your time travels through Kairo's relay, encrypted end to end, so the relay can't read it. Or pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer, and your time, including window titles, goes to that drive instead. Categories, limits, goals and blocking rules you change are shared too, the latest change winning everywhere.</p>
           <p id="sync-where" aria-live="polite"></p>
           <ul class="sync-computers" id="sync-computers"></ul>
+          <div class="sync-code" id="sync-code" hidden>
+            <p class="sync-code-text" id="sync-code-text"></p>
+            <p class="muted" id="sync-code-note">Type this on your other computer. It works once, for 10 minutes.</p>
+            <div class="row-buttons">
+              <span class="muted" id="sync-code-left" aria-live="off"></span>
+              <button class="link-btn" id="sync-code-cancel">Cancel</button>
+            </div>
+          </div>
+          <form class="sync-join" id="sync-join" hidden>
+            <input class="filter" id="sync-join-code" autocomplete="off" spellcheck="false" maxlength="12" placeholder="K7QX-49MP" aria-label="The code your other computer shows">
+            <button class="link-btn" type="submit">Link</button>
+            <button class="link-btn" type="button" id="sync-join-cancel">Cancel</button>
+          </form>
+          <div class="sync-confirm" id="sync-confirm" hidden>
+            <p>Start over? Every computer linked now stops combining with this one, including one that's lost or sold. Link the ones you still use again with a new code.</p>
+            <div class="row-buttons">
+              <button class="link-btn" id="sync-confirm-yes">Start over</button>
+              <button class="link-btn" id="sync-confirm-no">Keep them linked</button>
+            </div>
+          </div>
           <div class="row-buttons">
-            <button class="link-btn" id="sync-choose">Choose a folder</button>
+            <button class="link-btn" id="sync-link">Link a computer</button>
+            <button class="link-btn" id="sync-enter">Enter a code</button>
+            <button class="link-btn" id="sync-choose">Use a folder instead</button>
             <button class="link-btn" id="sync-stop" hidden>Stop combining</button>
+            <button class="link-btn" id="sync-over" hidden>Start over</button>
             <span class="muted" id="sync-status" aria-live="polite"></span>
           </div>
         </section>

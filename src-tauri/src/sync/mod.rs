@@ -19,6 +19,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{db, privacy};
 
+pub mod seal;
+pub mod link;
+pub mod pair;
+pub mod relay;
+pub mod store;
+
+use store::Store;
+
 const FOLDER_KEY: &str = "sync_folder";
 const DEVICE_KEY: &str = "device_id";
 const DIR: &str = "Kairo computers";
@@ -63,7 +71,7 @@ const SHOWN_KEY: &str = "shown_computer";
 pub fn shown(conn: &Connection) -> Result<String> {
     let shown = db::get_setting(conn, SHOWN_KEY).map_err(err)?;
     Ok(match shown {
-        Some(s) if folder(conn)?.is_some() => s,
+        Some(s) if combining(conn)? => s,
         _ => crate::analysis::ALL_COMPUTERS.to_string(),
     })
 }
@@ -110,7 +118,7 @@ pub fn start(conn: &Connection, dir: &Path, now_ms: i64) -> Result<bool> {
     // Moving to another folder takes this computer out of the old one, so the computers still
     // there drop its time, as stopping would.
     if let Some(old) = folder(conn)?.filter(|old| old != dir) {
-        let _ = std::fs::remove_dir_all(old.join(DIR).join(device_id(conn)?));
+        let _ = store::FolderStore::new(&old, &device_id(conn)?).remove_me();
     }
     db::set_setting(conn, FOLDER_KEY, &dir.to_string_lossy()).map_err(err)?;
     run_once(conn, now_ms)
@@ -120,57 +128,154 @@ pub fn start(conn: &Connection, dir: &Path, now_ms: i64) -> Result<bool> {
 /// synced folder, so they drop its time too.
 pub fn stop(conn: &Connection) -> Result<()> {
     if let Some(root) = folder(conn)? {
-        let _ = std::fs::remove_dir_all(root.join(DIR).join(device_id(conn)?));
+        let _ = store::FolderStore::new(&root, &device_id(conn)?).remove_me();
     }
     db::set_setting(conn, FOLDER_KEY, "").map_err(err)?;
-    conn.execute_batch("DELETE FROM sessions WHERE device IS NOT NULL; DELETE FROM sync_imports; DELETE FROM sync_written;").map_err(err)
+    forget_everyone(conn)
 }
 
-/// The computers in the synced folder, this one first.
+/// The other computers' time leaves this one, as does what was noted about them.
+fn forget_everyone(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "DELETE FROM sessions WHERE device IS NOT NULL; DELETE FROM sync_imports; DELETE FROM sync_written;
+         DELETE FROM settings WHERE key = 'sync_computers';",
+    )
+    .map_err(err)
+}
+
+/// Whether this computer is combining with others, through a folder or the relay.
+pub fn combining(conn: &Connection) -> Result<bool> {
+    Ok(folder(conn)?.is_some() || relay::group(conn)?.is_some())
+}
+
+const SYNCED_KEY: &str = "relay_synced_ms";
+const ERROR_KEY: &str = "relay_error";
+/// `relay_error` when another computer started over and this one's group went away.
+pub const UNLINKED: &str = "unlinked";
+
+/// When this computer last synced through the relay, and what went wrong since, if anything.
+pub fn relay_status(conn: &Connection) -> Result<(Option<i64>, Option<String>)> {
+    let synced = db::get_setting(conn, SYNCED_KEY).map_err(err)?.and_then(|s| s.parse().ok());
+    let error = db::get_setting(conn, ERROR_KEY).map_err(err)?.filter(|e| !e.is_empty());
+    Ok((synced, error))
+}
+
+/// Starts combining through a relay group this computer just made or joined.
+pub fn join_relay(conn: &Connection, group: &relay::Group) -> Result<()> {
+    forget_everyone(conn)?;
+    db::set_setting(conn, FOLDER_KEY, "").map_err(err)?;
+    db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+    relay::set_group(conn, Some(group))
+}
+
+/// One round through the relay. When the relay no longer knows the group (another computer
+/// started over), this computer stops combining and notes that it was unlinked.
+pub fn run_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>, now_ms: i64) -> Result<bool> {
+    let Some(group) = relay::group(conn)? else { return Ok(false) };
+    let store = relay::RelayStore::new(api, &group, &device_id(conn)?);
+    match run_with(conn, &store, now_ms) {
+        Ok(changed) => {
+            db::set_setting(conn, SYNCED_KEY, &now_ms.to_string()).map_err(err)?;
+            db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+            Ok(changed)
+        }
+        Err(e) if e == relay::GONE => {
+            relay::set_group(conn, None)?;
+            forget_everyone(conn)?;
+            db::set_setting(conn, ERROR_KEY, UNLINKED).map_err(err)?;
+            Err(e)
+        }
+        Err(e) => {
+            db::set_setting(conn, ERROR_KEY, &e).map_err(err)?;
+            Err(e)
+        }
+    }
+}
+
+/// Stops combining through the relay: this computer's files leave it, so the others drop its
+/// time, and theirs leaves this one. The group is forgotten even when the relay can't be reached.
+pub fn leave_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>) -> Result<()> {
+    let Some(group) = relay::group(conn)? else { return Ok(()) };
+    let left = match relay::RelayStore::new(api, &group, &device_id(conn)?).remove_me() {
+        Err(e) if e == relay::GONE => Ok(()),
+        other => other,
+    };
+    relay::set_group(conn, None)?;
+    db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
+    forget_everyone(conn)?;
+    left
+}
+
+const COMPUTERS_KEY: &str = "sync_computers";
+
+/// The combined computers as of the last sync, this one first. Kept from the last sync rather
+/// than read from the store, so Settings never waits on a drive or the network.
 pub fn computers(conn: &Connection) -> Result<Vec<Computer>> {
-    let Some(root) = folder(conn)? else { return Ok(Vec::new()) };
     let me = device_id(conn)?;
-    let mut found: Vec<Computer> = std::fs::read_dir(root.join(DIR))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let about: About = serde_json::from_str(&std::fs::read_to_string(entry.path().join(ABOUT_FILE)).ok()?).ok()?;
-            let id = entry.file_name().to_str()?.to_string();
-            Some(Computer { this_one: id == me, id, name: about.name, updated_ms: about.updated_ms })
-        })
-        .collect();
+    let Some(text) = db::get_setting(conn, COMPUTERS_KEY).map_err(err)? else { return Ok(Vec::new()) };
+    let about: HashMap<String, About> = serde_json::from_str(&text).unwrap_or_default();
+    let mut found: Vec<Computer> =
+        about.into_iter().map(|(id, a)| Computer { this_one: id == me, id, name: a.name, updated_ms: a.updated_ms }).collect();
     found.sort_by_key(|c| (!c.this_one, c.name.to_lowercase()));
     Ok(found)
 }
 
+/// Notes who's combined, from each computer's `computer.json`.
+fn note_computers(conn: &Connection, store: &dyn Store, listing: &store::Listing) -> Result<()> {
+    let about: HashMap<String, About> = listing
+        .iter()
+        .filter(|(_, files)| files.contains_key(ABOUT_FILE))
+        .filter_map(|(id, _)| Some((id.clone(), serde_json::from_slice(&store.get(id, ABOUT_FILE).ok()?).ok()?)))
+        .collect();
+    db::set_setting(conn, COMPUTERS_KEY, &serde_json::to_string(&about).map_err(err)?).map_err(err)
+}
+
 /// Writes this computer's changed days and reads the others' changed ones.
 /// True when another computer's choices came in, which the caller passes on to what keeps them in
-/// memory. Choices go first, so another computer's recording rules apply to its time.
+/// memory.
 pub fn run_once(conn: &Connection, now_ms: i64) -> Result<bool> {
-    let Some(root) = folder(conn)? else { return Ok(false) };
+    let Some(root) = folder(conn)? else {
+        if relay::group(conn)?.is_some() {
+            return run_relay(conn, std::sync::Arc::new(relay::Http::default()), now_ms);
+        }
+        return Ok(false);
+    };
     if !root.is_dir() {
         return Err(format!("{} isn't there; is the drive connected?", root.display()));
     }
-    let dir = root.join(DIR);
+    run_with(conn, &store::FolderStore::new(&root, &device_id(conn)?), now_ms)
+}
+
+/// One round through `store`. Choices go first, so another computer's recording rules apply to
+/// its time.
+pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<bool> {
     let me = device_id(conn)?;
-    let mine = dir.join(&me);
-    std::fs::create_dir_all(&mine).map_err(err)?;
     seed_choices(conn)?;
-    write_choices(conn, &mine)?;
-    let changed = read_choices(conn, &dir, &me)?;
-    write_own(conn, &mine, now_ms)?;
-    read_others(conn, &dir, &me, now_ms)?;
+    let listing = store.list()?;
+    let mine = listing.get(&me).cloned().unwrap_or_default();
+    write_choices(conn, store, &me, &mine)?;
+    let changed = read_choices(conn, store, &listing, &me)?;
+    write_own(conn, store, &mine, now_ms)?;
+    read_others(conn, store, &listing, &me, now_ms)?;
+    note_computers(conn, store, &store.list()?)?;
     Ok(changed)
 }
 
-/// Every few minutes, while Kairo runs. Choices that come in reach the collector's recording rules
-/// and the nudges at once.
-pub fn spawn(db_path: PathBuf, rules: privacy::SharedRules, cache: crate::nudge::SharedCache) {
+/// Every few minutes, while Kairo runs, and at once whenever something sends on `wake` (linking,
+/// joining, starting over). Choices that come in reach the collector's recording rules and the
+/// nudges at once; `on_woken` runs after each round a wake asked for, so open windows can show it.
+pub fn spawn(
+    db_path: PathBuf,
+    rules: privacy::SharedRules,
+    cache: crate::nudge::SharedCache,
+    wake: std::sync::mpsc::Receiver<()>,
+    on_woken: impl Fn() + Send + 'static,
+) {
+    use std::sync::mpsc::RecvTimeoutError;
     thread::Builder::new()
         .name("kairo-sync".into())
         .spawn(move || {
-            thread::sleep(FIRST_AFTER);
+            let mut woken = wake.recv_timeout(FIRST_AFTER).is_ok();
             let conn = match db::open(&db_path) {
                 Ok(conn) => conn,
                 Err(e) => return eprintln!("sync: cannot open the database: {e}"),
@@ -186,7 +291,20 @@ pub fn spawn(db_path: PathBuf, rules: privacy::SharedRules, cache: crate::nudge:
                     Ok(false) => {}
                     Err(e) => eprintln!("sync: {e}"),
                 }
-                thread::sleep(EVERY);
+                if woken {
+                    on_woken();
+                }
+                woken = match wake.recv_timeout(EVERY) {
+                    Ok(()) => {
+                        while wake.try_recv().is_ok() {}
+                        true
+                    }
+                    Err(RecvTimeoutError::Timeout) => false,
+                    Err(RecvTimeoutError::Disconnected) => {
+                        thread::sleep(EVERY);
+                        false
+                    }
+                };
             }
         })
         .expect("failed to start sync thread");
@@ -283,26 +401,25 @@ fn choices(conn: &Connection) -> Result<std::collections::BTreeMap<String, Choic
     rows
 }
 
-/// This computer's choices, when they differ from what the folder has.
-fn write_choices(conn: &Connection, mine: &Path) -> Result<()> {
+/// This computer's choices, when they differ from what the store has.
+fn write_choices(conn: &Connection, store: &dyn Store, me: &str, mine: &HashMap<String, String>) -> Result<()> {
     let text = serde_json::to_string_pretty(&choices(conn)?).map_err(err)?;
-    let path = mine.join(CHOICES_FILE);
-    if std::fs::read_to_string(&path).is_ok_and(|old| old == text) {
+    if mine.contains_key(CHOICES_FILE) && store.get(me, CHOICES_FILE).is_ok_and(|old| old == text.as_bytes()) {
         return Ok(());
     }
-    write_atomically(&path, |tmp| std::fs::write(tmp, &text).map_err(err))
+    store.put(CHOICES_FILE, text.as_bytes())
 }
 
 /// Takes the other computers' choices made after this one's; true when any came in.
-fn read_choices(conn: &Connection, dir: &Path, me: &str) -> Result<bool> {
+fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, me: &str) -> Result<bool> {
     let mut ours = choices(conn)?;
     let mut changed = false;
-    for entry in std::fs::read_dir(dir).map_err(err)?.flatten() {
-        if entry.file_name().to_str() == Some(me) {
+    for (computer, files) in listing {
+        if computer == me || !files.contains_key(CHOICES_FILE) {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(entry.path().join(CHOICES_FILE)) else { continue };
-        let Ok(theirs) = serde_json::from_str::<HashMap<String, Choice>>(&text) else { continue };
+        let Ok(text) = store.get(computer, CHOICES_FILE) else { continue };
+        let Ok(theirs) = serde_json::from_slice::<HashMap<String, Choice>>(&text) else { continue };
         // A limit before whether it blocks, which needs the limit to be there.
         let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
         theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:"), item.clone()));
@@ -347,7 +464,7 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
 
 /// Writes the days whose sessions changed since they were last written, and takes away the files
 /// of days whose history was deleted.
-fn write_own(conn: &Connection, mine: &Path, now_ms: i64) -> Result<()> {
+fn write_own(conn: &Connection, store: &dyn Store, mine: &HashMap<String, String>, now_ms: i64) -> Result<()> {
     let mut stmt = conn
         .prepare(
             "SELECT start_ms / ?1, COUNT(*), SUM(start_ms), SUM(end_ms), SUM(length(title) + length(app) + length(ifnull(site, '')))
@@ -367,63 +484,67 @@ fn write_own(conn: &Connection, mine: &Path, now_ms: i64) -> Result<()> {
         .collect::<rusqlite::Result<_>>()
         .map_err(err)?;
     for (day, signature) in &now {
-        if written.get(day) != Some(signature) || !day_path(mine, *day).exists() {
-            write_day(conn, mine, *day)?;
+        if written.get(day) != Some(signature) || !mine.contains_key(&day_name(*day)) {
+            store.put(&day_name(*day), &day_bytes(conn, *day)?)?;
             conn.execute("INSERT OR REPLACE INTO sync_written (day, signature) VALUES (?1, ?2)", params![day, signature]).map_err(err)?;
         }
     }
     for day in written.keys().filter(|d| !now.contains_key(d)) {
-        let _ = std::fs::remove_file(day_path(mine, *day));
+        let _ = store.delete(&day_name(*day));
         conn.execute("DELETE FROM sync_written WHERE day = ?1", [day]).map_err(err)?;
     }
     let about = About { name: device_name(), updated_ms: now_ms };
-    write_atomically(&mine.join(ABOUT_FILE), |tmp| std::fs::write(tmp, serde_json::to_vec(&about).map_err(err)?).map_err(err))
+    store.put(ABOUT_FILE, &serde_json::to_vec(&about).map_err(err)?)
 }
 
-fn day_path(dir: &Path, day: i64) -> PathBuf {
-    dir.join(format!("{day}.{DAY_FILE}"))
+fn day_name(day: i64) -> String {
+    format!("{day}.{DAY_FILE}")
+}
+
+/// A file in the temporary folder, removed when dropped.
+struct TempFile(PathBuf);
+
+impl TempFile {
+    fn new(what: &str) -> Self {
+        let path = std::env::temp_dir().join(format!("kairo-{what}-{}-{}.db", std::process::id(), new_id()));
+        let _ = std::fs::remove_file(&path);
+        Self(path)
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// One day's sessions in a small database of its own.
-fn write_day(conn: &Connection, mine: &Path, day: i64) -> Result<()> {
-    write_atomically(&day_path(mine, day), |tmp| {
-        conn.execute("ATTACH DATABASE ?1 AS day_out", [tmp.to_string_lossy()]).map_err(err)?;
-        let result = conn
-            .execute_batch(
-                "CREATE TABLE day_out.sessions (
-                     app TEXT NOT NULL, exe TEXT NOT NULL, title TEXT NOT NULL, site TEXT,
-                     start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, idle INTEGER NOT NULL
-                 )",
+fn day_bytes(conn: &Connection, day: i64) -> Result<Vec<u8>> {
+    let tmp = TempFile::new("day-out");
+    conn.execute("ATTACH DATABASE ?1 AS day_out", [tmp.0.to_string_lossy()]).map_err(err)?;
+    let result = conn
+        .execute_batch(
+            "CREATE TABLE day_out.sessions (
+                 app TEXT NOT NULL, exe TEXT NOT NULL, title TEXT NOT NULL, site TEXT,
+                 start_ms INTEGER NOT NULL, end_ms INTEGER NOT NULL, idle INTEGER NOT NULL
+             )",
+        )
+        .and_then(|_| {
+            conn.execute(
+                "INSERT INTO day_out.sessions SELECT app, exe, title, site, start_ms, end_ms, idle FROM main.sessions
+                 WHERE device IS NULL AND demo = 0 AND start_ms >= ?1 AND start_ms < ?2",
+                params![day * DAY_MS, (day + 1) * DAY_MS],
             )
-            .and_then(|_| {
-                conn.execute(
-                    "INSERT INTO day_out.sessions SELECT app, exe, title, site, start_ms, end_ms, idle FROM main.sessions
-                     WHERE device IS NULL AND demo = 0 AND start_ms >= ?1 AND start_ms < ?2",
-                    params![day * DAY_MS, (day + 1) * DAY_MS],
-                )
-            })
-            .map_err(err);
-        let _ = conn.execute("DETACH DATABASE day_out", []);
-        result.map(|_| ())
-    })
-}
-
-/// Writes next to `path` and then moves it into place, so a drive syncing the folder never
-/// takes a half-written file.
-fn write_atomically(path: &Path, write: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    let _ = std::fs::remove_file(&tmp);
-    let written = write(&tmp);
-    if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-        return written;
-    }
-    std::fs::rename(&tmp, path).map_err(err)
+        })
+        .map_err(err);
+    let _ = conn.execute("DETACH DATABASE day_out", []);
+    result?;
+    std::fs::read(&tmp.0).map_err(err)
 }
 
 /// Reads in the other computers' days that changed since last time, and forgets days, and
 /// computers, that went away.
-fn read_others(conn: &Connection, dir: &Path, me: &str, now_ms: i64) -> Result<()> {
+fn read_others(conn: &Connection, store: &dyn Store, listing: &store::Listing, me: &str, now_ms: i64) -> Result<()> {
     let rules = privacy::load(conn).map_err(err)?;
     // Days older than history is kept for aren't brought back.
     let oldest_day = match privacy::retention_days(conn).map_err(err)? {
@@ -431,32 +552,25 @@ fn read_others(conn: &Connection, dir: &Path, me: &str, now_ms: i64) -> Result<(
         days => (now_ms - days as i64 * DAY_MS) / DAY_MS,
     };
     let mut present = HashSet::new();
-    for entry in std::fs::read_dir(dir).map_err(err)?.flatten() {
-        let Some(device) = entry.file_name().to_str().map(str::to_string).filter(|d| d != me && entry.path().is_dir()) else { continue };
+    for (device, names) in listing.iter().filter(|(d, _)| *d != me) {
         present.insert(device.clone());
-        let files: HashMap<i64, (PathBuf, String)> = std::fs::read_dir(entry.path())
-            .map_err(err)?
-            .flatten()
-            .filter_map(|f| {
-                let path = f.path();
-                let day = path.file_name()?.to_str()?.strip_suffix(&format!(".{DAY_FILE}"))?.parse().ok()?;
-                let meta = f.metadata().ok()?;
-                let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis();
-                Some((day, (path, format!("{}:{modified}", meta.len()))))
-            })
+        let files: HashMap<i64, &String> = names
+            .iter()
+            .filter_map(|(name, version)| Some((name.strip_suffix(&format!(".{DAY_FILE}"))?.parse().ok()?, version)))
             .collect();
-        let known = imported(conn, &device)?;
-        for (day, (path, stamp)) in &files {
-            if *day < oldest_day || known.get(day) == Some(stamp) {
+        let known = imported(conn, device)?;
+        for (day, stamp) in &files {
+            if *day < oldest_day || known.get(day) == Some(*stamp) {
                 continue;
             }
             // A file the drive is still bringing in can fail to open; it's tried again next time.
-            if import_day(conn, &device, *day, path, &rules).is_ok() {
+            let bytes = store.get(device, &day_name(*day));
+            if bytes.and_then(|b| import_day(conn, device, *day, &b, &rules)).is_ok() {
                 conn.execute("INSERT OR REPLACE INTO sync_imports (device, day, stamp) VALUES (?1, ?2, ?3)", params![device, day, stamp]).map_err(err)?;
             }
         }
         for day in known.keys().filter(|d| !files.contains_key(d)) {
-            forget(conn, &device, Some(*day))?;
+            forget(conn, device, Some(*day))?;
         }
     }
     let gone: Vec<String> = conn
@@ -494,13 +608,12 @@ fn forget(conn: &Connection, device: &str, day: Option<i64>) -> Result<()> {
 }
 
 /// Replaces what's here of a computer's day with its file, keeping to this computer's privacy
-/// rules. The file is copied first, so the drive is never kept from updating it.
-fn import_day(conn: &Connection, device: &str, day: i64, path: &Path, rules: &privacy::Rules) -> Result<()> {
-    let copy = std::env::temp_dir().join(format!("kairo-import-{}-{device}-{day}.db", std::process::id()));
-    std::fs::copy(path, &copy).map_err(err)?;
-    let rows = read_day(&copy);
-    let _ = std::fs::remove_file(&copy);
-    let rows = rows?;
+/// rules. The bytes go into a file of their own first, so the drive is never kept from updating
+/// the original.
+fn import_day(conn: &Connection, device: &str, day: i64, bytes: &[u8], rules: &privacy::Rules) -> Result<()> {
+    let copy = TempFile::new("import");
+    std::fs::write(&copy.0, bytes).map_err(err)?;
+    let rows = read_day(&copy.0)?;
     let tx = conn.unchecked_transaction().map_err(err)?;
     tx.execute("DELETE FROM sessions WHERE device = ?1 AND start_ms >= ?2 AND start_ms < ?3", params![device, day * DAY_MS, (day + 1) * DAY_MS])
         .map_err(err)?;
@@ -666,6 +779,165 @@ mod tests {
         assert_eq!(crate::tasks::list(&laptop.conn, 2).unwrap().iter().map(|t| &t.id).collect::<Vec<_>>(), [&task.id]);
 
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    #[test]
+    fn combines_through_any_store() {
+        use crate::analysis;
+        let shared = store::MemStore::default();
+        let (desk, laptop) = (Computer::new("desk-s"), Computer::new("laptop-s"));
+        let (desk_store, laptop_store) =
+            (shared.for_computer(&device_id(&desk.conn).unwrap()), shared.for_computer(&device_id(&laptop.conn).unwrap()));
+        let now = 20_000 * DAY_MS;
+
+        let code = desk.track("code", now - DAY_MS);
+        desk.track("discord", now);
+        laptop.track("figma", now + 1_000);
+        analysis::set_category(&desk.conn, "site:reddit", analysis::Category::Distracting).unwrap();
+        record_at(&desk.conn, "category:site:reddit", "distracting", 5).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        assert!(run_with(&laptop.conn, &laptop_store, now).unwrap());
+        run_with(&desk.conn, &desk_store, now).unwrap();
+
+        assert_eq!(laptop.apps(), [("code".into(), true), ("discord".into(), true), ("figma".into(), false)]);
+        assert_eq!(desk.apps(), [("code".into(), false), ("discord".into(), false), ("figma".into(), true)]);
+        assert_eq!(analysis::category_map(&laptop.conn).unwrap().get("site:reddit").copied(), Some(analysis::Category::Distracting));
+        let listed = computers(&laptop.conn).unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(listed[0].this_one);
+
+        // A deleted day leaves the others.
+        desk.conn.execute("DELETE FROM sessions WHERE id = ?1", [code]).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
+
+        // A computer that leaves takes its time with it.
+        desk_store.remove_me().unwrap();
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        assert_eq!(laptop.apps(), [("figma".into(), false)]);
+        assert_eq!(computers(&laptop.conn).unwrap().len(), 1);
+    }
+
+    /// Two computers in one relay group.
+    fn linked(desk: &Computer, laptop: &Computer) -> std::sync::Arc<relay::MemApi> {
+        let api = std::sync::Arc::new(relay::MemApi::default());
+        let group = relay::new_group();
+        relay::register(api.as_ref(), &group).unwrap();
+        relay::set_group(&desk.conn, Some(&group)).unwrap();
+        relay::set_group(&laptop.conn, Some(&group)).unwrap();
+        api
+    }
+
+    #[test]
+    fn combines_through_the_relay() {
+        let (desk, laptop) = (Computer::new("desk-r"), Computer::new("laptop-r"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let code = desk.track("code", now - DAY_MS);
+        desk.track("discord", now);
+        laptop.track("figma", now + 1_000);
+        assert!(combining(&desk.conn).unwrap());
+
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("code".into(), true), ("discord".into(), true), ("figma".into(), false)]);
+        assert_eq!(desk.apps(), [("code".into(), false), ("discord".into(), false), ("figma".into(), true)]);
+        assert_eq!(computers(&desk.conn).unwrap().len(), 2);
+        assert_eq!(db::get_setting(&desk.conn, "relay_synced_ms").unwrap().as_deref(), Some(now.to_string().as_str()));
+
+        desk.conn.execute("DELETE FROM sessions WHERE id = ?1", [code]).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
+
+        // Leaving takes this computer's files off the relay, and the others drop its time.
+        leave_relay(&desk.conn, api.clone()).unwrap();
+        assert!(!combining(&desk.conn).unwrap());
+        assert_eq!(desk.apps(), [("discord".into(), false)]);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("figma".into(), false)]);
+    }
+
+    #[test]
+    fn relay_sees_no_names_or_contents() {
+        let (desk, laptop) = (Computer::new("desk-n"), Computer::new("laptop-n"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("discord", now);
+        crate::analysis::set_category(&desk.conn, "site:reddit", crate::analysis::Category::Distracting).unwrap();
+        record_at(&desk.conn, "category:site:reddit", "distracting", 5).unwrap();
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        laptop.track("discord", now);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        let stored = api.stored();
+        assert!(stored.len() >= 6);
+        // The same file on two computers doesn't share a name, so the relay can't line up which
+        // days they both tracked.
+        let names: HashSet<&String> = stored.iter().map(|(n, _)| n).collect();
+        assert_eq!(names.len(), stored.len());
+        for (name, bytes) in stored {
+            assert!(!name.contains("choices") && !name.contains("kairo-day") && !name.contains("computer"), "{name}");
+            let text = String::from_utf8_lossy(&bytes);
+            assert!(!text.contains("discord") && !text.contains("reddit") && !text.contains("SQLite"));
+        }
+    }
+
+    #[test]
+    fn gone_group_stops_combining() {
+        let (desk, laptop) = (Computer::new("desk-g"), Computer::new("laptop-g"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("discord", now);
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("discord".into(), true)]);
+
+        // Another computer started over: the old group is gone from the relay.
+        api.forget_groups();
+        assert!(run_relay(&laptop.conn, api.clone(), now).is_err());
+        assert!(!combining(&laptop.conn).unwrap());
+        assert!(laptop.apps().is_empty());
+        assert_eq!(db::get_setting(&laptop.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    /// Links two computers with a code and combines them through a real relay: start one with
+    /// `cd relay && npx wrangler d1 migrations apply kairo-relay --local && npx wrangler dev`, then
+    /// `KAIRO_RELAY=http://127.0.0.1:8787 cargo test -- --ignored through_a_real_relay`.
+    #[test]
+    #[ignore]
+    fn links_and_combines_through_a_real_relay() {
+        use std::sync::Arc;
+        let http = Arc::new(relay::Http::default());
+        let (desk, laptop) = (Computer::new("desk-h"), Computer::new("laptop-h"));
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let group = relay::new_group();
+        relay::register(http.as_ref(), &group).unwrap();
+        let mut host = pair::Host::start(http.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let hosting = thread::spawn(move || loop {
+            match host.step(1) {
+                pair::PairState::Waiting => thread::sleep(Duration::from_millis(200)),
+                done => return done,
+            }
+        });
+        let invite = pair::join(http.as_ref(), &code, "Laptop", Duration::from_secs(20)).unwrap();
+        assert_eq!(hosting.join().unwrap(), pair::PairState::Linked { name: "Laptop".into() });
+        assert_eq!(invite.group, group);
+
+        join_relay(&desk.conn, &group).unwrap();
+        join_relay(&laptop.conn, &invite.group).unwrap();
+        desk.track("code", now);
+        run_relay(&desk.conn, http.clone(), now).unwrap();
+        run_relay(&laptop.conn, http.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("code".into(), true)]);
+
+        leave_relay(&desk.conn, http.clone()).unwrap();
+        run_relay(&laptop.conn, http.clone(), now).unwrap();
+        assert!(laptop.apps().is_empty());
+        relay::delete_group(http.as_ref(), &group).unwrap();
     }
 
     #[test]

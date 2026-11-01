@@ -1,0 +1,16 @@
+# Kairo's relay: carries combined computers' sealed files and pairing messages. It can't read
+# either; see docs/superpowers/specs/2026-11-02-pairing-relay-design.md.
+name = "kairo-relay"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kairo-relay"
+# Filled in by `npx wrangler d1 create kairo-relay` before the first deploy.
+database_id = "6a4b87ff-feca-4919-b93e-e271d1887088"
+migrations_dir = "migrations"
+
+# Once a day: expired pairing slots, and groups no computer has used for 180 days.
+[triggers]
+crons = ["0 4 * * *"]

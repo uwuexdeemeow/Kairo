@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.25.1"
+version = "1.26.0"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -35,6 +35,15 @@ chrono = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rrule = "0.14.0"
+# Linking computers with a code: what goes to the relay is sealed here, and the code is turned
+# into a shared key with SPAKE2. All pure Rust, the same on every system.
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+sha2 = "0.10"
+getrandom = "0.2"
+flate2 = "1"
+spake2 = { version = "0.4", features = ["getrandom"] }
 
 # Window, idle and icon queries on a Mac; the same versions Tauri already builds there.
 [target.'cfg(target_os = "macos")'.dependencies]
