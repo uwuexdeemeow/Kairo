@@ -41,24 +41,57 @@ pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
 #[cfg(windows)]
 pub use win::{activate_window, can_close_windows, close_window, open_windows};
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn open_windows() -> Vec<OpenWindow> {
     Vec::new()
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn activate_window(_id: &str) -> bool {
     false
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn close_window(_id: &str) -> bool {
     false
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 pub fn can_close_windows() -> bool {
     false
+}
+
+/// On Wayland, the GNOME extension or KWin script lists windows, with their ids marked "g" or
+/// "k"; other Wayland desktops can't. On X11, the window manager does.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn open_windows() -> Vec<OpenWindow> {
+    if wayland() {
+        return gnome::windows().or_else(kde::windows).unwrap_or_default();
+    }
+    x11::open_windows()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn activate_window(id: &str) -> bool {
+    match id.split_at_checked(1) {
+        Some(("g", rest)) => gnome::activate(rest),
+        Some(("k", rest)) => kde::activate(rest),
+        _ => x11::activate(id),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn close_window(id: &str) -> bool {
+    match id.split_at_checked(1) {
+        Some(("g", rest)) => gnome::close(rest),
+        Some(("k", rest)) => kde::close(rest),
+        _ => x11::close(id),
+    }
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn can_close_windows() -> bool {
+    true
 }
 
 /// What a browser's address bar shows, read the way a screen reader would: through UI Automation
@@ -1208,19 +1241,66 @@ mod x11 {
         }
     }
 
+    impl Display {
+        /// A window's title: the modern UTF-8 one, or the old one older programs set instead.
+        fn title(&self, window: Window) -> String {
+            ["_NET_WM_NAME", "WM_NAME"]
+                .iter()
+                .find_map(|name| {
+                    let p = self.property(window, name, AtomEnum::ANY, 1024)?;
+                    (!p.value.is_empty()).then(|| String::from_utf8_lossy(&p.value).into_owned())
+                })
+                .unwrap_or_default()
+        }
+
+        fn pid(&self, window: Window) -> Option<u32> {
+            self.property(window, "_NET_WM_PID", AtomEnum::CARDINAL, 1)?.value32()?.next()
+        }
+
+        /// Asks the window manager about a window with a client message to the root, as pagers do.
+        fn ask(&self, window: Window, message: &str, data: [u32; 5]) -> bool {
+            let Some(kind) = self.atom(message) else { return false };
+            let event = ClientMessageEvent::new(32, window, kind, data);
+            self.conn.send_event(false, self.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event).is_ok() && self.conn.flush().is_ok()
+        }
+    }
+
     pub fn foreground() -> Option<Foreground> {
         let x = Display::open()?;
         let window = x.active_window()?;
-        let pid = x.property(window, "_NET_WM_PID", AtomEnum::CARDINAL, 1)?.value32()?.next()?;
-        // The modern UTF-8 title, or the old one older programs set instead.
-        let title = ["_NET_WM_NAME", "WM_NAME"]
-            .iter()
-            .find_map(|name| {
-                let p = x.property(window, name, AtomEnum::ANY, 1024)?;
-                (!p.value.is_empty()).then(|| String::from_utf8_lossy(&p.value).into_owned())
+        let pid = x.pid(window)?;
+        Some(Foreground { exe_path: super::program(pid)?, title: x.title(window), window: window as usize })
+    }
+
+    pub(super) fn window_of(id: &str) -> Option<Window> {
+        id.parse().ok().filter(|&w: &Window| w != 0)
+    }
+
+    /// The windows the window manager manages, front first (its stacking list runs bottom up).
+    pub fn open_windows() -> Vec<super::OpenWindow> {
+        let Some(x) = Display::open() else { return Vec::new() };
+        let Some(stack) = x.property(x.root, "_NET_CLIENT_LIST_STACKING", AtomEnum::WINDOW, 4096) else { return Vec::new() };
+        let windows: Vec<Window> = stack.value32().map(|v| v.collect()).unwrap_or_default();
+        windows
+            .into_iter()
+            .rev()
+            .map(|w| {
+                let pid = x.pid(w).unwrap_or(0);
+                super::OpenWindow { id: w.to_string(), title: x.title(w), pid, path: super::program(pid) }
             })
-            .unwrap_or_default();
-        Some(Foreground { exe_path: super::program(pid)?, title, window: window as usize })
+            .collect()
+    }
+
+    /// Asks the window manager to bring a window forward, as a pager would (source 2).
+    pub fn activate(id: &str) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        x.ask(w, "_NET_ACTIVE_WINDOW", [2, 0, 0, 0, 0])
+    }
+
+    /// Asks the window manager to close a window, as its close button would.
+    pub fn close(id: &str) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        x.ask(w, "_NET_CLOSE_WINDOW", [0, 2, 0, 0, 0])
     }
 
     /// Whether the active window is full screen, as the window manager marks it for a game or
@@ -1480,5 +1560,15 @@ mod window_tests {
         let kept = switchable(vec![window("a", "Budget", 5), window("b", "  ", 6), window("c", "Chrono", 99), window("d", &long, 7)], 99);
         assert_eq!(kept.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
         assert_eq!(kept[1].title.chars().count(), 200);
+    }
+}
+
+#[cfg(all(test, not(any(windows, target_os = "macos"))))]
+mod linux_window_tests {
+    #[test]
+    fn x11_window_ids_are_read() {
+        assert_eq!(super::x11::window_of("4194307"), Some(4194307));
+        assert_eq!(super::x11::window_of("0"), None);
+        assert_eq!(super::x11::window_of("g12"), None);
     }
 }
