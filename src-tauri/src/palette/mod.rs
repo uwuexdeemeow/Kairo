@@ -68,6 +68,18 @@ impl Index {
 }
 
 /// Opens the palette, or puts it away if it's open.
+
+/// The open windows the palette can switch to, named and with their program for an icon.
+fn open_windows() -> Vec<search::WindowEntry> {
+    crate::platform::switchable(crate::platform::open_windows(), std::process::id())
+        .into_iter()
+        .map(|w| {
+            let app = w.path.as_deref().map_or(String::new(), |p| crate::classify::app_name(p, &crate::classify::exe_stem(p), ""));
+            search::WindowEntry { id: w.id, title: w.title, app, icon: w.path }
+        })
+        .collect()
+}
+
 pub fn toggle(app: &AppHandle) {
     #[cfg(windows)]
     {
@@ -326,6 +338,8 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index) -> (Context, S
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         tasks: crate::tasks::list(conn, now).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
+        windows: open_windows(),
+        can_close_windows: crate::platform::can_close_windows(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
             Some((m.title, at, m.start_ms - now))
@@ -406,6 +420,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::AddTask(title) => {
             crate::tasks::add(conn, title, now_ms()).map_err(|e| e.to_string())?;
             crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)
+        }
+        // A window gone since the palette opened is no error: there's just nothing to do.
+        Action::FocusWindow(id) => {
+            crate::platform::activate_window(id);
+            Ok(())
+        }
+        Action::CloseWindow(id) => {
+            crate::platform::close_window(id);
+            Ok(())
         }
         Action::FinishTask(id) => {
             crate::tasks::set_done(conn, id, true, now_ms()).map_err(|e| e.to_string())?;
@@ -943,6 +966,8 @@ mod tests {
             week_goals: None,
             block_lists: Vec::new(),
             tasks: Vec::new(),
+            windows: Vec::new(),
+            can_close_windows: false,
             next_meeting: None,
         }
     }

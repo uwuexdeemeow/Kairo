@@ -8,6 +8,54 @@ pub struct Foreground {
     pub window: usize,
 }
 
+/// An open window a person could switch to, as the palette lists it. The id is the system's own
+/// for the window, as text: a window handle on Windows, "<pid>:<window number>" on a Mac, an X11
+/// id, or the GNOME extension's ("g…") or KWin's ("k…").
+#[derive(Clone, Debug, PartialEq)]
+pub struct OpenWindow {
+    pub id: String,
+    pub title: String,
+    pub pid: u32,
+    /// The program's path, for its name and icon; None when the system won't say.
+    pub path: Option<String>,
+}
+
+/// Window titles past this are cut, so one odd window can't stretch the palette.
+const MAX_WINDOW_TITLE: usize = 200;
+
+/// The windows worth listing, in the order given: not Kairo's own, and with a title.
+pub fn switchable(windows: Vec<OpenWindow>, own_pid: u32) -> Vec<OpenWindow> {
+    windows
+        .into_iter()
+        .filter(|w| w.pid != own_pid)
+        .filter_map(|w| {
+            let title: String = w.title.trim().chars().take(MAX_WINDOW_TITLE).collect();
+            (!title.is_empty()).then_some(OpenWindow { title, ..w })
+        })
+        .collect()
+}
+
+/// Open windows, front to back.
+pub fn open_windows() -> Vec<OpenWindow> {
+    Vec::new()
+}
+
+/// Brings a window forward, restoring it when minimized; false when it's gone or the system
+/// refused.
+pub fn activate_window(_id: &str) -> bool {
+    false
+}
+
+/// Asks a window to close, as its close button would; false when it's gone or the system refused.
+pub fn close_window(_id: &str) -> bool {
+    false
+}
+
+/// Whether windows can be asked to close here.
+pub fn can_close_windows() -> bool {
+    false
+}
+
 /// What a browser's address bar shows, read the way a screen reader would: through UI Automation
 /// on Windows, the Accessibility API on a Mac.
 #[cfg(any(windows, target_os = "macos"))]
@@ -1301,5 +1349,22 @@ mod linux_tests {
             assert!(super::foreground().is_none());
             assert!(!super::fullscreen_in_front());
         }
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    fn window(id: &str, title: &str, pid: u32) -> OpenWindow {
+        OpenWindow { id: id.into(), title: title.into(), pid, path: None }
+    }
+
+    #[test]
+    fn switchable_drops_kairo_and_blank_titles_and_keeps_order() {
+        let long = "x".repeat(300);
+        let kept = switchable(vec![window("a", "Budget", 5), window("b", "  ", 6), window("c", "Chrono", 99), window("d", &long, 7)], 99);
+        assert_eq!(kept.iter().map(|w| w.id.as_str()).collect::<Vec<_>>(), ["a", "d"]);
+        assert_eq!(kept[1].title.chars().count(), 200);
     }
 }

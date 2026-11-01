@@ -13,6 +13,12 @@ use crate::analysis::Category;
 const MAX_APPS: usize = 6;
 /// Rows `tasks` lists at most.
 const MAX_TASKS: usize = 8;
+/// Window rows shown at most.
+const MAX_WINDOWS: usize = 8;
+/// A window that matches by its app's name ranks this far below one that matches by title.
+const WINDOW_APP_PENALTY: f64 = 20.0;
+/// Window rows stay below commands (a focus session, a day, an answer), whatever they match.
+const MAX_WINDOW_SCORE: f64 = 300.0;
 /// How long a session started on a task from the palette runs.
 const TASK_MINUTES: u32 = 25;
 const RECENT_APPS: usize = 3;
@@ -270,6 +276,10 @@ pub enum Action {
     AddTask(String),
     /// Ticks a task off, by id.
     FinishTask(String),
+    /// Brings an open window forward, by the system's id for it.
+    FocusWindow(String),
+    /// Asks an open window to close, by the system's id for it.
+    CloseWindow(String),
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
     CopyAnswer(Subject, Period),
@@ -295,7 +305,7 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::FocusWindow(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
     }
 
     /// Whether the palette stays open after it, to show the new state.
@@ -339,6 +349,17 @@ impl Item {
     }
 }
 
+/// An open window, as the palette shows it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowEntry {
+    pub id: String,
+    pub title: String,
+    /// Its app's name; empty when unknown.
+    pub app: String,
+    /// The program's path, for its icon.
+    pub icon: Option<String>,
+}
+
 /// What's known when the palette opens.
 pub struct Context {
     pub today: NaiveDate,
@@ -364,6 +385,10 @@ pub struct Context {
     pub block_lists: Vec<String>,
     /// The open tasks, in the Focus page's order.
     pub tasks: Vec<crate::tasks::Task>,
+    /// The open windows when the palette opened, front to back.
+    pub windows: Vec<WindowEntry>,
+    /// Whether a window can be asked to close here (not on a Mac without Accessibility).
+    pub can_close_windows: bool,
     /// The next meeting on the user's calendars: its title, when it starts, and how far off that
     /// is from now, in milliseconds.
     pub next_meeting: Option<(String, NaiveDateTime, i64)>,
@@ -537,6 +562,38 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
         .collect()
 }
 
+/// Rows for open windows: those matching by title, or less well by their app's name, best first;
+/// `windows` alone lists them all, front to back.
+fn window_items(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let mut found: Vec<(f64, Vec<usize>, &WindowEntry)> = if q.eq_ignore_ascii_case("windows") {
+        ctx.windows.iter().enumerate().map(|(i, w)| (MAX_WINDOW_SCORE - i as f64, Vec::new(), w)).collect()
+    } else {
+        ctx.windows
+            .iter()
+            .filter_map(|w| {
+                let by_title = fuzzy(q, &w.title).map(|m| (m.score, m.at));
+                let by_app = fuzzy(q, &w.app).filter(|_| !w.app.is_empty()).map(|m| (m.score - WINDOW_APP_PENALTY, Vec::new()));
+                let (score, at) = [by_title, by_app].into_iter().flatten().max_by(|a, b| a.0.total_cmp(&b.0))?;
+                Some((score.min(MAX_WINDOW_SCORE), at, w))
+            })
+            .collect()
+    };
+    found.sort_by(|a, b| b.0.total_cmp(&a.0));
+    found
+        .into_iter()
+        .take(MAX_WINDOWS)
+        .map(|(score, at, w)| {
+            let mut item = Item::new(w.title.clone(), Icon::App(w.icon.clone().unwrap_or_default()), "Windows", Action::FocusWindow(w.id.clone()));
+            item.at = at;
+            item.sub = (!w.app.is_empty()).then(|| w.app.clone());
+            item.second = ctx.can_close_windows.then(|| (Action::CloseWindow(w.id.clone()), "Close window"));
+            item.score = score;
+            item
+        })
+        .collect()
+}
+
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
@@ -569,6 +626,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     items.extend(task_items(ctx, query));
+    items.extend(window_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
     match split_period(query) {
         (asked, Some(period)) => {
@@ -755,6 +813,8 @@ mod tests {
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
             tasks: Vec::new(),
+            windows: Vec::new(),
+            can_close_windows: true,
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
         }
     }
@@ -999,5 +1059,60 @@ mod tests {
         for q in ["tas\u{212A} manager", "task\u{212A} x", "add tas\u{212A} y", "\u{212A}asks"] {
             let _ = search(&c, q);
         }
+    }
+
+    fn win(id: &str, title: &str, app: &str) -> WindowEntry {
+        WindowEntry { id: id.into(), title: title.into(), app: app.into(), icon: None }
+    }
+
+    fn with_windows() -> Context {
+        let mut c = ctx();
+        c.apps.push(app("Excel", 3));
+        c.windows = vec![win("1", "budget.xlsx — Excel", "Excel"), win("2", "Inbox — Mail", "Mail")];
+        c
+    }
+
+    #[test]
+    fn a_window_title_match_leads() {
+        let first = search(&with_windows(), "budget").into_iter().next().unwrap();
+        assert_eq!((first.section, first.title.as_str(), first.sub.as_deref()), ("Windows", "budget.xlsx — Excel", Some("Excel")));
+        assert_eq!(first.action, Action::FocusWindow("1".into()));
+        assert_eq!(first.second, Some((Action::CloseWindow("1".into()), "Close window")));
+    }
+
+    #[test]
+    fn an_app_name_puts_the_app_first_then_its_windows() {
+        let found = search(&with_windows(), "excel");
+        assert_eq!(found[0].title, "Excel");
+        assert!(found.iter().any(|i| i.action == Action::FocusWindow("1".into())));
+    }
+
+    #[test]
+    fn windows_lists_them_all_in_order_capped() {
+        let mut c = ctx();
+        c.windows = (0..12).map(|n| win(&n.to_string(), &format!("Window {n}"), "App")).collect();
+        let rows: Vec<String> = search(&c, "windows").into_iter().filter(|i| i.section == "Windows").map(|i| i.title).collect();
+        assert_eq!(rows, (0..8).map(|n| format!("Window {n}")).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn no_close_where_closing_isnt_possible() {
+        let mut c = with_windows();
+        c.can_close_windows = false;
+        assert!(search(&c, "budget").iter().filter(|i| i.section == "Windows").all(|i| i.second.is_none()));
+    }
+
+    #[test]
+    fn windows_never_beat_commands() {
+        let mut c = ctx();
+        c.windows = vec![win("1", "focus 50", "Notes"), win("2", "12*7", "Notes")];
+        assert_eq!(search(&c, "focus 50")[0].section, "Focus");
+        assert_eq!(search(&c, "12*7")[0].section, "Calculator");
+    }
+
+    #[test]
+    fn no_windows_among_suggestions() {
+        let s = suggestions(&with_windows());
+        assert!(s.rows.iter().all(|i| i.section != "Windows"));
     }
 }
