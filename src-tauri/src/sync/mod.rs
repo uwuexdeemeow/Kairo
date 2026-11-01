@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{db, privacy};
 
 pub mod seal;
+pub mod pair;
 pub mod relay;
 pub mod store;
 
@@ -871,6 +872,44 @@ mod tests {
         assert!(!combining(&laptop.conn).unwrap());
         assert!(laptop.apps().is_empty());
         assert_eq!(db::get_setting(&laptop.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    /// Links two computers with a code and combines them through a real relay: start one with
+    /// `cd relay && npx wrangler d1 migrations apply kairo-relay --local && npx wrangler dev`, then
+    /// `KAIRO_RELAY=http://127.0.0.1:8787 cargo test -- --ignored through_a_real_relay`.
+    #[test]
+    #[ignore]
+    fn links_and_combines_through_a_real_relay() {
+        use std::sync::Arc;
+        let http = Arc::new(relay::Http::default());
+        let (desk, laptop) = (Computer::new("desk-h"), Computer::new("laptop-h"));
+        let now = chrono::Utc::now().timestamp_millis();
+
+        let group = relay::new_group();
+        relay::register(http.as_ref(), &group).unwrap();
+        let mut host = pair::Host::start(http.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let hosting = thread::spawn(move || loop {
+            match host.step(1) {
+                pair::PairState::Waiting => thread::sleep(Duration::from_millis(200)),
+                done => return done,
+            }
+        });
+        let invite = pair::join(http.as_ref(), &code, "Laptop", Duration::from_secs(20)).unwrap();
+        assert_eq!(hosting.join().unwrap(), pair::PairState::Linked { name: "Laptop".into() });
+        assert_eq!(invite.group, group);
+
+        join_relay(&desk.conn, &group).unwrap();
+        join_relay(&laptop.conn, &invite.group).unwrap();
+        desk.track("code", now);
+        run_relay(&desk.conn, http.clone(), now).unwrap();
+        run_relay(&laptop.conn, http.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("code".into(), true)]);
+
+        leave_relay(&desk.conn, http.clone()).unwrap();
+        run_relay(&laptop.conn, http.clone(), now).unwrap();
+        assert!(laptop.apps().is_empty());
+        relay::delete_group(http.as_ref(), &group).unwrap();
     }
 
     #[test]
