@@ -94,11 +94,15 @@ impl Store for FolderStore {
     }
 }
 
+/// (computer, name) → (bytes, version).
+#[cfg(test)]
+type MemFiles = HashMap<(String, String), (Vec<u8>, u64)>;
+
 /// A store in memory, shared between the computers of a test.
 #[cfg(test)]
 #[derive(Clone, Default)]
 pub struct MemStore {
-    files: std::sync::Arc<std::sync::Mutex<HashMap<(String, String), (Vec<u8>, u64)>>>,
+    files: std::sync::Arc<std::sync::Mutex<MemFiles>>,
     count: std::sync::Arc<std::sync::atomic::AtomicU64>,
     me: String,
 }

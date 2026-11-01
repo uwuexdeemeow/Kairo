@@ -59,6 +59,12 @@ pub struct AppState {
     pub navigation: Mutex<Option<Navigation>>,
     /// The dashboard tab asked for, until the page takes it.
     pub dashboard_tab: Mutex<Option<String>>,
+    /// Where the database lives, for threads that reach the relay with connections of their own.
+    pub db_path: std::path::PathBuf,
+    /// Wakes the sync thread for a round at once.
+    pub sync_now: Mutex<std::sync::mpsc::Sender<()>>,
+    /// The code Settings is showing, if any.
+    pub linking: sync::link::Shared,
 }
 
 /// A view, and for Today or Week a local `YYYY-MM-DD` date, and for Settings the id of the
@@ -178,11 +184,18 @@ pub fn run() {
             browser::spawn_scripted(scripted_tab.clone(), paused.clone(), browser_tab.clone());
             collector::spawn(db_path.clone(), paused.clone(), privacy_rules.clone(), browser_tab.clone(), scripted_tab);
             goals::spawn(app.handle().clone(), db_path.clone(), paused.clone());
-            sync::spawn(db_path.clone(), privacy_rules.clone(), window_cache.clone());
+            let (sync_now, wake) = std::sync::mpsc::channel();
+            let handle = app.handle().clone();
+            sync::spawn(db_path.clone(), privacy_rules.clone(), window_cache.clone(), wake, move || {
+                let _ = handle.emit("kairo:sync", ());
+            });
             calendar::spawn(db_path.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
-            nudge::spawn(app.handle().clone(), db_path, paused.clone(), window_cache.clone());
+            nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
             app.manage(AppState {
+                db_path,
+                sync_now: Mutex::new(sync_now),
+                linking: sync::link::Shared::default(),
                 db: Mutex::new(conn),
                 paused: paused.clone(),
                 window_cache,
@@ -355,6 +368,11 @@ pub fn run() {
             commands::get_sync,
             commands::choose_sync_folder,
             commands::stop_sync,
+            commands::pair_start,
+            commands::pair_status,
+            commands::pair_cancel,
+            commands::pair_join,
+            commands::start_over,
             commands::set_shown_computer,
             commands::clear_demo_data,
         ])

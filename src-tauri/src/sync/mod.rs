@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::{db, privacy};
 
 pub mod seal;
+pub mod link;
 pub mod pair;
 pub mod relay;
 pub mod store;
@@ -260,13 +261,21 @@ pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<boo
     Ok(changed)
 }
 
-/// Every few minutes, while Kairo runs. Choices that come in reach the collector's recording rules
-/// and the nudges at once.
-pub fn spawn(db_path: PathBuf, rules: privacy::SharedRules, cache: crate::nudge::SharedCache) {
+/// Every few minutes, while Kairo runs, and at once whenever something sends on `wake` (linking,
+/// joining, starting over). Choices that come in reach the collector's recording rules and the
+/// nudges at once; `on_woken` runs after each round a wake asked for, so open windows can show it.
+pub fn spawn(
+    db_path: PathBuf,
+    rules: privacy::SharedRules,
+    cache: crate::nudge::SharedCache,
+    wake: std::sync::mpsc::Receiver<()>,
+    on_woken: impl Fn() + Send + 'static,
+) {
+    use std::sync::mpsc::RecvTimeoutError;
     thread::Builder::new()
         .name("kairo-sync".into())
         .spawn(move || {
-            thread::sleep(FIRST_AFTER);
+            let mut woken = wake.recv_timeout(FIRST_AFTER).is_ok();
             let conn = match db::open(&db_path) {
                 Ok(conn) => conn,
                 Err(e) => return eprintln!("sync: cannot open the database: {e}"),
@@ -282,7 +291,20 @@ pub fn spawn(db_path: PathBuf, rules: privacy::SharedRules, cache: crate::nudge:
                     Ok(false) => {}
                     Err(e) => eprintln!("sync: {e}"),
                 }
-                thread::sleep(EVERY);
+                if woken {
+                    on_woken();
+                }
+                woken = match wake.recv_timeout(EVERY) {
+                    Ok(()) => {
+                        while wake.try_recv().is_ok() {}
+                        true
+                    }
+                    Err(RecvTimeoutError::Timeout) => false,
+                    Err(RecvTimeoutError::Disconnected) => {
+                        thread::sleep(EVERY);
+                        false
+                    }
+                };
             }
         })
         .expect("failed to start sync thread");

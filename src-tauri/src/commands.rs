@@ -1263,22 +1263,104 @@ pub fn restore_dialog(app: &AppHandle) -> CmdResult<bool> {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncState {
-    /// The synced folder, while combining is on.
+    /// "off", "folder" or "relay".
+    mode: &'static str,
+    /// The synced folder, while combining through one.
     folder: Option<String>,
     computers: Vec<sync::Computer>,
     /// This computer's name, as the others see it.
     name: String,
     /// Whose time the views show: "all", "this" or a computer's id.
     shown: String,
+    /// When this computer last synced through the relay.
+    synced_ms: Option<i64>,
+    /// What went wrong with the relay since, or "unlinked" when another computer started over.
+    error: Option<String>,
 }
 
 fn sync_state(conn: &rusqlite::Connection) -> CmdResult<SyncState> {
-    Ok(SyncState {
-        folder: sync::folder(conn)?.map(|f| f.display().to_string()),
-        computers: sync::computers(conn)?,
-        name: sync::device_name(),
-        shown: sync::shown(conn)?,
-    })
+    let folder = sync::folder(conn)?.map(|f| f.display().to_string());
+    let mode = match (&folder, sync::relay::group(conn)?) {
+        (Some(_), _) => "folder",
+        (None, Some(_)) => "relay",
+        (None, None) => "off",
+    };
+    let (synced_ms, error) = sync::relay_status(conn)?;
+    Ok(SyncState { mode, folder, computers: sync::computers(conn)?, name: sync::device_name(), shown: sync::shown(conn)?, synced_ms, error })
+}
+
+/// Runs `work` on a thread of its own and waits for it: the relay is reached with blocking calls,
+/// which mustn't run on the async runtime's threads.
+fn off_runtime<T: Send>(work: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|s| s.spawn(work).join().expect("relay worker thread"))
+}
+
+fn wake_sync(state: &AppState) {
+    if let Ok(wake) = state.sync_now.lock() {
+        let _ = wake.send(());
+    }
+}
+
+fn show_code(app: AppHandle, start_over: bool) -> CmdResult<sync::link::Linking> {
+    let state = app.state::<AppState>();
+    let (shared, path) = (state.linking.clone(), state.db_path.clone());
+    let handle = app.clone();
+    let linking = off_runtime(|| {
+        sync::link::host(&shared, std::sync::Arc::new(sync::relay::Http::default()), &path, start_over, std::time::Duration::from_secs(1), move || {
+            wake_sync(&handle.state::<AppState>());
+            let _ = handle.emit("kairo:sync", ());
+        })
+    })?;
+    if start_over {
+        // The others' time has left this computer.
+        wake_sync(&state);
+        let _ = app.emit("kairo:sync", ());
+    }
+    Ok(linking)
+}
+
+/// Shows a code another computer can type to link with this one.
+#[tauri::command(async)]
+pub fn pair_start(app: AppHandle) -> CmdResult<sync::link::Linking> {
+    show_code(app, false)
+}
+
+/// Deletes this computer's group from the relay, starts a new one with this computer alone, and
+/// shows a code to link the others again.
+#[tauri::command(async)]
+pub fn start_over(app: AppHandle) -> CmdResult<sync::link::Linking> {
+    show_code(app, true)
+}
+
+/// The code being shown and how it's going, if one is.
+#[tauri::command]
+pub fn pair_status(state: State<AppState>) -> Option<sync::link::Linking> {
+    state.linking.status()
+}
+
+#[tauri::command]
+pub fn pair_cancel(state: State<AppState>) {
+    state.linking.cancel();
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Joined {
+    /// The name of the computer whose code it was.
+    from: String,
+    sync: SyncState,
+}
+
+/// Links this computer with a code another one shows.
+#[tauri::command(async)]
+pub fn pair_join(app: AppHandle, code: String) -> CmdResult<Joined> {
+    let state = app.state::<AppState>();
+    let path = state.db_path.clone();
+    let from = off_runtime(|| sync::link::join(&sync::relay::Http::default(), &path, &code))?;
+    wake_sync(&state);
+    let _ = app.emit("kairo:sync", ());
+    let conn = state.db.lock().map_err(err)?;
+    Ok(Joined { from, sync: sync_state(&conn)? })
 }
 
 #[tauri::command]
@@ -1304,6 +1386,9 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
     };
     let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
+    if sync::relay::group(&conn)?.is_some() {
+        return Err("Stop combining through the relay first.".into());
+    }
     if sync::start(&conn, &dir, now_ms())? {
         privacy::refresh(&conn, &state.privacy_rules).map_err(err)?;
     }
@@ -1312,8 +1397,20 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
     sync_state(&conn).map(Some)
 }
 
-#[tauri::command]
-pub fn stop_sync(app: AppHandle, state: State<AppState>) -> CmdResult<SyncState> {
+#[tauri::command(async)]
+pub fn stop_sync(app: AppHandle) -> CmdResult<SyncState> {
+    let state = app.state::<AppState>();
+    state.linking.cancel();
+    let through_relay = sync::relay::group(&*state.db.lock().map_err(err)?)?.is_some();
+    if through_relay {
+        // Off the shared connection: taking this computer's files off the relay needs the network.
+        // The group is forgotten even when the relay can't be reached.
+        let path = state.db_path.clone();
+        let left = off_runtime(|| db::open(&path).map_err(err).and_then(|conn| sync::leave_relay(&conn, std::sync::Arc::new(sync::relay::Http::default()))));
+        if let Err(e) = left {
+            eprintln!("sync: leaving the relay: {e}");
+        }
+    }
     let conn = state.db.lock().map_err(err)?;
     sync::stop(&conn)?;
     nudge::invalidate(&state.window_cache);

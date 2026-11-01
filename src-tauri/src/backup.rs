@@ -14,7 +14,18 @@ use crate::analysis;
 const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "week_notes", "tasks"];
 /// Settings that belong to this computer rather than to you: the palette's keys differ between a
 /// Mac and the rest, and each computer combining its time with others has its own id.
-const LOCAL_SETTINGS: &[&str] = &["palette_shortcut", "device_id", "sync_folder", "shown_computer", "choices_seeded"];
+const LOCAL_SETTINGS: &[&str] = &[
+    "palette_shortcut",
+    "device_id",
+    "sync_folder",
+    "shown_computer",
+    "choices_seeded",
+    "sync_computers",
+    "relay_group",
+    "relay_key",
+    "relay_synced_ms",
+    "relay_error",
+];
 
 type Result<T> = std::result::Result<T, String>;
 
@@ -166,6 +177,30 @@ mod tests {
         assert!(before.exists());
         assert!(restore(&live, &live_file.with_extension("missing"), &before).is_err());
 
+        drop(live);
+        for f in [saved, before, live_file] {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+
+    #[test]
+    fn restore_keeps_this_computers_group() {
+        let (saved, before, live_file) = (temp("saved-g.kairo"), temp("before-g.kairo"), temp("live-g.db"));
+        let _ = std::fs::remove_file(&live_file);
+        let live = db::open(&live_file).unwrap();
+        // A backup taken in another group (or none) never moves this computer.
+        let theirs = crate::sync::relay::new_group();
+        crate::sync::relay::set_group(&live, Some(&theirs)).unwrap();
+        db::set_setting(&live, "relay_synced_ms", "1").unwrap();
+        backup(&live, &saved).unwrap();
+        let mine = crate::sync::relay::new_group();
+        crate::sync::relay::set_group(&live, Some(&mine)).unwrap();
+        db::set_setting(&live, "relay_synced_ms", "2").unwrap();
+        db::set_setting(&live, "relay_error", "unlinked").unwrap();
+        restore(&live, &saved, &before).unwrap();
+        assert_eq!(crate::sync::relay::group(&live).unwrap(), Some(mine));
+        assert_eq!(db::get_setting(&live, "relay_synced_ms").unwrap().as_deref(), Some("2"));
+        assert_eq!(db::get_setting(&live, "relay_error").unwrap().as_deref(), Some("unlinked"));
         drop(live);
         for f in [saved, before, live_file] {
             let _ = std::fs::remove_file(f);

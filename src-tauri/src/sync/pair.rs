@@ -139,11 +139,6 @@ impl Host {
         })
     }
 
-    /// The group the code invites to.
-    pub fn group(&self) -> &Group {
-        &self.group
-    }
-
     fn finish(&mut self, state: PairState) -> PairState {
         self.mailbox.close(&self.slot);
         self.state = state.clone();
@@ -299,46 +294,43 @@ impl Mailbox for super::relay::Http {
     }
 }
 
+/// The in-memory relay's pairing slots, for tests.
+#[cfg(test)]
+impl Mailbox for super::relay::MemApi {
+    fn open(&self, a: &[u8]) -> Result<String, ApiError> {
+        let mut slots = self.slots.lock().unwrap();
+        let slot = format!("{}{}", (b'A' + slots.len() as u8) as char, 'B');
+        slots.insert(slot.clone(), Parts { a: Some(a.to_vec()), ..Parts::default() });
+        Ok(slot)
+    }
+    fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+        self.slots.lock().unwrap().get(slot).cloned().ok_or(ApiError::Gone)
+    }
+    fn write(&self, slot: &str, part: &str, bytes: &[u8]) -> Result<(), ApiError> {
+        let mut slots = self.slots.lock().unwrap();
+        let parts = slots.get_mut(slot).ok_or(ApiError::Gone)?;
+        let field = match part {
+            "b" => &mut parts.b,
+            "invite" => &mut parts.invite,
+            "reply" => &mut parts.reply,
+            _ => return Err(ApiError::Other("400".into())),
+        };
+        if field.is_some() {
+            return Err(ApiError::Other("409".into()));
+        }
+        *field = Some(bytes.to_vec());
+        Ok(())
+    }
+    fn close(&self, slot: &str) {
+        self.slots.lock().unwrap().remove(slot);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::Mutex;
 
-    #[derive(Default)]
-    struct MemMailbox {
-        slots: Mutex<HashMap<String, Parts>>,
-    }
-
-    impl Mailbox for MemMailbox {
-        fn open(&self, a: &[u8]) -> Result<String, ApiError> {
-            let mut slots = self.slots.lock().unwrap();
-            let slot = format!("{}{}", (b'A' + slots.len() as u8) as char, 'B');
-            slots.insert(slot.clone(), Parts { a: Some(a.to_vec()), ..Parts::default() });
-            Ok(slot)
-        }
-        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
-            self.slots.lock().unwrap().get(slot).cloned().ok_or(ApiError::Gone)
-        }
-        fn write(&self, slot: &str, part: &str, bytes: &[u8]) -> Result<(), ApiError> {
-            let mut slots = self.slots.lock().unwrap();
-            let parts = slots.get_mut(slot).ok_or(ApiError::Gone)?;
-            let field = match part {
-                "b" => &mut parts.b,
-                "invite" => &mut parts.invite,
-                "reply" => &mut parts.reply,
-                _ => return Err(ApiError::Other("400".into())),
-            };
-            if field.is_some() {
-                return Err(ApiError::Other("409".into()));
-            }
-            *field = Some(bytes.to_vec());
-            Ok(())
-        }
-        fn close(&self, slot: &str) {
-            self.slots.lock().unwrap().remove(slot);
-        }
-    }
+    type MemMailbox = super::super::relay::MemApi;
 
     const FAST: Duration = Duration::from_millis(5);
 

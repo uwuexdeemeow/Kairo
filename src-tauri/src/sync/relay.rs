@@ -254,12 +254,18 @@ impl Api for Http {
     }
 }
 
+/// A file in the in-memory relay: group, computer, sealed name.
+#[cfg(test)]
+type MemKey = (String, String, String);
+
 /// A relay in memory, for tests: groups by token hash, files by group, computer and name.
 #[cfg(test)]
 #[derive(Default)]
 pub struct MemApi {
+    /// Pairing slots, for `pair::Mailbox`.
+    pub slots: std::sync::Mutex<std::collections::HashMap<String, super::pair::Parts>>,
     groups: std::sync::Mutex<std::collections::HashMap<String, String>>,
-    files: std::sync::Mutex<std::collections::BTreeMap<(String, String, String), (Vec<u8>, u64)>>,
+    files: std::sync::Mutex<std::collections::BTreeMap<MemKey, (Vec<u8>, u64)>>,
 }
 
 #[cfg(test)]
