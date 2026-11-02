@@ -8,6 +8,7 @@ mod browser;
 mod classify;
 mod collector;
 mod commands;
+mod crashlog;
 mod db;
 mod demo;
 mod evening;
@@ -141,6 +142,7 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            crashlog::install(&dir);
             let db_path = dir.join("kairo.db");
 
             let launch = startup::launch_for(&std::env::args().collect::<Vec<_>>());

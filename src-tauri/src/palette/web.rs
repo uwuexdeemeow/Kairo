@@ -109,9 +109,10 @@ fn open(app: &AppHandle) -> bool {
 #[cfg(target_os = "macos")]
 mod panel {
     use std::ffi::c_void;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;
 
-    use objc2::runtime::{AnyObject, Bool, Sel};
+    use objc2::runtime::{AnyClass, AnyObject, Bool, Sel};
     use objc2::{define_class, msg_send, sel, ClassType, MainThreadOnly};
     use objc2_app_kit::{NSPanel, NSResponder, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
     use objc2_foundation::NSObject;
@@ -137,14 +138,38 @@ mod panel {
         }
     );
 
+    /// The class the palette's window had before it became the panel. By then WebKit observes the
+    /// window, so that class is the one macOS made to tell it of changes, and closing the window
+    /// needs it back: removing WebKit's observer from the panel throws, which ends Kairo.
+    static WAS: AtomicUsize = AtomicUsize::new(0);
+
     /// Turns the palette's window into the panel, waiting until it's done so it's shown as one.
     pub fn convert(window: &WebviewWindow) {
+        on_main(window, |ns_window| {
+            // Safety: on the main thread, with the window Tauri just made.
+            unsafe { make_panel(ns_window) };
+        });
+    }
+
+    /// Gives the window back its own class, so it can be closed.
+    pub fn revert(window: &WebviewWindow) {
+        on_main(window, |ns_window| {
+            let was = WAS.swap(0, Ordering::AcqRel) as *const AnyClass;
+            if !was.is_null() {
+                // Safety: on the main thread; the class is the one this window had, which holds
+                // the same state as the panel's.
+                unsafe { AnyObject::set_class(&*(ns_window as *const AnyObject), &*was) };
+            }
+        });
+    }
+
+    /// Runs `work` with the window's NSWindow on the main thread, and waits for it.
+    fn on_main(window: &WebviewWindow, work: impl FnOnce(*mut c_void) + Send + 'static) {
         let Ok(ns_window) = window.ns_window() else { return };
         let ns_window = ns_window as usize;
         let (done, wait) = mpsc::channel();
         let sent = window.run_on_main_thread(move || {
-            // Safety: on the main thread, with the window Tauri just made.
-            unsafe { make_panel(ns_window as *mut c_void) };
+            work(ns_window as *mut c_void);
             let _ = done.send(());
         });
         if sent.is_ok() {
@@ -156,6 +181,7 @@ mod panel {
     /// the class leaves the state tao keeps in its window where tao expects it.
     unsafe fn make_panel(ns_window: *mut c_void) {
         let object = &*(ns_window as *const AnyObject);
+        WAS.store(object.class() as *const AnyClass as usize, Ordering::Release);
         AnyObject::set_class(object, Panel::class());
         let panel = &*(ns_window as *const NSPanel);
         panel.setStyleMask(panel.styleMask() | NSWindowStyleMask::NonactivatingPanel);
@@ -183,6 +209,8 @@ fn let_go_when_unused(app: &AppHandle) {
         std::thread::sleep(Duration::from_secs(60));
         let Some(window) = app.get_webview_window(LABEL) else { return };
         if !window.is_visible().unwrap_or(true) && now_ms() - HIDDEN_AT.load(Ordering::Relaxed) > KEEP_FOR_MS {
+            #[cfg(target_os = "macos")]
+            panel::revert(&window);
             let _ = window.close();
             return;
         }
