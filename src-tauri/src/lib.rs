@@ -24,6 +24,7 @@ mod privacy;
 mod projects;
 mod quick_add;
 mod recap;
+mod reminders;
 mod schedule;
 mod startup;
 mod sync;
@@ -196,6 +197,7 @@ pub fn run() {
             calendar::spawn(db_path.clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
+            reminders::spawn(app.handle().clone(), db_path.clone());
             app.manage(AppState {
                 db_path,
                 sync_now: Mutex::new(sync_now),
