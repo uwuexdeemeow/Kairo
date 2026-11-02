@@ -70,9 +70,9 @@ const APPS: KairoApp[] = [
     what: "Apps, days and commands, from anywhere",
     line: async () => {
       const shortcut = (await api.paletteSettings()).shortcut;
-      // The keycap shows the keys too; each place needs its own copy of them.
+      // The keycap shows the keys; the line says where they work.
       document.querySelector('[data-app="palette"] .keycap')?.replaceChildren(...shortcutKeys(shortcut));
-      return shortcutKeys(shortcut);
+      return "Press it anywhere";
     },
     object: () => h("span", { class: "keycap" }),
     open: () => api.openPalette(),

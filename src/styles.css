@@ -2849,7 +2849,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
   gap: 28px 20px;
-  align-items: end;
+  align-items: start;
 }
 
 .app-tile {
@@ -3096,12 +3096,52 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 /* Tick, dot, title, day, bell, time, Start; a row without a dot keeps its title in line. */
+/* Every row on the same columns, each detail in its own whether a row has it or not:
+   tick, dot, title, day, bell, note, time, Start. */
 .ledger-list .task-row {
-  grid-template-columns: 16px 8px minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: 16px 8px minmax(0, 1fr) 76px 16px 16px 56px 112px;
+  column-gap: 10px;
 }
 
-.ledger-list .task-row > input + .task-title {
+.ledger-list .task-row > input {
+  grid-column: 1;
+}
+
+.ledger-list .prio-dot {
+  grid-column: 2;
+}
+
+.ledger-list .task-title {
   grid-column: 3;
+}
+
+.ledger-list .task-day {
+  grid-column: 4;
+  text-align: right;
+}
+
+.ledger-list .task-bell {
+  grid-column: 5;
+}
+
+.ledger-list .task-note {
+  grid-column: 6;
+}
+
+.ledger-list .task-time {
+  grid-column: 7;
+  text-align: right;
+}
+
+.ledger-list .task-start,
+.ledger-list .task-now {
+  grid-column: 8;
+  justify-self: end;
+}
+
+/* Rows in one cell each, so every detail lands on its line. */
+.ledger-list .task-row > * {
+  grid-row: 1;
 }
 
 .ledger-list .task-title {

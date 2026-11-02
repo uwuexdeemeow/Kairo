@@ -62,7 +62,7 @@ describe("Home", () => {
     await open();
     expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette"]);
     await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
-    expect(line("palette")).toBe("AltSpace");
+    expect(line("palette")).toBe("Press it anywhere");
     expect(line("ledger")).toBe("1 due today · 1 overdue");
   });
 
