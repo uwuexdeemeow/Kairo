@@ -319,7 +319,7 @@ mod tests {
         let t = crate::tasks::add(&c, "Essay", 1).unwrap().unwrap();
         c.execute("UPDATE tasks SET note = ?1 WHERE id = ?2", params![n.id, t.id]).unwrap();
         assert_eq!(get(&c, &n.id).unwrap().unwrap().tasks, [(t.id.clone(), "Essay".to_string())]);
-        assert_eq!(remove(&c, &n.id, 5).unwrap(), [t.id.clone()]);
+        assert_eq!(remove(&c, &n.id, 5).unwrap(), std::slice::from_ref(&t.id));
         assert!(list(&c, "").unwrap().is_empty());
         assert_eq!(get(&c, &n.id).unwrap(), None);
         let still: Option<String> = c.query_row("SELECT note FROM tasks WHERE id = ?1", [&t.id], |r| r.get(0)).unwrap();
