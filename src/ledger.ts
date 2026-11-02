@@ -3,7 +3,8 @@ import "@fontsource-variable/geist-mono";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
-import { renderDetail, renderTaskList, type LedgerActions, type RunningSession } from "./ledger-tasks";
+import { mountNotes, type NotesView } from "./ledger-notes";
+import { renderDetail, renderTaskList, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { $, followTheme } from "./ui";
 
 /// Chrono's timer keeps the length picked for the next session here; Start focus uses it too.
@@ -21,6 +22,8 @@ function sessionMinutes(): number {
 let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
+/// The notes' names, for the task panel's Note row.
+let noteNames: NoteName[] = [];
 
 function draw(list?: Task[]) {
   if (list) tasks = list;
@@ -28,14 +31,15 @@ function draw(list?: Task[]) {
   const panel = $("#task-detail");
   const t = tasks.find((x) => x.id === selected);
   // Typing in the panel isn't undone by a redraw from elsewhere.
-  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions);
+  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames);
   panel.hidden = !t;
   if (!t) selected = null;
 }
 
 async function refresh() {
-  const [list, running] = await Promise.all([api.tasks(), api.focus().catch(() => null)]);
+  const [list, running, notes] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null)]);
   session = running ? { task: running.task } : null;
+  if (notes) noteNames = notes.map((n) => ({ id: n.id, title: n.title }));
   draw(list);
 }
 
@@ -58,22 +62,78 @@ const actions: LedgerActions = {
     selected = id;
     tasks = list;
     const t = list.find((x) => x.id === id);
-    if (t) renderDetail($("#task-detail"), t, actions);
+    if (t) renderDetail($("#task-detail"), t, actions, noteNames);
     draw();
   },
   remove: async (id) => {
     if (selected === id) selected = null;
     draw(await api.removeTask(id));
   },
+  openNote: (id) => void openNote(id),
+  attach: async (task, note) => {
+    const list = await api.setTaskNote(task, note);
+    selected = task;
+    tasks = list;
+    const t = list.find((x) => x.id === task);
+    if (t) renderDetail($("#task-detail"), t, actions, noteNames);
+    draw();
+  },
+  newNoteFor: async (task, title) => {
+    const n = await api.newNote(`# ${title}
+
+`);
+    noteNames = [{ id: n.id, title: n.title }, ...noteNames];
+    await actions.attach(task, n.id);
+    await openNote(n.id);
+  },
 };
 
-type View = "tasks" | "settings";
+let notesView: NotesView | null = null;
+
+/// The Notes view, made the first time it's shown.
+function notes(): NotesView {
+  notesView ??= mountNotes($("#view-notes"), {
+    search: (q) => api.notes(q),
+    create: () => api.newNote(""),
+    save: (id, body) => api.saveNote(id, body),
+    pin: (id, pinned) => api.pinNote(id, pinned),
+    remove: (id) => api.removeNote(id),
+    openTask: (id) => openTask(id),
+    syncSoon: () => void api.syncSoon(),
+  });
+  return notesView;
+}
+
+async function openNote(id: string) {
+  show("notes");
+  await notes().open(id);
+}
+
+function openTask(id: string) {
+  show("tasks");
+  selected = id;
+  void refresh();
+}
+
+/// Goes where whoever opened the window asked: a note or a task.
+async function followOpen() {
+  const asked = await api.takeLedgerOpen().catch(() => null);
+  const [kind, id] = (asked ?? "").split(":");
+  if (kind === "note" && id) await openNote(id);
+  if (kind === "task" && id) openTask(id);
+}
+
+type View = "tasks" | "notes" | "settings";
 
 function show(view: View) {
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.setAttribute("aria-selected", String(b.dataset.view === view));
   $("#view-tasks").hidden = view !== "tasks";
+  $("#view-notes").hidden = view !== "notes";
   $("#view-settings").hidden = view !== "settings";
-  $("#ledger-title").textContent = view === "tasks" ? "Tasks" : "Settings";
+  $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", settings: "Settings" }[view];
+  // A note typed in is kept before another view takes the window.
+  if (view !== "notes") void notesView?.flush();
+  if (view === "notes") void notes().refresh();
   if (view === "settings") void loadSettings();
 }
 
@@ -105,9 +165,19 @@ document.addEventListener("keydown", (e) => {
     draw();
   }
 });
-void refresh();
+void refresh().then(followOpen);
 // Tasks change from Chrono, the palette and other computers too; and sessions start and end.
 listen("kairo:tasks", () => refresh());
-listen("kairo:sync", () => refresh());
+listen("kairo:sync", () => {
+  void refresh();
+  void notesView?.refresh();
+});
+listen("kairo:ledger", () => followOpen());
 setInterval(() => !document.hidden && refresh(), 10_000);
-document.addEventListener("visibilitychange", () => !document.hidden && refresh());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) void notesView?.flush();
+  else void refresh();
+});
+// Closing the window keeps what was typed.
+window.addEventListener("beforeunload", () => void notesView?.flush());
+window.addEventListener("pagehide", () => void notesView?.flush());

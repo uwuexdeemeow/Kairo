@@ -33,6 +33,9 @@ beforeEach(() => {
     rename: vi.fn(),
     plan: vi.fn(),
     remove: vi.fn(),
+    openNote: vi.fn(),
+    attach: vi.fn(),
+    newNoteFor: vi.fn(),
   };
 });
 
@@ -95,6 +98,44 @@ describe("the task list", () => {
     press(add, "Enter");
     expect(act.add).toHaveBeenCalledWith("essay !h fri");
     expect(add.value).toBe("");
+  });
+});
+
+describe("a task's note", () => {
+  const notes = [
+    { id: "n1", title: "Plan" },
+    { id: "n2", title: "Shopping" },
+  ];
+
+  it("marks a row whose task has a note", () => {
+    renderTaskList(root, [task("a", "Essay", { note: "n1" }), task("b", "Other")], null, act);
+    expect(root.querySelector('[data-task="a"] .task-note')).not.toBeNull();
+    expect(root.querySelector('[data-task="b"] .task-note')).toBeNull();
+  });
+
+  it("opens or detaches the attached note", () => {
+    renderDetail(root, task("a", "Essay", { note: "n1" }), act, notes);
+    const open = root.querySelector<HTMLButtonElement>(".detail-note .open-note")!;
+    expect(open.textContent).toBe("Plan ↗");
+    open.click();
+    expect(act.openNote).toHaveBeenCalledWith("n1");
+    root.querySelector<HTMLButtonElement>(".detail-note .detach-note")!.click();
+    expect(act.attach).toHaveBeenCalledWith("a", null);
+  });
+
+  it("attaches a note picked from a search, or a new one named after the task", () => {
+    renderDetail(root, task("a", "Essay"), act, notes);
+    root.querySelector<HTMLButtonElement>(".attach-note")!.click();
+    const options = () => [...root.querySelectorAll<HTMLButtonElement>(".note-pick button")];
+    expect(options().map((b) => b.textContent)).toEqual(["New note: Essay", "Plan", "Shopping"]);
+    const find = root.querySelector<HTMLInputElement>(".note-pick input")!;
+    find.value = "sho";
+    find.dispatchEvent(new Event("input"));
+    expect(options().map((b) => b.textContent)).toEqual(["New note: Essay", "Shopping"]);
+    options()[1].click();
+    expect(act.attach).toHaveBeenCalledWith("a", "n2");
+    options()[0].click();
+    expect(act.newNoteFor).toHaveBeenCalledWith("a", "Essay");
   });
 });
 
