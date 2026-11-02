@@ -91,6 +91,11 @@ pub fn backup(conn: &Connection, path: &Path) -> Result<()> {
         std::fs::remove_file(path).map_err(err)?;
     }
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy()]).map_err(err)?;
+    // The relay group's key reads and writes the group's combined time, so it stays on this
+    // computer: a backup copied to a shared drive or handed on mustn't carry it. Restores keep
+    // this computer's own group anyway. Overwritten, so it isn't left in the file's free pages.
+    let copy = Connection::open(path).map_err(err)?;
+    copy.execute_batch("PRAGMA secure_delete = ON; DELETE FROM settings WHERE key IN ('relay_group', 'relay_key');").map_err(err)?;
     Ok(())
 }
 
@@ -205,6 +210,28 @@ mod tests {
         for f in [saved, before, live_file] {
             let _ = std::fs::remove_file(f);
         }
+    }
+
+    #[test]
+    fn a_backup_never_holds_the_relay_groups_key() {
+        let (live_file, saved) = (temp("live-k.db"), temp("saved-k.kairo"));
+        let _ = std::fs::remove_file(&live_file);
+        let live = db::open(&live_file).unwrap();
+        let group = crate::sync::relay::new_group();
+        crate::sync::relay::set_group(&live, Some(&group)).unwrap();
+        backup(&live, &saved).unwrap();
+        let copy = Connection::open(&saved).unwrap();
+        let kept: Vec<String> = copy.prepare("SELECT key FROM settings WHERE key LIKE 'relay_%' AND value != ''").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert!(kept.is_empty(), "{kept:?}");
+        // Not even in the file's free pages.
+        let bytes = std::fs::read(&saved).unwrap();
+        let key = db::get_setting(&live, "relay_key").unwrap().unwrap();
+        assert!(!bytes.windows(key.len()).any(|w| w == key.as_bytes()));
+        // This computer keeps its own.
+        assert_eq!(crate::sync::relay::group(&live).unwrap(), Some(group));
+        drop(copy);
+        let _ = std::fs::remove_file(saved);
+        let _ = std::fs::remove_file(live_file);
     }
 
     #[test]

@@ -105,7 +105,8 @@ function whereText(sync: SyncState): string {
     const line = "Combined through Kairo's relay, encrypted end to end: the relay can't read your time.";
     if (!sync.error) return line;
     const last = sync.syncedMs === null ? "Not synced yet." : `Last synced ${ago(sync.syncedMs)}.`;
-    return `${line} ${last} Can't reach Kairo's relay right now.`;
+    // The error is Kairo's own sentence: offline, or what the relay said, like being full.
+    return `${line} ${last} ${sync.error}`;
   }
   if (sync.error === "unlinked") return "This computer was unlinked. Enter a new code to combine again.";
   return `Off. This computer would show up as ${sync.name}.`;

@@ -160,8 +160,14 @@ pub fn relay_status(conn: &Connection) -> Result<(Option<i64>, Option<String>)> 
     Ok((synced, error))
 }
 
-/// Starts combining through a relay group this computer just made or joined.
+/// Starts combining through a relay group this computer just made or joined. A round still out
+/// with the group it was in before writes nothing more to that one.
 pub fn join_relay(conn: &Connection, group: &relay::Group) -> Result<()> {
+    let me = device_id(conn)?;
+    if let Some(old) = relay::group(conn)?.filter(|old| old.id != group.id) {
+        relay::retire(&old.id, &me);
+    }
+    relay::unretire(&group.id, &me);
     forget_everyone(conn)?;
     db::set_setting(conn, FOLDER_KEY, "").map_err(err)?;
     db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
@@ -172,19 +178,35 @@ pub fn join_relay(conn: &Connection, group: &relay::Group) -> Result<()> {
 /// started over), this computer stops combining and notes that it was unlinked.
 pub fn run_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>, now_ms: i64) -> Result<bool> {
     let Some(group) = relay::group(conn)? else { return Ok(false) };
-    let store = relay::RelayStore::new(api, &group, &device_id(conn)?);
-    match run_with(conn, &store, now_ms) {
+    run_relay_in(conn, api, &group, now_ms)
+}
+
+/// One round through `group`, the group this computer was in when the round began. Leaving or
+/// starting over may happen while it runs, on another thread; then the round's uploads are refused,
+/// what it read in is dropped, and the group kept now is left alone.
+fn run_relay_in(conn: &Connection, api: std::sync::Arc<dyn relay::Api>, group: &relay::Group, now_ms: i64) -> Result<bool> {
+    let me = device_id(conn)?;
+    let store = relay::RelayStore::new(api, group, &me);
+    let result = run_with(conn, &store, now_ms);
+    if relay::is_retired(&group.id, &me) {
+        // Its time came from a group this computer isn't in; the next round reads its own again.
+        forget_everyone(conn)?;
+        return Ok(false);
+    }
+    match result {
         Ok(changed) => {
             db::set_setting(conn, SYNCED_KEY, &now_ms.to_string()).map_err(err)?;
             db::set_setting(conn, ERROR_KEY, "").map_err(err)?;
             Ok(changed)
         }
-        Err(e) if e == relay::GONE => {
+        // Only the group this round was in: another may have been joined since it began.
+        Err(e) if e == relay::GONE && relay::group(conn)?.as_ref() == Some(group) => {
             relay::set_group(conn, None)?;
             forget_everyone(conn)?;
             db::set_setting(conn, ERROR_KEY, UNLINKED).map_err(err)?;
             Err(e)
         }
+        Err(e) if e == relay::GONE => Err(e),
         Err(e) => {
             db::set_setting(conn, ERROR_KEY, &e).map_err(err)?;
             Err(e)
@@ -196,7 +218,10 @@ pub fn run_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>, now_ms:
 /// time, and theirs leaves this one. The group is forgotten even when the relay can't be reached.
 pub fn leave_relay(conn: &Connection, api: std::sync::Arc<dyn relay::Api>) -> Result<()> {
     let Some(group) = relay::group(conn)? else { return Ok(()) };
-    let left = match relay::RelayStore::new(api, &group, &device_id(conn)?).remove_me() {
+    let me = device_id(conn)?;
+    // First, so a round the sync thread still has out uploads nothing after the files go.
+    relay::retire(&group.id, &me);
+    let left = match relay::RelayStore::new(api, &group, &me).remove_me() {
         Err(e) if e == relay::GONE => Ok(()),
         other => other,
     };
@@ -247,17 +272,20 @@ pub fn run_once(conn: &Connection, now_ms: i64) -> Result<bool> {
 }
 
 /// One round through `store`. Choices go first, so another computer's recording rules apply to
-/// its time.
+/// its time. A failed upload doesn't keep the others' time out: everything is read in, and then
+/// the upload's error is returned, so a full relay or a file too big says so rather than stopping
+/// all combining.
 pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<bool> {
     let me = device_id(conn)?;
     seed_choices(conn)?;
     let listing = store.list()?;
     let mine = listing.get(&me).cloned().unwrap_or_default();
-    write_choices(conn, store, &me, &mine)?;
+    let wrote_choices = write_choices(conn, store, &me, &mine);
     let changed = read_choices(conn, store, &listing, &me)?;
-    write_own(conn, store, &mine, now_ms)?;
+    let wrote_days = write_own(conn, store, &mine, now_ms);
     read_others(conn, store, &listing, &me, now_ms)?;
     note_computers(conn, store, &store.list()?)?;
+    wrote_choices.and(wrote_days)?;
     Ok(changed)
 }
 
@@ -289,7 +317,15 @@ pub fn spawn(
                         crate::nudge::invalidate(&cache);
                     }
                     Ok(false) => {}
-                    Err(e) => eprintln!("sync: {e}"),
+                    Err(e) => {
+                        eprintln!("sync: {e}");
+                        // Choices may have come in before an upload failed, or everyone's time
+                        // gone when the group did.
+                        if let Err(e) = privacy::refresh(&conn, &rules) {
+                            eprintln!("sync: {e}");
+                        }
+                        crate::nudge::invalidate(&cache);
+                    }
                 }
                 if woken {
                     on_woken();
@@ -900,6 +936,107 @@ mod tests {
         assert!(!combining(&laptop.conn).unwrap());
         assert!(laptop.apps().is_empty());
         assert_eq!(db::get_setting(&laptop.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    #[test]
+    fn a_round_still_running_after_leaving_puts_nothing_back() {
+        let (desk, laptop) = (Computer::new("desk-l"), Computer::new("laptop-l"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let group = relay::group(&desk.conn).unwrap().unwrap();
+        laptop.track("figma", now);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        // The sync thread's round began before Stop combining, with the group it read then.
+        let round = relay::RelayStore::new(api.clone(), &group, &device_id(&desk.conn).unwrap());
+        desk.track("discord", now);
+        leave_relay(&desk.conn, api.clone()).unwrap();
+        assert!(round.put(&day_name(now / DAY_MS), b"late").is_err());
+        assert!(run_relay_in(&desk.conn, api.clone(), &group, now).is_ok());
+        // Nothing of the desk's reaches the laptop, and nothing of the laptop's stays on the desk.
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("figma".into(), false)]);
+        assert_eq!(desk.apps(), [("discord".into(), false)]);
+    }
+
+    #[test]
+    fn starting_over_while_a_round_runs_keeps_the_new_group() {
+        let (desk, laptop) = (Computer::new("desk-s"), Computer::new("laptop-s"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let old = relay::group(&desk.conn).unwrap().unwrap();
+        // Start over, as link::host does it, while a round with the old group is still out.
+        relay::retire(&old.id, &device_id(&desk.conn).unwrap());
+        relay::delete_group(api.as_ref(), &old).unwrap();
+        let new = relay::new_group();
+        relay::register(api.as_ref(), &new).unwrap();
+        join_relay(&desk.conn, &new).unwrap();
+        assert!(run_relay_in(&desk.conn, api.clone(), &old, now).is_ok());
+        assert_eq!(relay::group(&desk.conn).unwrap(), Some(new));
+        assert_ne!(db::get_setting(&desk.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    #[test]
+    fn a_group_gone_mid_round_is_dropped_only_if_it_is_still_the_one_kept() {
+        let (desk, laptop) = (Computer::new("desk-k"), Computer::new("laptop-k"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let old = relay::group(&desk.conn).unwrap().unwrap();
+        api.forget_groups();
+        let new = relay::new_group();
+        relay::register(api.as_ref(), &new).unwrap();
+        join_relay(&desk.conn, &new).unwrap();
+        let _ = run_relay_in(&desk.conn, api.clone(), &old, now);
+        assert_eq!(relay::group(&desk.conn).unwrap(), Some(new));
+        assert_ne!(db::get_setting(&desk.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    #[test]
+    fn rejoining_a_group_left_before_writes_again() {
+        let (desk, laptop) = (Computer::new("desk-j"), Computer::new("laptop-j"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        let group = relay::group(&desk.conn).unwrap().unwrap();
+        leave_relay(&desk.conn, api.clone()).unwrap();
+        join_relay(&desk.conn, &group).unwrap();
+        desk.track("code", now);
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(laptop.apps(), [("code".into(), true)]);
+    }
+
+    /// A store whose uploads all fail, as when the relay's group is full.
+    struct NoUploads<'a>(&'a dyn Store);
+
+    impl Store for NoUploads<'_> {
+        fn list(&self) -> Result<store::Listing> {
+            self.0.list()
+        }
+        fn get(&self, computer: &str, name: &str) -> Result<Vec<u8>> {
+            self.0.get(computer, name)
+        }
+        fn put(&self, _: &str, _: &[u8]) -> Result<()> {
+            Err("full".into())
+        }
+        fn delete(&self, name: &str) -> Result<()> {
+            self.0.delete(name)
+        }
+        fn remove_me(&self) -> Result<()> {
+            self.0.remove_me()
+        }
+    }
+
+    #[test]
+    fn a_failed_upload_still_lets_the_others_time_in() {
+        let (desk, laptop) = (Computer::new("desk-u"), Computer::new("laptop-u"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("discord", now);
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        laptop.track("figma", now + 1_000);
+        let group = relay::group(&laptop.conn).unwrap().unwrap();
+        let store = relay::RelayStore::new(api.clone(), &group, &device_id(&laptop.conn).unwrap());
+        assert_eq!(run_with(&laptop.conn, &NoUploads(&store), now), Err("full".into()));
+        assert_eq!(laptop.apps(), [("discord".into(), true), ("figma".into(), false)]);
     }
 
     /// Links two computers with a code and combines them through a real relay: start one with

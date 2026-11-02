@@ -228,6 +228,14 @@ describe("linking with a code", () => {
     expect($("#sync-where").textContent).toContain("Last synced 2 h ago. Can't reach Kairo's relay right now.");
   });
 
+  it("says what the relay said when it answered with a problem", async () => {
+    const full = "Kairo's relay said: it's full: these computers' history together is over the 50 MB it keeps. Keep less history in Settings → Privacy.";
+    api.sync.mockResolvedValue({ ...RELAY, syncedMs: Date.now() - 2 * 60 * 60 * 1000, error: full });
+    await settings.loadKairoSettings();
+    expect($("#sync-where").textContent).toContain(`Last synced 2 h ago. ${full}`);
+    expect($("#sync-where").textContent).not.toContain("Can't reach");
+  });
+
   it("says when another computer started over", async () => {
     api.sync.mockResolvedValue({ ...OFF, error: "unlinked" });
     await settings.loadKairoSettings();

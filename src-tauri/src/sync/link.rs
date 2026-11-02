@@ -74,6 +74,9 @@ pub fn host<R: Api + Mailbox + 'static>(
         Some(group) if !start_over => group,
         old => {
             if let Some(old) = old.filter(|_| start_over) {
+                // Before the group goes, so a round still out with it neither writes to it nor,
+                // finding it gone, drops the new one.
+                relay::retire(&old.id, &sync::device_id(&conn)?);
                 relay::delete_group(relay.as_ref(), &old)?;
             }
             let group = relay::new_group();

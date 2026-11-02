@@ -97,6 +97,37 @@ pub fn set_group(conn: &Connection, group: Option<&Group>) -> Result<()> {
     db::set_setting(conn, KEY_KEY, &group.map_or(String::new(), |g| B64.encode(g.key))).map_err(err)
 }
 
+/// The groups this computer has left or started over from, while Kairo runs, as (group, computer).
+/// A sync round that read its group before then may still be running; its uploads check here
+/// first, under this lock, so none lands after this computer's files were taken off.
+static RETIRED: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+fn retired_list() -> std::sync::MutexGuard<'static, Vec<(String, String)>> {
+    RETIRED.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Marks `group` as left by computer `me`: from now on its rounds write nothing to it. Waits for
+/// an upload already under way, so the files taken off after this stay off.
+pub fn retire(group: &str, me: &str) {
+    let mut list = retired_list();
+    if !list.iter().any(|(g, m)| g == group && m == me) {
+        list.push((group.to_string(), me.to_string()));
+    }
+}
+
+/// Lets computer `me` write to `group` again, as when it rejoins a group it left.
+pub fn unretire(group: &str, me: &str) {
+    retired_list().retain(|(g, m)| !(g == group && m == me));
+}
+
+/// Whether computer `me` left or started over from `group` since Kairo started.
+pub fn is_retired(group: &str, me: &str) -> bool {
+    retired_list().iter().any(|(g, m)| g == group && m == me)
+}
+
+/// What a store error says when an upload was stopped because this computer left the group.
+pub const LEFT: &str = "This computer left that group.";
+
 /// A relay group, seen as a store.
 pub struct RelayStore {
     api: Arc<dyn Api>,
@@ -117,6 +148,18 @@ impl RelayStore {
     /// computers doesn't share a name and the relay can't line up which days they both tracked.
     fn object(&self, computer: &str, name: &str) -> String {
         self.keys.seal_name(&format!("{computer}/{name}"))
+    }
+}
+
+impl RelayStore {
+    /// Runs a write unless this computer left the group, holding the lock `retire` takes, so a
+    /// write either lands before leaving takes this computer's files off or not at all.
+    fn unless_left(&self, write: impl FnOnce() -> std::result::Result<(), ApiError>) -> Result<()> {
+        let list = retired_list();
+        if list.iter().any(|(g, m)| *g == self.group && *m == self.me) {
+            return Err(LEFT.into());
+        }
+        Ok(write()?)
     }
 }
 
@@ -141,11 +184,11 @@ impl Store for RelayStore {
 
     fn put(&self, name: &str, bytes: &[u8]) -> Result<()> {
         let sealed = self.keys.seal(&format!("{}/{name}", self.me), bytes);
-        Ok(self.api.put(&self.group, &self.token, &self.me, &self.object(&self.me, name), &sealed)?)
+        self.unless_left(|| self.api.put(&self.group, &self.token, &self.me, &self.object(&self.me, name), &sealed))
     }
 
     fn delete(&self, name: &str) -> Result<()> {
-        Ok(self.api.delete(&self.group, &self.token, &self.me, &self.object(&self.me, name))?)
+        self.unless_left(|| self.api.delete(&self.group, &self.token, &self.me, &self.object(&self.me, name)))
     }
 
     fn remove_me(&self) -> Result<()> {
@@ -207,14 +250,25 @@ impl Http {
         })
     }
 
-    /// A group request: 401 and 404 both mean the group is gone for this computer.
+    /// A group request, answered as `group_answer` reads it.
     fn group(&self, method: &str, path: &str, token: &str, body: Body) -> std::result::Result<Vec<u8>, ApiError> {
-        match self.send(method, path, Some(token), body)? {
-            (200..=299, bytes) => Ok(bytes),
-            (401 | 404, _) => Err(ApiError::Gone),
-            (status, bytes) if status >= 500 && status != 507 => Err(ApiError::Unreachable(format!("{status} {}", String::from_utf8_lossy(&bytes)))),
-            (status, bytes) => Err(ApiError::Other(format!("{status} {}", String::from_utf8_lossy(&bytes)))),
-        }
+        let (status, bytes) = self.send(method, path, Some(token), body)?;
+        group_answer(status, bytes)
+    }
+}
+
+/// What the relay's answer to a group request means. The group is gone only when the relay itself
+/// says so, in its own words: a 404 or 401 from a proxy, a Wi-Fi sign-in page or a wrong address
+/// would otherwise make this computer forget its group for good.
+fn group_answer(status: u16, bytes: Vec<u8>) -> std::result::Result<Vec<u8>, ApiError> {
+    let said = String::from_utf8_lossy(&bytes).chars().take(80).collect::<String>();
+    match (status, said.as_str()) {
+        (200..=299, _) => Ok(bytes),
+        (404, "no such group") | (401, "wrong token") => Err(ApiError::Gone),
+        (507, _) => Err(ApiError::Other("it's full: these computers' history together is over the 50 MB it keeps. Keep less history in Settings → Privacy.".into())),
+        (413, _) => Err(ApiError::Other("one day's file is too big for it.".into())),
+        (500.., _) => Err(ApiError::Unreachable(format!("{status} {said}"))),
+        _ => Err(ApiError::Other(format!("{status} {said}"))),
     }
 }
 
@@ -243,12 +297,8 @@ impl Api for Http {
     }
 
     fn get(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<Vec<u8>, ApiError> {
-        // A missing file is not a missing group.
-        match self.send("GET", &format!("/v1/groups/{group}/files/{computer}/{name}"), Some(token), Body::None)? {
-            (200, bytes) => Ok(bytes),
-            (401, _) => Err(ApiError::Gone),
-            (status, _) => Err(ApiError::Other(format!("{status}"))),
-        }
+        // A missing file ("no such file") is not a missing group.
+        self.group("GET", &format!("/v1/groups/{group}/files/{computer}/{name}"), token, Body::None)
     }
 
     fn put(&self, group: &str, token: &str, computer: &str, name: &str, bytes: &[u8]) -> std::result::Result<(), ApiError> {
@@ -340,5 +390,23 @@ impl Api for MemApi {
         self.check(group, token)?;
         self.files.lock().unwrap().retain(|(g, c, _), _| !(g == group && c == computer));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_relays_own_word_means_the_group_is_gone() {
+        assert_eq!(group_answer(404, b"no such group".to_vec()), Err(ApiError::Gone));
+        assert_eq!(group_answer(401, b"wrong token".to_vec()), Err(ApiError::Gone));
+        // A proxy, a sign-in page or a wrong address isn't the relay saying so.
+        for (status, body) in [(404, ""), (404, "<html>Not Found</html>"), (401, "Proxy authentication required"), (404, "no such file")] {
+            assert!(matches!(group_answer(status, body.as_bytes().to_vec()), Err(ApiError::Other(_))), "{status} {body}");
+        }
+        assert_eq!(group_answer(200, b"ok".to_vec()), Ok(b"ok".to_vec()));
+        assert!(matches!(group_answer(503, Vec::new()), Err(ApiError::Unreachable(_))));
+        assert!(group_answer(507, b"group full".to_vec()).unwrap_err().to_string().contains("full"));
     }
 }
