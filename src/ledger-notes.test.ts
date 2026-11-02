@@ -60,6 +60,7 @@ describe("the notes list", () => {
     notes = [];
     mountNotes(root, act, () => NOW);
     await vi.waitFor(() => expect(root.querySelector(".notes-empty")!.textContent).toBe("Write anything: plans, lists, things to remember."));
+    expect(root.querySelector(".notes-empty-art .logo-ledger")).not.toBeNull();
   });
 
   it("searches as you type", async () => {

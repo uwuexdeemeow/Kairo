@@ -1,5 +1,10 @@
 import type { Task, TaskGroup } from "./api";
+import { logo } from "./logos";
 import { fmtDur, h } from "./ui";
+
+/// How long the ink stroke takes before a ticked task moves to Done.
+const INK_MS = 280;
+const stillPlease = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
 /// What Ledger's task list and detail panel ask the page to do.
 export type LedgerActions = {
@@ -56,8 +61,13 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
   const done = t.doneMs !== null;
   const tick = h("input", { type: "checkbox", "aria-label": done ? "Reopen" : "Mark done" }) as HTMLInputElement;
   tick.checked = done;
-  tick.addEventListener("click", () => act.done(t.id, !done));
-  const el = h("div", { class: `task-row${done ? " done" : ""}`, "data-task": t.id }, tick);
+  const el = h("div", { class: `task-row${done ? " done" : ""}${t.group === "overdue" ? " ribbon" : ""}`, "data-task": t.id }, tick);
+  tick.addEventListener("click", () => {
+    // Ticking off draws an ink stroke through it first; reopening is at once.
+    if (done || stillPlease()) return act.done(t.id, !done);
+    el.classList.add("inking");
+    window.setTimeout(() => act.done(t.id, true), INK_MS);
+  });
   if (t.priority >= 1) {
     const name = PRIORITY[Math.min(t.priority, 2)];
     el.append(h("span", { class: `prio-dot prio-${name.toLowerCase()}`, title: `${name} priority`, "aria-label": `${name} priority` }));
@@ -108,7 +118,11 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
     if (text) act.add(text);
   });
   const parts: Node[] = [add, preview];
-  if (!tasks.length) parts.push(h("p", { class: "muted ledger-empty" }, "Add what you're working on. Give it a day with “fri” or a priority with “!h”."));
+  if (!tasks.length) {
+    const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
+    art.innerHTML = logo("ledger", 64);
+    parts.push(art, h("p", { class: "muted ledger-empty" }, "Add what you're working on. Give it a day with “fri” or a priority with “!h”."));
+  }
   for (const [group, name] of GROUPS) {
     const these = tasks.filter((t) => t.group === group);
     if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h3", {}, name), ...these.map((t) => row(t, session, act))));

@@ -1,4 +1,5 @@
 import type { Note } from "./api";
+import { logo } from "./logos";
 import { mountEditor, type Editor } from "./note-editor";
 import { h } from "./ui";
 
@@ -59,7 +60,10 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   const drawList = () => {
     if (!notes.length) {
-      list.replaceChildren(h("p", { class: "muted notes-empty" }, search.value.trim() ? "No notes match." : "Write anything: plans, lists, things to remember."));
+      const searching = !!search.value.trim();
+      const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
+      if (!searching) art.innerHTML = logo("ledger", 56);
+      list.replaceChildren(art, h("p", { class: "muted notes-empty" }, searching ? "No notes match." : "Write anything: plans, lists, things to remember."));
       return;
     }
     list.replaceChildren(
