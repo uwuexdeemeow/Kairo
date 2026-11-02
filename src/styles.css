@@ -2938,3 +2938,93 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     width: auto;
   }
 }
+
+/* ---------- Ledger's note editor ---------- */
+
+/* The textarea and the copy behind it share every measure, so each letter lands in the same
+   place; the textarea's own text is transparent, leaving its caret and selection. */
+.note-editor {
+  position: relative;
+  min-height: 360px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+
+.note-layer,
+.note-text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  font: 13px/1.6 "Geist Mono Variable", ui-monospace, monospace;
+  letter-spacing: 0;
+  tab-size: 4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.note-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+.note-text {
+  position: relative;
+  display: block;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--ink);
+  outline: none;
+}
+
+.note-text::selection {
+  background: color-mix(in srgb, var(--productive) 30%, transparent);
+  color: transparent;
+}
+
+.md-mark {
+  color: var(--faint);
+}
+
+.md-h {
+  color: var(--productive);
+  font-weight: 700;
+}
+
+.md-b {
+  font-weight: 700;
+}
+
+.md-i {
+  font-style: italic;
+}
+
+.md-c {
+  font: inherit;
+  background: color-mix(in srgb, var(--rule) 60%, transparent);
+  border-radius: 3px;
+}
+
+.md-link {
+  color: var(--productive);
+  text-decoration: underline;
+}
+
+.md-box {
+  color: var(--productive);
+  font-weight: 700;
+}
+
+.md-done-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
