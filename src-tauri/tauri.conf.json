@@ -35,6 +35,19 @@
         "minHeight": 440,
         "backgroundColor": "#0e0f12",
         "dragDropEnabled": false
+      },
+      {
+        "label": "ledger",
+        "create": false,
+        "url": "ledger.html",
+        "title": "Ledger",
+        "visible": false,
+        "width": 960,
+        "height": 680,
+        "minWidth": 640,
+        "minHeight": 480,
+        "backgroundColor": "#0e0f12",
+        "dragDropEnabled": false
       }
     ],
     "security": {

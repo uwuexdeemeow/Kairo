@@ -198,45 +198,117 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>, 
     focus::start_by_hand(&conn, minutes, label.as_deref(), task.as_deref(), now_ms()).map_err(err)
 }
 
-/// Every change to the task list travels to combined computers, then the page gets the new list.
-fn tasks_changed(conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
+/// Every change to the task list travels to combined computers, and every open window hears of
+/// it; then the page gets the new list.
+fn tasks_changed(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
     sync::record(conn, "tasks:all", &tasks::to_json(conn).map_err(err)?)?;
+    let _ = app.emit("kairo:tasks", ());
     tasks::list(conn, now_ms(), &tasks::today()).map_err(err)
 }
 
-/// The Focus page's tasks: open ones in order, then done ones, each with its focus time.
+/// A task's plan travels as its own choice.
+fn plan_changed(conn: &rusqlite::Connection, id: &str) -> CmdResult<()> {
+    match tasks::plan_json(conn, id).map_err(err)? {
+        Some(plan) => sync::record(conn, &format!("taskplan:{id}"), &plan),
+        None => Ok(()),
+    }
+}
+
+/// Ledger's tasks, in its order, each with its focus time and group.
 #[tauri::command]
 pub fn get_tasks(state: State<AppState>) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
     tasks::list(&conn, now_ms(), &tasks::today()).map_err(err)
 }
 
-#[tauri::command]
-pub fn add_task(state: State<AppState>, title: String) -> CmdResult<Vec<tasks::Task>> {
-    let conn = state.db.lock().map_err(err)?;
-    tasks::add(&conn, &title, now_ms()).map_err(err)?;
-    tasks_changed(&conn)
+/// A new task's text read for its shortcuts, and what was read, for under the field.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedTask {
+    title: String,
+    due: Option<String>,
+    priority: Option<u8>,
+    shown: String,
+}
+
+fn quick(text: &str) -> crate::quick_add::Quick {
+    crate::quick_add::parse(text, chrono::Local::now().date_naive(), crate::quick_add::day_first())
 }
 
 #[tauri::command]
-pub fn rename_task(state: State<AppState>, id: String, title: String) -> CmdResult<Vec<tasks::Task>> {
+pub fn parse_task(text: String) -> ParsedTask {
+    let q = quick(&text);
+    let shown = crate::quick_add::describe(&q);
+    ParsedTask { title: q.title, due: q.due, priority: q.priority, shown }
+}
+
+/// Adds a task from quick-add text: its title, and the day and priority it ends with.
+pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: &str) -> CmdResult<Vec<tasks::Task>> {
+    let q = quick(text);
+    if let Some(t) = tasks::add(conn, &q.title, now_ms()).map_err(err)? {
+        if q.due.is_some() || q.priority.is_some() {
+            tasks::set_plan(conn, &t.id, q.due.as_deref(), q.priority.unwrap_or(tasks::MEDIUM), None).map_err(err)?;
+            plan_changed(conn, &t.id)?;
+        }
+    }
+    tasks_changed(app, conn)
+}
+
+#[tauri::command]
+pub fn add_task(app: AppHandle, state: State<AppState>, title: String) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    add_task_from(&app, &conn, &title)
+}
+
+#[tauri::command]
+pub fn rename_task(app: AppHandle, state: State<AppState>, id: String, title: String) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
     tasks::rename(&conn, &id, &title).map_err(err)?;
-    tasks_changed(&conn)
+    tasks_changed(&app, &conn)
 }
 
 #[tauri::command]
-pub fn set_task_done(state: State<AppState>, id: String, done: bool) -> CmdResult<Vec<tasks::Task>> {
+pub fn set_task_done(app: AppHandle, state: State<AppState>, id: String, done: bool) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
     tasks::set_done(&conn, &id, done, now_ms()).map_err(err)?;
-    tasks_changed(&conn)
+    tasks_changed(&app, &conn)
 }
 
 #[tauri::command]
-pub fn remove_task(state: State<AppState>, id: String) -> CmdResult<Vec<tasks::Task>> {
+pub fn set_task_plan(app: AppHandle, state: State<AppState>, id: String, due: Option<String>, priority: u8, remind: Option<i64>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    let due = due.filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok());
+    tasks::set_plan(&conn, &id, due.as_deref(), priority, remind).map_err(err)?;
+    plan_changed(&conn, &id)?;
+    tasks_changed(&app, &conn)
+}
+
+#[tauri::command]
+pub fn remove_task(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
     tasks::remove(&conn, &id).map_err(err)?;
-    tasks_changed(&conn)
+    sync::drop_choice(&conn, &format!("taskplan:{id}"))?;
+    tasks_changed(&app, &conn)
+}
+
+#[tauri::command]
+pub fn open_ledger(app: AppHandle) {
+    crate::show_ledger(&app);
+}
+
+#[tauri::command]
+pub fn ledger_settings(state: State<AppState>) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ledger::settings(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_ledger_settings(state: State<AppState>, reminders: bool, morning: String) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    let s = crate::ledger::set(&conn, reminders, &morning)?;
+    sync::record(&conn, "ledger:reminders", if s.reminders { "1" } else { "0" })?;
+    sync::record(&conn, "ledger:morning", &s.morning)?;
+    Ok(s)
 }
 
 #[derive(Serialize)]

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
 import { renderTasks, type TaskActions } from "./tasks";
 
-const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({ id, title, createdMs: 0, doneMs: null, position: 0, focusedMs: 0, ...extra });
+const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({ id, title, createdMs: 0, doneMs: null, position: 0, focusedMs: 0, dueDay: null, priority: 1, remindMs: null, reminded: "", group: "none", ...extra } as Task);
 
 let root: HTMLElement;
 let act: { [K in keyof TaskActions]: ReturnType<typeof vi.fn> };

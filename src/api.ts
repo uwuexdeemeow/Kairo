@@ -277,7 +277,10 @@ export interface FocusSession {
   task: string | null;
 }
 
-/** A task on the Focus page; `focusedMs` is this computer's focus time on it. */
+/** Where Ledger lists a task. */
+export type TaskGroup = "overdue" | "today" | "upcoming" | "none" | "done";
+
+/** A task in Ledger; `focusedMs` is this computer's focus time on it. */
 export interface Task {
   id: string;
   title: string;
@@ -285,6 +288,27 @@ export interface Task {
   doneMs: number | null;
   position: number;
   focusedMs: number;
+  /** Local day, "2026-11-07". */
+  dueDay: string | null;
+  /** 0 Low, 1 Medium, 2 High. */
+  priority: number;
+  remindMs: number | null;
+  reminded: string;
+  group: TaskGroup;
+}
+
+/** Quick-add text as read: the title, its shortcuts, and "High · Fri 7 Nov". */
+export interface ParsedTask {
+  title: string;
+  due: string | null;
+  priority: number | null;
+  shown: string;
+}
+
+export interface LedgerSettings {
+  reminders: boolean;
+  /** "09:00" */
+  morning: string;
 }
 
 export interface FocusBlock {
@@ -422,7 +446,14 @@ export const api = {
   focus: () => invoke<FocusSession | null>("get_focus"),
   startFocus: (minutes: number, label?: string, task?: string) => invoke<FocusSession>("start_focus", { minutes, label, task }),
   tasks: () => invoke<Task[]>("get_tasks"),
+  /** Quick-add text: its day and priority shortcuts are read off its end. */
   addTask: (title: string) => invoke<Task[]>("add_task", { title }),
+  parseTask: (text: string) => invoke<ParsedTask>("parse_task", { text }),
+  setTaskPlan: (id: string, due: string | null, priority: number, remind: number | null) =>
+    invoke<Task[]>("set_task_plan", { id, due, priority, remind }),
+  openLedger: () => invoke<void>("open_ledger"),
+  ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
+  setLedgerSettings: (reminders: boolean, morning: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning }),
   renameTask: (id: string, title: string) => invoke<Task[]>("rename_task", { id, title }),
   setTaskDone: (id: string, done: boolean) => invoke<Task[]>("set_task_done", { id, done }),
   removeTask: (id: string) => invoke<Task[]>("remove_task", { id }),

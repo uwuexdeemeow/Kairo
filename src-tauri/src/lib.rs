@@ -261,7 +261,7 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(windows))]
             palette::web::on_window_event(window, event);
-            if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard") {
+            if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard" | "ledger") {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
                 let windows = app.webview_windows();
@@ -367,6 +367,11 @@ pub fn run() {
             commands::rename_task,
             commands::set_task_done,
             commands::remove_task,
+            commands::parse_task,
+            commands::set_task_plan,
+            commands::open_ledger,
+            commands::ledger_settings,
+            commands::set_ledger_settings,
             commands::seed_demo_data,
             commands::export_time,
             commands::backup_data,
@@ -401,6 +406,7 @@ fn tray_click_opens_dashboard(button: MouseButton, state: MouseButtonState) -> b
 fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str) -> tauri::Result<()> {
     let dashboard = MenuItem::with_id(app, "dashboard", "Open dashboard", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Open Chrono", true, None::<&str>)?;
+    let ledger = MenuItem::with_id(app, "ledger", "Open Ledger", true, None::<&str>)?;
     let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
     // like over a game, since choosing it from the tray is no stray key press.
@@ -409,7 +415,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&dashboard, &open, &updates, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&dashboard, &open, &ledger, &updates, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
     app.manage(PaletteItem(palette_item));
 
@@ -422,6 +428,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "dashboard" => show_dashboard(app, None),
             "open" => show_main(app),
+            "ledger" => show_ledger(app),
             // As in Kairo's settings: the result arrives as a notification.
             "updates" => {
                 let app = app.clone();
@@ -462,14 +469,19 @@ fn end_opening(label: &str) {
     OPENING.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
 }
 
-/// Whether Kairo belongs in the Dock: while Chrono or the dashboard is open.
+/// Whether Kairo belongs in the Dock: while Chrono, the dashboard or Ledger is open.
 fn keep_in_dock(open: &[&str]) -> bool {
-    open.iter().any(|l| *l == "main" || *l == "dashboard")
+    open.iter().any(|l| matches!(*l, "main" | "dashboard" | "ledger"))
 }
 
 /// Brings up Chrono's window, making it if it was closed.
 pub(crate) fn show_main(app: &AppHandle) {
     show_window(app, "main");
+}
+
+/// Brings up Ledger's window, making it if it was closed.
+pub(crate) fn show_ledger(app: &AppHandle) {
+    show_window(app, "ledger");
 }
 
 /// Brings up the dashboard, on `tab` when one is given. A window made for it is still loading
@@ -580,6 +592,7 @@ mod tests {
     #[test]
     fn kairo_stays_in_the_dock_while_either_window_is_open() {
         assert!(keep_in_dock(&["dashboard"]));
+        assert!(keep_in_dock(&["ledger"]));
         assert!(keep_in_dock(&["main", "palette"]));
         assert!(!keep_in_dock(&["palette", "blocked"]));
         assert!(!keep_in_dock(&[]));

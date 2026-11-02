@@ -433,6 +433,12 @@ pub fn record(conn: &Connection, item: &str, value: &str) -> Result<()> {
     record_at(conn, item, value, chrono::Utc::now().timestamp_millis())
 }
 
+/// Stops sharing a choice whose thing is gone here, like a deleted task's plan.
+pub fn drop_choice(conn: &Connection, item: &str) -> Result<()> {
+    conn.execute("DELETE FROM shared_choices WHERE item = ?1", [item]).map_err(err)?;
+    Ok(())
+}
+
 fn record_at(conn: &Connection, item: &str, value: &str, changed_ms: i64) -> Result<()> {
     conn.execute(
         "INSERT INTO shared_choices (item, value, changed_ms) VALUES (?1, ?2, ?3)
