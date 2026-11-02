@@ -51,14 +51,20 @@ fn new_secret() -> String {
 }
 
 /// Writes a part, and when the write seems to fail, looks whether it got there anyway, as when
-/// only the relay's answer was lost; then it counts as written.
+/// only the relay's answer was lost; then it counts as written. When that look can't reach the
+/// relay either, it's left unknown, and unreachable, so the caller tries again: a write refused
+/// as already written may well be this one's own.
 fn deliver(mailbox: &dyn Mailbox, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
     let Err(e) = mailbox.write(slot, part, bytes, secret) else { return Ok(()) };
-    let arrived = mailbox.read(slot).ok().and_then(|parts| match part {
-        "b" => parts.b,
-        "invite" => parts.invite,
-        _ => parts.reply,
-    });
+    let arrived = match mailbox.read(slot) {
+        Ok(parts) => match part {
+            "b" => parts.b,
+            "invite" => parts.invite,
+            _ => parts.reply,
+        },
+        Err(dropped @ ApiError::Unreachable(_)) => return Err(dropped),
+        Err(_) => None,
+    };
     if arrived.as_deref() == Some(bytes) {
         Ok(())
     } else {
@@ -515,6 +521,46 @@ mod tests {
         fn close(&self, slot: &str, secret: &str) {
             self.inner.close(slot, secret)
         }
+    }
+
+    /// Loses the answer to the first write, and drops the two reads that follow.
+    #[derive(Default)]
+    struct LostThenDropped {
+        inner: MemMailbox,
+        writes: std::sync::atomic::AtomicU32,
+        reads: std::sync::atomic::AtomicU32,
+    }
+
+    impl Mailbox for LostThenDropped {
+        fn open(&self, a: &[u8], secret: &str) -> Result<String, ApiError> {
+            self.inner.open(a, secret)
+        }
+        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+            match self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 | 1 => Err(ApiError::Unreachable("dropped".into())),
+                _ => self.inner.read(slot),
+            }
+        }
+        fn write(&self, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
+            let result = self.inner.write(slot, part, bytes, secret);
+            match self.writes.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 => Err(ApiError::Unreachable("answer lost".into())),
+                _ => result,
+            }
+        }
+        fn close(&self, slot: &str, secret: &str) {
+            self.inner.close(slot, secret)
+        }
+    }
+
+    #[test]
+    fn a_write_that_got_there_counts_even_when_the_look_after_it_drops() {
+        let mailbox = LostThenDropped::default();
+        let slot = mailbox.open(b"a", "host").unwrap();
+        // Written, but its answer lost, and the look to see whether it arrived dropped too;
+        // writing again is refused as already written, which it was.
+        deliver_by(&mailbox, &slot, "b", b"answer", "joiner", Instant::now() + Duration::from_secs(5), FAST).unwrap();
+        assert_eq!(mailbox.inner.read(&slot).unwrap().b.as_deref(), Some(&b"answer"[..]));
     }
 
     #[test]
