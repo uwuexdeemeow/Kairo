@@ -24,7 +24,7 @@ On Windows and a Mac:
 1. **Click.** Left-click the tray icon (menu bar icon on a Mac), then try a double-click.
    *Expect:* the dashboard opens either way, once, never two windows. Right-click (or, on a Mac,
    any other click) shows the menu.
-2. **Menu.** *Expect:* Open dashboard, Open Chrono, Open Ledger, Check for updates, Command palette (with its
+2. **Menu.** *Expect:* Open dashboard, Check for updates, Command palette (with its
    shortcut), Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and
    if it's already open, brings it forward. Check for updates shows a notification saying Kairo is
    up to date, or that it's installing the newer version.
@@ -33,7 +33,7 @@ On Windows and a Mac:
    settings; its link opens the dashboard's Settings tab. Change the theme there with Chrono open.
    *Expect:* Chrono repaints without a restart.
 
-On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same seven items,
+On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same five items,
 and Open dashboard and Check for updates work as above.
 
 ## Mac

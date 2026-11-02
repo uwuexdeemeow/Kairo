@@ -142,11 +142,19 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     });
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
     del.addEventListener("click", () => {
+      // Asked already: pressing again points at the question rather than asking twice.
+      const asking = pane.querySelector<HTMLElement>(".note-confirm");
+      if (asking) {
+        asking.querySelector<HTMLButtonElement>(".btn")?.focus();
+        return;
+      }
       const yes = h("button", { class: "btn" }, "Delete");
       const keep = h("button", { class: "link-btn note-keep" }, "Keep");
       const confirm = h("div", { class: "note-confirm", role: "alert" }, h("span", {}, `Delete “${n.title}”? Tasks attached to it lose the link.`), yes, keep);
       keep.addEventListener("click", () => confirm.remove());
       yes.addEventListener("click", async () => {
+        if (yes.hasAttribute("disabled")) return;
+        yes.setAttribute("disabled", "");
         dirty = false;
         window.clearTimeout(saveTimer);
         await act.remove(n.id);
