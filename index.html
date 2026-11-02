@@ -97,6 +97,7 @@
               <button class="link-btn day-today" id="day-today" title="Back to today (T)" hidden>Today</button>
             </nav>
             <div class="hero">
+              <span class="hero-dial" id="today-dial" aria-hidden="true"></span>
               <span class="hero-value" id="today-active"></span>
               <span class="hero-sub" id="today-sub"></span>
             </div>
@@ -231,10 +232,10 @@
 
           <section class="timer" aria-label="Focus timer">
             <div class="timer-face">
+              <span class="timer-ring" id="timer-ring" aria-hidden="true"></span>
               <span class="timer-time" id="timer-time" role="timer" aria-live="off"></span>
               <span class="timer-sub" id="timer-sub"></span>
             </div>
-            <div class="track timer-track"><div class="line productive" id="timer-progress"></div></div>
 
             <div class="timer-setup" id="timer-setup">
               <div class="timer-presets" role="group" aria-label="Session length">

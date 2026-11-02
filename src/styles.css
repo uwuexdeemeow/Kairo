@@ -1254,17 +1254,63 @@ html.palette-root {
   max-width: 560px;
 }
 
+/* The focus watch: the time in the middle of a ring that unwinds as the session runs. */
 .timer-face {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 20px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 300px;
+  height: 300px;
+  text-align: center;
+}
+
+.timer-ring,
+.timer-ring .watch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.watch-face {
+  fill: var(--raised);
+  stroke: var(--line);
+}
+
+.watch-track {
+  stroke: var(--track);
+}
+
+.watch-left {
+  stroke: var(--chrono);
+  transition: stroke-dasharray 900ms linear;
+}
+
+.watch.paused .watch-left {
+  stroke: var(--muted);
+}
+
+/* A finished session: the watch gives one pulse. */
+.timer-ring.pulse {
+  animation: pulse 900ms var(--ease) 1;
+}
+
+@keyframes pulse {
+  40% {
+    transform: scale(1.04);
+    filter: drop-shadow(0 0 18px color-mix(in srgb, var(--chrono) 60%, transparent));
+  }
 }
 
 .timer-time {
-  font-size: 96px;
-  font-weight: 300;
-  letter-spacing: -0.04em;
+  position: relative;
+  font-family: var(--display);
+  font-size: 64px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -1275,12 +1321,19 @@ html.palette-root {
 }
 
 .timer-sub {
+  position: relative;
+  max-width: 200px;
+  font-size: 12px;
   color: var(--muted);
 }
 
-.timer-track {
-  margin-top: 20px;
-  height: 3px;
+@media (prefers-reduced-motion: reduce) {
+  .watch-left {
+    transition: none;
+  }
+  .timer-ring.pulse {
+    animation: none;
+  }
 }
 
 .timer-setup,
@@ -1740,9 +1793,16 @@ html.palette-root {
 .hero {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 8px 24px;
   margin-top: 10px;
+}
+
+/* The day as Chrono's dial, beside its number. */
+.hero-dial:not(:empty),
+.hero-dial .dial {
+  width: 96px;
+  height: 96px;
 }
 
 .hero-value {
