@@ -77,7 +77,31 @@ jobs:
       - name: Test the web code
         run: npm test
 
-      # Ad-hoc signed (tauri.conf.json); the update itself is signed with the updater key.
+      # Signed with Kairo's own certificate, the same for every release, so macOS knows an update
+      # is still Kairo and keeps its Screen Recording and Automation permissions. An ad-hoc
+      # signature names only the build, so every update had to be allowed again. The certificate
+      # is self-signed and untrusted, which codesign accepts only by its hash, from a keychain on
+      # the search list; tauri's own APPLE_CERTIFICATE import wants one from Apple.
+      - name: Import the signing certificate
+        env:
+          CERTIFICATE: ${{ secrets.KAIRO_SIGNING_P12 }}
+          PASSWORD: ${{ secrets.KAIRO_SIGNING_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/kairo-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 16)"
+          echo "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/kairo-signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -t 3600 -u "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/kairo-signing.p12" -k "$keychain" -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/kairo-signing.p12"
+          identity="$(security find-identity -p codesigning "$keychain" | awk '/"Kairo Signing"/ { print $2; exit }')"
+          test -n "$identity"
+          echo "APPLE_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      # The update itself is signed with the updater key.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
