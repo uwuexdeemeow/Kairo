@@ -3199,3 +3199,63 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--muted);
   text-decoration: line-through;
 }
+
+/* ---------- Objects: the dial and the logos ---------- */
+
+.dial {
+  display: block;
+  overflow: visible;
+}
+
+.dial-face {
+  fill: var(--raised);
+  stroke: var(--chrono);
+}
+
+.dial-track {
+  stroke: var(--track);
+}
+
+.dial-arc {
+  transition: stroke-dasharray 600ms var(--ease);
+}
+
+.dial-arc.productive {
+  stroke: var(--productive);
+}
+
+.dial-arc.neutral {
+  stroke: var(--neutral);
+}
+
+.dial-arc.distracting {
+  stroke: var(--distracting);
+}
+
+.dial-centre {
+  fill: var(--ink);
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.dial-sub {
+  fill: var(--muted);
+  font-family: var(--sans);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.logo {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dial-arc {
+    transition: none;
+  }
+}
