@@ -201,14 +201,14 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>, 
 /// Every change to the task list travels to combined computers, then the page gets the new list.
 fn tasks_changed(conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
     sync::record(conn, "tasks:all", &tasks::to_json(conn).map_err(err)?)?;
-    tasks::list(conn, now_ms()).map_err(err)
+    tasks::list(conn, now_ms(), &tasks::today()).map_err(err)
 }
 
 /// The Focus page's tasks: open ones in order, then done ones, each with its focus time.
 #[tauri::command]
 pub fn get_tasks(state: State<AppState>) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
-    tasks::list(&conn, now_ms()).map_err(err)
+    tasks::list(&conn, now_ms(), &tasks::today()).map_err(err)
 }
 
 #[tauri::command]

@@ -165,6 +165,12 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("focus_sessions", "list", "TEXT"),
         // The task a session was started on, by its id (tasks.rs).
         ("focus_sessions", "task", "TEXT"),
+        // A task's plan (tasks.rs): its local due day, priority (0 Low, 1 Medium, 2 High), exact
+        // reminder, and the reminders already sent.
+        ("tasks", "due_day", "TEXT"),
+        ("tasks", "priority", "INTEGER NOT NULL DEFAULT 1"),
+        ("tasks", "remind_ms", "INTEGER"),
+        ("tasks", "reminded", "TEXT NOT NULL DEFAULT ''"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {

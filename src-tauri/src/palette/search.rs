@@ -1016,7 +1016,7 @@ mod tests {
     }
 
     fn task(id: &str, title: &str) -> crate::tasks::Task {
-        crate::tasks::Task { id: id.into(), title: title.into(), created_ms: 0, done_ms: None, position: 0, focused_ms: 80 * 60_000 }
+        crate::tasks::Task { id: id.into(), title: title.into(), created_ms: 0, done_ms: None, position: 0, focused_ms: 80 * 60_000, ..Default::default() }
     }
 
     #[test]

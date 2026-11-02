@@ -348,7 +348,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
-        tasks: crate::tasks::list(conn, now).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
+        tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         windows,
         can_close_windows: crate::platform::can_close_windows(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {

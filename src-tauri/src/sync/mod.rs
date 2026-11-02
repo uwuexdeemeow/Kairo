@@ -485,7 +485,7 @@ fn seed_choices(conn: &Connection) -> Result<()> {
         let lists = crate::lists::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('lists:block', ?1, 1)", [lists]).map_err(err)?;
     }
-    if !crate::tasks::list(conn, 0).map_err(err)?.is_empty() {
+    if !crate::tasks::list(conn, 0, "").map_err(err)?.is_empty() {
         let tasks = crate::tasks::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('tasks:all', ?1, 1)", [tasks]).map_err(err)?;
     }
@@ -898,7 +898,7 @@ mod tests {
         // The task list travels whole, ids and all.
         let task = crate::tasks::add(&desk.conn, "Essay", 1).unwrap().unwrap();
         apply(&laptop.conn, "tasks:all", &crate::tasks::to_json(&desk.conn).unwrap()).unwrap();
-        assert_eq!(crate::tasks::list(&laptop.conn, 2).unwrap().iter().map(|t| &t.id).collect::<Vec<_>>(), [&task.id]);
+        assert_eq!(crate::tasks::list(&laptop.conn, 2, "").unwrap().iter().map(|t| &t.id).collect::<Vec<_>>(), [&task.id]);
 
         let _ = std::fs::remove_dir_all(folder);
     }
