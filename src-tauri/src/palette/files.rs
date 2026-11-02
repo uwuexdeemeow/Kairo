@@ -67,8 +67,22 @@ fn under(path: &Path, home: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Folders whose files are clutter wherever they sit under home.
-const CLUTTER: [&str; 5] = ["node_modules", ".git", "target", "__pycache__", "site-packages"];
+/// Folders whose files are clutter wherever they sit under home: dependencies, caches and build
+/// output, which copy the user's own files ("dist/resume.pdf") or bury them in thousands of others.
+/// Compared without case.
+const CLUTTER: [&str; 10] = ["node_modules", ".git", "target", "__pycache__", "site-packages", "dist", "build", "venv", "vendor", "pods"];
+
+/// Extensions of source code and its config, which rank after documents, pictures and the rest:
+/// a search is for a file of one's own far more often than for a program's parts.
+const CODE: [&str; 36] = [
+    "rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "pyc", "go", "java", "kt", "swift", "c", "h", "cpp", "hpp", "cs", "rb", "php", "lua", "sh", "ps1", "html", "css",
+    "scss", "vue", "svelte", "json", "yaml", "yml", "toml", "lock", "xml", "map", "d",
+];
+
+/// Whether a path is source code or its config, by its extension.
+fn is_code(path: &Path) -> bool {
+    path.extension().is_some_and(|e| CODE.contains(&e.to_string_lossy().to_lowercase().as_str()))
+}
 /// Top-level folders in home that hold the system's and apps' own files, not the user's.
 const APP_FOLDERS: [&str; 2] = ["library", "appdata"];
 
@@ -131,20 +145,21 @@ fn modified(path: &Path) -> SystemTime {
     std::fs::metadata(path).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// The rows for what an index found: leftovers filtered out, each path once, names starting with
-/// the query first, then words, then anywhere, newest first within each, and at most `MAX_FILES`.
+/// The rows for what an index found: leftovers filtered out, each path once, everything but code
+/// before code, and within each names starting with the query first, then words, then anywhere,
+/// newest first, and at most `MAX_FILES`.
 pub fn rows(query: &str, home: &Path, found: Vec<PathBuf>) -> Vec<Item> {
     let query: Vec<char> = query.trim().chars().map(lower).collect();
     if query.is_empty() {
         return Vec::new();
     }
     let mut seen = std::collections::HashSet::new();
-    let mut matched: Vec<(u8, SystemTime, Vec<usize>, PathBuf)> = found
+    let mut matched: Vec<((bool, u8), SystemTime, Vec<usize>, PathBuf)> = found
         .into_iter()
         .filter(|path| kept(path, home) && seen.insert(path.clone()))
         .filter_map(|path| {
             let (rank, at) = rank(&path.file_name()?.to_string_lossy(), &query)?;
-            Some((rank, modified(&path), at, path))
+            Some(((is_code(&path), rank), modified(&path), at, path))
         })
         .collect();
     matched.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
@@ -598,6 +613,23 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(1), "the thread is still running");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn build_output_is_left_out() {
+        let home = Path::new("/home/ana");
+        for p in ["code/site/dist/budget.pdf", "code/app/build/budget.js", "code/tool/venv/bin/budget", "code/web/vendor/budget.php", "code/ios/Pods/Budget.h"] {
+            assert!(!kept(&home.join(p), home), "{p}");
+        }
+    }
+
+    #[test]
+    fn documents_come_before_code_that_matches_better() {
+        let h = home();
+        let found = vec![h.join("code/budget.ts"), h.join("code/budgets.test.ts"), h.join("Downloads/old budget.xlsx"), h.join("code/BudgetCard.tsx")];
+        let titles: Vec<String> = rows("budget", &h, found).into_iter().map(|i| i.title).collect();
+        assert_eq!(titles[0], "old budget.xlsx");
+        assert_eq!(titles.len(), 4);
     }
 
     #[test]
