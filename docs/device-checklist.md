@@ -228,7 +228,8 @@ Use two machines (any systems), both online, neither combining through a folder.
 2. **Type it.** On the second, Enter a code, type it in lowercase with a space instead of the
    dash, and Link. *Expect:* "Linking…", then "Linked with" the first computer's name; the
    first says "Linked with" the second's. Within a minute both list both computers, and Today
-   on each adds up both. The sidebar's switch (All computers / This one) shows on both.
+   on each adds up both. The sidebar's Show menu appears on both, reading All computers, and
+   opening it lists This one and the other computer by name, without clicking away and back.
 3. **Shared choices.** Change a site's category on one. *Expect:* the other takes it within
    about 5 minutes.
 4. **A wrong code.** Link a computer on the first again, and on a third machine (or the second

@@ -334,8 +334,22 @@ pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<boo
 
 /// What Settings shows of combining that a round can change: whether this computer combines, and
 /// what went wrong. Who's combined is left out; it's read when a window opens.
-fn shown_state(conn: &Connection) -> (bool, Option<String>) {
-    (combining(conn).unwrap_or(false), relay_status(conn).map(|(_, error)| error).unwrap_or(None))
+/// After a wake, the rounds that follow come quickly: the other computer may not have put
+/// anything up yet when the first one looks, as when both sync the moment they link.
+const QUICK_ROUNDS: [Duration; 2] = [Duration::from_secs(30), Duration::from_secs(60)];
+
+/// How long to wait for the next round, after `quick_rounds_done` quick rounds since the last wake.
+fn wait_after(quick_rounds_done: usize) -> Duration {
+    QUICK_ROUNDS.get(quick_rounds_done).copied().unwrap_or(EVERY)
+}
+
+/// What open windows show of combining: whether it's on, why it last failed, and who's combined.
+fn shown_state(conn: &Connection) -> (bool, Option<String>, Vec<String>) {
+    (
+        combining(conn).unwrap_or(false),
+        relay_status(conn).map(|(_, error)| error).unwrap_or(None),
+        computers(conn).unwrap_or_default().into_iter().map(|c| c.id).collect(),
+    )
 }
 
 /// Every few minutes, while Kairo runs, and at once whenever something sends on `wake` (linking,
@@ -354,6 +368,7 @@ pub fn spawn(
         .name("kairo-sync".into())
         .spawn(move || {
             let mut woken = wake.recv_timeout(FIRST_AFTER).is_ok();
+            let mut quick_rounds_done = if woken { 0 } else { QUICK_ROUNDS.len() };
             let conn = match db::open(&db_path) {
                 Ok(conn) => conn,
                 Err(e) => return eprintln!("sync: cannot open the database: {e}"),
@@ -381,9 +396,12 @@ pub fn spawn(
                 if woken || shown_state(&conn) != before {
                     on_woken();
                 }
-                woken = match wake.recv_timeout(EVERY) {
+                let wait = wait_after(quick_rounds_done);
+                quick_rounds_done = quick_rounds_done.saturating_add(1);
+                woken = match wake.recv_timeout(wait) {
                     Ok(()) => {
                         while wake.try_recv().is_ok() {}
+                        quick_rounds_done = 0;
                         true
                     }
                     Err(RecvTimeoutError::Timeout) => false,
@@ -965,6 +983,31 @@ mod tests {
     }
 
     #[test]
+    fn a_computer_turning_up_changes_what_is_shown() {
+        let (desk, laptop) = (Computer::new("desk-up"), Computer::new("laptop-up"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        // The desk's first round comes before the laptop has put anything up.
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        let alone = shown_state(&desk.conn);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        run_relay(&desk.conn, api.clone(), now + 1_000).unwrap();
+        assert_ne!(shown_state(&desk.conn), alone);
+        // Nothing new, so nothing to show again.
+        let both = shown_state(&desk.conn);
+        run_relay(&desk.conn, api.clone(), now + 2_000).unwrap();
+        assert_eq!(shown_state(&desk.conn), both);
+    }
+
+    #[test]
+    fn rounds_come_quickly_after_a_wake() {
+        assert_eq!(wait_after(0), Duration::from_secs(30));
+        assert_eq!(wait_after(1), Duration::from_secs(60));
+        assert_eq!(wait_after(2), EVERY);
+        assert_eq!(wait_after(10), EVERY);
+    }
+
+    #[test]
     fn a_round_with_nothing_new_only_lists_what_changed() {
         let (desk, laptop) = (Computer::new("desk-q"), Computer::new("laptop-q"));
         let api = linked(&desk, &laptop);
@@ -1084,7 +1127,7 @@ mod tests {
 
     #[test]
     fn starting_over_while_a_round_runs_keeps_the_new_group() {
-        let (desk, laptop) = (Computer::new("desk-s"), Computer::new("laptop-s"));
+        let (desk, laptop) = (Computer::new("desk-x"), Computer::new("laptop-x"));
         let api = linked(&desk, &laptop);
         let now = 20_000 * DAY_MS;
         let old = relay::group(&desk.conn).unwrap().unwrap();
