@@ -272,7 +272,7 @@ const SEEN_KEY: &str = "sync_seen";
 /// reads them only when they changed. Kept for one version of Kairo: a newer one reads them all
 /// again, since it may take choices the one before had to leave waiting.
 #[derive(Serialize, Deserialize, Default)]
-struct Seen {
+pub(crate) struct Seen {
     kairo: String,
     files: HashMap<String, String>,
 }
@@ -287,11 +287,11 @@ impl Seen {
         db::set_setting(conn, SEEN_KEY, &serde_json::to_string(self).map_err(err)?).map_err(err)
     }
 
-    fn has(&self, computer: &str, file: &str, version: &str) -> bool {
+    pub(crate) fn has(&self, computer: &str, file: &str, version: &str) -> bool {
         self.files.get(&format!("{computer}/{file}")).is_some_and(|v| v == version)
     }
 
-    fn note(&mut self, computer: &str, file: &str, version: &str) {
+    pub(crate) fn note(&mut self, computer: &str, file: &str, version: &str) {
         self.files.insert(format!("{computer}/{file}"), version.to_string());
     }
 }
@@ -327,9 +327,11 @@ pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<boo
     let wrote_days = write_own(conn, store, &mine, now_ms);
     read_others(conn, store, &listing, &me, now_ms)?;
     note_computers(conn, store, &listing, &me, &mut seen, now_ms)?;
+    // Like the days, a note that fails to go up doesn't keep the rest from coming in.
+    let notes = crate::notebook::sync(conn, store, &listing, &me, &mut seen, now_ms);
     seen.save(conn)?;
     wrote_choices.and(wrote_days)?;
-    Ok(changed)
+    Ok(changed | notes?)
 }
 
 /// What Settings shows of combining that a round can change: whether this computer combines, and
@@ -540,10 +542,10 @@ fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, 
         let Ok(text) = store.get(computer, CHOICES_FILE) else { continue };
         let Ok(theirs) = serde_json::from_slice::<HashMap<String, Choice>>(&text) else { continue };
         seen.note(computer, CHOICES_FILE, version);
-        // A limit before whether it blocks, and the task list before the tasks' plans: each needs
-        // the other to be there.
+        // A limit before whether it blocks, and the task list before the tasks' plans and notes:
+        // each needs the other to be there.
         let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
-        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:") || item.starts_with("taskplan:"), item.clone()));
+        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:") || item.starts_with("taskplan:") || item.starts_with("tasknote:"), item.clone()));
         for (item, choice) in theirs {
             if ours.get(&item).is_some_and(|o| o.changed_ms >= choice.changed_ms) {
                 continue;
@@ -584,6 +586,11 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
             false => Err("no such task yet".into()),
         },
         "ledger" => crate::ledger::apply(conn, key, value),
+        // Which note a task is attached to (empty for none); waits for its task like a plan.
+        "tasknote" => match crate::tasks::set_note(conn, key, Some(value)).map_err(err)? {
+            true => Ok(()),
+            false => Err("no such task yet".into()),
+        },
         "notes" => crate::notes::set_from_json(conn, key, value),
         _ => Err("unknown choice".into()),
     }
@@ -925,6 +932,131 @@ mod tests {
         let (desk, laptop) = (Computer::new(&format!("desk-{name}")), Computer::new(&format!("laptop-{name}")));
         let (a, b) = (shared.for_computer(&device_id(&desk.conn).unwrap()), shared.for_computer(&device_id(&laptop.conn).unwrap()));
         (desk, laptop, a, b)
+    }
+
+    fn note_titles(c: &Computer) -> Vec<String> {
+        let mut t: Vec<String> = crate::notebook::list(&c.conn, "").unwrap().into_iter().map(|n| n.title).collect();
+        t.sort();
+        t
+    }
+
+    #[test]
+    fn a_new_note_reaches_the_other_computer_and_the_newest_change_wins() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("notes");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "# Plan\nintro", now).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        assert!(run_with(&laptop.conn, &laptop_store, now).unwrap());
+        assert_eq!(crate::notebook::get(&laptop.conn, &n.id).unwrap().unwrap().body, "# Plan\nintro");
+        // The laptop edits it; the desk takes that.
+        crate::notebook::save(&laptop.conn, &n.id, "# Plan\nintro\nbody", now + 10).unwrap();
+        run_with(&laptop.conn, &laptop_store, now + 10).unwrap();
+        run_with(&desk.conn, &desk_store, now + 10).unwrap();
+        assert_eq!(crate::notebook::get(&desk.conn, &n.id).unwrap().unwrap().body, "# Plan\nintro\nbody");
+        // Nothing new: a round changes nothing.
+        assert!(!run_with(&desk.conn, &desk_store, now + 20).unwrap());
+        assert_eq!(note_titles(&desk), ["Plan"]);
+    }
+
+    #[test]
+    fn an_unsynced_edit_meeting_a_newer_one_becomes_a_conflicted_copy() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("clash");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "Plan", now).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        // Both edit before either syncs; the laptop's is later.
+        crate::notebook::save(&desk.conn, &n.id, "Plan\ndesk's", now + 5).unwrap();
+        crate::notebook::save(&laptop.conn, &n.id, "Plan\nlaptop's", now + 9).unwrap();
+        run_with(&laptop.conn, &laptop_store, now + 9).unwrap();
+        run_with(&desk.conn, &desk_store, now + 10).unwrap();
+        run_with(&laptop.conn, &laptop_store, now + 11).unwrap();
+        run_with(&desk.conn, &desk_store, now + 12).unwrap();
+        let want = ["Plan", "Plan (conflicted copy)"];
+        assert_eq!(note_titles(&desk), want);
+        assert_eq!(note_titles(&laptop), want);
+        assert_eq!(crate::notebook::get(&desk.conn, &n.id).unwrap().unwrap().body, "Plan\nlaptop's");
+        let copy = crate::notebook::list(&laptop.conn, "conflicted").unwrap();
+        assert_eq!(copy[0].body, "Plan (conflicted copy)\ndesk's");
+    }
+
+    #[test]
+    fn a_deletion_spreads_and_stays() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("gone");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "Plan", now).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        crate::notebook::remove(&laptop.conn, &n.id, now + 5).unwrap();
+        run_with(&laptop.conn, &laptop_store, now + 5).unwrap();
+        run_with(&desk.conn, &desk_store, now + 6).unwrap();
+        assert!(note_titles(&desk).is_empty());
+        // The desk's own, older copy doesn't bring it back on either side.
+        run_with(&laptop.conn, &laptop_store, now + 7).unwrap();
+        run_with(&desk.conn, &desk_store, now + 8).unwrap();
+        assert!(note_titles(&desk).is_empty() && note_titles(&laptop).is_empty());
+    }
+
+    #[test]
+    fn a_computer_linked_later_gets_every_note() {
+        let shared = store::MemStore::default();
+        let (desk, laptop, late) = (Computer::new("desk-late"), Computer::new("laptop-late"), Computer::new("third-late"));
+        let st = |c: &Computer| shared.for_computer(&device_id(&c.conn).unwrap());
+        let now = 20_000 * DAY_MS;
+        crate::notebook::create(&desk.conn, "Desk's", now).unwrap();
+        crate::notebook::create(&laptop.conn, "Laptop's", now).unwrap();
+        run_with(&desk.conn, &st(&desk), now).unwrap();
+        run_with(&laptop.conn, &st(&laptop), now).unwrap();
+        run_with(&desk.conn, &st(&desk), now).unwrap();
+        // The laptop leaves; its note lives on in the desk's copy.
+        st(&laptop).remove_me().unwrap();
+        run_with(&late.conn, &st(&late), now).unwrap();
+        assert_eq!(note_titles(&late), ["Desk's", "Laptop's"]);
+    }
+
+    #[test]
+    fn deletion_markers_go_after_thirty_days() {
+        let (desk, _laptop, desk_store, _) = sharing("purge");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "Plan", now).unwrap();
+        crate::notebook::remove(&desk.conn, &n.id, now).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        let file = format!("note-{}.json", n.id);
+        let me = device_id(&desk.conn).unwrap();
+        assert!(desk_store.list().unwrap()[&me].contains_key(&file));
+        run_with(&desk.conn, &desk_store, now + 31 * DAY_MS).unwrap();
+        assert!(!desk_store.list().unwrap()[&me].contains_key(&file));
+        let left: i64 = desk.conn.query_row("SELECT COUNT(*) FROM notebook", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 0);
+    }
+
+    #[test]
+    fn equal_changes_pick_the_same_winner_everywhere() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("tie");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "Plan", now).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        crate::notebook::save(&desk.conn, &n.id, "Plan\naaa", now + 5).unwrap();
+        crate::notebook::save(&laptop.conn, &n.id, "Plan\nzzz", now + 5).unwrap();
+        for t in 6..10 {
+            run_with(&desk.conn, &desk_store, now + t).unwrap();
+            run_with(&laptop.conn, &laptop_store, now + t).unwrap();
+        }
+        let body = |c: &Computer| crate::notebook::get(&c.conn, &n.id).unwrap().unwrap().body;
+        assert_eq!(body(&desk), body(&laptop));
+        assert_eq!(note_titles(&desk), note_titles(&laptop));
+    }
+
+    #[test]
+    fn a_tasks_note_travels_and_waits_for_its_task() {
+        let laptop = Computer::new("laptop-tasknote");
+        assert!(apply(&laptop.conn, "tasknote:abc", "n1").is_err());
+        laptop.conn.execute("INSERT INTO tasks (id, title, created_ms, position) VALUES ('abc', 'Essay', 1, 0)", []).unwrap();
+        apply(&laptop.conn, "tasknote:abc", "n1").unwrap();
+        assert_eq!(crate::tasks::list(&laptop.conn, 0, "").unwrap()[0].note.as_deref(), Some("n1"));
+        apply(&laptop.conn, "tasknote:abc", "").unwrap();
+        assert_eq!(crate::tasks::list(&laptop.conn, 0, "").unwrap()[0].note, None);
     }
 
     #[test]

@@ -111,6 +111,20 @@ pub fn open(path: &Path) -> Result<Connection> {
              done_ms    INTEGER,
              position   INTEGER NOT NULL
          );
+         -- Ledger's notes (notebook.rs). changed_ms moves with any change, edits, pins and
+         -- deletion alike, and is what combined computers compare; synced_ms is the change
+         -- last shared or taken in, written_ms the one in this computer's sync file.
+         CREATE TABLE IF NOT EXISTS notebook (
+             id         TEXT    PRIMARY KEY,
+             body       TEXT    NOT NULL,
+             created_ms INTEGER NOT NULL,
+             edited_ms  INTEGER NOT NULL,
+             changed_ms INTEGER NOT NULL,
+             pinned     INTEGER NOT NULL DEFAULT 0,
+             deleted    INTEGER NOT NULL DEFAULT 0,
+             synced_ms  INTEGER NOT NULL DEFAULT 0,
+             written_ms INTEGER NOT NULL DEFAULT 0
+         );
          CREATE TABLE IF NOT EXISTS block_lists (
              name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
              keys     TEXT    NOT NULL,
@@ -171,6 +185,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("tasks", "priority", "INTEGER NOT NULL DEFAULT 1"),
         ("tasks", "remind_ms", "INTEGER"),
         ("tasks", "reminded", "TEXT NOT NULL DEFAULT ''"),
+        // The note a task is attached to, by its id (notebook.rs).
+        ("tasks", "note", "TEXT"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {

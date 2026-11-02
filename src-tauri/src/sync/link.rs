@@ -107,6 +107,7 @@ pub fn host<R: Api + Mailbox + 'static>(
             let state = code.step(chrono::Utc::now().timestamp_millis());
             if let PairState::Linked { .. } = state {
                 // Put away while the other computer was answering: this one stays where it is.
+                // (Linking closed the code already.)
                 if cancelled.load(Ordering::SeqCst) {
                     return;
                 }
@@ -123,7 +124,10 @@ pub fn host<R: Api + Mailbox + 'static>(
                 }
                 on_linked();
             }
+            // Put away while that step was out: the code goes from the relay now, not when it runs
+            // out, so typing it fails at once.
             if cancelled.load(Ordering::SeqCst) {
+                code.cancel();
                 return;
             }
             let done = state != PairState::Waiting;
@@ -250,7 +254,11 @@ mod tests {
         host(&shared, relay.clone(), &desk.path, false, FAST, || {}).unwrap();
         shared.cancel();
         assert!(matches!(wait_until_done(&shared), PairState::Failed { .. }));
-        std::thread::sleep(FAST * 4);
+        // The code leaves the relay once the linking thread wakes, however slow the machine.
+        let until = std::time::Instant::now() + Duration::from_secs(2);
+        while !relay.slots.lock().unwrap().is_empty() && std::time::Instant::now() < until {
+            std::thread::sleep(FAST);
+        }
         assert!(relay.slots.lock().unwrap().is_empty());
     }
 

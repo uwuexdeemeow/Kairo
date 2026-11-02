@@ -16,6 +16,7 @@ mod focus;
 mod goals;
 mod ledger;
 mod lists;
+mod notebook;
 mod notes;
 mod nudge;
 mod palette;
@@ -63,6 +64,8 @@ pub struct AppState {
     pub navigation: Mutex<Option<Navigation>>,
     /// The dashboard tab asked for, until the page takes it.
     pub dashboard_tab: Mutex<Option<String>>,
+    /// Where Ledger was asked to open ("note:<id>", "task:<id>"), until its page takes it.
+    pub ledger_open: Mutex<Option<String>>,
     /// Where the database lives, for threads that reach the relay with connections of their own.
     pub db_path: std::path::PathBuf,
     /// Wakes the sync thread for a round at once.
@@ -213,6 +216,7 @@ pub fn run() {
                 icons: Mutex::default(),
                 navigation: Mutex::default(),
                 dashboard_tab: Mutex::default(),
+                ledger_open: Mutex::default(),
             });
             setup_tray(app, paused, &palette_shortcut)?;
             // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
@@ -372,6 +376,15 @@ pub fn run() {
             commands::open_ledger,
             commands::ledger_settings,
             commands::set_ledger_settings,
+            commands::get_notes,
+            commands::get_note,
+            commands::new_note,
+            commands::save_note,
+            commands::pin_note,
+            commands::remove_note,
+            commands::set_task_note,
+            commands::sync_soon,
+            commands::take_ledger_open,
             commands::seed_demo_data,
             commands::export_time,
             commands::backup_data,
@@ -482,6 +495,16 @@ pub(crate) fn show_main(app: &AppHandle) {
 /// Brings up Ledger's window, making it if it was closed.
 pub(crate) fn show_ledger(app: &AppHandle) {
     show_window(app, "ledger");
+}
+
+/// Brings up Ledger on a note or task ("note:<id>", "task:<id>"). As with the dashboard's tab,
+/// a window still loading asks for it once ready (`take_ledger_open`).
+pub(crate) fn show_ledger_at(app: &AppHandle, what: &str) {
+    if let Some(state) = app.try_state::<AppState>() {
+        *state.ledger_open.lock().unwrap_or_else(|e| e.into_inner()) = Some(what.to_string());
+    }
+    show_window(app, "ledger");
+    let _ = app.emit_to("ledger", "kairo:ledger", ());
 }
 
 /// Brings up the dashboard, on `tab` when one is given. A window made for it is still loading

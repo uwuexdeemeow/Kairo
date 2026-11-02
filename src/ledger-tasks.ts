@@ -13,7 +13,15 @@ export type LedgerActions = {
   rename(id: string, title: string): void;
   plan(id: string, due: string | null, priority: number, remind: number | null): void;
   remove(id: string): void;
+  openNote(id: string): void;
+  /** Attaches a note to a task, or (null) detaches it. */
+  attach(task: string, note: string | null): void;
+  /** A new note headed with the task's title, attached to it. */
+  newNoteFor(task: string, title: string): void;
 };
+
+/// A note as the task panel names it.
+export type NoteName = { id: string; title: string };
 
 /// The running focus session's task, by id (null for a session on no task), or null with none.
 export type RunningSession = { task: string | null } | null;
@@ -60,6 +68,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
   // Today's group says the day already.
   if (t.dueDay && t.group !== "today") el.append(h("span", { class: "task-day muted" }, dayText(t.dueDay)));
   if (t.remindMs !== null) el.append(h("span", { class: "task-bell", title: "Has a reminder", "aria-label": "Has a reminder" }, "🔔"));
+  if (t.note) el.append(h("span", { class: "task-note", title: "Has a note", "aria-label": "Has a note" }, "📝"));
   el.append(h("span", { class: "task-time muted" }, t.focusedMs > 0 ? fmtDur(t.focusedMs) : ""));
   if (!done) {
     // While a session runs, Start would end it, so only the running task's row says anything.
@@ -121,8 +130,49 @@ function localInput(ms: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/// Draws the detail panel for `t`: title, due day, priority, exact reminder, focus time, Delete.
-export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions): void {
+/// The panel's Note row: the attached note (open, detach), or a way to attach one: a search over
+/// the notes, with a new one named after the task first.
+function noteRow(t: Task, act: LedgerActions, notes: NoteName[]): HTMLElement {
+  const row = h("div", { class: "detail-field detail-note" }, h("span", {}, "Note"));
+  const attached = t.note ? notes.find((n) => n.id === t.note) : undefined;
+  if (attached) {
+    const open = h("button", { class: "link-btn open-note" }, `${attached.title} ↗`);
+    open.addEventListener("click", () => act.openNote(attached.id));
+    const detach = h("button", { class: "link-btn detach-note", "aria-label": "Detach the note", title: "Detach the note" }, "×");
+    detach.addEventListener("click", () => act.attach(t.id, null));
+    row.append(open, detach);
+    return row;
+  }
+  const start = h("button", { class: "link-btn attach-note" }, "+ Attach a note");
+  start.addEventListener("click", () => {
+    const find = h("input", { class: "filter", type: "search", placeholder: "Find a note", "aria-label": "Find a note" }) as HTMLInputElement;
+    const options = h("div", { class: "note-pick-options" });
+    const draw = () => {
+      const q = find.value.trim().toLowerCase();
+      const fresh = h("button", { class: "link-btn" }, `New note: ${t.title}`);
+      fresh.addEventListener("click", () => act.newNoteFor(t.id, t.title));
+      const found = notes
+        .filter((n) => !q || n.title.toLowerCase().includes(q))
+        .slice(0, 8)
+        .map((n) => {
+          const b = h("button", { class: "link-btn" }, n.title);
+          b.addEventListener("click", () => act.attach(t.id, n.id));
+          return b;
+        });
+      options.replaceChildren(fresh, ...found);
+    };
+    find.addEventListener("input", draw);
+    draw();
+    start.replaceWith(h("div", { class: "note-pick" }, find, options));
+    find.focus();
+  });
+  row.append(start);
+  return row;
+}
+
+/// Draws the detail panel for `t`: title, due day, priority, exact reminder, note, focus time,
+/// Delete. `notes` names the notes it can be attached to.
+export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = []): void {
   const title = h("input", { class: "filter detail-title", maxlength: "80", "aria-label": "Title" }) as HTMLInputElement;
   title.value = t.title;
   const saveTitle = () => {
@@ -165,6 +215,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions): vo
     h("label", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
     h("label", { class: "detail-field" }, h("span", {}, "Remind me"), remind, clearRemind),
+    noteRow(t, act, notes),
     h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
     remove,
   );

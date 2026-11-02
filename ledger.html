@@ -22,6 +22,10 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
             Tasks
           </button>
+          <button role="tab" data-view="notes" aria-selected="false">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 12h7M9 16h5" /></svg>
+            Notes
+          </button>
           <button role="tab" data-view="settings" aria-selected="false" class="tab-settings">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
             Settings
@@ -40,6 +44,8 @@
           <div id="task-list" class="ledger-list"></div>
           <aside id="task-detail" class="ledger-detail" hidden aria-label="Task details"></aside>
         </section>
+
+        <section id="view-notes" class="view" aria-label="Notes" hidden></section>
 
         <section id="view-settings" class="view" aria-label="Settings" hidden>
           <section class="block">
