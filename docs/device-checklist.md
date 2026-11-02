@@ -159,6 +159,32 @@ On Windows, a Mac and Linux.
     High on one. *Expect:* within about 5 minutes the other shows the same; a reminder sent on one
     isn't sent again on the other.
 
+## Ledger notes
+
+On Windows, a Mac and Linux. Open Ledger's Notes.
+
+1. **New.** Press + New note and type `# Essay plan`, Enter, `- [ ] intro`, Enter. *Expect:* the
+   heading bold and blue with its `#` faint, and a second `- [ ] ` started for you. Enter again on
+   the empty item. *Expect:* the list ends. The note is titled "Essay plan" in the list.
+2. **Writing.** Type `**bold**`, `*italic*`, `` `code` ``, `[site](https://example.com)`. *Expect:*
+   each styled, the caret always on the letter you're typing (no drift, also on long wrapped
+   lines). Select a word and press Ctrl+B (⌘+B on a Mac). *Expect:* `**` around it; Ctrl+Z undoes it.
+3. **Boxes.** Click inside `[ ]`. *Expect:* `[x]`, the line struck through; click again to untick.
+4. **Saving.** Type, then close Ledger at once and reopen it. *Expect:* the text is all there.
+5. **List.** Make two more notes, pin one. *Expect:* the pinned one on top with 📌, then the newest
+   edited. Search for a word inside one note's text. *Expect:* only that note.
+6. **Delete.** Delete a note. *Expect:* "Delete “…”? Tasks attached to it lose the link." with
+   Delete and Keep; Keep leaves it, Delete removes it.
+7. **Tasks.** On Tasks, open a task's panel: + Attach a note, pick "New note: <task>". *Expect:*
+   Notes opens on a note headed with the task's name; the task's row shows 📝, and the note says
+   "Attached to: <task> ↗", which goes back to the task.
+8. **Palette.** `note buy milk` opens Ledger on a new note "buy milk". `notes` lists them; a word
+   from inside a note's text offers it under Notes.
+9. **Two computers.** With two combined computers, write a note on one. *Expect:* within about
+   5 minutes (sooner, 30 seconds after typing stops) it's on the other. Edit the same note on both
+   before either syncs. *Expect:* both end with the note and one "(conflicted copy)" of the edit
+   that lost. Delete a note on one. *Expect:* it goes from the other too, and doesn't come back.
+
 ## Palette: web search
 
 On Windows, a Mac and Linux. Open the palette.
