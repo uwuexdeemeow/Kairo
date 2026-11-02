@@ -24,7 +24,7 @@ On Windows and a Mac:
 1. **Click.** Left-click the tray icon (menu bar icon on a Mac), then try a double-click.
    *Expect:* the dashboard opens either way, once, never two windows. Right-click (or, on a Mac,
    any other click) shows the menu.
-2. **Menu.** *Expect:* Open dashboard, Open Chrono, Check for updates, Command palette (with its
+2. **Menu.** *Expect:* Open dashboard, Open Chrono, Open Ledger, Check for updates, Command palette (with its
    shortcut), Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and
    if it's already open, brings it forward. Check for updates shows a notification saying Kairo is
    up to date, or that it's installing the newer version.
@@ -33,7 +33,7 @@ On Windows and a Mac:
    settings; its link opens the dashboard's Settings tab. Change the theme there with Chrono open.
    *Expect:* Chrono repaints without a restart.
 
-On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same six items,
+On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same seven items,
 and Open dashboard and Check for updates work as above.
 
 ## Mac
@@ -128,23 +128,36 @@ file search finds, a quick way to check Windows Search by itself.
 - On a system with plocate, type a short query that matches many system files, like "conf" or
   "lib", with a file in your home folder named so too. *Expect:* that home file still shows.
 
-## Tasks
+## Ledger
 
-On Windows, a Mac and Linux. Open Chrono's Focus page.
+On Windows, a Mac and Linux.
 
-1. **Add.** Type "Essay" in "Add a task" and press Enter. *Expect:* it shows under Tasks.
-2. **Start.** Press its Start. *Expect:* a focus session for the length picked on the timer,
-   labelled "Essay", and the row says "Focusing now". End the session. *Expect:* the row shows
-   its time, like "1m".
-3. **Done.** Tick it. *Expect:* it moves under "Done (1)", folded away; untick it there and it
-   comes back at the bottom of the list.
-4. **Rename.** Click its title, type "Essay draft", press Enter. *Expect:* the new title. Click
-   it again, type something, press Esc. *Expect:* the title stays.
-5. **Palette.** Type `focus 25 ess`. *Expect:* "For your task “Essay draft”" under the row.
-   Type `tasks`. *Expect:* your open tasks; Ctrl+Enter (⌘+Enter on a Mac) on one marks it done.
-   Type `task buy milk` and press Enter. *Expect:* "buy milk" on the Focus page.
-6. **Two computers.** With two combined computers, add a task on one. *Expect:* within about
-   10 minutes it shows on the other, with no time there until a session runs on it there.
+1. **Open.** From the dashboard's Ledger tile, the tray's Open Ledger, and the palette's `ledger`.
+   *Expect:* the same Ledger window each time, never two, with tasks you had on Chrono's Focus
+   page already in it (as Medium, with no day).
+2. **Quick add.** Type `essay draft !h fri`. *Expect:* "High · Fri …" under the field as you type;
+   Enter adds "essay draft" under Upcoming with a red dot and the day. Add `call "tue"`.
+   *Expect:* a task called "call tue" under No date.
+3. **Groups.** Give one task today's date and another yesterday's (click its title for the panel).
+   *Expect:* Overdue (red) at the top, then Today, Upcoming and No date; within each, High first.
+   A task's Low button takes its dot away.
+4. **Start focus.** Press Start focus on a task. *Expect:* a session for the length last picked on
+   Chrono's timer; the row says "Focusing now", and Chrono's Focus page says "Focusing on “…”".
+5. **Done.** Tick a task. *Expect:* it folds under "Done (1)"; unticking brings it back.
+6. **Due reminder.** In Ledger's Settings, set the morning time a couple of minutes ahead, with a
+   task due today. Keep using the computer. *Expect:* within a minute of that time, "Due today:
+   …" as a notification, once. On a Mac the first one may ask to allow notifications.
+7. **Exact reminder.** Give a task a reminder two minutes ahead. *Expect:* "Reminder: …" at that
+   time. Set one, then leave the computer alone past it for 3 minutes. *Expect:* nothing until you
+   come back, then the reminder.
+8. **Chrono.** On Chrono's Focus page, the Tasks block. *Expect:* a pick of the open tasks in
+   Ledger's order with Start focus, and Open Ledger, which opens it.
+9. **Palette.** Type `task buy milk !l tmr`. *Expect:* the row says "Low · <tomorrow> · In Ledger";
+   Enter adds it to Ledger. Type `tasks`. *Expect:* your open tasks with their due days.
+   `focus 25 ess` still says "For your task “essay draft”".
+10. **Two computers.** With two combined computers (one on 1.27 or later), give a task a day and
+    High on one. *Expect:* within about 5 minutes the other shows the same; a reminder sent on one
+    isn't sent again on the other.
 
 ## Palette: web search
 
