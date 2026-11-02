@@ -294,7 +294,20 @@ export interface Task {
   priority: number;
   remindMs: number | null;
   reminded: string;
+  /** The note it's attached to, by id. */
+  note: string | null;
   group: TaskGroup;
+}
+
+/** A note in Ledger; `title` is its first line with text, `tasks` the open ones attached. */
+export interface Note {
+  id: string;
+  title: string;
+  body: string;
+  createdMs: number;
+  editedMs: number;
+  pinned: boolean;
+  tasks: [string, string][];
 }
 
 /** Quick-add text as read: the title, its shortcuts, and "High · Fri 7 Nov". */
@@ -454,6 +467,18 @@ export const api = {
   openLedger: () => invoke<void>("open_ledger"),
   ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
   setLedgerSettings: (reminders: boolean, morning: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning }),
+  /** Pinned first, then newest edited; with a query, those whose title or text has it. */
+  notes: (query?: string) => invoke<Note[]>("get_notes", { query }),
+  note: (id: string) => invoke<Note | null>("get_note", { id }),
+  newNote: (text: string) => invoke<Note>("new_note", { text }),
+  /** null when the note was deleted elsewhere since it was opened. */
+  saveNote: (id: string, body: string) => invoke<Note | null>("save_note", { id, body }),
+  pinNote: (id: string, pinned: boolean) => invoke<void>("pin_note", { id, pinned }),
+  removeNote: (id: string) => invoke<void>("remove_note", { id }),
+  setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
+  syncSoon: () => invoke<void>("sync_soon"),
+  /** Where Ledger was asked to open, once: "note:<id>" or "task:<id>". */
+  takeLedgerOpen: () => invoke<string | null>("take_ledger_open"),
   renameTask: (id: string, title: string) => invoke<Task[]>("rename_task", { id, title }),
   setTaskDone: (id: string, done: boolean) => invoke<Task[]>("set_task_done", { id, done }),
   removeTask: (id: string) => invoke<Task[]>("remove_task", { id }),

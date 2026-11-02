@@ -13,6 +13,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   priority: 1,
   remindMs: null,
   reminded: "",
+  note: null,
   group: "none",
   ...extra,
 });

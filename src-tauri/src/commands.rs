@@ -302,6 +302,72 @@ pub fn ledger_settings(state: State<AppState>) -> CmdResult<crate::ledger::Setti
     crate::ledger::settings(&conn).map_err(err)
 }
 
+// ---------- Ledger's notes ----------
+
+#[tauri::command]
+pub fn get_notes(state: State<AppState>, query: Option<String>) -> CmdResult<Vec<crate::notebook::Note>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::list(&conn, query.as_deref().unwrap_or("")).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_note(state: State<AppState>, id: String) -> CmdResult<Option<crate::notebook::Note>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::get(&conn, &id).map_err(err)
+}
+
+#[tauri::command]
+pub fn new_note(state: State<AppState>, text: String) -> CmdResult<crate::notebook::Note> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::create(&conn, &text, now_ms()).map_err(err)
+}
+
+/// None when the note is gone, deleted on another computer since it was opened.
+#[tauri::command]
+pub fn save_note(state: State<AppState>, id: String, body: String) -> CmdResult<Option<crate::notebook::Note>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::save(&conn, &id, &body, now_ms()).map_err(err)
+}
+
+#[tauri::command]
+pub fn pin_note(state: State<AppState>, id: String, pinned: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::set_pinned(&conn, &id, pinned, now_ms()).map_err(err)
+}
+
+/// Deletes a note; the tasks it was attached to lose the link, here and on combined computers.
+#[tauri::command]
+pub fn remove_note(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    for task in crate::notebook::remove(&conn, &id, now_ms()).map_err(err)? {
+        sync::record(&conn, &format!("tasknote:{task}"), "")?;
+    }
+    let _ = app.emit("kairo:tasks", ());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_task_note(app: AppHandle, state: State<AppState>, task: String, note: Option<String>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    let note = note.filter(|n| !n.is_empty());
+    tasks::set_note(&conn, &task, note.as_deref()).map_err(err)?;
+    sync::record(&conn, &format!("tasknote:{task}"), note.as_deref().unwrap_or(""))?;
+    tasks_changed(&app, &conn)
+}
+
+/// Asked by Ledger once typing in a note has stopped a while, so the edit reaches combined
+/// computers without waiting for the next round.
+#[tauri::command]
+pub fn sync_soon(state: State<AppState>) {
+    wake_sync(&state);
+}
+
+/// Where Ledger was asked to open, once: "note:<id>" or "task:<id>".
+#[tauri::command]
+pub fn take_ledger_open(state: State<AppState>) -> CmdResult<Option<String>> {
+    Ok(state.ledger_open.lock().map_err(err)?.take())
+}
+
 #[tauri::command]
 pub fn set_ledger_settings(state: State<AppState>, reminders: bool, morning: String) -> CmdResult<crate::ledger::Settings> {
     let conn = state.db.lock().map_err(err)?;
