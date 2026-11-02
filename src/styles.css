@@ -3531,3 +3531,100 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     animation: none;
   }
 }
+
+/* ---------- The palette as a keycap ---------- */
+
+.palette {
+  background-color: var(--raised);
+  background-image: var(--grain);
+  border-color: color-mix(in srgb, var(--palette) 35%, var(--line));
+  animation: drop-in 120ms var(--ease) both;
+}
+
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+}
+
+/* The search field sits like a key, a little raised on its own edge. */
+.palette-search {
+  margin: 10px 10px 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--palette) 30%, var(--bg));
+}
+
+.palette-search input {
+  font-family: var(--sans);
+}
+
+.palette-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.palette-row.selected,
+.palette-tile.selected {
+  background: color-mix(in srgb, var(--palette) 18%, transparent);
+}
+
+/* ---------- The blocked window: Chrono's watch with the minutes left ---------- */
+
+.blocked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.blocked-watch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 150px;
+  height: 150px;
+  margin-bottom: 14px;
+}
+
+.blocked-ring,
+.blocked-ring .watch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.blocked-minutes {
+  position: relative;
+  font-family: var(--display);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.blocked-unit {
+  position: relative;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.blocked .blocked-actions {
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .palette {
+    animation: none;
+  }
+}

@@ -8,6 +8,15 @@ export function dayParts(d: { activeMs: number; productiveMs: number; distractin
   return { productive, distracting, neutral: Math.max(0, d.activeMs - productive - distracting) };
 }
 
+/// The blocked window's watch: it knows only when the session ends, so the ring is the minutes
+/// left as a minute hand would show them on an hour (full from an hour on), with the minutes in
+/// its middle.
+export function blockedWatch(untilMs: number, now: number): { svg: string; minutes: string } {
+  const left = Math.max(0, untilMs - now);
+  const hour = 60 * 60_000;
+  return { svg: watchSvg(Math.min(left, hour), hour, false), minutes: String(Math.ceil(left / 60_000)) };
+}
+
 /// The focus watch: the time left as a ring from the top, shrinking clockwise as it goes. The
 /// time itself is drawn over it by the page.
 export function watchSvg(left: number, planned: number, paused: boolean): string {

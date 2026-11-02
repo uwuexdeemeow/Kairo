@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dayParts, watchSvg } from "./chrono-look";
+import { blockedWatch, dayParts, watchSvg } from "./chrono-look";
 import { RING } from "./logos";
 
 describe("Chrono's day dial", () => {
@@ -27,5 +27,19 @@ describe("the focus watch", () => {
   it("says when it's paused", () => {
     expect(watchSvg(1, 2, true)).toContain('class="watch paused"');
     expect(watchSvg(1, 2, false)).toContain('class="watch"');
+  });
+});
+
+describe("the blocked window's watch", () => {
+  const dash = (svg: string) => Number(/class="watch-left"[^>]*stroke-dasharray="([\d.]+) /.exec(svg)![1]);
+
+  it("shows the minutes left, as a minute hand would on an hour", () => {
+    const w = blockedWatch(30 * 60_000, 0);
+    expect(w.minutes).toBe("30");
+    expect(dash(w.svg)).toBeCloseTo(RING / 2, 2);
+    expect(blockedWatch(90 * 60_000, 0).minutes).toBe("90");
+    expect(dash(blockedWatch(90 * 60_000, 0).svg)).toBeCloseTo(RING, 2);
+    expect(blockedWatch(30_000, 0).minutes).toBe("1");
+    expect(blockedWatch(-5, 0).minutes).toBe("0");
   });
 });
