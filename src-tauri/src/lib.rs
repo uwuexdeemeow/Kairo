@@ -16,6 +16,7 @@ mod focus;
 mod goals;
 mod ledger;
 mod lists;
+mod notebook;
 mod notes;
 mod nudge;
 mod palette;

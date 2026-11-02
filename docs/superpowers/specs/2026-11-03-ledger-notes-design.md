@@ -19,7 +19,7 @@ kilobytes of page code, nothing running while Ledger is closed.
     **Pin** / **Unpin**, **Delete**, which asks in place first (no system dialog): "Delete
     “<title>”? Tasks attached to it lose the link." with **Delete** and **Keep**.
   - The editor (below).
-- A note's title is its first line without leading `#`s and spaces, cut to 80 characters;
+- A note's title is its first line with text, without leading `#`s and spaces, cut to 80 characters;
   "New note" when that's empty.
 - Saved half a second after typing stops, on switching notes, and on closing the window.
 - Up to 100,000 characters; past it the text is cut there and "This note is at its limit." shows.
