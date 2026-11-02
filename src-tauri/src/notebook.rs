@@ -3,7 +3,7 @@
 //! A deleted note stays a while as a marker, so the deletion reaches every computer.
 
 use rusqlite::{params, Connection, OptionalExtension, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Notes are text, not documents; this keeps one well inside a sync file.
 pub const MAX_CHARS: usize = 100_000;
@@ -112,6 +112,134 @@ pub fn list(conn: &Connection, query: &str) -> Result<Vec<Note>> {
         }
     }
     Ok(notes)
+}
+
+// ---------- sharing with combined computers ----------
+//
+// Every computer keeps a file for every note it has, `note-<id>.json`, rewritten when its copy
+// changes, so one linked later finds them all. Per note the newest change wins; ties go to the
+// deletion, then the larger text, so every computer picks the same one.
+
+/// How long a deleted note's marker stays, for computers that were away to hear of it.
+const MARKER_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+const CONFLICT: &str = " (conflicted copy)";
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct NoteFile {
+    id: String,
+    body: String,
+    created: i64,
+    edited: i64,
+    changed: i64,
+    pinned: bool,
+    deleted: bool,
+}
+
+fn file_name(id: &str) -> String {
+    format!("note-{id}.json")
+}
+
+fn id_of(file: &str) -> Option<&str> {
+    file.strip_prefix("note-")?.strip_suffix(".json")
+}
+
+/// This computer's copy of a note, deleted ones included, with when it was last shared.
+fn local(conn: &Connection, id: &str) -> Result<Option<(NoteFile, i64)>> {
+    conn.query_row("SELECT id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms FROM notebook WHERE id = ?1", [id], |r| {
+        Ok((NoteFile { id: r.get(0)?, body: r.get(1)?, created: r.get(2)?, edited: r.get(3)?, changed: r.get(4)?, pinned: r.get(5)?, deleted: r.get(6)? }, r.get(7)?))
+    })
+    .optional()
+}
+
+/// Which of two copies wins: the later change, then a deletion, then the larger text.
+fn rank(n: &NoteFile) -> (i64, bool, &str) {
+    (n.changed, n.deleted, n.body.as_str())
+}
+
+/// A losing edit's text, kept as a note of its own: its first line marked as a conflicted copy.
+fn conflicted(body: &str) -> String {
+    let mut lines: Vec<String> = body.lines().map(String::from).collect();
+    match lines.iter_mut().find(|l| !l.trim().is_empty()) {
+        Some(first) => first.push_str(CONFLICT),
+        None => lines.insert(0, format!("{UNTITLED}{CONFLICT}")),
+    }
+    lines.join("\n")
+}
+
+/// One round of sharing notes with combined computers: takes in the newer copies the others
+/// have, then writes this computer's and lets old deletion markers go. True when a note here
+/// changed.
+pub fn sync(conn: &Connection, store: &dyn crate::sync::store::Store, listing: &crate::sync::store::Listing, me: &str, seen: &mut crate::sync::Seen, now: i64) -> std::result::Result<bool, String> {
+    let err = |e: rusqlite::Error| e.to_string();
+    // The best new copy of each note among the others' files.
+    let mut best: std::collections::HashMap<String, NoteFile> = std::collections::HashMap::new();
+    for (computer, files) in listing.iter().filter(|(c, _)| *c != me) {
+        for (name, version) in files {
+            if id_of(name).is_none() || seen.has(computer, name, version) {
+                continue;
+            }
+            let Ok(bytes) = store.get(computer, name) else { continue };
+            let Ok(copy) = serde_json::from_slice::<NoteFile>(&bytes) else { continue };
+            seen.note(computer, name, version);
+            if best.get(&copy.id).is_none_or(|b| rank(&copy) > rank(b)) {
+                best.insert(copy.id.clone(), copy);
+            }
+        }
+    }
+    let mut changed = false;
+    for copy in best.into_values() {
+        let mine = local(conn, &copy.id).map_err(err)?;
+        if mine.as_ref().is_some_and(|(m, _)| rank(m) >= rank(&copy)) {
+            continue;
+        }
+        if let Some((m, synced)) = &mine {
+            if m.changed > *synced && !m.deleted && !copy.deleted && m.body != copy.body {
+                create(conn, &conflicted(&m.body), now).map_err(err)?;
+            }
+        }
+        conn.execute(
+            "INSERT INTO notebook (id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?5)
+             ON CONFLICT(id) DO UPDATE SET body = ?2, created_ms = ?3, edited_ms = ?4, changed_ms = ?5, pinned = ?6, deleted = ?7, synced_ms = ?5",
+            params![copy.id, copy.body, copy.created, copy.edited, copy.changed, copy.pinned, copy.deleted],
+        )
+        .map_err(err)?;
+        if copy.deleted {
+            detach(conn, &copy.id).map_err(err)?;
+        }
+        changed = true;
+    }
+
+    // Write this computer's copies that are new or behind, and let old markers go.
+    let mine = listing.get(me).cloned().unwrap_or_default();
+    let mut stmt = conn.prepare("SELECT id, written_ms, changed_ms, deleted FROM notebook").map_err(err)?;
+    let rows: Vec<(String, i64, i64, bool)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(err)?.collect::<Result<_>>().map_err(err)?;
+    let mut kept = std::collections::HashSet::new();
+    let mut failed = Ok(());
+    for (id, written, changed_ms, deleted) in rows {
+        let name = file_name(&id);
+        if deleted && changed_ms < now - MARKER_MS {
+            if mine.contains_key(&name) {
+                let _ = store.delete(&name);
+            }
+            conn.execute("DELETE FROM notebook WHERE id = ?1", [&id]).map_err(err)?;
+            continue;
+        }
+        kept.insert(name.clone());
+        if written == changed_ms && mine.contains_key(&name) {
+            continue;
+        }
+        let Some((copy, _)) = local(conn, &id).map_err(err)? else { continue };
+        match store.put(&name, &serde_json::to_vec(&copy).expect("plain data")) {
+            Ok(()) => {
+                conn.execute("UPDATE notebook SET written_ms = ?2, synced_ms = ?2 WHERE id = ?1", params![id, changed_ms]).map_err(err)?;
+            }
+            Err(e) => failed = Err(e),
+        }
+    }
+    for name in mine.keys().filter(|n| id_of(n).is_some() && !kept.contains(*n)) {
+        let _ = store.delete(name);
+    }
+    failed.map(|()| changed)
 }
 
 #[cfg(test)]

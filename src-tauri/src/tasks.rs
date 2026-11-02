@@ -33,6 +33,9 @@ pub struct Task {
     /// The reminders already sent for it, space-separated: `due:<day>`, `over:<day>`, `at:<ms>`.
     #[serde(default)]
     pub reminded: String,
+    /// The note it's attached to, by id (notebook.rs); shared as `tasknote:<id>`.
+    #[serde(default)]
+    pub note: Option<String>,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -55,6 +58,7 @@ impl Default for Task {
             priority: MEDIUM,
             remind_ms: None,
             reminded: String::new(),
+            note: None,
             group: "none".into(),
         }
     }
@@ -119,6 +123,7 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         priority: MEDIUM,
         remind_ms: None,
         reminded: String::new(),
+        note: None,
         group: "none".into(),
     };
     conn.execute(
@@ -171,7 +176,7 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 /// order added; then done ones, newest first. Each with its focus time and group.
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
-    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded FROM tasks")?;
+    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -185,6 +190,7 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             priority: r.get(6)?,
             remind_ms: r.get(7)?,
             reminded: r.get(8)?,
+            note: r.get(9)?,
             group: String::new(),
         })
     })?;
@@ -245,6 +251,11 @@ pub fn mark_sent(conn: &Connection, id: &str, mark: &str) -> Result<()> {
     let sent = if p.sent.is_empty() { mark.to_string() } else { format!("{} {mark}", p.sent) };
     conn.execute("UPDATE tasks SET reminded = ?2 WHERE id = ?1", params![id, sent])?;
     Ok(())
+}
+
+/// Attaches a note to a task, or (None) detaches it; false when there's no such task.
+pub fn set_note(conn: &Connection, id: &str, note: Option<&str>) -> Result<bool> {
+    Ok(conn.execute("UPDATE tasks SET note = ?2 WHERE id = ?1", params![id, note.filter(|n| !n.is_empty())])? > 0)
 }
 
 /// A task's plan as its shared choice carries it; None when there's no such task.
