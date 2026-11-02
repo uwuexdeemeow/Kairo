@@ -134,11 +134,12 @@ pub fn stop(conn: &Connection) -> Result<()> {
     forget_everyone(conn)
 }
 
-/// The other computers' time leaves this one, as does what was noted about them.
+/// The other computers' time leaves this one, as does what was noted about them and what this one
+/// wrote, so a group joined next gets all of this computer's files.
 fn forget_everyone(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "DELETE FROM sessions WHERE device IS NOT NULL; DELETE FROM sync_imports; DELETE FROM sync_written;
-         DELETE FROM settings WHERE key = 'sync_computers';",
+         DELETE FROM settings WHERE key IN ('sync_computers', 'sync_seen', 'sync_choices_written', 'sync_about_written');",
     )
     .map_err(err)
 }
@@ -245,14 +246,54 @@ pub fn computers(conn: &Connection) -> Result<Vec<Computer>> {
     Ok(found)
 }
 
-/// Notes who's combined, from each computer's `computer.json`.
-fn note_computers(conn: &Connection, store: &dyn Store, listing: &store::Listing) -> Result<()> {
-    let about: HashMap<String, About> = listing
-        .iter()
-        .filter(|(_, files)| files.contains_key(ABOUT_FILE))
-        .filter_map(|(id, _)| Some((id.clone(), serde_json::from_slice(&store.get(id, ABOUT_FILE).ok()?).ok()?)))
-        .collect();
+/// Notes who's combined, from each computer's `computer.json`, read again only when it changed,
+/// and this computer as it is now.
+fn note_computers(conn: &Connection, store: &dyn Store, listing: &store::Listing, me: &str, seen: &mut Seen, now_ms: i64) -> Result<()> {
+    let mut known: HashMap<String, About> = db::get_setting(conn, COMPUTERS_KEY).map_err(err)?.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let mut about = HashMap::new();
+    for (id, files) in listing.iter().filter(|(id, _)| *id != me) {
+        let Some(version) = files.get(ABOUT_FILE) else { continue };
+        let read = match known.remove(id) {
+            Some(old) if seen.has(id, ABOUT_FILE, version) => Some(old),
+            _ => store.get(id, ABOUT_FILE).ok().and_then(|b| serde_json::from_slice::<About>(&b).ok()),
+        };
+        if let Some(read) = read {
+            seen.note(id, ABOUT_FILE, version);
+            about.insert(id.clone(), read);
+        }
+    }
+    about.insert(me.to_string(), About { name: device_name(), updated_ms: now_ms });
     db::set_setting(conn, COMPUTERS_KEY, &serde_json::to_string(&about).map_err(err)?).map_err(err)
+}
+
+const SEEN_KEY: &str = "sync_seen";
+
+/// The version of each other computer's `computer.json` and `choices.json` last read, so a round
+/// reads them only when they changed. Kept for one version of Kairo: a newer one reads them all
+/// again, since it may take choices the one before had to leave waiting.
+#[derive(Serialize, Deserialize, Default)]
+struct Seen {
+    kairo: String,
+    files: HashMap<String, String>,
+}
+
+impl Seen {
+    fn load(conn: &Connection) -> Result<Seen> {
+        let seen: Seen = db::get_setting(conn, SEEN_KEY).map_err(err)?.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        Ok(if seen.kairo == env!("CARGO_PKG_VERSION") { seen } else { Seen { kairo: env!("CARGO_PKG_VERSION").into(), files: HashMap::new() } })
+    }
+
+    fn save(&self, conn: &Connection) -> Result<()> {
+        db::set_setting(conn, SEEN_KEY, &serde_json::to_string(self).map_err(err)?).map_err(err)
+    }
+
+    fn has(&self, computer: &str, file: &str, version: &str) -> bool {
+        self.files.get(&format!("{computer}/{file}")).is_some_and(|v| v == version)
+    }
+
+    fn note(&mut self, computer: &str, file: &str, version: &str) {
+        self.files.insert(format!("{computer}/{file}"), version.to_string());
+    }
 }
 
 /// Writes this computer's changed days and reads the others' changed ones.
@@ -280,11 +321,13 @@ pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<boo
     seed_choices(conn)?;
     let listing = store.list()?;
     let mine = listing.get(&me).cloned().unwrap_or_default();
-    let wrote_choices = write_choices(conn, store, &me, &mine);
-    let changed = read_choices(conn, store, &listing, &me)?;
+    let mut seen = Seen::load(conn)?;
+    let wrote_choices = write_choices(conn, store, &mine);
+    let changed = read_choices(conn, store, &listing, &me, &mut seen)?;
     let wrote_days = write_own(conn, store, &mine, now_ms);
     read_others(conn, store, &listing, &me, now_ms)?;
-    note_computers(conn, store, &store.list()?)?;
+    note_computers(conn, store, &listing, &me, &mut seen, now_ms)?;
+    seen.save(conn)?;
     wrote_choices.and(wrote_days)?;
     Ok(changed)
 }
@@ -445,25 +488,31 @@ fn choices(conn: &Connection) -> Result<std::collections::BTreeMap<String, Choic
     rows
 }
 
-/// This computer's choices, when they differ from what the store has.
-fn write_choices(conn: &Connection, store: &dyn Store, me: &str, mine: &HashMap<String, String>) -> Result<()> {
+const CHOICES_WRITTEN_KEY: &str = "sync_choices_written";
+
+/// Writes this computer's choices when they differ from what it last wrote, or aren't there.
+fn write_choices(conn: &Connection, store: &dyn Store, mine: &HashMap<String, String>) -> Result<()> {
     let text = serde_json::to_string_pretty(&choices(conn)?).map_err(err)?;
-    if mine.contains_key(CHOICES_FILE) && store.get(me, CHOICES_FILE).is_ok_and(|old| old == text.as_bytes()) {
+    if mine.contains_key(CHOICES_FILE) && db::get_setting(conn, CHOICES_WRITTEN_KEY).map_err(err)?.as_deref() == Some(text.as_str()) {
         return Ok(());
     }
-    store.put(CHOICES_FILE, text.as_bytes())
+    store.put(CHOICES_FILE, text.as_bytes())?;
+    db::set_setting(conn, CHOICES_WRITTEN_KEY, &text).map_err(err)
 }
 
-/// Takes the other computers' choices made after this one's; true when any came in.
-fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, me: &str) -> Result<bool> {
+/// Takes the other computers' choices made after this one's, from those whose choices changed
+/// since they were last read; true when any came in.
+fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, me: &str, seen: &mut Seen) -> Result<bool> {
     let mut ours = choices(conn)?;
     let mut changed = false;
     for (computer, files) in listing {
-        if computer == me || !files.contains_key(CHOICES_FILE) {
+        let Some(version) = files.get(CHOICES_FILE).filter(|_| computer != me) else { continue };
+        if seen.has(computer, CHOICES_FILE, version) {
             continue;
         }
         let Ok(text) = store.get(computer, CHOICES_FILE) else { continue };
         let Ok(theirs) = serde_json::from_slice::<HashMap<String, Choice>>(&text) else { continue };
+        seen.note(computer, CHOICES_FILE, version);
         // A limit before whether it blocks, which needs the limit to be there.
         let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
         theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:"), item.clone()));
@@ -537,9 +586,20 @@ fn write_own(conn: &Connection, store: &dyn Store, mine: &HashMap<String, String
         let _ = store.delete(&day_name(*day));
         conn.execute("DELETE FROM sync_written WHERE day = ?1", [day]).map_err(err)?;
     }
+    // Its name, when that changed or isn't there, and otherwise once an hour, which is how
+    // Settings on the others tells it's still about.
     let about = About { name: device_name(), updated_ms: now_ms };
-    store.put(ABOUT_FILE, &serde_json::to_vec(&about).map_err(err)?)
+    let last: Option<About> = db::get_setting(conn, ABOUT_WRITTEN_KEY).map_err(err)?.and_then(|t| serde_json::from_str(&t).ok());
+    if mine.contains_key(ABOUT_FILE) && last.is_some_and(|l| l.name == about.name && now_ms - l.updated_ms < ABOUT_EVERY_MS) {
+        return Ok(());
+    }
+    let text = serde_json::to_string(&about).map_err(err)?;
+    store.put(ABOUT_FILE, text.as_bytes())?;
+    db::set_setting(conn, ABOUT_WRITTEN_KEY, &text).map_err(err)
 }
+
+const ABOUT_WRITTEN_KEY: &str = "sync_about_written";
+const ABOUT_EVERY_MS: i64 = 60 * 60 * 1000;
 
 fn day_name(day: i64) -> String {
     format!("{day}.{DAY_FILE}")
@@ -902,6 +962,48 @@ mod tests {
         assert_eq!(desk.apps(), [("discord".into(), false)]);
         run_relay(&laptop.conn, api.clone(), now).unwrap();
         assert_eq!(laptop.apps(), [("figma".into(), false)]);
+    }
+
+    #[test]
+    fn a_round_with_nothing_new_only_lists_what_changed() {
+        let (desk, laptop) = (Computer::new("desk-q"), Computer::new("laptop-q"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        desk.track("code", now);
+        laptop.track("figma", now);
+        record_at(&desk.conn, "goal:productive", "120", 5).unwrap();
+        for _ in 0..2 {
+            run_relay(&desk.conn, api.clone(), now).unwrap();
+            run_relay(&laptop.conn, api.clone(), now).unwrap();
+        }
+        assert_eq!(computers(&laptop.conn).unwrap().len(), 2);
+        api.reset_counts();
+        run_relay(&laptop.conn, api.clone(), now + 60_000).unwrap();
+        assert_eq!((api.count("list"), api.count("get"), api.count("put")), (1, 0, 0));
+        // The computers are still both known, and what changes still comes in.
+        assert_eq!(computers(&laptop.conn).unwrap().len(), 2);
+        desk.track("discord", now + 120_000);
+        record_at(&desk.conn, "goal:productive", "90", 6).unwrap();
+        run_relay(&desk.conn, api.clone(), now + 120_000).unwrap();
+        api.reset_counts();
+        run_relay(&laptop.conn, api.clone(), now + 180_000).unwrap();
+        assert_eq!(api.count("list"), 1);
+        assert_eq!(api.count("get"), 2, "the changed day and the changed choices");
+        assert!(laptop.apps().contains(&("discord".into(), true)));
+        assert_eq!(db::get_setting(&laptop.conn, "goal_productive_min").unwrap().as_deref(), Some("90"));
+    }
+
+    #[test]
+    fn this_computers_name_is_written_again_within_the_hour() {
+        let (desk, laptop) = (Computer::new("desk-h1"), Computer::new("laptop-h1"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        run_relay(&desk.conn, api.clone(), now).unwrap();
+        api.reset_counts();
+        run_relay(&desk.conn, api.clone(), now + 30 * 60_000).unwrap();
+        assert_eq!(api.count("put"), 0);
+        run_relay(&desk.conn, api.clone(), now + 61 * 60_000).unwrap();
+        assert_eq!(api.count("put"), 1, "computer.json, so the others see it's still about");
     }
 
     #[test]

@@ -5,7 +5,7 @@ import worker from "../src/index";
 
 // Every test starts from an empty relay.
 beforeEach(async () => {
-  await env.DB.batch(["groups", "files", "pairs"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+  await env.DB.batch(["groups", "files", "gone_files", "pairs"].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
 });
 
 const BASE = "https://relay.test";
@@ -101,6 +101,76 @@ describe("groups", () => {
     await makeGroup();
     expect((await call("PUT", `/v1/groups/${GROUP}/files/${COMPUTER}/..%2Fescape`, new Uint8Array([1]))).status).toBe(400);
     expect((await call("PUT", `/v1/groups/${GROUP}/files/NOT-HEX/abc`, new Uint8Array([1]))).status).toBe(400);
+  });
+});
+
+describe("listing what changed", () => {
+  type Changes = { seq: string; full: boolean; files: { computer: string; name: string; version: string }[]; gone: { computer: string; name: string; version: string }[] };
+  const since = async (seq: string | number): Promise<Changes> => (await (await call("GET", `/v1/groups/${GROUP}/files?since=${seq}`)).json()) as Changes;
+
+  it("lists everything from 0, then only what changed", async () => {
+    await makeGroup();
+    await call("PUT", file("one"), new Uint8Array([1]));
+    await call("PUT", file("two"), new Uint8Array([2]));
+    const all = await since(0);
+    expect(all.full).toBe(true);
+    expect(all.files.map((f) => f.name).sort()).toEqual(["one", "two"]);
+    expect(all.gone).toEqual([]);
+
+    expect(await since(all.seq)).toEqual({ seq: all.seq, full: false, files: [], gone: [] });
+    await call("PUT", file("two"), new Uint8Array([3]));
+    const next = await since(all.seq);
+    expect(next.files.map((f) => f.name)).toEqual(["two"]);
+    expect(Number(next.seq)).toBeGreaterThan(Number(all.seq));
+    // Versions go up across the group, so one number says where a computer got to.
+    expect(Number(next.files[0].version)).toBe(Number(next.seq));
+  });
+
+  it("says what went, until it puts the file back", async () => {
+    await makeGroup();
+    await call("PUT", file("one"), new Uint8Array([1]));
+    await call("PUT", file("two"), new Uint8Array([2]));
+    const before = await since(0);
+    await call("DELETE", file("one"));
+    const after = await since(before.seq);
+    expect(after.files).toEqual([]);
+    expect(after.gone.map((f) => f.name)).toEqual(["one"]);
+    await call("PUT", file("one"), new Uint8Array([9]));
+    const back = await since(before.seq);
+    expect(back.files.map((f) => f.name)).toEqual(["one"]);
+    expect(back.gone).toEqual([]);
+
+    // A computer leaving takes all its files.
+    await call("DELETE", `/v1/groups/${GROUP}/computers/${COMPUTER}`);
+    expect((await since(back.seq)).gone.map((f) => f.name).sort()).toEqual(["one", "two"]);
+  });
+
+  it("starts over from a full list once what went has been forgotten", async () => {
+    await makeGroup();
+    await call("PUT", file("one"), new Uint8Array([1]));
+    const before = await since(0);
+    await call("DELETE", file("one"));
+    await env.DB.prepare("UPDATE gone_files SET gone_ms = ?").bind(Date.now() - 31 * 24 * 3600 * 1000).run();
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController(), env, ctx);
+    await waitOnExecutionContext(ctx);
+    const later = await since(before.seq);
+    expect(later.full).toBe(true);
+    expect(later.files).toEqual([]);
+  });
+
+  it("keeps the old list for older Kairo", async () => {
+    await makeGroup();
+    await call("PUT", file("one"), new Uint8Array([1]));
+    expect(await (await call("GET", `/v1/groups/${GROUP}/files`)).json()).toEqual([{ computer: COMPUTER, name: "one", version: "1" }]);
+    expect((await call("GET", `/v1/groups/${GROUP}/files?since=-1`)).status).toBe(400);
+  });
+
+  it("reads only what changed, through an index", async () => {
+    const plan = async (sql: string) =>
+      JSON.stringify((await env.DB.prepare(`EXPLAIN QUERY PLAN ${sql}`).bind(GROUP, 5).all()).results);
+    expect(await plan("SELECT computer, name, version FROM files WHERE group_id = ? AND version > ?")).toContain("files_by_version");
+    expect(await plan("SELECT computer, name, version FROM gone_files WHERE group_id = ? AND version > ?")).toContain("gone_by_version");
   });
 });
 

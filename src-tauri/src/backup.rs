@@ -25,6 +25,9 @@ const LOCAL_SETTINGS: &[&str] = &[
     "relay_key",
     "relay_synced_ms",
     "relay_error",
+    "sync_seen",
+    "sync_choices_written",
+    "sync_about_written",
 ];
 
 type Result<T> = std::result::Result<T, String>;

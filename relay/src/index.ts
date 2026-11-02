@@ -15,6 +15,8 @@ const PAIR_MAX = 4096;
 const SLOT_MS = 10 * 60 * 1000;
 const IDLE_MS = 180 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** How long a note of a file gone is kept. */
+const GONE_MS = 30 * DAY_MS;
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const PARTS = new Set(["b", "invite", "reply"]);
 
@@ -80,30 +82,50 @@ async function putFile(request: Request, env: Env, group: string, computer: stri
   ]);
   const grows = data.byteLength - (old?.size ?? 0);
   if ((usage?.bytes ?? 0) + grows > GROUP_MAX) return status(507, "group full");
-  const version = (old?.version ?? 0) + 1;
-  await env.DB.batch([
-    env.DB.prepare("INSERT OR REPLACE INTO files (group_id, computer, name, version, data, size) VALUES (?, ?, ?, ?, ?, ?)").bind(
-      group,
-      computer,
-      name,
-      version,
-      data,
-      data.byteLength,
-    ),
-    env.DB.prepare("UPDATE groups SET bytes = bytes + ? WHERE id = ?").bind(grows, group),
+  // The group's count goes up first, in the same transaction, and the file takes it as its version.
+  const [counted] = await env.DB.batch<{ seq: number }>([
+    env.DB.prepare("UPDATE groups SET seq = seq + 1, bytes = bytes + ? WHERE id = ? RETURNING seq").bind(grows, group),
+    env.DB.prepare(
+      "INSERT OR REPLACE INTO files (group_id, computer, name, version, data, size) VALUES (?, ?, ?, (SELECT seq FROM groups WHERE id = ?), ?, ?)",
+    ).bind(group, computer, name, group, data, data.byteLength),
+    env.DB.prepare("DELETE FROM gone_files WHERE group_id = ? AND computer = ? AND name = ?").bind(group, computer, name),
   ]);
-  return json({ version: String(version) });
+  return json({ version: String(counted.results[0]?.seq ?? 0) });
 }
 
 async function deleteFiles(env: Env, group: string, computer: string, name?: string): Promise<Response> {
   const where = name === undefined ? "group_id = ? AND computer = ?" : "group_id = ? AND computer = ? AND name = ?";
   const binds = name === undefined ? [group, computer] : [group, computer, name];
   const freed = await env.DB.prepare(`SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE ${where}`).bind(...binds).first<{ n: number }>();
+  // What goes leaves a note under the group's next count, so computers listing changes hear of it.
   await env.DB.batch([
+    env.DB.prepare("UPDATE groups SET seq = seq + 1, bytes = MAX(0, bytes - ?) WHERE id = ?").bind(freed?.n ?? 0, group),
+    env.DB.prepare(
+      `INSERT OR REPLACE INTO gone_files (group_id, computer, name, version, gone_ms)
+       SELECT group_id, computer, name, (SELECT seq FROM groups WHERE id = ?), ? FROM files WHERE ${where}`,
+    ).bind(group, Date.now(), ...binds),
     env.DB.prepare(`DELETE FROM files WHERE ${where}`).bind(...binds),
-    env.DB.prepare("UPDATE groups SET bytes = MAX(0, bytes - ?) WHERE id = ?").bind(freed?.n ?? 0, group),
   ]);
   return status(200);
+}
+
+/**
+ * What changed in a group after `since`: files written since, and files gone since. From 0, or
+ * from before the oldest note of a file gone that's been forgotten, it's every file, `full`.
+ * Read in one transaction, so nothing written meanwhile is missed by the next ask.
+ */
+async function changes(env: Env, group: string, since: number): Promise<Response> {
+  const counts = await env.DB.prepare("SELECT seq, purged_seq FROM groups WHERE id = ?").bind(group).first<{ seq: number; purged_seq: number }>();
+  const full = since === 0 || since < (counts?.purged_seq ?? 0);
+  const after = full ? 0 : since;
+  const [seq, files, gone] = await env.DB.batch<{ seq?: number; computer?: string; name?: string; version?: number }>([
+    env.DB.prepare("SELECT seq FROM groups WHERE id = ?").bind(group),
+    env.DB.prepare("SELECT computer, name, version FROM files WHERE group_id = ? AND version > ? ORDER BY version").bind(group, after),
+    env.DB.prepare("SELECT computer, name, version FROM gone_files WHERE group_id = ? AND version > ? ORDER BY version").bind(group, full ? Number.MAX_SAFE_INTEGER : after),
+  ]);
+  const listed = (rows: { computer?: string; name?: string; version?: number }[]) =>
+    rows.map((r) => ({ computer: r.computer, name: r.name, version: String(r.version) }));
+  return json({ seq: String(seq.results[0]?.seq ?? 0), full, files: listed(files.results), gone: listed(gone.results) });
 }
 
 async function groups(request: Request, env: Env, rest: string[]): Promise<Response> {
@@ -114,9 +136,19 @@ async function groups(request: Request, env: Env, rest: string[]): Promise<Respo
   const method = request.method;
 
   if (kind === undefined && method === "DELETE") {
-    await env.DB.batch([env.DB.prepare("DELETE FROM files WHERE group_id = ?").bind(group), env.DB.prepare("DELETE FROM groups WHERE id = ?").bind(group)]);
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM files WHERE group_id = ?").bind(group),
+      env.DB.prepare("DELETE FROM gone_files WHERE group_id = ?").bind(group),
+      env.DB.prepare("DELETE FROM groups WHERE id = ?").bind(group),
+    ]);
     return status(200);
   }
+  const since = new URL(request.url).searchParams.get("since");
+  if (kind === "files" && computer === undefined && method === "GET" && since !== null) {
+    if (!/^\d{1,15}$/.test(since)) return status(400);
+    return changes(env, group, Number(since));
+  }
+  // Without `since`, every file, as Kairo before 1.26.7 asks.
   if (kind === "files" && computer === undefined && method === "GET") {
     const { results } = await env.DB.prepare("SELECT computer, name, version FROM files WHERE group_id = ? ORDER BY computer, name")
       .bind(group)
@@ -245,10 +277,19 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     const now = Date.now();
     const idle = now - IDLE_MS;
+    const forgotten = now - GONE_MS;
     await env.DB.batch([
       env.DB.prepare("DELETE FROM pairs WHERE expires_ms < ?").bind(now),
       env.DB.prepare("DELETE FROM files WHERE group_id IN (SELECT id FROM groups WHERE used_ms < ?)").bind(idle),
+      env.DB.prepare("DELETE FROM gone_files WHERE group_id IN (SELECT id FROM groups WHERE used_ms < ?)").bind(idle),
       env.DB.prepare("DELETE FROM groups WHERE used_ms < ?").bind(idle),
+      // Notes of files gone are kept a month; a computer that last asked before the newest one
+      // forgotten gets a full list.
+      env.DB.prepare(
+        `UPDATE groups SET purged_seq = MAX(purged_seq, (SELECT MAX(version) FROM gone_files g WHERE g.group_id = groups.id AND g.gone_ms < ?))
+         WHERE id IN (SELECT group_id FROM gone_files WHERE gone_ms < ?)`,
+      ).bind(forgotten, forgotten),
+      env.DB.prepare("DELETE FROM gone_files WHERE gone_ms < ?").bind(forgotten),
     ]);
   },
 } satisfies ExportedHandler<Env>;

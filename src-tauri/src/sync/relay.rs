@@ -3,6 +3,7 @@
 //! read. The relay is only ever reached from the sync and pairing threads, never while the app's
 //! database is locked.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -50,12 +51,31 @@ impl From<ApiError> for String {
     }
 }
 
+/// A file on the relay: (computer, sealed name, version).
+pub type Entry = (String, String, String);
+
+/// What changed in a group since a count the relay gave before.
+#[derive(Debug, Default, PartialEq)]
+pub struct Changes {
+    /// Where the group's count is now, to ask from next time; 0 when the relay doesn't count.
+    pub seq: u64,
+    /// Every file, rather than what changed: the first time, or when the relay can't say.
+    pub full: bool,
+    pub files: Vec<Entry>,
+    /// Files deleted since.
+    pub gone: Vec<Entry>,
+}
+
 /// What the relay offers for a group's files.
 pub trait Api: Send + Sync {
     fn create_group(&self, group: &str, token_hash: &str) -> std::result::Result<(), ApiError>;
     fn delete_group(&self, group: &str, token: &str) -> std::result::Result<(), ApiError>;
-    /// Every file: (computer, sealed name, version).
-    fn list(&self, group: &str, token: &str) -> std::result::Result<Vec<(String, String, String)>, ApiError>;
+    /// Every file.
+    fn list(&self, group: &str, token: &str) -> std::result::Result<Vec<Entry>, ApiError>;
+    /// What changed since `since` (0 for everything). A relay that can't say lists every file.
+    fn list_since(&self, group: &str, token: &str, _since: u64) -> std::result::Result<Changes, ApiError> {
+        Ok(Changes { seq: 0, full: true, files: self.list(group, token)?, gone: Vec::new() })
+    }
     fn get(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<Vec<u8>, ApiError>;
     fn put(&self, group: &str, token: &str, computer: &str, name: &str, bytes: &[u8]) -> std::result::Result<(), ApiError>;
     fn delete(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<(), ApiError>;
@@ -163,10 +183,42 @@ impl RelayStore {
     }
 }
 
+/// Each group's files as this computer last listed them, and the relay's count then, while Kairo
+/// runs, by (group, computer), so a round asks only for what changed since the last one. The first
+/// round after Kairo starts lists everything.
+type Known = (u64, HashMap<(String, String), String>);
+static KNOWN: std::sync::Mutex<Option<HashMap<(String, String), Known>>> = std::sync::Mutex::new(None);
+
+impl RelayStore {
+    /// Every file on the relay, from what changed since the last round and what was known then.
+    fn entries(&self) -> Result<Vec<Entry>> {
+        let key = (self.group.clone(), self.me.clone());
+        let since = KNOWN.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new).get(&key).map_or(0, |(seq, _)| *seq);
+        let mut changes = self.api.list_since(&self.group, &self.token, since)?;
+        // A count behind the one known means the relay started counting afresh: list everything.
+        if since > 0 && changes.seq < since {
+            changes = self.api.list_since(&self.group, &self.token, 0)?;
+        }
+        let mut all = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+        let known = all.get_or_insert_with(HashMap::new).entry(key).or_default();
+        if changes.full {
+            known.1.clear();
+        }
+        for (computer, name, _) in changes.gone {
+            known.1.remove(&(computer, name));
+        }
+        for (computer, name, version) in changes.files {
+            known.1.insert((computer, name), version);
+        }
+        known.0 = changes.seq;
+        Ok(known.1.iter().map(|((c, n), v)| (c.clone(), n.clone(), v.clone())).collect())
+    }
+}
+
 impl Store for RelayStore {
     fn list(&self) -> Result<Listing> {
         let mut out = Listing::new();
-        for (computer, sealed, version) in self.api.list(&self.group, &self.token)? {
+        for (computer, sealed, version) in self.entries()? {
             // A name this key doesn't open, or one filed under another computer, isn't one of
             // ours; it's left alone.
             let opened = self.keys.open_name(&sealed).ok();
@@ -300,6 +352,35 @@ impl Api for Http {
         Ok(entries.into_iter().map(|e| (e.computer, e.name, e.version)).collect())
     }
 
+    fn list_since(&self, group: &str, token: &str, since: u64) -> std::result::Result<Changes, ApiError> {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            computer: String,
+            name: String,
+            version: String,
+        }
+        #[derive(serde::Deserialize)]
+        struct Answer {
+            seq: String,
+            full: bool,
+            files: Vec<Row>,
+            gone: Vec<Row>,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum Either {
+            Changes(Answer),
+            // A relay from before it counted changes ignores `since` and lists every file.
+            All(Vec<Row>),
+        }
+        let rows = |rows: Vec<Row>| rows.into_iter().map(|r| (r.computer, r.name, r.version)).collect();
+        let bytes = self.group("GET", &format!("/v1/groups/{group}/files?since={since}"), token, Body::None)?;
+        Ok(match serde_json::from_slice(&bytes).map_err(|e| ApiError::Other(e.to_string()))? {
+            Either::Changes(a) => Changes { seq: a.seq.parse().unwrap_or(0), full: a.full, files: rows(a.files), gone: rows(a.gone) },
+            Either::All(all) => Changes { seq: 0, full: true, files: rows(all), gone: Vec::new() },
+        })
+    }
+
     fn get(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<Vec<u8>, ApiError> {
         // A missing file ("no such file") is not a missing group.
         self.group("GET", &format!("/v1/groups/{group}/files/{computer}/{name}"), token, Body::None)
@@ -330,6 +411,12 @@ pub struct MemApi {
     pub slots: std::sync::Mutex<std::collections::HashMap<String, super::pair::MemSlot>>,
     groups: std::sync::Mutex<std::collections::HashMap<String, String>>,
     files: std::sync::Mutex<std::collections::BTreeMap<MemKey, (Vec<u8>, u64)>>,
+    /// Each group's count of writes, which files take as their versions, as the relay does.
+    seq: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    /// Files deleted, under the count when they went.
+    gone: std::sync::Mutex<std::collections::BTreeMap<MemKey, u64>>,
+    /// How many times each kind of request was made.
+    pub calls: std::sync::Mutex<std::collections::HashMap<&'static str, u32>>,
 }
 
 #[cfg(test)]
@@ -349,6 +436,39 @@ impl MemApi {
     pub fn forget_groups(&self) {
         self.groups.lock().unwrap().clear();
         self.files.lock().unwrap().clear();
+        self.gone.lock().unwrap().clear();
+    }
+
+    /// How many requests of `kind` were made, since the count was last reset.
+    pub fn count(&self, kind: &str) -> u32 {
+        self.calls.lock().unwrap().get(kind).copied().unwrap_or(0)
+    }
+
+    pub fn reset_counts(&self) {
+        self.calls.lock().unwrap().clear();
+    }
+
+    fn called(&self, kind: &'static str) {
+        *self.calls.lock().unwrap().entry(kind).or_default() += 1;
+    }
+
+    /// The group's next count.
+    fn next(&self, group: &str) -> u64 {
+        let mut seq = self.seq.lock().unwrap();
+        let n = seq.entry(group.into()).or_default();
+        *n += 1;
+        *n
+    }
+
+    /// Notes the files `which` picks in `group` as gone, and takes them away.
+    fn take(&self, group: &str, which: impl Fn(&MemKey) -> bool) {
+        let n = self.next(group);
+        let mut files = self.files.lock().unwrap();
+        let mut gone = self.gone.lock().unwrap();
+        for key in files.keys().filter(|k| k.0 == group && which(k)) {
+            gone.insert(key.clone(), n);
+        }
+        files.retain(|k, _| !(k.0 == group && which(k)));
     }
 }
 
@@ -366,33 +486,53 @@ impl Api for MemApi {
         Ok(())
     }
 
-    fn list(&self, group: &str, token: &str) -> std::result::Result<Vec<(String, String, String)>, ApiError> {
+    fn list(&self, group: &str, token: &str) -> std::result::Result<Vec<Entry>, ApiError> {
+        self.called("list");
         self.check(group, token)?;
         Ok(self.files.lock().unwrap().iter().filter(|((g, _, _), _)| g == group).map(|((_, c, n), (_, v))| (c.clone(), n.clone(), v.to_string())).collect())
     }
 
+    fn list_since(&self, group: &str, token: &str, since: u64) -> std::result::Result<Changes, ApiError> {
+        self.called("list");
+        self.check(group, token)?;
+        let seq = self.seq.lock().unwrap().get(group).copied().unwrap_or(0);
+        let entry = |((_, c, n), v): (&MemKey, u64)| (c.clone(), n.clone(), v.to_string());
+        let files = self.files.lock().unwrap().iter().filter(|((g, _, _), (_, v))| g == group && *v > since).map(|(k, (_, v))| entry((k, *v))).collect();
+        let gone = if since == 0 {
+            Vec::new()
+        } else {
+            self.gone.lock().unwrap().iter().filter(|((g, _, _), v)| g == group && **v > since).map(|(k, v)| entry((k, *v))).collect()
+        };
+        Ok(Changes { seq, full: since == 0, files, gone })
+    }
+
     fn get(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<Vec<u8>, ApiError> {
+        self.called("get");
         self.check(group, token)?;
         self.files.lock().unwrap().get(&(group.into(), computer.into(), name.into())).map(|(b, _)| b.clone()).ok_or(ApiError::Other("404".into()))
     }
 
     fn put(&self, group: &str, token: &str, computer: &str, name: &str, bytes: &[u8]) -> std::result::Result<(), ApiError> {
+        self.called("put");
         self.check(group, token)?;
-        let mut files = self.files.lock().unwrap();
-        let version = files.get(&(group.into(), computer.into(), name.into())).map_or(1, |(_, v)| v + 1);
-        files.insert((group.into(), computer.into(), name.into()), (bytes.to_vec(), version));
+        let version = self.next(group);
+        let key: MemKey = (group.into(), computer.into(), name.into());
+        self.gone.lock().unwrap().remove(&key);
+        self.files.lock().unwrap().insert(key, (bytes.to_vec(), version));
         Ok(())
     }
 
     fn delete(&self, group: &str, token: &str, computer: &str, name: &str) -> std::result::Result<(), ApiError> {
+        self.called("delete");
         self.check(group, token)?;
-        self.files.lock().unwrap().remove(&(group.into(), computer.into(), name.into()));
+        self.take(group, |(_, c, n)| c == computer && n == name);
         Ok(())
     }
 
     fn delete_computer(&self, group: &str, token: &str, computer: &str) -> std::result::Result<(), ApiError> {
+        self.called("delete");
         self.check(group, token)?;
-        self.files.lock().unwrap().retain(|(g, c, _), _| !(g == group && c == computer));
+        self.take(group, |(_, c, _)| c == computer);
         Ok(())
     }
 }
@@ -400,6 +540,31 @@ impl Api for MemApi {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rounds_after_the_first_ask_only_for_what_changed() {
+        let api = Arc::new(MemApi::default());
+        let group = new_group();
+        register(api.as_ref(), &group).unwrap();
+        let (desk, laptop) = (RelayStore::new(api.clone(), &group, "d1"), RelayStore::new(api.clone(), &group, "a2"));
+        desk.put("one", b"1").unwrap();
+        desk.put("two", b"2").unwrap();
+        let names = |s: &RelayStore| {
+            let mut n: Vec<String> = s.list().unwrap().get("d1").map(|f| f.keys().cloned().collect()).unwrap_or_default();
+            n.sort();
+            n
+        };
+        assert_eq!(names(&laptop), ["one", "two"]);
+        let first = laptop.list().unwrap()["d1"]["two"].clone();
+        // Changes arrive, deletions too, and what didn't change is still there.
+        desk.put("two", b"22").unwrap();
+        desk.delete("one").unwrap();
+        desk.put("three", b"3").unwrap();
+        assert_eq!(names(&laptop), ["three", "two"]);
+        assert_ne!(laptop.list().unwrap()["d1"]["two"], first);
+        desk.remove_me().unwrap();
+        assert!(laptop.list().unwrap().is_empty());
+    }
 
     #[test]
     fn only_the_relays_own_word_means_the_group_is_gone() {
