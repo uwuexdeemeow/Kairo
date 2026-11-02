@@ -293,6 +293,10 @@ pub enum Action {
     AddTask(String),
     /// Opens Ledger.
     OpenLedger,
+    /// Opens a note in Ledger, by id.
+    OpenNote(String),
+    /// Starts a note with this text and opens it.
+    NewNote(String),
     /// Ticks a task off, by id.
     FinishTask(String),
     /// Opens a web address in the default browser.
@@ -381,6 +385,14 @@ pub struct WindowEntry {
     pub icon: Option<String>,
 }
 
+/// A note as the palette searches it: its title, and the start of its text in lower case.
+#[derive(Clone, Debug, Default)]
+pub struct NoteEntry {
+    pub id: String,
+    pub title: String,
+    pub text: String,
+}
+
 /// What's known when the palette opens.
 pub struct Context {
     pub today: NaiveDate,
@@ -408,6 +420,8 @@ pub struct Context {
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
     pub day_first: bool,
+    /// Ledger's notes, pinned then newest.
+    pub notes: Vec<NoteEntry>,
     /// The open windows when the palette opened, front to back.
     pub windows: Vec<WindowEntry>,
     /// Whether a window can be asked to close here (not on a Mac without Accessibility).
@@ -589,6 +603,68 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
         .collect()
 }
 
+/// Ledger's notes shown for any query, at most this many.
+const MAX_NOTES: usize = 3;
+
+/// Rows for notes: `note <text>` or `new note <text>` starts one; `notes` lists them (more words
+/// search them); and any other query offers a few whose title or text has it, below apps.
+fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let starting = [("new note ", 1000.0), ("note ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
+    if let Some((text, score)) = starting {
+        let mut item = Item::new(format!("New note “{text}”"), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::NewNote(text.to_string()));
+        item.sub = Some("In Ledger".into());
+        item.score = score;
+        return vec![item];
+    }
+    let open = |n: &NoteEntry| {
+        let mut item = Item::new(n.title.clone(), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::OpenNote(n.id.clone()));
+        item.sub = Some("Open in Ledger".into());
+        item
+    };
+    let listing = if q.eq_ignore_ascii_case("notes") { Some("") } else { after(q, "notes ").map(str::trim) };
+    if let Some(rest) = listing {
+        let rest_lower = rest.to_lowercase();
+        return ctx
+            .notes
+            .iter()
+            .filter(|n| rest.is_empty() || fuzzy(rest, &n.title).is_some() || n.text.contains(&rest_lower))
+            .take(MAX_TASKS)
+            .enumerate()
+            .map(|(i, n)| {
+                let mut item = open(n);
+                item.at = fuzzy(rest, &n.title).map(|m| m.at).unwrap_or_default();
+                item.score = 1100.0 - i as f64;
+                item
+            })
+            .collect();
+    }
+    if q.chars().count() < 2 {
+        return Vec::new();
+    }
+    let lower = q.to_lowercase();
+    let mut found: Vec<Item> = ctx
+        .notes
+        .iter()
+        .filter_map(|n| {
+            let by_title = fuzzy(q, &n.title);
+            let score = match &by_title {
+                // Below an app matched as well.
+                Some(m) => m.score - 30.0,
+                None if n.text.contains(&lower) => 40.0,
+                None => return None,
+            };
+            let mut item = open(n);
+            item.at = by_title.map(|m| m.at).unwrap_or_default();
+            item.score = score;
+            Some(item)
+        })
+        .collect();
+    found.sort_by(|a, b| b.score.total_cmp(&a.score));
+    found.truncate(MAX_NOTES);
+    found
+}
+
 /// Rows for open windows: those matching by title, or less well by their app's name, best first;
 /// `windows` alone lists them all, front to back.
 fn window_items(ctx: &Context, query: &str) -> Vec<Item> {
@@ -674,6 +750,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     items.extend(task_items(ctx, query));
+    items.extend(note_items(ctx, query));
     items.extend(window_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
     match split_period(query) {
@@ -870,6 +947,7 @@ mod tests {
             block_lists: vec!["Social".into()],
             tasks: Vec::new(),
             day_first: true,
+            notes: Vec::new(),
             windows: Vec::new(),
             can_close_windows: true,
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
@@ -1120,6 +1198,51 @@ mod tests {
         let rows = search(&c, "tasks");
         assert_eq!(rows[0].detail.as_deref(), Some("Fri 30 Oct"));
         assert_eq!(rows[1].detail.as_deref(), Some("1h 20m"));
+    }
+
+    fn note(id: &str, title: &str, text: &str) -> NoteEntry {
+        NoteEntry { id: id.into(), title: title.into(), text: text.to_lowercase() }
+    }
+
+    fn with_notes() -> Context {
+        let mut c = ctx();
+        c.notes = vec![note("n1", "Essay plan", "essay plan\nsources: library"), note("n2", "Shopping", "shopping\nmilk, eggs")];
+        c
+    }
+
+    #[test]
+    fn note_starts_a_new_one() {
+        let c = with_notes();
+        let row = &search(&c, "note buy list")[0];
+        assert_eq!((row.title.as_str(), row.section), ("New note “buy list”", "Notes"));
+        assert_eq!(row.action, Action::NewNote("buy list".into()));
+        assert_eq!(search(&c, "new note x")[0].action, Action::NewNote("x".into()));
+    }
+
+    #[test]
+    fn notes_lists_and_searches_them() {
+        let c = with_notes();
+        let all: Vec<_> = search(&c, "notes").into_iter().filter(|i| i.section == "Notes").map(|i| i.action).collect();
+        assert_eq!(all, [Action::OpenNote("n1".into()), Action::OpenNote("n2".into())]);
+        assert_eq!(search(&c, "notes milk")[0].action, Action::OpenNote("n2".into()));
+    }
+
+    #[test]
+    fn any_query_offers_notes_that_match_below_apps() {
+        let c = with_notes();
+        let rows = search(&c, "library");
+        let first = rows.iter().position(|i| i.section == "Notes").expect("the note whose text has it");
+        assert_eq!(rows[first].action, Action::OpenNote("n1".into()));
+        // An app called like the query stays above a note.
+        let mut c = with_notes();
+        c.notes.push(note("n3", "Cursor tips", "cursor tips"));
+        let rows = search(&c, "cursor");
+        assert_eq!(rows[0].title, "Cursor");
+        assert!(rows.iter().any(|i| i.action == Action::OpenNote("n3".into())));
+        // At most three.
+        let mut c = ctx();
+        c.notes = (0..6).map(|i| note(&format!("m{i}"), &format!("Milk {i}"), "milk")).collect();
+        assert_eq!(search(&c, "milk").iter().filter(|i| i.section == "Notes").count(), 3);
     }
 
     #[test]

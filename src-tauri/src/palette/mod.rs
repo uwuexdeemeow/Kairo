@@ -350,6 +350,11 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
+        notes: crate::notebook::list(conn, "")
+            .unwrap_or_default()
+            .into_iter()
+            .map(|n| search::NoteEntry { id: n.id, title: n.title, text: n.body.chars().take(4000).collect::<String>().to_lowercase() })
+            .collect(),
         windows,
         can_close_windows: crate::platform::can_close_windows(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
@@ -432,6 +437,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::AddTask(text) => crate::commands::add_task_from(app, conn, text).map(|_| ()),
         Action::OpenLedger => {
             crate::show_ledger(app);
+            Ok(())
+        }
+        Action::OpenNote(id) => {
+            crate::show_ledger_at(app, &format!("note:{id}"));
+            Ok(())
+        }
+        Action::NewNote(text) => {
+            let note = crate::notebook::create(conn, text, now_ms()).map_err(|e| e.to_string())?;
+            crate::show_ledger_at(app, &format!("note:{}", note.id));
             Ok(())
         }
         Action::OpenUrl(url) if crate::platform::open_path(url) => Ok(()),
@@ -984,6 +998,7 @@ mod tests {
             block_lists: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
+            notes: Vec::new(),
             windows: Vec::new(),
             can_close_windows: false,
             next_meeting: None,
