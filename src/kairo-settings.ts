@@ -302,7 +302,9 @@ export function wireKairoSettings(): void {
     api.pairCancel();
   });
   $("#sync-enter").addEventListener("click", () => {
+    // The code shown stops working too, so it can't link this computer after it joins another.
     hideCode();
+    api.pairCancel();
     $("#sync-status").textContent = "";
     $("#sync-join").hidden = false;
     $<HTMLInputElement>("#sync-join-code").focus();

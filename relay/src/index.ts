@@ -8,7 +8,8 @@ export interface Env {
 }
 
 const MB = 1024 * 1024;
-const FILE_MAX = 2 * MB;
+// Under D1's 2,000,000-byte limit for a row, so a file too big gets 413 rather than a failed write.
+const FILE_MAX = 1_900_000;
 const GROUP_MAX = 50 * MB;
 const PAIR_MAX = 4096;
 const SLOT_MS = 10 * 60 * 1000;
@@ -146,6 +147,8 @@ async function openSlot(request: Request, env: Env): Promise<Response> {
   if (body === "too big") return status(413);
   const a = body?.a;
   if (typeof a !== "string" || !a || !BASE64.test(a)) return status(400);
+  const hostHash = body?.hostHash;
+  if (hostHash !== undefined && (typeof hostHash !== "string" || !HASH.test(hostHash))) return status(400);
   const now = Date.now();
   await env.DB.prepare("DELETE FROM pairs WHERE expires_ms < ?").bind(now).run();
   // Random slots first; when those are taken, any free one.
@@ -156,10 +159,28 @@ async function openSlot(request: Request, env: Env): Promise<Response> {
   }
   for (const first of ALPHABET) for (const second of ALPHABET) candidates.push(first + second);
   for (const slot of candidates) {
-    const made = await env.DB.prepare("INSERT OR IGNORE INTO pairs (slot, a, expires_ms) VALUES (?, ?, ?)").bind(slot, a, now + SLOT_MS).run();
+    const made = await env.DB.prepare("INSERT OR IGNORE INTO pairs (slot, a, expires_ms, host_hash) VALUES (?, ?, ?, ?)")
+      .bind(slot, a, now + SLOT_MS, hostHash ?? null)
+      .run();
     if (made.meta.changes) return json({ slot });
   }
   return status(503, "every slot is busy");
+}
+
+/** Each part after the first needs the one before it. */
+const AFTER: Record<string, string> = { invite: "b", reply: "invite" };
+
+/**
+ * Whether the request may write `part` of the slot (or close it): a slot opened with a secret's
+ * hash lets only the host write the invitation and close it, and only the computer that answered
+ * write the reply, so no one else can spoil a pairing under way. The answer itself can't be
+ * checked: whoever has the code may give it, which is the one guess a code allows.
+ */
+async function allowed(request: Request, row: { host_hash: string | null; joiner_hash: string | null }, part: string | undefined): Promise<boolean> {
+  const needed = part === undefined || part === "invite" ? row.host_hash : part === "reply" ? row.joiner_hash : null;
+  if (needed === null) return true;
+  const token = request.headers.get("authorization")?.replace(/^Bearer /, "");
+  return !!token && (await sha256(token)) === needed;
 }
 
 async function pair(request: Request, env: Env, rest: string[]): Promise<Response> {
@@ -176,6 +197,10 @@ async function pair(request: Request, env: Env, rest: string[]): Promise<Respons
     return json(Object.fromEntries(Object.entries(row).filter(([, v]) => v !== null)));
   }
   if (part === undefined && request.method === "DELETE") {
+    const row = await env.DB.prepare("SELECT host_hash, joiner_hash FROM pairs WHERE slot = ?")
+      .bind(slot)
+      .first<{ host_hash: string | null; joiner_hash: string | null }>();
+    if (row && !(await allowed(request, row, undefined))) return status(401, "not this slot's host");
     await env.DB.prepare("DELETE FROM pairs WHERE slot = ?").bind(slot).run();
     return status(200);
   }
@@ -185,13 +210,24 @@ async function pair(request: Request, env: Env, rest: string[]): Promise<Respons
     if (body === "too big") return status(413);
     const data = body?.data;
     if (typeof data !== "string" || !data || !BASE64.test(data)) return status(400);
+    const row = await env.DB.prepare("SELECT host_hash, joiner_hash FROM pairs WHERE slot = ? AND expires_ms >= ?")
+      .bind(slot, now)
+      .first<{ host_hash: string | null; joiner_hash: string | null }>();
+    if (!row) return status(404, "no such slot");
+    // In a slot with secrets, the answer brings the hash of the answering computer's.
+    const joinerHash = body?.joinerHash;
+    if (part === "b" && row.host_hash !== null && (typeof joinerHash !== "string" || !HASH.test(joinerHash))) return status(400);
+    if (!(await allowed(request, row, part))) return status(401, "not this slot's");
+    const before = AFTER[part];
+    const order = before ? ` AND ${before} IS NOT NULL` : "";
     // Each part once: a second answer to a code is refused, so a code allows one guess.
-    const written = await env.DB.prepare(`UPDATE pairs SET ${part} = ? WHERE slot = ? AND ${part} IS NULL AND expires_ms >= ?`)
-      .bind(data, slot, now)
+    const written = await env.DB.prepare(
+      `UPDATE pairs SET ${part} = ?, joiner_hash = COALESCE(joiner_hash, ?) WHERE slot = ? AND ${part} IS NULL${order} AND expires_ms >= ?`,
+    )
+      .bind(data, part === "b" && typeof joinerHash === "string" ? joinerHash : null, slot, now)
       .run();
     if (written.meta.changes) return status(200);
-    const exists = await env.DB.prepare("SELECT 1 FROM pairs WHERE slot = ? AND expires_ms >= ?").bind(slot, now).first();
-    return exists ? status(409, "already sent") : status(404, "no such slot");
+    return status(409, "already sent, or too soon");
   }
   return status(404);
 }

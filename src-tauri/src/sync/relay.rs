@@ -204,15 +204,23 @@ pub fn delete_group(api: &dyn Api, group: &Group) -> Result<()> {
     }
 }
 
-/// The relay over HTTPS.
+/// The relay over HTTPS. One client for every request it makes, so a sync round's many
+/// uploads share a connection rather than each opening its own.
 pub struct Http {
     base: String,
+    client: Option<reqwest::Client>,
 }
 
 impl Default for Http {
     fn default() -> Self {
+        // rustls needs its cryptography chosen once per process; the updater does the same.
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
         let base = std::env::var("KAIRO_RELAY").ok().filter(|b| !b.is_empty()).unwrap_or_else(|| RELAY_URL.to_string());
-        Self { base: base.trim_end_matches('/').to_string() }
+        // Without a client, each request says why; there's no other way to reach the relay.
+        let client = reqwest::Client::builder().timeout(TIMEOUT).build().ok();
+        Self { base: base.trim_end_matches('/').to_string(), client }
     }
 }
 
@@ -226,14 +234,10 @@ impl Http {
     /// One request: its status and body. Runs on the calling thread, which must not be one of the
     /// async runtime's own.
     pub fn send(&self, method: &str, path: &str, token: Option<&str>, body: Body) -> std::result::Result<(u16, Vec<u8>), ApiError> {
-        // rustls needs its cryptography chosen once per process; the updater does the same.
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        }
         let url = format!("{}{path}", self.base);
         let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|e| ApiError::Other(e.to_string()))?;
+        let client = self.client.as_ref().ok_or_else(|| ApiError::Other("no HTTPS client".into()))?;
         tauri::async_runtime::block_on(async {
-            let client = reqwest::Client::builder().timeout(TIMEOUT).build().map_err(|e| ApiError::Other(e.to_string()))?;
             let mut request = client.request(method, &url);
             if let Some(token) = token {
                 request = request.header("authorization", format!("Bearer {token}"));
@@ -323,7 +327,7 @@ type MemKey = (String, String, String);
 #[derive(Default)]
 pub struct MemApi {
     /// Pairing slots, for `pair::Mailbox`.
-    pub slots: std::sync::Mutex<std::collections::HashMap<String, super::pair::Parts>>,
+    pub slots: std::sync::Mutex<std::collections::HashMap<String, super::pair::MemSlot>>,
     groups: std::sync::Mutex<std::collections::HashMap<String, String>>,
     files: std::sync::Mutex<std::collections::BTreeMap<MemKey, (Vec<u8>, u64)>>,
 }

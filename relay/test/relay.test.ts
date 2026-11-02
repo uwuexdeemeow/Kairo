@@ -73,10 +73,10 @@ describe("groups", () => {
     expect(await (await call("GET", `/v1/groups/${GROUP}/files`)).json()).toEqual([]);
   });
 
-  it("refuses files over 2 MB", async () => {
+  it("refuses files over 1.9 MB", async () => {
     await makeGroup();
-    expect((await call("PUT", file("big"), new Uint8Array(2 * 1024 * 1024 + 1))).status).toBe(413);
-    expect((await call("PUT", file("ok"), new Uint8Array(2 * 1024 * 1024))).status).toBe(200);
+    expect((await call("PUT", file("big"), new Uint8Array(1_900_001))).status).toBe(413);
+    expect((await call("PUT", file("ok"), new Uint8Array(1_900_000))).status).toBe(200);
   });
 
   it("refuses groups over 50 MB", async () => {
@@ -140,6 +140,54 @@ describe("pairing", () => {
     const slot = await open();
     expect((await call("DELETE", `/v1/pair/${slot}`, undefined, null)).status).toBe(200);
     expect((await call("GET", `/v1/pair/${slot}`, undefined, null)).status).toBe(404);
+  });
+
+  it("parts go in order: an invitation needs an answer, a reply an invitation", async () => {
+    const slot = await open();
+    expect((await call("PUT", `/v1/pair/${slot}/invite`, { data: "aQ" }, null)).status).toBe(409);
+    expect((await call("PUT", `/v1/pair/${slot}/reply`, { data: "cg" }, null)).status).toBe(409);
+    expect((await call("PUT", `/v1/pair/${slot}/b`, { data: "Yg" }, null)).status).toBe(200);
+    expect((await call("PUT", `/v1/pair/${slot}/reply`, { data: "cg" }, null)).status).toBe(409);
+  });
+
+  describe("with secrets", () => {
+    const HOST = "secret-of-the-host";
+    const JOINER = "secret-of-the-joiner";
+
+    async function openWithSecret(): Promise<string> {
+      const res = await call("POST", "/v1/pair", { a: "bWVzc2FnZS1h", hostHash: await sha256(HOST) }, null);
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { slot: string }).slot;
+    }
+
+    it("only the host writes the invitation or closes the slot", async () => {
+      const slot = await openWithSecret();
+      expect((await call("PUT", `/v1/pair/${slot}/b`, { data: "Yg", joinerHash: await sha256(JOINER) }, null)).status).toBe(200);
+      for (const token of [null, "guess", JOINER]) {
+        expect((await call("PUT", `/v1/pair/${slot}/invite`, { data: "aQ" }, token)).status).toBe(401);
+        expect((await call("DELETE", `/v1/pair/${slot}`, undefined, token)).status).toBe(401);
+      }
+      expect((await call("PUT", `/v1/pair/${slot}/invite`, { data: "aQ" }, HOST)).status).toBe(200);
+      // The secrets never show.
+      expect(await (await call("GET", `/v1/pair/${slot}`, undefined, null)).json()).toEqual({ a: "bWVzc2FnZS1h", b: "Yg", invite: "aQ" });
+      expect((await call("DELETE", `/v1/pair/${slot}`, undefined, HOST)).status).toBe(200);
+    });
+
+    it("only the computer that answered replies", async () => {
+      const slot = await openWithSecret();
+      expect((await call("PUT", `/v1/pair/${slot}/b`, { data: "Yg", joinerHash: await sha256(JOINER) }, null)).status).toBe(200);
+      expect((await call("PUT", `/v1/pair/${slot}/invite`, { data: "aQ" }, HOST)).status).toBe(200);
+      for (const token of [null, "guess", HOST]) {
+        expect((await call("PUT", `/v1/pair/${slot}/reply`, { data: "cg" }, token)).status).toBe(401);
+      }
+      expect((await call("PUT", `/v1/pair/${slot}/reply`, { data: "cg" }, JOINER)).status).toBe(200);
+    });
+
+    it("an answer without its secret's hash is refused", async () => {
+      const slot = await openWithSecret();
+      expect((await call("PUT", `/v1/pair/${slot}/b`, { data: "Yg" }, null)).status).toBe(400);
+      expect((await call("PUT", `/v1/pair/${slot}/b`, { data: "Yg", joinerHash: "not-a-hash" }, null)).status).toBe(400);
+    });
   });
 
   it("refuses big pairing messages", async () => {

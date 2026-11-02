@@ -66,9 +66,11 @@ pub fn host<R: Api + Mailbox + 'static>(
     poll: Duration,
     on_linked: impl Fn() + Send + 'static,
 ) -> Result<Linking> {
+    // Any code shown before stops working, so it can't later move this computer into a group.
+    shared.cancel();
     let conn = db::open(db_path).map_err(err)?;
     if sync::folder(&conn)?.is_some() {
-        return Err("Stop combining through the folder first.".into());
+        return Err(FOLDER_FIRST.into());
     }
     let group = match relay::group(&conn)? {
         Some(group) if !start_over => group,
@@ -87,7 +89,6 @@ pub fn host<R: Api + Mailbox + 'static>(
             group
         }
     };
-    shared.cancel();
     let now = chrono::Utc::now().timestamp_millis();
     let mut code = pair::Host::start(relay.clone(), &group, &sync::device_name(), now)?;
     let linking = Linking { code: code.code.clone(), expires_ms: code.expires_ms, state: PairState::Waiting };
@@ -105,8 +106,14 @@ pub fn host<R: Api + Mailbox + 'static>(
             }
             let state = code.step(chrono::Utc::now().timestamp_millis());
             if let PairState::Linked { .. } = state {
-                // The other computer is in; this one joins the group if it wasn't in it yet.
+                // Put away while the other computer was answering: this one stays where it is.
+                if cancelled.load(Ordering::SeqCst) {
+                    return;
+                }
+                // The other computer is in; this one joins the group if it wasn't in it yet. A
+                // folder chosen while the code showed wins: joining would drop it unannounced.
                 let joined = db::open(&db_path).map_err(err).and_then(|conn| match relay::group(&conn)? {
+                    _ if sync::folder(&conn)?.is_some() => Err(FOLDER_FIRST.to_string()),
                     Some(g) if g == group => Ok(()),
                     _ => sync::join_relay(&conn, &group),
                 });
@@ -129,14 +136,19 @@ pub fn host<R: Api + Mailbox + 'static>(
     Ok(linking)
 }
 
+const FOLDER_FIRST: &str = "Stop combining through the folder first.";
+
 const NO_MATCH: &str = "That code didn't match, or it's been used. Make a new one on the other computer.";
 
 /// Links this computer with a code another one shows; the other computer's name.
-pub fn join<R: Api + Mailbox>(relay: &R, db_path: &Path, code: &str) -> Result<String> {
-    join_waiting(relay, db_path, code, Duration::from_secs(30))
+/// A code this computer was showing stops working first, so it can't later move this computer
+/// out of the group it joins now.
+pub fn join<R: Api + Mailbox>(shared: &Shared, relay: &R, db_path: &Path, code: &str) -> Result<String> {
+    join_waiting(shared, relay, db_path, code, Duration::from_secs(30))
 }
 
-fn join_waiting<R: Api + Mailbox>(relay: &R, db_path: &Path, code: &str, wait: Duration) -> Result<String> {
+fn join_waiting<R: Api + Mailbox>(shared: &Shared, relay: &R, db_path: &Path, code: &str, wait: Duration) -> Result<String> {
+    shared.cancel();
     let conn = db::open(db_path).map_err(err)?;
     if sync::combining(&conn)? {
         return Err("This computer is already combining. Stop combining first.".into());
@@ -204,7 +216,7 @@ mod tests {
         // Not combining until the other computer has linked.
         assert!(!sync::combining(&desk.conn()).unwrap());
 
-        let from = join_waiting(relay.as_ref(), &laptop.path, &shown.code, Duration::from_secs(5)).unwrap();
+        let from = join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, &shown.code, Duration::from_secs(5)).unwrap();
         assert_eq!(from, sync::device_name());
         assert!(matches!(wait_until_done(&shared), PairState::Linked { .. }));
         assert!(linked.load(Ordering::SeqCst));
@@ -212,7 +224,7 @@ mod tests {
         assert_eq!(d, l);
 
         // A linked computer can't type another code until it stops.
-        assert!(join_waiting(relay.as_ref(), &laptop.path, "K7QX-49MP", FAST).is_err());
+        assert!(join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, "K7QX-49MP", FAST).is_err());
     }
 
     #[test]
@@ -223,11 +235,11 @@ mod tests {
         let shown = host(&shared, relay.clone(), &desk.path, false, FAST, || {}).unwrap();
         let (slot, password) = pair::parse_code(&shown.code).unwrap();
         let wrong = pair::format_code(&slot, if password == "000000" { "111111" } else { "000000" });
-        let said = join_waiting(relay.as_ref(), &laptop.path, &wrong, Duration::from_secs(5)).unwrap_err();
+        let said = join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, &wrong, Duration::from_secs(5)).unwrap_err();
         assert_eq!(said, "That code didn't match, or it's been used. Make a new one on the other computer.");
         assert_eq!(wait_until_done(&shared), PairState::Mismatch);
         assert!(!sync::combining(&laptop.conn()).unwrap());
-        assert_eq!(join_waiting(relay.as_ref(), &laptop.path, "??", FAST).unwrap_err(), "That code didn't match, or it's been used. Make a new one on the other computer.");
+        assert_eq!(join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, "??", FAST).unwrap_err(), "That code didn't match, or it's been used. Make a new one on the other computer.");
     }
 
     #[test]
@@ -248,7 +260,7 @@ mod tests {
         let (desk, laptop) = (Computer::new("desk-o"), Computer::new("laptop-o"));
         let shared = Shared::default();
         let shown = host(&shared, relay.clone(), &desk.path, false, FAST, || {}).unwrap();
-        join_waiting(relay.as_ref(), &laptop.path, &shown.code, Duration::from_secs(5)).unwrap();
+        join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, &shown.code, Duration::from_secs(5)).unwrap();
         wait_until_done(&shared);
         let old = relay::group(&desk.conn()).unwrap().unwrap();
 
@@ -262,6 +274,36 @@ mod tests {
         let now = 20_000 * 24 * 60 * 60 * 1000;
         assert!(sync::run_relay(&laptop.conn(), relay.clone(), now).is_err());
         assert!(!sync::combining(&laptop.conn()).unwrap());
+    }
+
+    #[test]
+    fn a_code_put_away_for_another_never_moves_this_computer() {
+        let relay = Arc::new(relay::MemApi::default());
+        let (desk, laptop, tablet) = (Computer::new("desk-a"), Computer::new("laptop-a"), Computer::new("tablet-a"));
+        let (desk_codes, laptop_codes) = (Shared::default(), Shared::default());
+        // The desk shows a code, then types the laptop's instead.
+        let old = host(&desk_codes, relay.clone(), &desk.path, false, Duration::from_millis(50), || {}).unwrap();
+        let theirs = host(&laptop_codes, relay.clone(), &laptop.path, false, FAST, || {}).unwrap();
+        join_waiting(&desk_codes, relay.as_ref(), &desk.path, &theirs.code, Duration::from_secs(5)).unwrap();
+        let laptops = relay::group(&desk.conn()).unwrap().unwrap();
+        // The desk's own code is no good now, so it stays in the laptop's group.
+        assert!(join_waiting(&Shared::default(), relay.as_ref(), &tablet.path, &old.code, Duration::from_millis(500)).is_err());
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(relay::group(&desk.conn()).unwrap(), Some(laptops));
+    }
+
+    #[test]
+    fn a_code_never_links_a_computer_combining_through_a_folder() {
+        let relay = Arc::new(relay::MemApi::default());
+        let (desk, laptop) = (Computer::new("desk-d"), Computer::new("laptop-d"));
+        let shared = Shared::default();
+        let shown = host(&shared, relay.clone(), &desk.path, false, FAST, || {}).unwrap();
+        // A folder chosen while the code shows.
+        db::set_setting(&desk.conn(), "sync_folder", "C:/somewhere").unwrap();
+        let _ = join_waiting(&Shared::default(), relay.as_ref(), &laptop.path, &shown.code, Duration::from_secs(5));
+        assert!(matches!(wait_until_done(&shared), PairState::Failed { .. }));
+        assert_eq!(sync::folder(&desk.conn()).unwrap(), Some(PathBuf::from("C:/somewhere")));
+        assert!(relay::group(&desk.conn()).unwrap().is_none());
     }
 
     #[test]

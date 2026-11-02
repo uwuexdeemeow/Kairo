@@ -291,6 +291,12 @@ describe("linking with a code", () => {
     expect(shown("#sync-code")).toBe(false);
   });
 
+  it("puts away the code shown when another is to be typed", () => {
+    api.pairCancel.mockClear();
+    $("#sync-enter").click();
+    expect(api.pairCancel).toHaveBeenCalled();
+  });
+
   it("links with a code typed from another computer", async () => {
     api.pairJoin.mockResolvedValue({ from: "Desk-PC", sync: RELAY });
     $("#sync-enter").click();

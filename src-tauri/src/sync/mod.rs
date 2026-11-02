@@ -289,9 +289,16 @@ pub fn run_with(conn: &Connection, store: &dyn Store, now_ms: i64) -> Result<boo
     Ok(changed)
 }
 
+/// What Settings shows of combining that a round can change: whether this computer combines, and
+/// what went wrong. Who's combined is left out; it's read when a window opens.
+fn shown_state(conn: &Connection) -> (bool, Option<String>) {
+    (combining(conn).unwrap_or(false), relay_status(conn).map(|(_, error)| error).unwrap_or(None))
+}
+
 /// Every few minutes, while Kairo runs, and at once whenever something sends on `wake` (linking,
 /// joining, starting over). Choices that come in reach the collector's recording rules and the
-/// nudges at once; `on_woken` runs after each round a wake asked for, so open windows can show it.
+/// nudges at once; `on_woken` runs after each round a wake asked for, and after any round that
+/// changed what Settings shows, as when another computer started over, so open windows can show it.
 pub fn spawn(
     db_path: PathBuf,
     rules: privacy::SharedRules,
@@ -309,6 +316,7 @@ pub fn spawn(
                 Err(e) => return eprintln!("sync: cannot open the database: {e}"),
             };
             loop {
+                let before = shown_state(&conn);
                 match run_once(&conn, chrono::Utc::now().timestamp_millis()) {
                     Ok(true) => {
                         if let Err(e) = privacy::refresh(&conn, &rules) {
@@ -327,7 +335,7 @@ pub fn spawn(
                         crate::nudge::invalidate(&cache);
                     }
                 }
-                if woken {
+                if woken || shown_state(&conn) != before {
                     on_woken();
                 }
                 woken = match wake.recv_timeout(EVERY) {
@@ -936,6 +944,20 @@ mod tests {
         assert!(!combining(&laptop.conn).unwrap());
         assert!(laptop.apps().is_empty());
         assert_eq!(db::get_setting(&laptop.conn, "relay_error").unwrap().as_deref(), Some(UNLINKED));
+    }
+
+    #[test]
+    fn what_settings_shows_changes_when_the_group_goes() {
+        let (desk, laptop) = (Computer::new("desk-v"), Computer::new("laptop-v"));
+        let api = linked(&desk, &laptop);
+        let now = 20_000 * DAY_MS;
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        let before = shown_state(&laptop.conn);
+        run_relay(&laptop.conn, api.clone(), now).unwrap();
+        assert_eq!(shown_state(&laptop.conn), before, "a quiet round changes nothing shown");
+        api.forget_groups();
+        let _ = run_relay(&laptop.conn, api.clone(), now);
+        assert_ne!(shown_state(&laptop.conn), before);
     }
 
     #[test]

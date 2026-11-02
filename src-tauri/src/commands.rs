@@ -1355,8 +1355,8 @@ pub struct Joined {
 #[tauri::command(async)]
 pub fn pair_join(app: AppHandle, code: String) -> CmdResult<Joined> {
     let state = app.state::<AppState>();
-    let path = state.db_path.clone();
-    let from = off_runtime(|| sync::link::join(&sync::relay::Http::default(), &path, &code))?;
+    let (shared, path) = (state.linking.clone(), state.db_path.clone());
+    let from = off_runtime(|| sync::link::join(&shared, &sync::relay::Http::default(), &path, &code))?;
     wake_sync(&state);
     let _ = app.emit("kairo:sync", ());
     let conn = state.db.lock().map_err(err)?;
@@ -1385,6 +1385,8 @@ pub async fn choose_sync_folder(app: AppHandle) -> CmdResult<Option<SyncState>> 
         return Ok(None);
     };
     let state = app.state::<AppState>();
+    // A code still showing would otherwise link this computer later and drop the folder.
+    state.linking.cancel();
     let conn = state.db.lock().map_err(err)?;
     if sync::relay::group(&conn)?.is_some() {
         return Err("Stop combining through the relay first.".into());
