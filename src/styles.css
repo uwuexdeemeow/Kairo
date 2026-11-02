@@ -2838,3 +2838,103 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--muted);
   cursor: pointer;
 }
+
+/* ---------- Ledger ---------- */
+
+.ledger-tasks {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+}
+
+.ledger-list .task-add {
+  width: 100%;
+}
+
+.task-preview {
+  min-height: 1.4em;
+  margin: 4px 0 12px;
+  font-size: 12px;
+}
+
+.ledger-group > h3 {
+  margin: 16px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ledger-group.overdue > h3 {
+  color: var(--distracting);
+}
+
+/* Tick, dot, title, day, bell, time, Start; a row without a dot keeps its title in line. */
+.ledger-list .task-row {
+  grid-template-columns: 16px 8px minmax(0, 1fr) auto auto auto auto;
+}
+
+.ledger-list .task-row > input + .task-title {
+  grid-column: 3;
+}
+
+.ledger-list .task-title {
+  cursor: pointer;
+}
+
+.prio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.prio-high {
+  background: var(--distracting);
+}
+
+.prio-medium {
+  background: #d9a326;
+}
+
+.task-day,
+.task-bell {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ledger-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  padding: 16px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+}
+
+.detail-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-field > span:first-child {
+  min-width: 72px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detail-delete {
+  align-self: flex-start;
+}
+
+@media (max-width: 860px) {
+  .ledger-tasks {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ledger-detail {
+    width: auto;
+  }
+}

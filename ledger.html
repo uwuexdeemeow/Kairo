@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ledger</title>
+    <!-- The theme used last time, before anything draws, so a light setup never flashes dark. -->
+    <script>
+      try {
+        const t = localStorage.getItem("kairo.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    <script type="module" src="/src/ledger.ts" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <span class="wordmark">ledger</span>
+        <nav class="tabs" role="tablist" aria-label="Main" aria-orientation="vertical">
+          <button role="tab" data-view="tasks" aria-selected="true">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
+            Tasks
+          </button>
+          <button role="tab" data-view="settings" aria-selected="false" class="tab-settings">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
+            Settings
+          </button>
+        </nav>
+      </aside>
+      <main class="wrap ledger">
+        <section class="page-head">
+          <div>
+            <p class="eyebrow" id="ledger-date"></p>
+            <h1 id="ledger-title">Tasks</h1>
+          </div>
+        </section>
+
+        <section id="view-tasks" class="view ledger-tasks" aria-label="Tasks">
+          <div id="task-list" class="ledger-list"></div>
+          <aside id="task-detail" class="ledger-detail" hidden aria-label="Task details"></aside>
+        </section>
+
+        <section id="view-settings" class="view" aria-label="Settings" hidden>
+          <section class="block">
+            <h2>Reminders</h2>
+            <label class="toggle">
+              <input type="checkbox" id="ledger-reminders" />
+              Remind me of tasks
+            </label>
+            <p class="muted">On a task's due day, once more the morning after if it's still open, and at its own reminder time. Only while you're at the computer, and on one of your combined computers.</p>
+            <div class="row-buttons">
+              <label class="field">
+                Morning reminder at
+                <input type="time" id="ledger-morning" value="09:00" />
+              </label>
+              <span class="muted" id="ledger-settings-note" aria-live="polite"></span>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
