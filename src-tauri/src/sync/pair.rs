@@ -268,16 +268,20 @@ fn unreachable(e: ApiError) -> JoinError {
 
 fn join_polling(mailbox: &dyn Mailbox, code: &str, my_name: &str, wait: Duration, poll: Duration) -> Result<Invite, JoinError> {
     let (slot, password) = parse_code(code).ok_or(JoinError::BadCode)?;
-    // No such slot: most likely a mistyped code, or one long gone.
-    let parts = match mailbox.read(&slot) {
-        Err(ApiError::Gone) => return Err(JoinError::Mismatch),
-        other => other.map_err(unreachable)?,
+    let deadline = Instant::now() + wait;
+    // No such slot: most likely a mistyped code, or one long gone. An answer lost on the way is
+    // asked for again, as every later step is, until the wait is over.
+    let parts = loop {
+        match mailbox.read(&slot) {
+            Err(ApiError::Gone) => return Err(JoinError::Mismatch),
+            Err(ApiError::Unreachable(_)) if Instant::now() < deadline => std::thread::sleep(poll),
+            other => break other.map_err(unreachable)?,
+        }
     };
     let Some(a) = parts.a.filter(|_| parts.b.is_none()) else { return Err(JoinError::Mismatch) };
     let (spake, message) = spake(&password);
     let shared = spake.finish(&a).map_err(|_| JoinError::Mismatch)?;
     let secret = new_secret();
-    let deadline = Instant::now() + wait;
     match deliver_by(mailbox, &slot, "b", &message, &secret, deadline, poll) {
         Ok(()) => {}
         // Another answer got there first.
@@ -561,6 +565,43 @@ mod tests {
         // writing again is refused as already written, which it was.
         deliver_by(&mailbox, &slot, "b", b"answer", "joiner", Instant::now() + Duration::from_secs(5), FAST).unwrap();
         assert_eq!(mailbox.inner.read(&slot).unwrap().b.as_deref(), Some(&b"answer"[..]));
+    }
+
+    /// The joiner's view of a relay whose first answer to it is lost.
+    struct FirstLookDrops {
+        inner: Arc<MemMailbox>,
+        dropped: std::sync::atomic::AtomicBool,
+    }
+
+    impl Mailbox for FirstLookDrops {
+        fn open(&self, a: &[u8], secret: &str) -> Result<String, ApiError> {
+            self.inner.open(a, secret)
+        }
+        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+            if !self.dropped.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return Err(ApiError::Unreachable("dropped".into()));
+            }
+            self.inner.read(slot)
+        }
+        fn write(&self, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
+            self.inner.write(slot, part, bytes, secret)
+        }
+        fn close(&self, slot: &str, secret: &str) {
+            self.inner.close(slot, secret)
+        }
+    }
+
+    #[test]
+    fn joining_gets_past_a_first_look_that_drops() {
+        let mailbox = Arc::new(MemMailbox::default());
+        let group = super::super::relay::new_group();
+        let host = Host::start(mailbox.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let hosting = run_host(host);
+        let joiner = FirstLookDrops { inner: mailbox, dropped: Default::default() };
+        let invite = join_polling(&joiner, &code, "Laptop", Duration::from_secs(5), FAST).unwrap();
+        assert_eq!(invite.group, group);
+        assert_eq!(hosting.join().unwrap(), PairState::Linked { name: "Laptop".into() });
     }
 
     #[test]
