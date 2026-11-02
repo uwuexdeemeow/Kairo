@@ -1,5 +1,4 @@
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";

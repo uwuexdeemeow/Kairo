@@ -1,5 +1,4 @@
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";

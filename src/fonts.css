@@ -1,0 +1,33 @@
+/* Kairo's three faces, Latin and the weight axis only, so the installer carries what it uses. */
+
+@font-face {
+  font-family: "Fraunces Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/fraunces/files/fraunces-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Fraunces Variable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/fraunces/files/fraunces-latin-wght-italic.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Instrument Sans Variable";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+}

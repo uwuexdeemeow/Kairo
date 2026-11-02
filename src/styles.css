@@ -1,19 +1,30 @@
-/* Kairo — "Quiet" theme: no cards; hierarchy comes from type, spacing and hairlines. Dark by
-   default; `data-theme="light"` on the root swaps in the light palette. */
+/* Kairo — "Objects": each app drawn as what it is, on paper. Deep blue ink by default;
+   `data-theme="light"` on the root swaps in cream paper. `data-app` names whose window it is, and
+   its ink becomes the accent (`--app`); the data colours keep their meaning whatever the app. */
 
 :root {
   color-scheme: dark;
-  --bg: #0e0f12;
-  --ink: #e8e9ec;
-  --ink-2: #c3c7cf;
-  --muted: #9399a4;
-  --faint: #7a808c;
-  --rule: #1e2026;
-  --line: #2a2d34;
-  --raised: #17191e;
+  --bg: #141a24;
+  --raised: #1b2230;
+  --ink: #e3e7ee;
+  --ink-2: #c4cbd6;
+  --muted: #97a1b2;
+  --faint: #7a8598;
+  --rule: #232c3d;
+  --line: #33405a;
   /* The faint baseline under the day timeline. */
-  --track: #24272e;
-  --shadow: rgb(0 0 0 / 0.45);
+  --track: #232c3d;
+  --shadow: rgb(0 0 0 / 0.5);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 .035 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+
+  /* Each app's ink, and the text that sits on it. */
+  --chrono: #7fc4e8;
+  --ledger: #e8a86a;
+  --palette: #b9a2e6;
+  --kairo: #a7b0bf;
+  --ribbon: #d9b23f;
+  --on-app: #141a24;
+  --app: var(--kairo);
 
   --productive: #3987e5;
   --productive-hover: #4a95ec;
@@ -32,23 +43,32 @@
   --seq-5: #9ec5f4;
   --seq-6: #cde2fb;
 
-  --sans: "Geist Variable", system-ui, sans-serif;
+  --sans: "Instrument Sans Variable", system-ui, sans-serif;
+  --display: "Fraunces Variable", Georgia, serif;
   --mono: "Geist Mono Variable", ui-monospace, monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-/* Light: the same roles on paper. Accents are a shade deeper so they hold their contrast. */
+/* Light: cream paper and ink. Accents are deeper so they hold their contrast. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f6f6f4;
-  --ink: #17181c;
-  --ink-2: #33363d;
-  --muted: #565c66;
-  --faint: #6f7580;
-  --rule: #e6e6e3;
-  --line: #d2d3cf;
-  --raised: #ffffff;
-  --track: #dcdcd8;
-  --shadow: rgb(20 22 28 / 0.14);
+  --bg: #f4efe6;
+  --raised: #fffaf2;
+  --ink: #2b2622;
+  --ink-2: #4a423b;
+  --muted: #6e6358;
+  --faint: #8a7f72;
+  --rule: #e3d9c9;
+  --line: #d3c7b3;
+  --track: #e6dccb;
+  --shadow: rgb(70 50 30 / 0.16);
+  --grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .35  0 0 0 0 .28  0 0 0 0 .2  0 0 0 .07 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+
+  --chrono: #2f6f8f;
+  --ledger: #a35a1f;
+  --palette: #6a4c93;
+  --kairo: #7a6f63;
+  --on-app: #fffaf2;
 
   --productive: #2f6fd0;
   --productive-hover: #2860b8;
@@ -68,6 +88,23 @@
   --seq-6: #1b4993;
 }
 
+/* Whose window it is. */
+:root[data-app="chrono"] {
+  --app: var(--chrono);
+}
+
+:root[data-app="ledger"] {
+  --app: var(--ledger);
+}
+
+:root[data-app="palette"] {
+  --app: var(--palette);
+}
+
+:root[data-app="kairo"] {
+  --app: var(--kairo);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -79,10 +116,15 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--grain);
   color: var(--ink);
   font: 14px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--app) 32%, transparent);
 }
 
 /* Desktop conventions: the arrow cursor on controls (the hand is for links) and no text
@@ -130,23 +172,33 @@ button {
 
 button:focus-visible,
 select:focus-visible {
-  outline: 2px solid var(--productive);
+  outline: 2px solid var(--app);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
 h1 {
   margin: 10px 0 0;
-  font-size: 44px;
-  font-weight: 300;
-  letter-spacing: -0.035em;
-  line-height: 1.1;
+  font-family: var(--display);
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+
+/* The aside in a title: "Good evening, *nearly done.*" */
+h1 em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--app);
 }
 
 h2 {
   margin: 0 0 14px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--faint);
 }
 
@@ -160,9 +212,10 @@ h2 {
 
 .eyebrow {
   margin: 0;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--faint);
 }
@@ -200,10 +253,21 @@ h2 {
 }
 
 .wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 0 10px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--app);
+}
+
+.wordmark svg {
+  flex: none;
+  width: 30px;
+  height: 30px;
 }
 
 .tabs {
@@ -290,7 +354,7 @@ h2 {
 }
 
 .focus-start button:hover {
-  border-color: var(--productive);
+  border-color: var(--app);
   color: var(--ink);
 }
 
@@ -305,7 +369,7 @@ h2 {
 }
 
 .focus-left:hover {
-  color: var(--productive);
+  color: var(--app);
 }
 
 .focus-active .track {
@@ -404,7 +468,7 @@ h2 {
 
 @keyframes jumped {
   from {
-    outline: 2px solid var(--productive);
+    outline: 2px solid var(--app);
     outline-offset: 8px;
   }
   to {
@@ -416,7 +480,7 @@ h2 {
 @media (prefers-reduced-motion: reduce) {
   .block.jumped {
     animation: none;
-    outline: 2px solid var(--productive);
+    outline: 2px solid var(--app);
     outline-offset: 8px;
   }
 }
@@ -679,14 +743,16 @@ h2 {
 }
 
 .btn.primary {
-  border-color: var(--productive);
-  background: var(--productive);
-  color: #fff;
-  font-weight: 500;
+  border-color: var(--app);
+  background: var(--app);
+  color: var(--on-app);
+  font-weight: 600;
+  transition: transform 160ms var(--ease), background 160ms var(--ease);
 }
 
 .btn.primary:hover:not(:disabled) {
-  background: var(--productive-hover);
+  background: color-mix(in srgb, var(--app) 86%, var(--ink));
+  transform: translateY(-1px);
 }
 
 .btn:disabled {
@@ -1000,7 +1066,7 @@ html.palette-root {
   color: inherit;
   font-weight: 600;
   text-decoration: underline;
-  text-decoration-color: var(--productive);
+  text-decoration-color: var(--app);
   text-underline-offset: 3px;
 }
 
@@ -1029,8 +1095,8 @@ html.palette-root {
 .palette-glyph.accent {
   /* Older WebKit has no color-mix(); a plain tile then. */
   background: var(--line);
-  background: color-mix(in srgb, var(--productive) 16%, transparent);
-  color: var(--productive);
+  background: color-mix(in srgb, var(--app) 16%, transparent);
+  color: var(--app);
 }
 
 .palette-glyph.warm {
@@ -1085,9 +1151,9 @@ html.palette-root {
 }
 
 .palette-chip.selected {
-  border-color: var(--productive);
+  border-color: var(--app);
   background: var(--line);
-  background: color-mix(in srgb, var(--productive) 12%, transparent);
+  background: color-mix(in srgb, var(--app) 12%, transparent);
 }
 
 .palette-empty,
@@ -1147,7 +1213,7 @@ html.palette-root {
 }
 
 .shortcut-keys.recording kbd {
-  border-color: var(--productive);
+  border-color: var(--app);
 }
 
 /* ---------- blocked window ---------- */
@@ -1246,7 +1312,7 @@ html.palette-root {
 }
 
 .timer-presets button[aria-pressed="true"] {
-  border-color: var(--productive);
+  border-color: var(--app);
   color: var(--ink);
 }
 
@@ -1413,7 +1479,7 @@ html.palette-root {
 
 .calendar-urls:focus {
   outline: none;
-  border-color: var(--productive);
+  border-color: var(--app);
 }
 
 /* A stretch away from the computer: when, then what it was. */
@@ -1518,7 +1584,7 @@ html.palette-root {
 }
 
 .day-toggle[aria-pressed="true"] {
-  border-color: var(--productive);
+  border-color: var(--app);
   color: var(--ink);
 }
 
@@ -1558,7 +1624,7 @@ html.palette-root {
 }
 
 .history-state.live {
-  color: var(--productive);
+  color: var(--app);
 }
 
 .ext-browsers {
@@ -1647,7 +1713,7 @@ html.palette-root {
 
 .cal-day.selected,
 .cal-day.selected:hover {
-  background: var(--productive);
+  background: var(--app);
   color: #fff;
 }
 
@@ -1680,9 +1746,10 @@ html.palette-root {
 }
 
 .hero-value {
-  font-size: 88px;
-  font-weight: 300;
-  letter-spacing: -0.05em;
+  font-family: var(--display);
+  font-size: 84px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -1890,7 +1957,7 @@ html.palette-root {
 }
 
 .note-field textarea:focus-visible {
-  outline: 2px solid var(--productive);
+  outline: 2px solid var(--app);
   outline-offset: 1px;
 }
 
@@ -2481,7 +2548,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .link-btn:hover {
-  color: var(--productive);
+  color: var(--app);
 }
 
 .field {
@@ -2538,7 +2605,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .filter:focus-visible {
-  outline: 2px solid var(--productive);
+  outline: 2px solid var(--app);
   outline-offset: 1px;
 }
 
@@ -2601,7 +2668,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: var(--productive);
+  accent-color: var(--app);
 }
 
 /* ---------- tooltip ---------- */
@@ -2829,7 +2896,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .task-now {
-  color: var(--productive);
+  color: var(--app);
   font-size: 12px;
 }
 
@@ -3091,7 +3158,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .note-text::selection {
-  background: color-mix(in srgb, var(--productive) 30%, transparent);
+  background: color-mix(in srgb, var(--app) 30%, transparent);
   color: transparent;
 }
 
@@ -3100,7 +3167,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .md-h {
-  color: var(--productive);
+  color: var(--app);
   font-weight: 700;
 }
 
@@ -3119,12 +3186,12 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .md-link {
-  color: var(--productive);
+  color: var(--app);
   text-decoration: underline;
 }
 
 .md-box {
-  color: var(--productive);
+  color: var(--app);
   font-weight: 700;
 }
 

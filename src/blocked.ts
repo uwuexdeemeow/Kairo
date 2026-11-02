@@ -1,8 +1,7 @@
 // The small always-on-top window shown when a focus session, or a hard daily limit, minimizes a
 // blocked app.
 
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 
