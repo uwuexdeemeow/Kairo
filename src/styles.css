@@ -2782,53 +2782,150 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   }
 }
 
-/* A tile per app; as many to a row as fit, one when the window is narrow. */
+/* Each app as what it is, side by side: Chrono's dial, Ledger's notebook, the palette's key. As
+   many to a row as fit, one when the window is narrow. */
 .app-tiles {
-  margin-top: 40px;
+  margin-top: 36px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 28px 20px;
+  align-items: end;
 }
 
 .app-tile {
   display: flex;
   flex-direction: column;
-  min-height: 200px;
-  padding: 20px 22px 12px;
-  border: 1px solid var(--rule);
+  align-items: center;
+  text-align: center;
+  animation: settle 320ms var(--ease) both;
+}
+
+.app-tile:nth-child(2) {
+  animation-delay: 60ms;
+}
+
+.app-tile:nth-child(3) {
+  animation-delay: 120ms;
+}
+
+/* The object is the way in: it lifts under the pointer. */
+.app-object {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 132px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: transform 200ms var(--ease), filter 200ms var(--ease);
+}
+
+.app-object:hover,
+.app-object:focus-visible {
+  transform: translateY(-3px);
+  filter: drop-shadow(0 10px 14px var(--shadow));
+}
+
+.app-object:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 6px;
   border-radius: 12px;
+}
+
+.app-dial,
+.app-dial .dial {
+  width: 124px;
+  height: 124px;
+}
+
+.app-book .logo {
+  filter: drop-shadow(0 8px 10px var(--shadow));
+}
+
+/* The palette's key, raised on its own edge. */
+.keycap {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  min-width: 132px;
+  height: 76px;
+  margin-bottom: 10px;
+  padding: 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
   background: var(--raised);
+  box-shadow: 0 7px 0 color-mix(in srgb, var(--palette) 40%, var(--bg)), 0 12px 18px -6px var(--shadow);
+}
+
+.keycap kbd {
+  border: 0;
+  background: none;
+  color: var(--palette);
+  font: 600 15px var(--sans);
 }
 
 .app-tile h2 {
   margin: 0;
-  font-size: 20px;
-  font-weight: 500;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
   letter-spacing: -0.01em;
-  color: var(--ink);
+  text-transform: none;
+}
+
+.app-tile[data-app="chrono"] h2 {
+  color: var(--chrono);
+}
+
+.app-tile[data-app="ledger"] h2 {
+  color: var(--ledger);
+}
+
+.app-tile[data-app="palette"] h2 {
+  color: var(--palette);
 }
 
 .app-tile-what {
-  margin: 4px 0 0;
-  font-size: 13px;
+  margin: 2px 0 0;
+  font-size: 12px;
 }
 
 .app-tile-line {
-  margin: 20px 0 0;
-  min-height: 30px;
-  font-family: var(--mono);
+  margin: 8px 0 0;
+  min-height: 22px;
   font-size: 13px;
   color: var(--ink-2);
 }
 
-/* Keys on a raised tile sit in the page's colour so they still read as keys. */
+/* Keys in a line sit on the page's colour so they still read as keys. */
 .app-tile .shortcut-keys kbd {
-  background: var(--bg);
+  background: var(--raised);
 }
 
 .app-tile-actions {
-  margin-top: auto;
-  padding-top: 16px;
+  min-height: 28px;
+  padding-top: 4px;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-tile {
+    animation: none;
+  }
+  .app-object,
+  .app-object:hover {
+    transition: none;
+    transform: none;
+  }
 }
 
 /* App settings: a row per app, what its settings cover, and the way there. */

@@ -6,6 +6,7 @@ import { api } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { ledgerLine } from "./ledger-tasks";
+import { dialSvg, greeting, logo } from "./logos";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
@@ -18,6 +19,8 @@ interface KairoApp {
   what: string;
   /// Today's line on its tile: words, or keys to show as keys.
   line: () => Promise<string | Node[]>;
+  /** The app drawn as what it is; Chrono's dial redraws with its line. */
+  object: () => HTMLElement;
   open: () => void;
   settings?: { covers: string; open: () => void };
 }
@@ -37,10 +40,12 @@ const APPS: KairoApp[] = [
     // build every 30 seconds.
     line: async () => {
       const [status, [day]] = await Promise.all([api.status(), api.dayTotals(today(), today())]);
+      drawDial(day);
       if (!status.tracking) return "Paused";
       if (!day?.activeMs) return "Nothing tracked yet today";
       return `${fmtDur(day.activeMs)} on screen · ${pct(day.productiveMs, day.activeMs)}% productive`;
     },
+    object: () => h("span", { class: "app-dial" }),
     open: () => api.openChrono(),
     settings: {
       covers: "Goals, privacy, projects, calendar, browser extension, nudges, evening summary, focus blocking, breaks and demo data",
@@ -52,16 +57,49 @@ const APPS: KairoApp[] = [
     name: "Ledger",
     what: "Tasks and notes",
     line: async () => ledgerLine(await api.tasks()),
+    object: () => {
+      const book = h("span", { class: "app-book" });
+      book.innerHTML = logo("ledger", 112);
+      return book;
+    },
     open: () => api.openLedger(),
   },
   {
     id: "palette",
     name: "Command palette",
     what: "Apps, days and commands, from anywhere",
-    line: async () => shortcutKeys((await api.paletteSettings()).shortcut),
+    line: async () => {
+      const shortcut = (await api.paletteSettings()).shortcut;
+      // The keycap shows the keys too; each place needs its own copy of them.
+      document.querySelector('[data-app="palette"] .keycap')?.replaceChildren(...shortcutKeys(shortcut));
+      return shortcutKeys(shortcut);
+    },
+    object: () => h("span", { class: "keycap" }),
     open: () => api.openPalette(),
   },
 ];
+
+/// "2h 05" for the dial's middle.
+function dialTime(ms: number): string {
+  const mins = Math.round(ms / 60_000);
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}`;
+}
+
+/// Chrono's dial: today's active time by what it went on.
+function drawDial(day: { activeMs: number; productiveMs: number; distractingMs?: number } | undefined) {
+  const el = document.querySelector('[data-app="chrono"] .app-dial');
+  if (!el) return;
+  const active = day?.activeMs ?? 0;
+  const productive = day?.productiveMs ?? 0;
+  const distracting = day?.distractingMs ?? 0;
+  el.innerHTML = dialSvg({ productive, distracting, neutral: Math.max(0, active - productive - distracting) }, dialTime(active), "today");
+}
+
+/// The greeting for this hour, its aside in italic.
+function drawGreeting() {
+  const g = greeting(new Date().getHours());
+  $("#dash-title").replaceChildren(`${g.lead} `, h("em", {}, g.aside));
+}
 
 type Tab = "home" | "settings";
 let current: Tab | null = null;
@@ -71,17 +109,17 @@ function drawTiles() {
   $("#app-tiles").replaceChildren(
     ...APPS.map((app) => {
       const actions = h("div", { class: "row-buttons app-tile-actions" });
-      const open = h("button", { class: "btn" }, "Open");
-      open.addEventListener("click", app.open);
-      actions.append(open);
       if (app.settings) {
         const settings = h("button", { class: "link-btn" }, "Settings");
         settings.addEventListener("click", app.settings.open);
         actions.append(settings);
       }
+      const object = h("button", { class: "app-object", "aria-label": `Open ${app.name}` }, app.object());
+      object.addEventListener("click", app.open);
       return h(
         "article",
         { class: "app-tile", "data-app": app.id, "aria-label": app.name },
+        object,
         h("h2", {}, app.name),
         h("p", { class: "muted app-tile-what" }, app.what),
         h("p", { class: "app-tile-line", "data-line": app.id, "aria-live": "polite" }),
@@ -127,7 +165,8 @@ async function showTab(tab: Tab): Promise<void> {
   $("#tab-settings").hidden = tab !== "settings";
   $("#dash-date").hidden = tab !== "home";
   $("#settings-version").hidden = tab !== "settings";
-  $("#dash-title").textContent = tab === "home" ? "Your apps" : "Settings";
+  if (tab === "home") drawGreeting();
+  else $("#dash-title").textContent = "Settings";
   if (tab === "home") {
     cancelShortcutRecording();
     refreshLines();

@@ -55,6 +55,7 @@ export interface DayTotal {
   date: string;
   activeMs: number;
   productiveMs: number;
+  distractingMs: number;
 }
 
 export interface HourStat {
