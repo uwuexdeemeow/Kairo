@@ -177,7 +177,7 @@ mod tests {
 
         let apps: Vec<String> = live.prepare("SELECT app FROM sessions").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
         assert_eq!(apps, ["code"]);
-        let tasks: Vec<String> = crate::tasks::list(&live, 0).unwrap().into_iter().map(|t| t.id).collect();
+        let tasks: Vec<String> = crate::tasks::list(&live, 0, "").unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(tasks, [essay.id]);
         assert_eq!(db::get_setting(&live, "palette_suggestions").unwrap().as_deref(), Some("1"));
         assert_eq!(db::get_setting(&live, "palette_shortcut").unwrap().as_deref(), Some("Alt+Space"));

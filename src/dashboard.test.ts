@@ -9,6 +9,8 @@ const api = vi.hoisted(() => ({
   takeDashboardTab: vi.fn(),
   openChrono: vi.fn(),
   openPalette: vi.fn(),
+  openLedger: vi.fn(),
+  tasks: vi.fn(),
   appearance: vi.fn(),
   setAppearance: vi.fn(),
   setPaletteShortcut: vi.fn(),
@@ -51,15 +53,17 @@ beforeEach(() => {
   api.version.mockResolvedValue("1.19.3");
   api.sync.mockResolvedValue({ folder: null, name: "Tower", computers: [], shown: "all" });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
+  api.tasks.mockResolvedValue([{ id: "a", group: "today" }, { id: "b", group: "overdue" }]);
   document.body.innerHTML = markup;
 });
 
 describe("Home", () => {
   it("shows a tile for each app, with today's line", async () => {
     await open();
-    expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Command palette"]);
+    expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette"]);
     await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
     expect(line("palette")).toBe("AltSpace");
+    expect(line("ledger")).toBe("1 due today · 1 overdue");
   });
 
   it("reads only today's totals for Chrono's line, not the whole day", async () => {

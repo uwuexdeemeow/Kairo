@@ -268,16 +268,20 @@ fn unreachable(e: ApiError) -> JoinError {
 
 fn join_polling(mailbox: &dyn Mailbox, code: &str, my_name: &str, wait: Duration, poll: Duration) -> Result<Invite, JoinError> {
     let (slot, password) = parse_code(code).ok_or(JoinError::BadCode)?;
-    // No such slot: most likely a mistyped code, or one long gone.
-    let parts = match mailbox.read(&slot) {
-        Err(ApiError::Gone) => return Err(JoinError::Mismatch),
-        other => other.map_err(unreachable)?,
+    let deadline = Instant::now() + wait;
+    // No such slot: most likely a mistyped code, or one long gone. An answer lost on the way is
+    // asked for again, as every later step is, until the wait is over.
+    let parts = loop {
+        match mailbox.read(&slot) {
+            Err(ApiError::Gone) => return Err(JoinError::Mismatch),
+            Err(ApiError::Unreachable(_)) if Instant::now() < deadline => std::thread::sleep(poll),
+            other => break other.map_err(unreachable)?,
+        }
     };
     let Some(a) = parts.a.filter(|_| parts.b.is_none()) else { return Err(JoinError::Mismatch) };
     let (spake, message) = spake(&password);
     let shared = spake.finish(&a).map_err(|_| JoinError::Mismatch)?;
     let secret = new_secret();
-    let deadline = Instant::now() + wait;
     match deliver_by(mailbox, &slot, "b", &message, &secret, deadline, poll) {
         Ok(()) => {}
         // Another answer got there first.
@@ -300,9 +304,13 @@ fn join_polling(mailbox: &dyn Mailbox, code: &str, my_name: &str, wait: Duration
                 return Err(JoinError::Mismatch);
             };
             let reply = seal::seal_with(&key, &format!("reply/{slot}"), &serde_json::to_vec(&ReplyBody { name: my_name.into() }).expect("plain data"));
-            // The invitation is in hand, so the reply gets time of its own to arrive.
-            deliver_by(mailbox, &slot, "reply", &reply, &secret, Instant::now() + REPLY_WAIT, poll).map_err(unreachable)?;
-            return Ok(Invite { group, from: body.from });
+            // The invitation is in hand, so the reply gets time of its own to arrive. A slot gone
+            // by then was closed by the host, which does that once it has the reply; and with the
+            // group's key here, the two combine either way.
+            match deliver_by(mailbox, &slot, "reply", &reply, &secret, Instant::now() + REPLY_WAIT, poll) {
+                Ok(()) | Err(ApiError::Gone) => return Ok(Invite { group, from: body.from }),
+                Err(e) => return Err(unreachable(e)),
+            }
         }
         if Instant::now() >= deadline {
             return Err(JoinError::Expired);
@@ -482,11 +490,13 @@ mod tests {
         assert_eq!(join_polling(mailbox.as_ref(), "not a code!", "Laptop", Duration::from_secs(1), FAST), Err(JoinError::BadCode));
     }
 
-    /// A connection that drops every few requests: some never reach the relay, and some writes
-    /// do but their answer is lost.
+    /// A connection that drops about a third of requests: some never reach the relay, and some
+    /// writes do but their answer is lost. Which ones is scrambled (the same each run), not every
+    /// third: a host step makes three requests, and on a beat of three it could lose the same one
+    /// forever.
     struct Flaky {
         inner: MemMailbox,
-        calls: std::sync::atomic::AtomicU32,
+        calls: std::sync::atomic::AtomicU64,
     }
 
     impl Flaky {
@@ -494,7 +504,11 @@ mod tests {
             Flaky { inner: MemMailbox::default(), calls: Default::default() }
         }
         fn turn(&self) -> u32 {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 3
+            // splitmix64 of the request's number.
+            let mut z = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst).wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            ((z ^ (z >> 31)) % 3) as u32
         }
     }
 
@@ -561,6 +575,104 @@ mod tests {
         // writing again is refused as already written, which it was.
         deliver_by(&mailbox, &slot, "b", b"answer", "joiner", Instant::now() + Duration::from_secs(5), FAST).unwrap();
         assert_eq!(mailbox.inner.read(&slot).unwrap().b.as_deref(), Some(&b"answer"[..]));
+    }
+
+    /// The joiner's view of a relay whose first answer to it is lost.
+    struct FirstLookDrops {
+        inner: Arc<MemMailbox>,
+        dropped: std::sync::atomic::AtomicBool,
+    }
+
+    impl Mailbox for FirstLookDrops {
+        fn open(&self, a: &[u8], secret: &str) -> Result<String, ApiError> {
+            self.inner.open(a, secret)
+        }
+        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+            if !self.dropped.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                return Err(ApiError::Unreachable("dropped".into()));
+            }
+            self.inner.read(slot)
+        }
+        fn write(&self, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
+            self.inner.write(slot, part, bytes, secret)
+        }
+        fn close(&self, slot: &str, secret: &str) {
+            self.inner.close(slot, secret)
+        }
+    }
+
+    /// The joiner's view of a relay where its reply arrives but the answer is lost, and the host,
+    /// having read it, closes the slot before the joiner can look.
+    struct ReplyTakenUnheard {
+        inner: Arc<MemMailbox>,
+        host_secret: String,
+    }
+
+    impl Mailbox for ReplyTakenUnheard {
+        fn open(&self, a: &[u8], secret: &str) -> Result<String, ApiError> {
+            self.inner.open(a, secret)
+        }
+        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+            self.inner.read(slot)
+        }
+        fn write(&self, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
+            self.inner.write(slot, part, bytes, secret)?;
+            if part != "reply" {
+                return Ok(());
+            }
+            self.inner.close(slot, &self.host_secret);
+            Err(ApiError::Unreachable("answer lost".into()))
+        }
+        fn close(&self, slot: &str, secret: &str) {
+            self.inner.close(slot, secret)
+        }
+    }
+
+    #[test]
+    fn a_reply_the_host_took_counts_though_its_answer_was_lost() {
+        let mailbox = Arc::new(MemMailbox::default());
+        let group = super::super::relay::new_group();
+        let mut host = Host::start(mailbox.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let joiner = ReplyTakenUnheard { inner: mailbox, host_secret: host.secret.clone() };
+        // The host sends its invitation once the answer is in; stepped by hand, so nothing races.
+        let hosting = std::thread::spawn(move || {
+            while host.key.is_none() || host.unsent.is_some() {
+                host.step(1_000);
+                std::thread::sleep(FAST);
+            }
+        });
+        let invite = join_polling(&joiner, &code, "Laptop", Duration::from_secs(5), FAST).unwrap();
+        assert_eq!(invite.group, group);
+        hosting.join().unwrap();
+    }
+
+    #[test]
+    fn joining_gets_past_a_first_look_that_drops() {
+        let mailbox = Arc::new(MemMailbox::default());
+        let group = super::super::relay::new_group();
+        let host = Host::start(mailbox.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let hosting = run_host(host);
+        let joiner = FirstLookDrops { inner: mailbox, dropped: Default::default() };
+        let invite = join_polling(&joiner, &code, "Laptop", Duration::from_secs(5), FAST).unwrap();
+        assert_eq!(invite.group, group);
+        assert_eq!(hosting.join().unwrap(), PairState::Linked { name: "Laptop".into() });
+    }
+
+    #[test]
+    fn a_host_alone_on_a_flaky_connection_gets_its_invitation_through() {
+        let group = super::super::relay::new_group();
+        let flaky = Arc::new(Flaky::new());
+        let mut host = Host::start(flaky.clone(), &group, "Desk", 0).unwrap();
+        let (slot, password) = parse_code(&host.code).unwrap();
+        let (_, message) = spake(&password);
+        flaky.inner.write(&slot, "b", &message, "joiner").unwrap();
+        flaky.calls.store(0, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..300 {
+            host.step(1_000);
+        }
+        assert!(flaky.inner.read(&slot).unwrap().invite.is_some(), "the host never got its invitation through");
     }
 
     #[test]
