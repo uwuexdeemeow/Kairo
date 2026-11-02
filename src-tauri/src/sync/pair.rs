@@ -490,11 +490,13 @@ mod tests {
         assert_eq!(join_polling(mailbox.as_ref(), "not a code!", "Laptop", Duration::from_secs(1), FAST), Err(JoinError::BadCode));
     }
 
-    /// A connection that drops every few requests: some never reach the relay, and some writes
-    /// do but their answer is lost.
+    /// A connection that drops about a third of requests: some never reach the relay, and some
+    /// writes do but their answer is lost. Which ones is scrambled (the same each run), not every
+    /// third: a host step makes three requests, and on a beat of three it could lose the same one
+    /// forever.
     struct Flaky {
         inner: MemMailbox,
-        calls: std::sync::atomic::AtomicU32,
+        calls: std::sync::atomic::AtomicU64,
     }
 
     impl Flaky {
@@ -502,7 +504,11 @@ mod tests {
             Flaky { inner: MemMailbox::default(), calls: Default::default() }
         }
         fn turn(&self) -> u32 {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 3
+            // splitmix64 of the request's number.
+            let mut z = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst).wrapping_add(0x9E37_79B9_7F4A_7C15);
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            ((z ^ (z >> 31)) % 3) as u32
         }
     }
 
@@ -652,6 +658,21 @@ mod tests {
         let invite = join_polling(&joiner, &code, "Laptop", Duration::from_secs(5), FAST).unwrap();
         assert_eq!(invite.group, group);
         assert_eq!(hosting.join().unwrap(), PairState::Linked { name: "Laptop".into() });
+    }
+
+    #[test]
+    fn a_host_alone_on_a_flaky_connection_gets_its_invitation_through() {
+        let group = super::super::relay::new_group();
+        let flaky = Arc::new(Flaky::new());
+        let mut host = Host::start(flaky.clone(), &group, "Desk", 0).unwrap();
+        let (slot, password) = parse_code(&host.code).unwrap();
+        let (_, message) = spake(&password);
+        flaky.inner.write(&slot, "b", &message, "joiner").unwrap();
+        flaky.calls.store(0, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..300 {
+            host.step(1_000);
+        }
+        assert!(flaky.inner.read(&slot).unwrap().invite.is_some(), "the host never got its invitation through");
     }
 
     #[test]
