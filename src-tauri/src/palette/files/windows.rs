@@ -16,12 +16,13 @@ use super::{Unavailable, APP_FOLDERS, CLUTTER};
 /// The most paths one search lists.
 const MAX_PATHS: u32 = 50;
 
-/// The Advanced Query Syntax filter for file names containing the query, outside clutter folders
+/// The Advanced Query Syntax filter for file names containing every word of the query, outside clutter folders
 /// and home's app folders. The index leaves those out itself: a folder like `node_modules` can
 /// hold thousands of matches, which would otherwise fill every result before the user's own files.
 /// AQS has no way to escape a double quote inside a phrase, so those are dropped.
 fn name_filter(query: &str, home: &Path) -> String {
-    let mut filter = format!("System.FileName:~~\"{}\"", query.replace('"', ""));
+    let words = query.replace('"', "");
+    let mut filter = words.split_whitespace().map(|word| format!("System.FileName:~~\"{word}\"")).collect::<Vec<_>>().join(" ");
     let clutter = CLUTTER.iter().map(|name| format!(r"\{name}\"));
     let apps = APP_FOLDERS.iter().map(|name| format!(r"{}\{name}\", home.display()));
     for folder in clutter.chain(apps) {
@@ -77,10 +78,11 @@ mod tests {
     fn the_filter_matches_names_containing_the_query_outside_clutter() {
         let home = Path::new(r"C:\Users\Ana");
         let filter = name_filter("tax 2026", home);
-        assert!(filter.starts_with(r#"System.FileName:~~"tax 2026" NOT "#), "{filter}");
+        // Each word on its own, as Spotlight and localsearch match them, so "tax 2026" finds "Tax_2026.pdf".
+        assert!(filter.starts_with(r#"System.FileName:~~"tax" System.FileName:~~"2026" NOT "#), "{filter}");
         assert!(filter.contains(r#"NOT System.ItemFolderPathDisplay:~~"\node_modules\""#), "{filter}");
         assert!(filter.contains(r#"NOT System.ItemFolderPathDisplay:~~"C:\Users\Ana\appdata\""#), "{filter}");
-        assert!(name_filter("say \"hi\"", home).starts_with(r#"System.FileName:~~"say hi" "#));
+        assert!(name_filter("say \"hi\"", home).starts_with(r#"System.FileName:~~"say" System.FileName:~~"hi" "#));
     }
 
     /// Asks the real index for a file made just for this, so a search that can't answer fails here

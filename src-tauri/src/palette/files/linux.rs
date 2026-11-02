@@ -125,14 +125,15 @@ pub fn ask(query: &str, home: &Path, deadline: Instant) -> Result<Vec<PathBuf>, 
             // `--` keeps a query starting with a dash from being read as an option.
             cmd.args(["search", "--files", "--limit"]).arg(TRACKER_ASKED.to_string()).arg("--").arg(query);
         }
-        // The home folder is a second pattern that must match too (plocate wants every pattern to
-        // match; locate needs -A for that), so the limit counts only paths under home rather than
-        // being used up by system files that happen to match the query.
+        // The home folder is a pattern that must match too (plocate wants every pattern to match;
+        // locate needs -A for that), so the limit counts only paths under home rather than being
+        // used up by system files that happen to match the query. Each word is a pattern of its
+        // own, so "tax 2026" finds "Tax_2026.pdf" as Spotlight and localsearch do.
         Tool::Plocate => {
-            cmd.args(["-i", "-l"]).arg(LOCATE_PATHS.to_string()).arg("--").arg(home).arg(query);
+            cmd.args(["-i", "-l"]).arg(LOCATE_PATHS.to_string()).arg("--").arg(home).args(query.split_whitespace());
         }
         Tool::Locate => {
-            cmd.args(["-i", "-A", "-l"]).arg(LOCATE_PATHS.to_string()).arg("--").arg(home).arg(query);
+            cmd.args(["-i", "-A", "-l"]).arg(LOCATE_PATHS.to_string()).arg("--").arg(home).args(query.split_whitespace());
         }
     }
     // Only lines with paths worth showing count toward the most read: tracker's headers and the

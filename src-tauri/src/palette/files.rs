@@ -92,8 +92,27 @@ fn lower(c: char) -> char {
 }
 
 /// How a name matches the query, as (rank, characters matched): 0 when it starts with it, 1 when
-/// a word in it does, 2 when it's only inside. None when it isn't there.
+/// a word in it does, 2 when it's only inside, and 3 when the query's words are all in it but
+/// apart, the way the indexes match them ("amos lim" in "Amos_Lim_Resume.pdf"). None otherwise.
 fn rank(name: &str, query: &[char]) -> Option<(u8, Vec<usize>)> {
+    if let Some(found) = rank_phrase(name, query) {
+        return Some(found);
+    }
+    let words: Vec<&[char]> = query.split(|c| c.is_whitespace()).filter(|w| !w.is_empty()).collect();
+    if words.len() < 2 {
+        return None;
+    }
+    let mut at = Vec::new();
+    for word in words {
+        at.extend(rank_phrase(name, word)?.1);
+    }
+    at.sort_unstable();
+    at.dedup();
+    Some((3, at))
+}
+
+/// How a name holds `query` in one piece, as `rank` counts it from 0 to 2.
+fn rank_phrase(name: &str, query: &[char]) -> Option<(u8, Vec<usize>)> {
     let chars: Vec<char> = name.chars().map(lower).collect();
     let at = |i: usize| (i..i + query.len()).collect::<Vec<_>>();
     let found: Vec<usize> = (0..=chars.len().checked_sub(query.len())?).filter(|&i| chars[i..i + query.len()] == *query).collect();
@@ -579,6 +598,20 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(1), "the thread is still running");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn words_typed_apart_match_a_name_that_joins_them() {
+        let h = home();
+        let found = vec![h.join("Amos_Lim_Resume_2026.pdf"), h.join("amos lim notes.txt"), h.join("lim amos.txt"), h.join("amos.txt")];
+        let rows = rows("amos lim", &h, found);
+        let titles: Vec<&str> = rows.iter().map(|i| i.title.as_str()).collect();
+        // The words as typed come first; then names holding every word, in any order.
+        assert_eq!(titles[0], "amos lim notes.txt");
+        assert_eq!(titles.len(), 3);
+        assert!(titles.contains(&"Amos_Lim_Resume_2026.pdf") && titles.contains(&"lim amos.txt"));
+        let resume = rows.iter().find(|i| i.title.starts_with("Amos_")).unwrap();
+        assert_eq!(resume.at, [0, 1, 2, 3, 5, 6, 7]);
     }
 
     #[test]
