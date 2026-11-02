@@ -32,6 +32,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = "0.4"
+# Whether a typed date like 11/7 is day or month first (quick_add.rs).
+sys-locale = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rrule = "0.14.0"

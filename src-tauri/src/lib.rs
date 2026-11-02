@@ -21,6 +21,7 @@ mod palette;
 mod platform;
 mod privacy;
 mod projects;
+mod quick_add;
 mod recap;
 mod schedule;
 mod startup;
