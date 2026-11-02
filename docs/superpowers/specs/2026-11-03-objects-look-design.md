@@ -14,7 +14,7 @@ except the dashboard's greeting and empty states. The app ring is a separate spe
 - **Geist Mono** stays for the note editor, keys and tabular figures.
 - Geist Sans is dropped. Fonts come from `@fontsource-variable/*`, bundled; each page imports
   `src/fonts.ts`, which imports the three. The Windows palette embeds Instrument Sans and Fraunces
-  instead of Geist.
+  instead of Geist (Instrument Sans only; see Palette).
 
 ## Colour
 
@@ -97,7 +97,8 @@ inks, used by the dashboard, sidebars' wordmarks and the blocked window:
   search field as a raised key, section headings in small capitals, the selected row lit in
   `--palette` at 18%. Opening settles in over 120 ms (web; the native one appears at once).
 - Windows (`palette/native.rs`): its `DARK` / `LIGHT` themes take the new values and a `palette`
-  accent; fonts become Instrument Sans (text) and Fraunces (section headings).
+  accent; Instrument Sans replaces Geist for text; section labels in small capitals, as on the web
+  (so it needs no Fraunces, and stays lighter).
 
 ### Blocked window
 
@@ -118,7 +119,7 @@ cost beyond the fonts' first load.
   `done` (and not with reduced motion); `--app` set per page.
 - Rust: the native palette's fonts are the bundled WOFF2 files (a new test checks each embedded
   font starts with the WOFF2 signature), and its two themes keep enough contrast between ink and
-  paper (a new test over `DARK` / `LIGHT`, at least 4.5:1).
+  paper (a new test over `DARK` / `LIGHT`: ink 7:1, muted 4.5:1, accent 3:1).
 - By eye: screenshots of each window in light and dark on Windows, after asking.
 - `docs/device-checklist.md`: a "New look" section.
 
