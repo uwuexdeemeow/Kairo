@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
-import { renderDetail, renderTaskList, type LedgerActions } from "./ledger-tasks";
+import { ledgerLine, renderDetail, renderTaskList, type LedgerActions } from "./ledger-tasks";
 
 const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   id,
@@ -94,6 +94,16 @@ describe("the task list", () => {
     press(add, "Enter");
     expect(act.add).toHaveBeenCalledWith("essay !h fri");
     expect(add.value).toBe("");
+  });
+});
+
+describe("Ledger's line on the dashboard", () => {
+  it("counts today's and overdue tasks", () => {
+    const today = (id: string) => task(id, id, { group: "today" });
+    expect(ledgerLine([today("a"), today("b"), today("c"), task("d", "d", { group: "overdue" })])).toBe("3 due today · 1 overdue");
+    expect(ledgerLine([task("d", "d", { group: "overdue" })])).toBe("1 overdue");
+    expect(ledgerLine([today("a"), today("b")])).toBe("2 due today");
+    expect(ledgerLine([task("e", "e"), task("f", "f", { group: "done", doneMs: 1 })])).toBe("Nothing due today");
   });
 });
 

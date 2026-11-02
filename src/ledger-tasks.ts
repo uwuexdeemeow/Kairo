@@ -27,6 +27,14 @@ const GROUPS: [TaskGroup, string][] = [
 
 const PRIORITY = ["Low", "Medium", "High"];
 
+/// Ledger's line on the dashboard: "3 due today · 1 overdue", or "Nothing due today".
+export function ledgerLine(tasks: Task[]): string {
+  const today = tasks.filter((t) => t.group === "today").length;
+  const late = tasks.filter((t) => t.group === "overdue").length;
+  const parts = [today ? `${today} due today` : "", late ? `${late} overdue` : ""].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Nothing due today";
+}
+
 /// "Fri 6 Nov" for "2026-11-06".
 export function dayText(day: string): string {
   const [y, m, d] = day.split("-").map(Number);

@@ -349,6 +349,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
+        day_first: crate::quick_add::day_first(),
         windows,
         can_close_windows: crate::platform::can_close_windows(),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
@@ -428,9 +429,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
         Action::StartFocus(minutes, label, task) => focus::start_by_hand(conn, *minutes, label.as_deref(), task.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
-        Action::AddTask(title) => {
-            crate::tasks::add(conn, title, now_ms()).map_err(|e| e.to_string())?;
-            crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)
+        Action::AddTask(text) => crate::commands::add_task_from(app, conn, text).map(|_| ()),
+        Action::OpenLedger => {
+            crate::show_ledger(app);
+            Ok(())
         }
         Action::OpenUrl(url) if crate::platform::open_path(url) => Ok(()),
         Action::OpenUrl(_) => Err("Couldn't open your browser.".into()),
@@ -445,7 +447,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::CloseWindow(_) => Err("That window didn't let Kairo close it. It may be running as administrator.".into()),
         Action::FinishTask(id) => {
             crate::tasks::set_done(conn, id, true, now_ms()).map_err(|e| e.to_string())?;
-            crate::sync::record(conn, "tasks:all", &crate::tasks::to_json(conn).map_err(|e| e.to_string())?)
+            crate::commands::tasks_changed(app, conn).map(|_| ())
         }
         Action::CheckUpdates => {
             let app = app.clone();
@@ -981,6 +983,7 @@ mod tests {
             week_goals: None,
             block_lists: Vec::new(),
             tasks: Vec::new(),
+            day_first: true,
             windows: Vec::new(),
             can_close_windows: false,
             next_meeting: None,

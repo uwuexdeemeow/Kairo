@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { shownControl, useDropdowns } from "./dropdown";
 import { jumpTo } from "./jump";
-import { renderTasks, type TaskActions } from "./tasks";
+import { renderTaskPicker, type PickerActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
@@ -1804,11 +1804,11 @@ for (const b of document.querySelectorAll<HTMLButtonElement>("[data-minutes]")) 
 }
 $("#timer-less").addEventListener("click", () => setTimerMinutes(timerMinutes - TIMER_STEP_MIN));
 $("#timer-more").addEventListener("click", () => setTimerMinutes(timerMinutes + TIMER_STEP_MIN));
-/// The Focus page's Tasks block; each change redraws it with the list the change returns.
+/// The Focus page's Tasks block: a pick of Ledger's open tasks to start a session on.
 async function drawTasks(tasks?: Task[]) {
   const running = runningFocus();
   shownTaskSession = running ? running.task : undefined;
-  renderTasks($("#focus-tasks"), tasks ?? (await api.tasks()), running ? { task: running.task } : null, taskActions);
+  renderTaskPicker($("#focus-tasks"), tasks ?? (await api.tasks()), running ? { task: running.task } : null, taskActions);
 }
 
 function tasksFollowFocus() {
@@ -1816,14 +1816,13 @@ function tasksFollowFocus() {
   if (view === "focus" && (running ? running.task : undefined) !== shownTaskSession) void drawTasks();
 }
 
-const taskActions: TaskActions = {
-  add: async (title) => drawTasks(await api.addTask(title)),
-  rename: async (id, title) => drawTasks(await api.renameTask(id, title)),
-  done: async (id, done) => drawTasks(await api.setTaskDone(id, done)),
-  remove: async (id) => drawTasks(await api.removeTask(id)),
+const taskActions: PickerActions = {
   // For the length picked on the timer, like Start focus; the page then reloads, tasks and all.
   start: (id) => startFocus(timerMinutes, undefined, id),
+  openLedger: () => api.openLedger(),
 };
+// Tasks change in Ledger, the palette and on other computers.
+listen("kairo:tasks", () => view === "focus" && drawTasks());
 
 $("#timer-start").addEventListener("click", async () => {
   const label = $<HTMLInputElement>("#timer-label");

@@ -289,8 +289,10 @@ pub enum Action {
     Dashboard(Option<&'static str>),
     /// A focus session: minutes, label, and the task it's for, by id.
     StartFocus(u32, Option<String>, Option<String>),
-    /// Adds a task to the Focus page's list.
+    /// Adds a task to Ledger, from quick-add text.
     AddTask(String),
+    /// Opens Ledger.
+    OpenLedger,
     /// Ticks a task off, by id.
     FinishTask(String),
     /// Opens a web address in the default browser.
@@ -402,8 +404,10 @@ pub struct Context {
     pub week_goals: Option<String>,
     /// The saved block lists' names; "focus 50 social" blocks the one called Social.
     pub block_lists: Vec<String>,
-    /// The open tasks, in the Focus page's order.
+    /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
+    /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
+    pub day_first: bool,
     /// The open windows when the palette opened, front to back.
     pub windows: Vec<WindowEntry>,
     /// Whether a window can be asked to close here (not on a Mac without Accessibility).
@@ -551,8 +555,10 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
     // "add task" always means it; a bare "task" ranks below an app it names, like Task Manager.
     let adding = [("add task ", 1000.0), ("task ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
     if let Some((title, score)) = adding {
-        let mut item = Item::new(format!("Add task “{title}”"), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
-        item.sub = Some("To the list on Chrono's Focus page".into());
+        let read = crate::quick_add::parse(title, ctx.today, ctx.day_first);
+        let mut item = Item::new(format!("Add task “{}”", read.title), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
+        let shown = crate::quick_add::describe(&read);
+        item.sub = Some(if shown.is_empty() { "In Ledger".into() } else { format!("{shown} · In Ledger") });
         item.score = score;
         return vec![item];
     }
@@ -572,7 +578,9 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
             let mut item = Item::new(t.title.clone(), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::StartFocus(TASK_MINUTES, None, Some(t.id.clone())));
             item.at = m.at;
             item.sub = Some(format!("Start a {TASK_MINUTES}-minute focus session on it"));
-            item.detail = (t.focused_ms > 0).then(|| fmt_dur(t.focused_ms));
+            // When it's due, or failing that the time spent on it.
+            let due = t.due_day.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).map(|d| d.format("%a %-d %b").to_string());
+            item.detail = due.or_else(|| (t.focused_ms > 0).then(|| fmt_dur(t.focused_ms)));
             item.second = Some((Action::FinishTask(t.id.clone()), "Mark done"));
             // Above the other matches, in the list's own order.
             item.score = 1100.0 - i as f64;
@@ -728,13 +736,14 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 7] = [
+    let actions: [(&str, String, Glyph, Action, bool); 8] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
         ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
+        ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
     ];
     for (words, title, glyph, action, offered) in actions {
@@ -860,6 +869,7 @@ mod tests {
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
             tasks: Vec::new(),
+            day_first: true,
             windows: Vec::new(),
             can_close_windows: true,
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
@@ -1088,6 +1098,34 @@ mod tests {
         // With nothing else matching, it still offers to add one; "add task" always does first.
         assert_eq!(search(&c, "task buy milk")[0].action, Action::AddTask("buy milk".into()));
         assert_eq!(search(&c, "add task manager")[0].action, Action::AddTask("manager".into()));
+    }
+
+    #[test]
+    fn adding_a_task_says_what_its_shortcuts_read_as() {
+        let c = ctx();
+        // ctx's today is Monday 26 Oct 2026.
+        let row = &search(&c, "task essay !h fri")[0];
+        assert_eq!(row.title, "Add task “essay”");
+        assert_eq!(row.sub.as_deref(), Some("High · Fri 30 Oct · In Ledger"));
+        assert_eq!(row.action, Action::AddTask("essay !h fri".into()));
+        assert_eq!(search(&c, "task buy milk")[0].sub.as_deref(), Some("In Ledger"));
+    }
+
+    #[test]
+    fn listed_tasks_show_their_due_day() {
+        let mut c = ctx();
+        let mut due = task("t1", "Essay");
+        due.due_day = Some("2026-10-30".into());
+        c.tasks = vec![due, task("t2", "Laundry")];
+        let rows = search(&c, "tasks");
+        assert_eq!(rows[0].detail.as_deref(), Some("Fri 30 Oct"));
+        assert_eq!(rows[1].detail.as_deref(), Some("1h 20m"));
+    }
+
+    #[test]
+    fn ledger_opens_from_the_palette() {
+        let c = ctx();
+        assert_eq!(search(&c, "ledger")[0].action, Action::OpenLedger);
     }
 
     #[test]

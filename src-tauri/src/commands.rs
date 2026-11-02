@@ -200,7 +200,7 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>, 
 
 /// Every change to the task list travels to combined computers, and every open window hears of
 /// it; then the page gets the new list.
-fn tasks_changed(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
+pub(crate) fn tasks_changed(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
     sync::record(conn, "tasks:all", &tasks::to_json(conn).map_err(err)?)?;
     let _ = app.emit("kairo:tasks", ());
     tasks::list(conn, now_ms(), &tasks::today()).map_err(err)

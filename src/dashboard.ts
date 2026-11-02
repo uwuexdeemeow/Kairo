@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
+import { ledgerLine } from "./ledger-tasks";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
@@ -46,6 +47,13 @@ const APPS: KairoApp[] = [
       covers: "Goals, privacy, projects, calendar, browser extension, nudges, evening summary, focus blocking, breaks and demo data",
       open: () => api.openChrono("settings"),
     },
+  },
+  {
+    id: "ledger",
+    name: "Ledger",
+    what: "Tasks and notes",
+    line: async () => ledgerLine(await api.tasks()),
+    open: () => api.openLedger(),
   },
   {
     id: "palette",
