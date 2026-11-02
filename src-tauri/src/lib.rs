@@ -14,6 +14,7 @@ mod demo;
 mod evening;
 mod focus;
 mod goals;
+mod ledger;
 mod lists;
 mod notes;
 mod nudge;

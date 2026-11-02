@@ -247,6 +247,19 @@ pub fn mark_sent(conn: &Connection, id: &str, mark: &str) -> Result<()> {
     Ok(())
 }
 
+/// A task's plan as its shared choice carries it; None when there's no such task.
+pub fn plan_json(conn: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(plan(conn, id)?.map(|p| serde_json::to_string(&p).expect("plain data")))
+}
+
+/// The tasks with a plan beyond how they came (a day, a reminder or another priority), with
+/// their plans' shared text, for sharing when combining starts.
+pub fn planned(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE due_day IS NOT NULL OR remind_ms IS NOT NULL OR priority != 1")?;
+    let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
+    ids.into_iter().filter_map(|id| plan_json(conn, &id).transpose().map(|p| p.map(|p| (id, p)))).collect()
+}
+
 /// Takes another computer's plan for a task; false when the task isn't here (yet).
 pub fn apply_plan(conn: &Connection, id: &str, p: &Plan) -> Result<bool> {
     let n = conn.execute(

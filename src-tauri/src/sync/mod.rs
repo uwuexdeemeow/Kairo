@@ -489,6 +489,9 @@ fn seed_choices(conn: &Connection) -> Result<()> {
         let tasks = crate::tasks::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('tasks:all', ?1, 1)", [tasks]).map_err(err)?;
     }
+    for (id, plan) in crate::tasks::planned(conn).map_err(err)? {
+        conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES (?1, ?2, 1)", [format!("taskplan:{id}"), plan]).map_err(err)?;
+    }
     if !crate::schedule::list(conn).map_err(err)?.is_empty() {
         let schedule = crate::schedule::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('schedule:focus', ?1, 1)", [schedule]).map_err(err)?;
@@ -531,9 +534,10 @@ fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, 
         let Ok(text) = store.get(computer, CHOICES_FILE) else { continue };
         let Ok(theirs) = serde_json::from_slice::<HashMap<String, Choice>>(&text) else { continue };
         seen.note(computer, CHOICES_FILE, version);
-        // A limit before whether it blocks, which needs the limit to be there.
+        // A limit before whether it blocks, and the task list before the tasks' plans: each needs
+        // the other to be there.
         let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
-        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:"), item.clone()));
+        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:") || item.starts_with("taskplan:"), item.clone()));
         for (item, choice) in theirs {
             if ours.get(&item).is_some_and(|o| o.changed_ms >= choice.changed_ms) {
                 continue;
@@ -568,6 +572,12 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
         "projects" if key == "all" => crate::projects::replace_from_json(conn, value),
         "lists" if key == "block" => crate::lists::replace_from_json(conn, value),
         "tasks" if key == "all" => crate::tasks::replace_from_json(conn, value),
+        // A plan whose task hasn't arrived yet waits for it.
+        "taskplan" => match crate::tasks::apply_plan(conn, key, &serde_json::from_str(value).map_err(err)?).map_err(err)? {
+            true => Ok(()),
+            false => Err("no such task yet".into()),
+        },
+        "ledger" => crate::ledger::apply(conn, key, value),
         "notes" => crate::notes::set_from_json(conn, key, value),
         _ => Err("unknown choice".into()),
     }
@@ -901,6 +911,63 @@ mod tests {
         assert_eq!(crate::tasks::list(&laptop.conn, 2, "").unwrap().iter().map(|t| &t.id).collect::<Vec<_>>(), [&task.id]);
 
         let _ = std::fs::remove_dir_all(folder);
+    }
+
+    /// Desk and laptop, and the views each has of one shared store.
+    fn sharing(name: &str) -> (Computer, Computer, store::MemStore, store::MemStore) {
+        let shared = store::MemStore::default();
+        let (desk, laptop) = (Computer::new(&format!("desk-{name}")), Computer::new(&format!("laptop-{name}")));
+        let (a, b) = (shared.for_computer(&device_id(&desk.conn).unwrap()), shared.for_computer(&device_id(&laptop.conn).unwrap()));
+        (desk, laptop, a, b)
+    }
+
+    #[test]
+    fn a_tasks_plan_travels_with_it() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("plan");
+        let now = 20_000 * DAY_MS;
+        let t = crate::tasks::add(&desk.conn, "Essay", 1).unwrap().unwrap();
+        crate::tasks::set_plan(&desk.conn, &t.id, Some("2026-11-07"), 2, Some(77)).unwrap();
+        record(&desk.conn, "tasks:all", &crate::tasks::to_json(&desk.conn).unwrap()).unwrap();
+        record(&desk.conn, &format!("taskplan:{}", t.id), &crate::tasks::plan_json(&desk.conn, &t.id).unwrap().unwrap()).unwrap();
+        run_with(&desk.conn, &desk_store, now).unwrap();
+        // Both arrive in one round; the list goes first, so the plan has its task.
+        run_with(&laptop.conn, &laptop_store, now).unwrap();
+        let p = crate::tasks::plan(&laptop.conn, &t.id).unwrap().unwrap();
+        assert_eq!((p.due.as_deref(), p.priority, p.remind), (Some("2026-11-07"), 2, Some(77)));
+    }
+
+    #[test]
+    fn a_plan_for_a_task_not_here_yet_waits_for_it() {
+        let laptop = Computer::new("laptop-early");
+        let plan = r#"{"due":"2026-11-07","priority":2,"remind":null,"sent":""}"#;
+        assert!(apply(&laptop.conn, "taskplan:abc", plan).is_err());
+        assert!(apply(&laptop.conn, "taskplan:abc", "not json").is_err());
+        laptop.conn.execute("INSERT INTO tasks (id, title, created_ms, position) VALUES ('abc', 'Essay', 1, 0)", []).unwrap();
+        apply(&laptop.conn, "taskplan:abc", plan).unwrap();
+        assert_eq!(crate::tasks::plan(&laptop.conn, "abc").unwrap().unwrap().priority, 2);
+    }
+
+    #[test]
+    fn seeding_shares_the_plans_tasks_already_have() {
+        let desk = Computer::new("desk-seedplan");
+        let t = crate::tasks::add(&desk.conn, "Essay", 1).unwrap().unwrap();
+        let plain = crate::tasks::add(&desk.conn, "Plain", 1).unwrap().unwrap();
+        crate::tasks::set_plan(&desk.conn, &t.id, Some("2026-11-07"), 2, None).unwrap();
+        seed_choices(&desk.conn).unwrap();
+        let all = choices(&desk.conn).unwrap();
+        assert!(all.contains_key(&format!("taskplan:{}", t.id)));
+        // One left as it came needs nothing shared.
+        assert!(!all.contains_key(&format!("taskplan:{}", plain.id)));
+    }
+
+    #[test]
+    fn ledgers_settings_travel() {
+        let laptop = Computer::new("laptop-ledger");
+        apply(&laptop.conn, "ledger:reminders", "0").unwrap();
+        apply(&laptop.conn, "ledger:morning", "07:30").unwrap();
+        assert_eq!(crate::ledger::settings(&laptop.conn).unwrap(), crate::ledger::Settings { reminders: false, morning: "07:30".into() });
+        assert!(apply(&laptop.conn, "ledger:morning", "25:00").is_err());
+        assert!(apply(&laptop.conn, "ledger:colour", "red").is_err());
     }
 
     #[test]
