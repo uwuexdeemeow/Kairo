@@ -304,9 +304,13 @@ fn join_polling(mailbox: &dyn Mailbox, code: &str, my_name: &str, wait: Duration
                 return Err(JoinError::Mismatch);
             };
             let reply = seal::seal_with(&key, &format!("reply/{slot}"), &serde_json::to_vec(&ReplyBody { name: my_name.into() }).expect("plain data"));
-            // The invitation is in hand, so the reply gets time of its own to arrive.
-            deliver_by(mailbox, &slot, "reply", &reply, &secret, Instant::now() + REPLY_WAIT, poll).map_err(unreachable)?;
-            return Ok(Invite { group, from: body.from });
+            // The invitation is in hand, so the reply gets time of its own to arrive. A slot gone
+            // by then was closed by the host, which does that once it has the reply; and with the
+            // group's key here, the two combine either way.
+            match deliver_by(mailbox, &slot, "reply", &reply, &secret, Instant::now() + REPLY_WAIT, poll) {
+                Ok(()) | Err(ApiError::Gone) => return Ok(Invite { group, from: body.from }),
+                Err(e) => return Err(unreachable(e)),
+            }
         }
         if Instant::now() >= deadline {
             return Err(JoinError::Expired);
@@ -589,6 +593,52 @@ mod tests {
         fn close(&self, slot: &str, secret: &str) {
             self.inner.close(slot, secret)
         }
+    }
+
+    /// The joiner's view of a relay where its reply arrives but the answer is lost, and the host,
+    /// having read it, closes the slot before the joiner can look.
+    struct ReplyTakenUnheard {
+        inner: Arc<MemMailbox>,
+        host_secret: String,
+    }
+
+    impl Mailbox for ReplyTakenUnheard {
+        fn open(&self, a: &[u8], secret: &str) -> Result<String, ApiError> {
+            self.inner.open(a, secret)
+        }
+        fn read(&self, slot: &str) -> Result<Parts, ApiError> {
+            self.inner.read(slot)
+        }
+        fn write(&self, slot: &str, part: &str, bytes: &[u8], secret: &str) -> Result<(), ApiError> {
+            self.inner.write(slot, part, bytes, secret)?;
+            if part != "reply" {
+                return Ok(());
+            }
+            self.inner.close(slot, &self.host_secret);
+            Err(ApiError::Unreachable("answer lost".into()))
+        }
+        fn close(&self, slot: &str, secret: &str) {
+            self.inner.close(slot, secret)
+        }
+    }
+
+    #[test]
+    fn a_reply_the_host_took_counts_though_its_answer_was_lost() {
+        let mailbox = Arc::new(MemMailbox::default());
+        let group = super::super::relay::new_group();
+        let mut host = Host::start(mailbox.clone(), &group, "Desk", 0).unwrap();
+        let code = host.code.clone();
+        let joiner = ReplyTakenUnheard { inner: mailbox, host_secret: host.secret.clone() };
+        // The host sends its invitation once the answer is in; stepped by hand, so nothing races.
+        let hosting = std::thread::spawn(move || {
+            while host.key.is_none() || host.unsent.is_some() {
+                host.step(1_000);
+                std::thread::sleep(FAST);
+            }
+        });
+        let invite = join_polling(&joiner, &code, "Laptop", Duration::from_secs(5), FAST).unwrap();
+        assert_eq!(invite.group, group);
+        hosting.join().unwrap();
     }
 
     #[test]
