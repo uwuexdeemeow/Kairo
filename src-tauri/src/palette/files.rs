@@ -86,19 +86,45 @@ fn is_code(path: &Path) -> bool {
 /// Top-level folders in home that hold the system's and apps' own files, not the user's.
 const APP_FOLDERS: [&str; 2] = ["library", "appdata"];
 
+/// Folders inside `~/Library` that hold the user's own files: iCloud Drive and apps' iCloud
+/// folders, and the drives macOS's File Provider keeps (Dropbox, OneDrive, Google Drive).
+const CLOUD_FOLDERS: [&str; 2] = ["mobile documents", "cloudstorage"];
+
 /// Whether a path is worth showing: under home, and not hidden, inside a build or cache folder,
-/// or in the app data folders at the top of home.
+/// or in the app data folders at the top of home, cloud drives inside them aside.
 pub fn kept(path: &Path, home: &Path) -> bool {
     let Some(inside) = under(path, home) else { return false };
-    let mut any = false;
-    for (i, part) in inside.components().enumerate() {
-        let name = part.as_os_str().to_string_lossy().to_lowercase();
-        if name.starts_with('.') || CLUTTER.contains(&name.as_str()) || (i == 0 && APP_FOLDERS.contains(&name.as_str())) {
-            return false;
+    let parts: Vec<String> = inside.components().map(|p| p.as_os_str().to_string_lossy().to_lowercase()).collect();
+    let cloud = parts.len() > 2 && parts[0] == "library" && CLOUD_FOLDERS.contains(&parts[1].as_str());
+    !parts.is_empty()
+        && parts.iter().enumerate().all(|(i, name)| {
+            !name.starts_with('.') && !CLUTTER.contains(&name.as_str()) && !(i == 0 && !cloud && APP_FOLDERS.contains(&name.as_str()))
+        })
+}
+
+/// A file's folder as its row shows it: from home ("~/School/Notes"), or in a cloud drive inside
+/// Library by the drive's name ("iCloud Drive/Downloads", "iCloud Drive/Pages", "Dropbox/Taxes").
+fn shown_folder(folder: &Path) -> String {
+    let parts: Vec<String> = folder.components().map(|p| p.as_os_str().to_string_lossy().to_string()).collect();
+    let is = |i: usize, name: &str| parts.get(i).is_some_and(|p| p.eq_ignore_ascii_case(name));
+    let sep = std::path::MAIN_SEPARATOR.to_string();
+    let (label, rest) = if is(0, "Library") && is(1, "Mobile Documents") && parts.len() > 2 {
+        if parts[2] == "com~apple~CloudDocs" {
+            ("iCloud Drive".to_string(), &parts[3..])
+        } else {
+            // An app's iCloud folder, like com~apple~Pages, keeps its files in Documents.
+            let app = parts[2].rsplit('~').next().unwrap_or(&parts[2]);
+            let rest = if is(3, "Documents") { &parts[4..] } else { &parts[3..] };
+            (format!("iCloud Drive{sep}{app}"), rest)
         }
-        any = true;
-    }
-    any
+    } else if is(0, "Library") && is(1, "CloudStorage") && parts.len() > 2 {
+        (parts[2].clone(), &parts[3..])
+    } else if parts.is_empty() {
+        return "~".to_string();
+    } else {
+        ("~".to_string(), &parts[..])
+    };
+    std::iter::once(label).chain(rest.iter().cloned()).collect::<Vec<_>>().join(&sep)
 }
 
 fn lower(c: char) -> char {
@@ -168,10 +194,10 @@ pub fn rows(query: &str, home: &Path, found: Vec<PathBuf>) -> Vec<Item> {
         .into_iter()
         .map(|(_, _, at, path)| {
             let shown = path.to_string_lossy().to_string();
-            let folder = path.parent().and_then(|p| under(p, home)).unwrap_or_default();
+            let folder = shown_folder(&path.parent().and_then(|p| under(p, home)).unwrap_or_default());
             let mut item = Item::new(path.file_name().unwrap_or_default().to_string_lossy(), Icon::File(shown.clone()), "Files", Action::OpenFile(shown.clone()));
             item.at = at;
-            item.sub = Some(if folder.as_os_str().is_empty() { "~".to_string() } else { format!("~{}{}", std::path::MAIN_SEPARATOR, folder.display()) });
+            item.sub = Some(folder);
             item.second = Some((Action::RevealFile(shown), "Show in folder"));
             item
         })
@@ -613,6 +639,35 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(1), "the thread is still running");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn cloud_drives_inside_library_are_searched() {
+        let home = Path::new("/Users/ana");
+        for p in [
+            "Library/Mobile Documents/com~apple~CloudDocs/Downloads/IC.pdf",
+            "Library/Mobile Documents/com~apple~Pages/Documents/Essay.pages",
+            "Library/CloudStorage/Dropbox/Taxes/budget.xlsx",
+            "Library/CloudStorage/OneDrive-Personal/budget.xlsx",
+        ] {
+            assert!(kept(&home.join(p), home), "{p}");
+        }
+        // The rest of Library is still the system's and apps' own.
+        for p in ["Library/Caches/IC.pdf", "Library/Mobile Documents/com~apple~CloudDocs/.Trash/IC.pdf"] {
+            assert!(!kept(&home.join(p), home), "{p}");
+        }
+    }
+
+    #[test]
+    fn cloud_folders_are_shown_by_the_drive_s_name() {
+        let home = Path::new("/Users/ana");
+        let sub = |p: &str| rows("ic", home, vec![home.join(p)]).remove(0).sub.unwrap();
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(sub("Library/Mobile Documents/com~apple~CloudDocs/Downloads/IC.pdf"), format!("iCloud Drive{sep}Downloads"));
+        assert_eq!(sub("Library/Mobile Documents/com~apple~CloudDocs/IC.pdf"), "iCloud Drive");
+        assert_eq!(sub("Library/Mobile Documents/com~apple~Pages/Documents/IC.pages"), format!("iCloud Drive{sep}Pages"));
+        assert_eq!(sub("Library/CloudStorage/Dropbox/Taxes/IC.pdf"), format!("Dropbox{sep}Taxes"));
+        assert_eq!(sub("Documents/IC.pdf"), format!("~{sep}Documents"));
     }
 
     #[test]
