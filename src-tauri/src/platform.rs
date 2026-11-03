@@ -1240,7 +1240,18 @@ pub fn desktop_palette_shortcut(shortcut: &str) -> bool {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-pub use kde::on_palette_shortcut;
+pub use kde::{on_palette_shortcut, on_ring_shortcut};
+
+/// The app ring's, as the palette's: GNOME runs `kairo --ring`, Plasma tells Kairo.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn desktop_ring_shortcut(shortcut: &str) -> bool {
+    wayland() && (gnome::ring_shortcut(shortcut) || kde::ring_shortcut(shortcut))
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+pub fn desktop_ring_shortcut(_shortcut: &str) -> bool {
+    false
+}
 
 /// Windows and macOS let Kairo listen for the palette's keys itself.
 #[cfg(any(windows, target_os = "macos"))]

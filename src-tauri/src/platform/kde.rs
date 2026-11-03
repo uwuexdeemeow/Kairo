@@ -178,19 +178,35 @@ pub fn idle_ms() -> Option<i64> {
 
 const COMPONENT: &str = "kairo";
 const PALETTE_ACTION: &str = "palette";
+const RING_ACTION: &str = "ring";
 static OPEN_PALETTE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+static OPEN_RING: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 
 /// What to do when Plasma says the palette's shortcut was pressed.
 pub fn on_palette_shortcut(open: Box<dyn Fn() + Send + Sync>) {
     let _ = OPEN_PALETTE.set(open);
 }
 
+pub fn on_ring_shortcut(open: Box<dyn Fn() + Send + Sync>) {
+    let _ = OPEN_RING.set(open);
+}
+
+/// The app ring's shortcut, as the palette's.
+pub fn ring_shortcut(shortcut: &str) -> bool {
+    global_shortcut(RING_ACTION, "Open the app ring", shortcut)
+}
+
 /// Makes `shortcut` one of Plasma's global shortcuts, which its Wayland session keeps for itself,
 /// and listens for it; false when Kairo isn't watching Plasma or Plasma refused it.
 pub fn palette_shortcut(shortcut: &str) -> bool {
+    global_shortcut(PALETTE_ACTION, "Open the command palette", shortcut)
+}
+
+/// One of Kairo's actions in Plasma's global shortcuts, set to `shortcut`, and heard.
+fn global_shortcut(action: &str, what: &str, shortcut: &str) -> bool {
     static LISTENING: std::sync::Once = std::sync::Once::new();
     let (Some(bus), Some(keys)) = (BUS.get(), qt_keys(shortcut)) else { return false };
-    let id = vec![COMPONENT, PALETTE_ACTION, "Kairo", "Open the command palette"];
+    let id = vec![COMPONENT, action, "Kairo", what];
     if global_shortcuts(bus, "doRegister", &(id.clone(),)).is_err() {
         return false;
     }
@@ -225,10 +241,13 @@ fn listen_for_presses() -> zbus::Result<()> {
         .build();
     for message in zbus::blocking::MessageIterator::for_match_rule(rule, bus, None)?.flatten() {
         let Ok((_, action, _)) = message.body().deserialize::<(String, String, i64)>() else { continue };
-        if action == PALETTE_ACTION {
-            if let Some(open) = OPEN_PALETTE.get() {
-                open();
-            }
+        let open = match action.as_str() {
+            PALETTE_ACTION => OPEN_PALETTE.get(),
+            RING_ACTION => OPEN_RING.get(),
+            _ => None,
+        };
+        if let Some(open) = open {
+            open();
         }
     }
     Ok(())

@@ -121,6 +121,11 @@ async function followOpen() {
   const [kind, id] = (asked ?? "").split(":");
   if (kind === "note" && id) await openNote(id);
   if (kind === "task" && id) openTask(id);
+  // The ring's New task: the Tasks view, ready to type.
+  if (kind === "add") {
+    show("tasks");
+    document.querySelector<HTMLInputElement>(".task-add")?.focus();
+  }
 }
 
 type View = "tasks" | "notes" | "settings";

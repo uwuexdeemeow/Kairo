@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" class="ring-root" data-app="kairo">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kairo</title>
+    <script>
+      try {
+        const t = localStorage.getItem("kairo.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    <script type="module" src="/src/ring.ts" defer></script>
+  </head>
+  <body class="ring-page">
+    <main class="ring" id="ring" aria-label="App ring"></main>
+  </body>
+</html>

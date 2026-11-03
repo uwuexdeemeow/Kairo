@@ -9,7 +9,7 @@ export default defineConfig({
   // src-tauri/src/palette/native.rs).
   build: {
     rollupOptions: {
-      input: { main: "index.html", dashboard: "dashboard.html", ledger: "ledger.html", blocked: "blocked.html", palette: "palette.html" },
+      input: { main: "index.html", dashboard: "dashboard.html", ledger: "ledger.html", blocked: "blocked.html", palette: "palette.html", ring: "ring.html" },
     },
   },
   // The web code's tests run in a simulated page, as Windows' web view: Kairo's code names keys and

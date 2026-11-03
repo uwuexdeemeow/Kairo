@@ -287,6 +287,9 @@ pub fn shortcut_may_open() -> bool {
 /// doesn't know the keys), the old one stays and the reason comes back.
 pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::result::Result<(), String> {
     let old = shortcut(conn).map_err(|e| e.to_string())?;
+    if crate::ring::shortcut(conn).is_ok_and(|ring| ring.eq_ignore_ascii_case(new)) {
+        return Err(format!("{new} opens the app ring."));
+    }
     if !crate::platform::desktop_palette_shortcut(new) {
         let keys = app.global_shortcut();
         let _ = keys.unregister(old.as_str());
@@ -437,6 +440,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::AddTask(text) => crate::commands::add_task_from(app, conn, text).map(|_| ()),
         Action::OpenLedger => {
             crate::show_ledger(app);
+            Ok(())
+        }
+        Action::OpenRing => {
+            crate::ring::toggle(app);
             Ok(())
         }
         Action::OpenNote(id) => {

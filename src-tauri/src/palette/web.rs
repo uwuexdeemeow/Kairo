@@ -107,7 +107,7 @@ fn open(app: &AppHandle) -> bool {
 /// you're in, and takes the keyboard without bringing Kairo forward. An ordinary window can't do
 /// either for an app with a Dock icon.
 #[cfg(target_os = "macos")]
-mod panel {
+pub(crate) mod panel {
     use std::ffi::c_void;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;

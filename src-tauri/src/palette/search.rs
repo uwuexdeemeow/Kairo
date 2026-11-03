@@ -293,6 +293,8 @@ pub enum Action {
     AddTask(String),
     /// Opens Ledger.
     OpenLedger,
+    /// Opens the app ring.
+    OpenRing,
     /// Opens a note in Ledger, by id.
     OpenNote(String),
     /// Starts a note with this text and opens it.
@@ -813,7 +815,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 8] = [
+    let actions: [(&str, String, Glyph, Action, bool); 9] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
@@ -821,6 +823,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
+        ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
     ];
     for (words, title, glyph, action, offered) in actions {
@@ -1243,6 +1246,12 @@ mod tests {
         let mut c = ctx();
         c.notes = (0..6).map(|i| note(&format!("m{i}"), &format!("Milk {i}"), "milk")).collect();
         assert_eq!(search(&c, "milk").iter().filter(|i| i.section == "Notes").count(), 3);
+    }
+
+    #[test]
+    fn the_ring_opens_from_the_palette() {
+        let c = ctx();
+        assert_eq!(search(&c, "ring")[0].action, Action::OpenRing);
     }
 
     #[test]

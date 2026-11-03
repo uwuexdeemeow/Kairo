@@ -18,6 +18,10 @@ pub const AVAILABLE: bool = !cfg!(debug_assertions);
 /// it too.
 pub const PALETTE_ARG: &str = "--palette";
 
+/// Opens the app ring, for a desktop shortcut where apps can't listen for keys themselves (Linux
+/// on Wayland). A running Kairo gets it too.
+pub const RING_ARG: &str = "--ring";
+
 /// Opens Chrono, the screen time tracker's window, rather than the palette; Chrono's own Start
 /// menu and app menu entry passes it.
 pub const CHRONO_ARG: &str = "--chrono";
@@ -33,6 +37,19 @@ pub const SEARCH_FILES_ARG: &str = "--search-files";
 /// from a terminal.
 pub const LIST_WINDOWS_ARG: &str = "--list-windows";
 
+/// Draws the app ring to a PNG and exits, for looking at it without showing it (Windows):
+/// `--ring-png <file> [lit] [light|dark]`.
+pub const RING_PNG_ARG: &str = "--ring-png";
+
+/// The PNG to draw the ring to, which segment is lit, and the theme; None without the flag.
+pub fn ring_png(args: &[String]) -> Option<(String, usize, String)> {
+    let at = args.iter().position(|a| a == RING_PNG_ARG)?;
+    let path = args.get(at + 1)?.clone();
+    let lit = args.get(at + 2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let theme = args.get(at + 3).cloned().unwrap_or_else(|| "dark".into());
+    Some((path, lit, theme))
+}
+
 pub fn lists_windows(args: &[String]) -> bool {
     args.iter().any(|a| a == LIST_WINDOWS_ARG)
 }
@@ -47,6 +64,7 @@ pub fn search_files_query(args: &[String]) -> Option<String> {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Launch {
     Palette,
+    Ring,
     Chrono,
     Dashboard,
     Quiet,
@@ -58,6 +76,8 @@ pub fn launch_for(args: &[String]) -> Launch {
     let has = |arg: &str| args.iter().any(|a| a == arg);
     if has(PALETTE_ARG) {
         Launch::Palette
+    } else if has(RING_ARG) {
+        Launch::Ring
     } else if has(DASHBOARD_ARG) {
         Launch::Dashboard
     } else if has(CHRONO_ARG) {
@@ -108,6 +128,7 @@ mod tests {
         assert_eq!(run(&["kairo", CHRONO_ARG]), Launch::Chrono);
         assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
         assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
+        assert_eq!(run(&["kairo", RING_ARG]), Launch::Ring);
     }
 
     #[test]

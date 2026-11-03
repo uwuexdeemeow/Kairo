@@ -6,8 +6,13 @@ import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 // palette, starting at login, your data, combining computers and updates. Only the dashboard
 // includes this markup; it calls wireKairoSettings once.
 
-let savedShortcut = "";
-let recording = false;
+/// A shortcut row: where its keys show, its Change button, its note, and how it's saved.
+type Recorder = { keys: string; button: string; note: string; saved: string; save(shortcut: string): Promise<unknown>; opens: string };
+
+const PALETTE: Recorder = { keys: "#palette-keys", button: "#palette-record", note: "#palette-note", saved: "", save: (s) => api.setPaletteShortcut(s), opens: "the palette" };
+const RING: Recorder = { keys: "#ring-keys", button: "#ring-record", note: "#ring-note", saved: "", save: (s) => api.setRingShortcut(s), opens: "the app ring" };
+/// The row recording now, if one is: only one at a time.
+let recording: Recorder | null = null;
 
 /// A key as this computer's keyboard labels it; the saved shortcut keeps the names the shortcut
 /// parser knows.
@@ -22,9 +27,9 @@ export function shortcutKeys(shortcut: string): HTMLElement[] {
   return shortcut.split("+").map((k) => h("kbd", {}, keyName(k)));
 }
 
-function showShortcut(shortcut: string) {
-  savedShortcut = shortcut;
-  $("#palette-keys").replaceChildren(...shortcutKeys(shortcut));
+function showShortcut(row: Recorder, shortcut: string) {
+  row.saved = shortcut;
+  $(row.keys).replaceChildren(...shortcutKeys(shortcut));
 }
 
 /// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
@@ -38,12 +43,23 @@ function shortcutKey(e: KeyboardEvent): string | null {
 }
 
 function stopRecording(note: string) {
-  recording = false;
+  const row = recording;
+  if (!row) return;
+  recording = null;
   document.removeEventListener("keydown", recordKeys, true);
-  $("#palette-keys").classList.remove("recording");
-  $("#palette-record").textContent = "Change";
-  showShortcut(savedShortcut);
-  $("#palette-note").textContent = note;
+  $(row.keys).classList.remove("recording");
+  $(row.button).textContent = "Change";
+  showShortcut(row, row.saved);
+  $(row.note).textContent = note;
+}
+
+function startRecording(row: Recorder) {
+  if (recording) stopRecording("Kept as it was.");
+  recording = row;
+  $(row.keys).classList.add("recording");
+  $(row.button).textContent = "Cancel";
+  $(row.note).textContent = "Press the keys you want, or Esc to keep the current ones.";
+  document.addEventListener("keydown", recordKeys, true);
 }
 
 /// Stops recording a shortcut, if one is being recorded, keeping the one saved; for leaving
@@ -54,6 +70,8 @@ export function cancelShortcutRecording(): void {
 
 /// While recording, the next key press with a modifier becomes the shortcut.
 async function recordKeys(e: KeyboardEvent) {
+  const row = recording;
+  if (!row) return;
   e.preventDefault();
   e.stopPropagation();
   if (e.key === "Escape") {
@@ -62,18 +80,18 @@ async function recordKeys(e: KeyboardEvent) {
   }
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
   const key = shortcutKey(e);
-  $("#palette-keys").replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
+  $(row.keys).replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
   if (!key) return;
   if (!mods.length) {
     const hold = IS_MAC ? "Control, Option, Shift or Command" : IS_LINUX ? "Ctrl, Alt, Shift or Super" : "Ctrl, Alt, Shift or the Windows key";
-    $("#palette-note").textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
+    $(row.note).textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
     return;
   }
   const shortcut = [...mods, key].join("+");
   try {
-    await api.setPaletteShortcut(shortcut);
-    savedShortcut = shortcut;
-    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens the palette from anywhere.`);
+    await row.save(shortcut);
+    row.saved = shortcut;
+    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens ${row.opens} from anywhere.`);
   } catch (err) {
     stopRecording(String(err));
   }
@@ -215,17 +233,12 @@ export function wireKairoSettings(): void {
       "Works everywhere, even with Kairo's windows closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
   }
 
-  $("#palette-record").addEventListener("click", () => {
-    if (recording) {
-      stopRecording("Kept as it was.");
-      return;
-    }
-    recording = true;
-    $("#palette-keys").classList.add("recording");
-    $("#palette-record").textContent = "Cancel";
-    $("#palette-note").textContent = "Press the keys you want, or Esc to keep the current ones.";
-    document.addEventListener("keydown", recordKeys, true);
-  });
+  for (const row of [PALETTE, RING]) {
+    $(row.button).addEventListener("click", () => {
+      if (recording === row) stopRecording("Kept as it was.");
+      else startRecording(row);
+    });
+  }
 
   $<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
   $<HTMLInputElement>("#palette-over-fullscreen").addEventListener("change", (e) =>
@@ -358,7 +371,8 @@ export async function loadKairoSettings(): Promise<void> {
   if (linking?.state === "waiting" && !codeTimer) showCode(linking);
   $<HTMLSelectElement>("#appearance").value = await api.appearance();
   const palette = await api.paletteSettings();
-  showShortcut(palette.shortcut);
+  showShortcut(PALETTE, palette.shortcut);
+  showShortcut(RING, (await api.ringSettings()).shortcut);
   $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
   $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
   $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;

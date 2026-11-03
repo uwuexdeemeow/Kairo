@@ -304,6 +304,68 @@ pub fn ledger_settings(state: State<AppState>) -> CmdResult<crate::ledger::Setti
     crate::ledger::settings(&conn).map_err(err)
 }
 
+// ---------- the app ring ----------
+
+#[derive(Serialize)]
+pub struct RingSettings {
+    shortcut: String,
+}
+
+#[tauri::command]
+pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    Ok(RingSettings { shortcut: crate::ring::shortcut(&conn).map_err(err)? })
+}
+
+#[tauri::command]
+pub fn set_ring_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ring::change_shortcut(&app, &conn, &shortcut)?;
+    Ok(RingSettings { shortcut })
+}
+
+#[tauri::command]
+pub fn open_ring(app: AppHandle) {
+    crate::ring::toggle(&app);
+}
+
+/// What the web ring shows as it opens: the segment it starts on and each one's line.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RingState {
+    lit: usize,
+    lines: [String; 7],
+    focus_running: bool,
+}
+
+#[tauri::command]
+pub fn ring_state(state: State<AppState>) -> CmdResult<RingState> {
+    let conn = state.db.lock().map_err(err)?;
+    let lines = crate::ring::lines(&conn, now_ms());
+    let focus_running = crate::ring::focus_refusal(&conn).is_some();
+    Ok(RingState { lit: crate::ring::last(&conn), lines, focus_running })
+}
+
+/// The web ring's pick: it closes, then the segment does what it does.
+#[tauri::command]
+pub fn ring_pick(app: AppHandle, state: State<AppState>, index: usize) -> CmdResult<()> {
+    ring_close(app.clone());
+    let Some(segment) = crate::ring::SEGMENTS.get(index).copied() else { return Ok(()) };
+    let conn = state.db.lock().map_err(err)?;
+    if let Err(why) = crate::ring::perform(&app, &conn, segment) {
+        crate::ring::tell(&app, &why);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn ring_close(app: AppHandle) {
+    #[cfg(not(windows))]
+    crate::ring::web::close(&app);
+    #[cfg(windows)]
+    let _ = app;
+}
+
 // ---------- Ledger's notes ----------
 
 #[tauri::command]
