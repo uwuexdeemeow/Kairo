@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "./api";
 import { mountPopout, type PopoutActions } from "./note-popout";
 
-const note = (id: string, body: string): Note => ({
+const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
   id,
   title: body.split("\n")[0].replace(/^#+\s*/, "") || "New note",
   body,
@@ -10,6 +10,7 @@ const note = (id: string, body: string): Note => ({
   editedMs: 0,
   pinned: false,
   tasks: [],
+  ...extra,
 });
 
 let root: HTMLElement;
@@ -23,9 +24,10 @@ beforeEach(() => {
   kept = { a: note("a", "# Plan\n- [ ] intro"), b: note("b", "Shopping") };
   act = {
     load: vi.fn(async (id: string) => kept[id] ?? null),
+    search: vi.fn(async (q: string) => Object.values(kept).filter((n) => n.body.toLowerCase().includes(q.toLowerCase()))),
+    create: vi.fn(async () => (kept.new = note("new", ""))),
     save: vi.fn(async (id: string, body: string) => (kept[id] ? (kept[id] = note(id, body)) : null)),
     setTitle: vi.fn(),
-    close: vi.fn(),
     onTop: vi.fn(async () => true),
     setOnTop: vi.fn(async () => {}),
     openInLedger: vi.fn(),
@@ -41,6 +43,7 @@ const type = (text: string) => {
   area().dispatchEvent(new Event("input"));
 };
 const foot = () => root.querySelector(".note-foot")!.textContent;
+const rows = () => [...root.querySelectorAll(".popout-row strong")].map((r) => r.textContent);
 
 describe("the popped-out note", () => {
   it("shows the note it's given, its title on the window", async () => {
@@ -52,10 +55,10 @@ describe("the popped-out note", () => {
     expect(foot()).toContain("2 words");
   });
 
-  it("closes when the note can't be found", async () => {
+  it("shows the list when the note can't be found", async () => {
     const pop = mountPopout(root, act);
     await pop.show("gone");
-    expect(act.close).toHaveBeenCalled();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
   });
 
   it("saves a moment after typing stops, and retitles the window", async () => {
@@ -101,21 +104,24 @@ describe("the popped-out note", () => {
     const pop = mountPopout(root, act);
     await pop.show("a");
     act.load.mockClear();
+    act.search.mockClear();
     await pop.changed({ id: "a", from: "note", gone: false });
     await pop.changed({ id: "b", from: "kairo", gone: false });
     expect(act.load).not.toHaveBeenCalled();
+    expect(act.search).not.toHaveBeenCalled();
   });
 
-  it("closes when the note is deleted, here or on another computer", async () => {
+  it("goes back to the list when the note is deleted, here or on another computer", async () => {
     const pop = mountPopout(root, act);
     await pop.show("a");
+    delete kept.a;
     await pop.changed({ id: "a", from: "kairo", gone: true });
-    expect(act.close).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
     // After a sync, a note that's no longer there.
     await pop.show("b");
     delete kept.b;
     await pop.refresh();
-    expect(act.close).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(root.querySelector(".popout-list")).not.toBeNull());
   });
 
   it("saves the note it shows before switching to another", async () => {
@@ -157,5 +163,66 @@ describe("the popped-out note", () => {
     expect(area().value).toBe("**Shopping**");
     root.querySelector<HTMLButtonElement>('[data-tool="box"]')!.click();
     expect(area().value).toBe("- [ ] **Shopping**");
+  });
+});
+
+describe("the list of notes in the pop-out", () => {
+  it("lists the notes, titled Notes, with each one's text under its title", async () => {
+    kept.a = note("a", "# Plan\n- [ ] intro", { pinned: true });
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
+    expect(act.setTitle).toHaveBeenLastCalledWith("Notes");
+    expect(root.querySelector('.popout-row[data-note="a"]')!.classList.contains("pinned")).toBe(true);
+    expect(root.querySelector('.popout-row[data-note="a"] .popout-row-preview')!.textContent).toBe("intro");
+  });
+
+  it("searches as you type", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    const search = root.querySelector<HTMLInputElement>(".popout-search")!;
+    search.value = "shop";
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
+  });
+
+  it("opens a note from the list, and ☰ goes back to it", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    root.querySelector<HTMLButtonElement>('.popout-row[data-note="b"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector("textarea")?.value).toBe("Shopping"));
+    expect(act.setTitle).toHaveBeenLastCalledWith("Shopping");
+    type("Shopping\nmilk");
+    root.querySelector<HTMLButtonElement>('[data-tool="list"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector(".popout-list")).not.toBeNull());
+    // What was typed is kept on the way back.
+    expect(act.save).toHaveBeenCalledWith("b", "Shopping\nmilk");
+    expect(act.setTitle).toHaveBeenLastCalledWith("Notes");
+  });
+
+  it("makes a new note and opens it, ready to type", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    root.querySelector<HTMLButtonElement>(".popout-new")!.click();
+    await vi.waitFor(() => expect(act.create).toHaveBeenCalled());
+    await vi.waitFor(() => expect(root.querySelector("textarea")).not.toBeNull());
+    expect(document.activeElement).toBe(area());
+  });
+
+  it("says what to do with no notes", async () => {
+    kept = {};
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(root.querySelector(".popout-list")!.textContent).toContain("No notes yet."));
+  });
+
+  it("reads the list again when a note changes elsewhere", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    kept.c = note("c", "Ideas");
+    await pop.changed({ id: "c", from: "kairo", gone: false });
+    await vi.waitFor(() => expect(rows()).toContain("Ideas"));
   });
 });

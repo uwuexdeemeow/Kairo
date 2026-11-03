@@ -14,8 +14,8 @@ export type NotesActions = {
   pin(id: string, pinned: boolean): Promise<void>;
   remove(id: string): Promise<void>;
   openTask(id: string): void;
-  /** Shows the note in a small window of its own. */
-  popOut(id: string): void;
+  /** Shows the note in a small window of its own; no note, the list of notes. */
+  popOut(id?: string): void;
   /** Typing stopped a while ago: time to let combined computers have it. */
   syncSoon(): void;
 };
@@ -31,6 +31,8 @@ export type NotesView = {
 const SAVE_AFTER_MS = 500;
 const SYNC_AFTER_MS = 30_000;
 const MAX_CHARS = 100_000;
+/// Shown faintly in an empty note: what it can hold.
+const PROMPT = "# A title\nAnything below it. - [ ] makes a checkbox, **bold**, *italic*.";
 
 /// "9:14" today, "Yesterday", or "28 Oct".
 /// A note renamed: its first line with text says `title` instead, its leading #s and spaces kept.
@@ -79,9 +81,11 @@ export function editedText(ms: number, now: number): string {
 export function mountNotes(root: HTMLElement, act: NotesActions, now: () => number = Date.now): NotesView {
   const search = h("input", { class: "filter notes-search", type: "search", placeholder: "Search", "aria-label": "Search notes", autocomplete: "off" }) as HTMLInputElement;
   const create = h("button", { class: "btn notes-new" }, "+ New note");
+  const popList = h("button", { class: "link-btn notes-pop-out", title: "All your notes in a small window, beside your work" }, "Pop out");
+  popList.addEventListener("click", () => act.popOut());
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
-  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, create, list), pane);
+  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, h("div", { class: "notes-side-actions" }, create, popList), list), pane);
   root.replaceChildren(shell);
 
   let notes: Note[] = [];
@@ -94,6 +98,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   let asked = 0;
 
   const drawList = () => {
+    if (!open) drawWelcome();
     if (!notes.length) {
       const searching = !!search.value.trim();
       const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
@@ -186,9 +191,38 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     open = null;
     editor = null;
     dirty = false;
-    pane.replaceChildren();
     shell.classList.remove("reading");
     drawList();
+  };
+
+  /// With no note open, the pane offers the notes edited last, and a new one.
+  const drawWelcome = () => {
+    const newNote = h("button", { class: "btn primary notes-recent-new" }, "+ New note");
+    newNote.addEventListener("click", () => void createNote());
+    const tip = h("p", { class: "muted notes-recent-tip" }, "Pop out a note to keep it beside your work · Ctrl+B bold, Ctrl+I italic · - [ ] makes a checkbox");
+    const recent = [...notes].sort((a, b) => b.editedMs - a.editedMs).slice(0, 3);
+    if (!recent.length) {
+      const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
+      art.innerHTML = logo("ledger", 88);
+      pane.replaceChildren(h("div", { class: "notes-recent notes-recent-none" }, art, newNote, tip));
+      return;
+    }
+    const cards = recent.map((n) => {
+      const preview = notePreview(n.body);
+      const chips = [n.tasks.length ? `${n.tasks.length} task${n.tasks.length === 1 ? "" : "s"}` : "", `Edited ${editedText(n.editedMs, now())}`].filter(Boolean);
+      const card = h(
+        "button",
+        { class: `notes-recent-card${n.pinned ? " pinned" : ""}`, "data-note": n.id },
+        h("strong", {}, n.title),
+        h("span", { class: "notes-recent-preview muted" }, preview || "Nothing under the title yet."),
+        h("span", { class: "note-row-meta" }, ...chips.map((c) => h("span", { class: "chip" }, c))),
+      );
+      card.addEventListener("click", () => void view.open(n.id));
+      return card;
+    });
+    pane.replaceChildren(
+      h("div", { class: "notes-recent" }, h("h2", {}, "Pick up where you left off"), h("div", { class: "notes-recent-cards" }, ...cards), h("div", { class: "notes-recent-foot" }, newNote, tip)),
+    );
   };
 
   /// Under the sheet: whether what's typed is kept yet, its words, when it was edited.
@@ -302,15 +336,20 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       pane.replaceChildren(h("div", { class: "note-sheet" }, top, box, foot), limit);
       shell.classList.add("reading");
       drawTop();
-      editor = mountEditor(box, n.body, () => {
-        dirty = true;
-        drawFoot();
-        showLimit();
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
-        window.clearTimeout(syncTimer);
-        syncTimer = window.setTimeout(() => act.syncSoon(), SYNC_AFTER_MS);
-      });
+      editor = mountEditor(
+        box,
+        n.body,
+        () => {
+          dirty = true;
+          drawFoot();
+          showLimit();
+          window.clearTimeout(saveTimer);
+          saveTimer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
+          window.clearTimeout(syncTimer);
+          syncTimer = window.setTimeout(() => act.syncSoon(), SYNC_AFTER_MS);
+        },
+        PROMPT,
+      );
       showLimit();
       drawFoot();
       drawList();
@@ -335,14 +374,15 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     await load();
     drawList();
   });
-  create.addEventListener("click", async () => {
+  async function createNote() {
     const n = await act.create();
     search.value = "";
     await load();
     if (!notes.some((x) => x.id === n.id)) notes = [n, ...notes];
     await view.open(n.id);
     editor?.focus();
-  });
+  }
+  create.addEventListener("click", () => void createNote());
 
   void load().then(drawList);
   return view;

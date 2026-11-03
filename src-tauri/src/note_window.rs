@@ -1,5 +1,6 @@
-//! A Ledger note popped out into a small window of its own, to keep in view beside other apps.
-//! One at a time: popping out another note switches the window to it. Like Kairo's window, it
+//! A Ledger note popped out into a small window of its own, to keep in view beside other apps,
+//! or the list of notes to pick one from. One note at a time: popping out another switches the
+//! window to it. Like Kairo's window, it
 //! isn't kept while closed, since its web view is most of what it costs.
 
 use std::sync::Mutex;
@@ -13,7 +14,7 @@ pub(crate) const LABEL: &str = "note";
 /// Whether the window floats above others: on unless turned off.
 const ON_TOP: &str = "note_window_on_top";
 
-/// The note the window is on, for its page to ask once it's loaded.
+/// The note the window is on, for its page to ask once it's loaded; none for the list.
 static POPPED: Mutex<Option<String>> = Mutex::new(None);
 
 /// Told to every window when a note changes: those showing it, other than `from`, take it.
@@ -69,9 +70,10 @@ fn pop_for(window_open: bool) -> Pop {
     }
 }
 
-/// Shows `id` in the pop-out window, making the window if it's closed.
-pub(crate) fn pop_out(app: &AppHandle, id: &str) {
-    *POPPED.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
+/// Shows the note `id` in the pop-out window, or the list of notes for none, making the window if
+/// it's closed.
+pub(crate) fn pop_out(app: &AppHandle, id: Option<&str>) {
+    *POPPED.lock().unwrap_or_else(|e| e.into_inner()) = id.map(str::to_string);
     crate::in_dock(app, true);
     match pop_for(app.get_webview_window(LABEL).is_some()) {
         Pop::Switch => {

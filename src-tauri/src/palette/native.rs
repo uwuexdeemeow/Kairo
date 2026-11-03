@@ -253,6 +253,8 @@ struct Palette {
     selected: usize,
     scroll: f32,
     preview: Option<(Preview, Card)>,
+    /// The row whose card waits for Enter and was asked for, with its second line from before.
+    asked: Option<(usize, Option<String>)>,
     error: Option<String>,
     /// Searches files for what's typed, on a thread of its own.
     worker: Worker,
@@ -535,6 +537,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             selected: 0,
             scroll: 0.0,
             preview: None,
+            asked: None,
             error: None,
             worker,
             seq: 0,
@@ -815,6 +818,7 @@ impl Palette {
         self.target = None;
         self.bitmaps.clear();
         self.preview = None;
+        self.asked = None;
         // Files still coming for what was typed are dropped.
         self.seq += 1;
     }
@@ -903,6 +907,8 @@ impl Palette {
             query = rest;
         }
         let Some(ctx) = &self.ctx else { return };
+        // New rows: none has asked for its card.
+        self.asked = None;
         self.seq += 1;
         if super::wants_files(ctx, &query, self.mode) {
             self.worker.ask_up_to(self.seq, query.clone(), super::files_wanted(self.mode));
@@ -938,6 +944,7 @@ impl Palette {
                 return;
             }
             self.items = super::files_mode_rows(&self.query(), items);
+            self.asked = None;
             self.rows = self.items.len();
             self.selected = choosable(&self.items, 0, 1).unwrap_or(0);
             self.update_preview();
@@ -952,12 +959,17 @@ impl Palette {
         }
     }
 
-    /// A selected day gets a glance at how it went, above the results.
+    /// A selected day gets a glance at how it went, above the results; a time chart waits until
+    /// its row is asked with Enter or a click.
     fn update_preview(&mut self) {
         let Some(wanted) = self.items.get(self.selected).and_then(|i| i.preview.clone()) else {
             self.preview = None;
             return;
         };
+        if wanted.on_enter() && self.asked.as_ref().map(|(i, _)| *i) != Some(self.selected) {
+            self.preview = None;
+            return;
+        }
         if self.preview.as_ref().is_some_and(|(p, _)| *p == wanted) {
             return;
         }
@@ -1045,6 +1057,8 @@ impl Palette {
             return;
         }
         let card_h = self.card_h();
+        // Another row puts an asked-for chart away.
+        self.put_away_asked();
         self.selected = index;
         self.update_preview();
         self.announce();
@@ -1085,13 +1099,43 @@ impl Palette {
             return;
         }
         self.mouse = (x, y);
+        // A chart asked for has moved the rows; the pointer passing over them doesn't take it
+        // away. A click or the arrow keys still choose another row.
+        if self.asked.is_some() {
+            return;
+        }
         if let Some(i) = self.hit(x, y).filter(|&i| !self.items[i].is_note()) {
             self.select(i);
         }
     }
 
+    /// Restores the second line of the row whose chart was asked for, and forgets it.
+    fn put_away_asked(&mut self) {
+        if let Some((i, sub)) = self.asked.take() {
+            if let Some(item) = self.items.get_mut(i) {
+                item.sub = sub;
+            }
+        }
+    }
+
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned().filter(|i| !i.is_note()) else { return };
+        // A time chart shows on the first Enter or click; the next one does what the row does.
+        if item.preview.as_ref().is_some_and(Preview::on_enter) && self.asked.as_ref().map(|(i, _)| *i) != Some(index) {
+            self.select(index);
+            let card_h = self.card_h();
+            let sub = item.sub.clone();
+            self.items[index].sub = Some(search::enter_again(sub.as_deref()));
+            self.asked = Some((index, sub));
+            self.update_preview();
+            self.announce();
+            if card_h != self.card_h() {
+                self.resize();
+            } else {
+                self.repaint();
+            }
+            return;
+        }
         // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
         if let Action::EnterMode(mode) = item.action {
             self.set_mode(Some(mode));

@@ -90,6 +90,13 @@ describe("the editor", () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a prompt only when it's given one", () => {
+    mountEditor(root, "", () => {}, "# A title");
+    expect(root.querySelector("textarea")!.placeholder).toBe("# A title");
+    mountEditor(root, "", () => {});
+    expect(root.querySelector("textarea")!.placeholder).toBe("");
+  });
+
   it("keeps the caret where it was when the text is set from outside", () => {
     const ed = mountEditor(root, "- [ ] milk\n- [ ] eggs", () => {});
     const area = root.querySelector("textarea")!;

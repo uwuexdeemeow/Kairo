@@ -385,9 +385,12 @@ pub fn get_note(state: State<AppState>, id: String) -> CmdResult<Option<crate::n
 }
 
 #[tauri::command]
-pub fn new_note(state: State<AppState>, text: String) -> CmdResult<crate::notebook::Note> {
+pub fn new_note(app: AppHandle, window: tauri::Window, state: State<AppState>, text: String) -> CmdResult<crate::notebook::Note> {
     let conn = state.db.lock().map_err(err)?;
-    crate::notebook::create(&conn, &text, now_ms()).map_err(err)
+    let note = crate::notebook::create(&conn, &text, now_ms()).map_err(err)?;
+    drop(conn);
+    crate::note_window::changed(&app, &note.id, window.label(), false);
+    Ok(note)
 }
 
 /// None when the note is gone, deleted on another computer since it was opened.
@@ -438,13 +441,14 @@ pub fn sync_soon(state: State<AppState>) {
     wake_sync(&state);
 }
 
-/// Pops a note out into its own small window, or switches the open one to it.
+/// Pops a note out into its own small window, or switches the open one to it; no note pops out
+/// the list of notes.
 #[tauri::command]
-pub fn pop_out_note(app: AppHandle, id: String) {
-    crate::note_window::pop_out(&app, &id);
+pub fn pop_out_note(app: AppHandle, id: Option<String>) {
+    crate::note_window::pop_out(&app, id.as_deref());
 }
 
-/// The note the pop-out window is on.
+/// The note the pop-out window is on; none for the list.
 #[tauri::command]
 pub fn popped_note() -> Option<String> {
     crate::note_window::popped()

@@ -101,7 +101,8 @@ export type Editor = {
   box(): void;
 };
 
-export function mountEditor(root: HTMLElement, text: string, onChange: (text: string) => void): Editor {
+/// `prompt` shows faintly while the note is empty.
+export function mountEditor(root: HTMLElement, text: string, onChange: (text: string) => void, prompt = ""): Editor {
   const layer = document.createElement("pre");
   layer.className = "note-layer";
   layer.setAttribute("aria-hidden", "true");
@@ -110,6 +111,7 @@ export function mountEditor(root: HTMLElement, text: string, onChange: (text: st
   area.maxLength = MAX_CHARS;
   area.spellcheck = true;
   area.setAttribute("aria-label", "Note");
+  area.placeholder = prompt;
   const el = document.createElement("div");
   el.className = "note-editor";
   el.append(layer, area);

@@ -74,12 +74,64 @@ describe("the notes list", () => {
     expect(act.search).toHaveBeenLastCalledWith("shop");
   });
 
+  it("pops out the list of notes", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    root.querySelector<HTMLButtonElement>(".notes-pop-out")!.click();
+    expect(act.popOut).toHaveBeenCalledWith();
+  });
+
   it("makes a new note and opens it", async () => {
     mountNotes(root, act, () => NOW);
     await settle();
     root.querySelector<HTMLButtonElement>(".notes-new")!.click();
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).not.toBeNull());
     expect(act.create).toHaveBeenCalled();
+  });
+});
+
+describe("with no note open", () => {
+  const cards = () => [...root.querySelectorAll(".note-pane .notes-recent-card strong")].map((c) => c.textContent);
+
+  it("offers the three notes edited last, newest first", async () => {
+    notes = [
+      note("a", "# Old\nfirst", { editedMs: NOW - 4000 }),
+      note("b", "# Newest\nsecond", { editedMs: NOW }),
+      note("c", "# Middle\nthird", { editedMs: NOW - 2000 }),
+      note("d", "# Older\nfourth", { editedMs: NOW - 3000 }),
+    ];
+    mountNotes(root, act, () => NOW);
+    await vi.waitFor(() => expect(cards()).toEqual(["Newest", "Middle", "Older"]));
+    expect(root.querySelector(".note-pane")!.textContent).toContain("Pick up where you left off");
+    expect(root.querySelector('.notes-recent-card[data-note="b"] .notes-recent-preview')!.textContent).toBe("second");
+  });
+
+  it("opens a note from its card", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(cards().length).toBe(2));
+    root.querySelector<HTMLButtonElement>('.notes-recent-card[data-note="b"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("Shopping"));
+    expect(root.querySelector(".notes-recent")).toBeNull();
+  });
+
+  it("comes back when the note is put away, and makes a new one", async () => {
+    const view = mountNotes(root, act, () => NOW);
+    await settle();
+    await view.open("a");
+    root.querySelector<HTMLButtonElement>(".note-back")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".note-pane .notes-recent")).not.toBeNull());
+    root.querySelector<HTMLButtonElement>(".note-pane .notes-recent-new")!.click();
+    await vi.waitFor(() => expect(act.create).toHaveBeenCalled());
+    await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).not.toBeNull());
+  });
+
+  it("with no notes at all, shows the book and New note", async () => {
+    notes = [];
+    mountNotes(root, act, () => NOW);
+    await vi.waitFor(() => expect(root.querySelector(".note-pane .notes-recent-new")).not.toBeNull());
+    expect(root.querySelector(".note-pane .logo-ledger")).not.toBeNull();
+    expect(root.querySelector(".note-pane .notes-recent-card")).toBeNull();
   });
 });
 

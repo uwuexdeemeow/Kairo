@@ -155,6 +155,8 @@ export interface PaletteItem {
   second: string | null;
   /** Whether it has a card to show while it's selected (`paletteCard`). */
   preview: boolean;
+  /** For a card that waits for Enter (a time chart): the row's second line once it's showing. */
+  again?: string | null;
   /** Whether it only says something ("Not a sum yet"): drawn as a note, never chosen. */
   note?: boolean;
 }
@@ -497,9 +499,9 @@ export const api = {
   removeNote: (id: string) => invoke<void>("remove_note", { id }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
   syncSoon: () => invoke<void>("sync_soon"),
-  /** Pops a note out into its own small window, or switches the open one to it. */
-  popOutNote: (id: string) => invoke<void>("pop_out_note", { id }),
-  /** The note the pop-out window is on. */
+  /** Pops a note out into its own small window, or switches the open one to it; no id pops out the list of notes. */
+  popOutNote: (id?: string) => invoke<void>("pop_out_note", { id }),
+  /** The note the pop-out window is on; null for the list. */
   poppedNote: () => invoke<string | null>("popped_note"),
   noteOnTop: () => invoke<boolean>("note_on_top"),
   setNoteOnTop: (on: boolean) => invoke<void>("set_note_on_top", { on }),

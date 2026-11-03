@@ -374,3 +374,61 @@ describe("note rows", () => {
     expect(document.querySelector(".palette-row kbd")).toBeNull();
   });
 });
+
+describe("a time chart", () => {
+  const answer = item("THE FINALS this week", { section: "Answers", sub: "Open this week in Chrono", preview: true, again: "Enter again to open this week in Chrono" });
+  const card = {
+    kind: "answer",
+    title: "THE FINALS this week",
+    icon: null,
+    range: "Mon 26 Oct – Sun 1 Nov",
+    category: "distracting",
+    totalMs: 7_200_000,
+    change: null,
+    better: null,
+    bars: [],
+    limitMs: null,
+    note: "",
+    text: "2h 00m",
+  };
+  const subs = () => [...document.querySelectorAll(".palette-sub")].map((t) => t.textContent);
+
+  it("waits for Enter, and the next Enter does what the row does", async () => {
+    api.paletteCard.mockResolvedValue(card);
+    await open(results(1, [item("THE FINALS", { section: "Apps" }), answer]));
+    key("ArrowDown");
+    // Selected, but no chart yet.
+    await Promise.resolve();
+    expect(api.paletteCard).not.toHaveBeenCalled();
+    expect($("#palette-preview").hidden).toBe(true);
+    key("Enter");
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    expect(api.paletteRun).not.toHaveBeenCalled();
+    expect(subs()).toContain("Enter again to open this week in Chrono");
+    key("Enter");
+    await vi.waitFor(() => expect(api.paletteRun).toHaveBeenCalledWith(1, 1));
+  });
+
+  it("doesn't come up as the pointer passes, and goes when another row is chosen", async () => {
+    api.paletteCard.mockResolvedValue(card);
+    await open(results(1, [item("THE FINALS", { section: "Apps" }), answer]));
+    const rows = document.querySelectorAll<HTMLElement>("[role=option]");
+    rows[1].dispatchEvent(new MouseEvent("mousemove"));
+    await Promise.resolve();
+    expect(api.paletteCard).not.toHaveBeenCalled();
+    rows[1].click();
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    // The rows have moved under the pointer; passing over another keeps the chart.
+    rows[0].dispatchEvent(new MouseEvent("mousemove"));
+    expect($("#palette-preview").hidden).toBe(false);
+    key("ArrowUp");
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(true));
+    expect(subs()).toContain("Open this week in Chrono");
+  });
+
+  it("shows a day's glance as the row is selected, as before", async () => {
+    api.paletteCard.mockResolvedValue({ kind: "day", title: "Yesterday", activeMs: 0, productivePct: 0, focusCount: 0, focusMs: 0, segments: [] });
+    await open(results(1, [item("Yesterday", { preview: true })]));
+    await vi.waitFor(() => expect(api.paletteCard).toHaveBeenCalledWith(1, 0));
+  });
+});

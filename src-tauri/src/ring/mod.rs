@@ -35,8 +35,10 @@ pub fn perform(app: &AppHandle, conn: &rusqlite::Connection, segment: Segment) -
         Segment::Dashboard => crate::show_dashboard(app, None),
         Segment::Task => crate::show_ledger_at(app, "add:task"),
         Segment::Note => {
+            // In the small window, ready to type, without bringing up Ledger.
             let note = crate::notebook::create(conn, "", chrono::Utc::now().timestamp_millis()).map_err(|e| e.to_string())?;
-            crate::show_ledger_at(app, &format!("note:{}", note.id));
+            crate::note_window::changed(app, &note.id, "ring", false);
+            crate::note_window::pop_out(app, Some(&note.id));
         }
         Segment::Focus => {
             if let Some(why) = focus_refusal(conn) {

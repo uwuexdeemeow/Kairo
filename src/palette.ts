@@ -125,6 +125,8 @@ let results: PaletteResults = { seq: 0, rows: [], tiles: [], chips: [] };
 let mode: PaletteMode | null = null;
 let shown: PaletteItem[] = [];
 let selected = 0;
+/// The row whose time chart was asked for with Enter or a click; a chart waits for that.
+let asked: number | null = null;
 /// Bumped by each query and day preview, so a slow answer can't replace a newer one.
 let queryToken = 0;
 let previewToken = 0;
@@ -178,7 +180,8 @@ function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): H
     if (isSelected && kind === "row") el.append(h("kbd", {}, "Enter"));
   }
   el.addEventListener("mousemove", () => {
-    if (selected !== index) select(index);
+    // A chart asked for has moved the rows; the pointer passing over them doesn't take it away.
+    if (asked === null && selected !== index) select(index);
   });
   el.addEventListener("click", () => run(index));
   return el;
@@ -208,6 +211,7 @@ function setMode(next: PaletteMode | null) {
 /// typed at the start became it, what the input should now hold.
 function render(r: PaletteResults) {
   results = r;
+  asked = null;
   if ((r.mode?.key ?? null) !== (mode?.key ?? null)) setMode(r.mode ?? null);
   if (r.text != null) input.value = r.text;
   shown = [...r.rows, ...r.tiles, ...r.chips];
@@ -250,8 +254,22 @@ function renderHint() {
   box.replaceChildren(...(second ? [h("kbd", {}, isMac() ? "⌘" : "Ctrl"), " ", h("kbd", {}, "Enter"), ` ${second}`] : []));
 }
 
+/// Puts the second line of the row whose chart was asked for back as it was.
+function putAwayAsked() {
+  if (asked === null) return;
+  setSub(asked, shown[asked]?.sub ?? null);
+  asked = null;
+}
+
+function setSub(index: number, text: string | null) {
+  const sub = document.querySelector(`#palette-item-${index} .palette-sub`);
+  if (sub && text) sub.textContent = text;
+}
+
 function select(index: number) {
-  selected = (index + shown.length) % Math.max(shown.length, 1);
+  const next = (index + shown.length) % Math.max(shown.length, 1);
+  if (next !== asked) putAwayAsked();
+  selected = next;
   for (const el of document.querySelectorAll<HTMLElement>("[role=option]")) {
     const on = el.id === `palette-item-${selected}`;
     el.classList.toggle("selected", on);
@@ -326,7 +344,8 @@ function focusCard(f: Extract<PaletteCard, { kind: "focus" }>): Node[] {
 async function renderPreview() {
   const box = $("#palette-preview");
   const token = ++previewToken;
-  if (!shown[selected]?.preview) {
+  // A time chart waits until its row is asked with Enter or a click.
+  if (!shown[selected]?.preview || (shown[selected].again && asked !== selected)) {
     if (!box.hidden) {
       box.hidden = true;
       fit();
@@ -362,6 +381,15 @@ function showError(err: unknown) {
 /// that mode with the input emptied; anything else hides the palette.
 async function run(index: number) {
   if (!shown[index] || shown[index].note) return;
+  // A time chart shows on the first Enter or click; the next one does what the row does.
+  const again = shown[index].again;
+  if (again && asked !== index) {
+    if (index !== selected) select(index);
+    asked = index;
+    setSub(index, again);
+    void renderPreview();
+    return;
+  }
   // Running doesn't bump the token, so a query still in flight is drawn when it lands. A flip's
   // results are drawn only if no query was asked meanwhile, and then outdate any older one.
   const token = queryToken;

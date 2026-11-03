@@ -470,9 +470,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::show_ledger_at(app, &format!("note:{id}"));
             Ok(())
         }
+        // A new note opens in the small window, ready to type, without bringing up Ledger.
         Action::NewNote(text) => {
             let note = crate::notebook::create(conn, text, now_ms()).map_err(|e| e.to_string())?;
-            crate::show_ledger_at(app, &format!("note:{}", note.id));
+            crate::note_window::changed(app, &note.id, "palette", false);
+            crate::note_window::pop_out(app, Some(&note.id));
+            Ok(())
+        }
+        Action::PopOutNote(id) => {
+            crate::note_window::pop_out(app, id.as_deref());
             Ok(())
         }
         Action::OpenUrl(url) if crate::platform::open_path(url) => Ok(()),
@@ -564,6 +570,9 @@ pub struct ItemView {
     section: &'static str,
     /// Whether it has a card to show while it's selected (`palette_card`).
     preview: bool,
+    /// For a card that waits for Enter: its second line once the card is showing. None for one
+    /// shown as the row is selected.
+    again: Option<String>,
     /// The label of what Ctrl+Enter does instead.
     second: Option<&'static str>,
     /// Whether it only says something: drawn as a note, not chosen (`Item::is_note`).
@@ -605,6 +614,7 @@ impl From<&Item> for ItemView {
             icon,
             section: item.section,
             preview: item.preview.is_some(),
+            again: item.preview.as_ref().filter(|p| p.on_enter()).map(|_| search::enter_again(item.sub.as_deref())),
             second: item.second.as_ref().map(|(_, label)| *label),
             note: item.is_note(),
         }

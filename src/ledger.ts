@@ -205,7 +205,10 @@ listen("kairo:sync", () => {
 listen("kairo:ledger", () => followOpen());
 // A note changed in its pop-out window: taken unless it's being typed in here.
 listen<NoteChange>("kairo:note", (e) => {
-  if (e.payload.from !== "kairo") void notesView?.refresh();
+  if (e.payload.from === "kairo") return;
+  void notesView?.refresh();
+  // The sidebar's count, for a note made or deleted there.
+  void refresh();
 });
 setInterval(() => !document.hidden && refresh(), 10_000);
 document.addEventListener("visibilitychange", () => {

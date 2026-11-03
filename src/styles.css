@@ -3611,8 +3611,14 @@ select,
   width: 100%;
 }
 
+.notes-side-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .notes-new {
-  align-self: stretch;
+  flex: 1;
 }
 
 .notes-list {
@@ -3761,7 +3767,8 @@ select,
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  /* Inside the sheet, under its toolbar: kept off the sheet's edges. */
+  margin: 10px 12px 0;
   padding: 8px 12px;
   border: 1px solid var(--distracting);
   border-radius: 8px;
@@ -4318,4 +4325,183 @@ select,
   min-height: 0;
   padding: 12px 14px;
   font-size: 12px;
+}
+
+/* ---------- Notes, with none open: the notes edited last, and a new one ---------- */
+.notes-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px 20px;
+  border: 1px dashed var(--rule);
+  border-radius: 12px;
+}
+
+.notes-recent > h2 {
+  margin: 0;
+  color: var(--muted);
+  font: 600 11px var(--sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.notes-recent-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.notes-recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 132px;
+  padding: 14px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms var(--ease), transform 140ms var(--ease);
+}
+
+.notes-recent-card:hover,
+.notes-recent-card:focus-visible {
+  border-color: var(--ledger);
+  transform: translateY(-1px);
+}
+
+.notes-recent-card strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.notes-recent-preview {
+  display: -webkit-box;
+  flex: 1;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  font-size: 12px;
+}
+
+.notes-recent-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.notes-recent-tip {
+  margin: 0;
+  font-size: 12px;
+}
+
+.notes-recent-none {
+  align-items: center;
+  padding: 36px 20px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-recent-card {
+    transition: none;
+  }
+  .notes-recent-card:hover,
+  .notes-recent-card:focus-visible {
+    transform: none;
+  }
+}
+
+/* An empty note says faintly what it can hold. */
+.note-text::placeholder {
+  color: var(--faint);
+  opacity: 1;
+}
+
+/* Ruled lines on the open note, one under each line of text (13px at 1.6), drawn on the layer
+   that scrolls with the text so they stay with it. */
+.note-pane .note-layer {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 19.8px,
+    color-mix(in srgb, var(--ledger) 12%, transparent) 19.8px 20.8px
+  );
+  background-position: 0 16px;
+  background-attachment: local;
+}
+
+/* The pop-out's list of notes: search and + New in its bar, the notes under it. */
+.popout-search {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+}
+
+.popout-new {
+  height: 30px;
+  padding: 0 12px;
+}
+
+.popout-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.popout-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.popout-row:hover,
+.popout-row:focus-visible {
+  border-color: var(--ledger);
+}
+
+.popout-row strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popout-row-preview {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pinned ones wear Ledger's ribbon, as in its list. */
+.popout-row.pinned::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: 12px;
+  width: 7px;
+  height: 16px;
+  background: var(--ribbon);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
+}
+
+.popout-empty {
+  margin: 24px 12px;
+  text-align: center;
 }

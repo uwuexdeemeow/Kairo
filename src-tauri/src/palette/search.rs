@@ -295,8 +295,10 @@ pub enum Action {
     OpenRing,
     /// Opens a note in Ledger, by id.
     OpenNote(String),
-    /// Starts a note with this text and opens it.
+    /// Starts a note with this text and opens it in the pop-out window.
     NewNote(String),
+    /// Opens a note in the pop-out window, by id; none for the list of notes.
+    PopOutNote(Option<String>),
     /// Ticks a task off, by id.
     FinishTask(String),
     /// Opens a web address in the default browser.
@@ -350,6 +352,24 @@ pub enum Preview {
     Answer(Subject, Period),
     /// What a focus session would do once started.
     Focus(u32, Option<String>),
+}
+
+impl Preview {
+    /// Whether the card waits for Enter (or a click) on its row rather than showing as the row
+    /// is selected: a time chart is tall, and coming and going under the pointer it pushed the
+    /// rows away from it.
+    pub fn on_enter(&self) -> bool {
+        matches!(self, Preview::Answer(..))
+    }
+}
+
+/// A row's second line while its card, asked for with Enter, is showing: what Enter does now.
+pub fn enter_again(sub: Option<&str>) -> String {
+    let mut chars = sub.unwrap_or_default().chars();
+    match chars.next() {
+        Some(first) => format!("Enter again to {}{}", first.to_lowercase(), chars.as_str()),
+        None => "Enter again to open it".into(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -622,15 +642,26 @@ fn task_rows(ctx: &Context, rest: &str) -> Vec<Item> {
         .collect()
 }
 
+/// A new note, starting with `text` (none for an empty one), opened in the small window.
 fn new_note_item(text: &str) -> Item {
-    let mut item = Item::new(format!("New note “{text}”"), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::NewNote(text.to_string()));
-    item.sub = Some("In Ledger".into());
+    let title = if text.is_empty() { "New note".to_string() } else { format!("New note “{text}”") };
+    let mut item = Item::new(title, Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::NewNote(text.to_string()));
+    item.sub = Some("In a small window".into());
     item
 }
 
 fn open_note_item(n: &NoteEntry) -> Item {
     let mut item = Item::new(n.title.clone(), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::OpenNote(n.id.clone()));
     item.sub = Some("Open in Ledger".into());
+    item.second = Some((Action::PopOutNote(Some(n.id.clone())), "Pop out"));
+    item
+}
+
+/// The list of notes in the small window, above the notes themselves.
+fn pop_out_notes_item() -> Item {
+    let mut item = Item::new("All notes in a small window", Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::PopOutNote(None));
+    item.sub = Some("Pick one, or start a new one, beside your work".into());
+    item.score = 1101.0;
     item
 }
 
@@ -658,7 +689,16 @@ const MAX_NOTES: usize = 3;
 /// search them); and any other query offers a few whose title or text has it, below apps.
 fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
-    let starting = [("new note ", 1000.0), ("note ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
+    // "new note" or "create note" alone starts an empty one.
+    if ["new note", "create note"].iter().any(|c| q.eq_ignore_ascii_case(c)) {
+        let mut item = new_note_item("");
+        item.score = 1000.0;
+        return vec![item];
+    }
+    let starting = [("new note ", 1000.0), ("create note ", 1000.0), ("note ", 90.0)]
+        .into_iter()
+        .find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score)))
+        .filter(|(t, _)| !t.is_empty());
     if let Some((text, score)) = starting {
         let mut item = new_note_item(text);
         item.score = score;
@@ -666,7 +706,11 @@ fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
     }
     let listing = if q.eq_ignore_ascii_case("notes") { Some("") } else { after(q, "notes ").map(str::trim) };
     if let Some(rest) = listing {
-        return note_rows(ctx, rest);
+        let mut rows = note_rows(ctx, rest);
+        if rest.is_empty() {
+            rows.insert(0, pop_out_notes_item());
+        }
+        return rows;
     }
     if q.chars().count() < 2 {
         return Vec::new();
@@ -808,7 +852,8 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
         Mode::Notes => {
             let found = note_rows(ctx, q);
             match (found.is_empty(), q.is_empty()) {
-                (false, _) => found,
+                (false, true) => std::iter::once(pop_out_notes_item()).chain(found).collect(),
+                (false, false) => found,
                 (true, false) => vec![new_note_item(q)],
                 (true, true) => vec![note_row("No notes yet. Type one to start it", Glyph::Tag, "Notes")],
             }
@@ -1169,6 +1214,17 @@ mod tests {
     }
 
     #[test]
+    fn only_time_charts_wait_for_enter() {
+        let c = ctx();
+        let answer = search(&c, "finals this week").remove(0);
+        assert!(answer.preview.as_ref().is_some_and(Preview::on_enter));
+        assert!(!Preview::Day(c.today).on_enter());
+        assert!(!Preview::Focus(25, None).on_enter());
+        assert_eq!(enter_again(answer.sub.as_deref()), "Enter again to open this week in Chrono");
+        assert_eq!(enter_again(None), "Enter again to open it");
+    }
+
+    #[test]
     fn questions_get_answers_with_their_follow_ups() {
         let c = ctx();
         let found = search(&c, "finals this week");
@@ -1315,14 +1371,36 @@ mod tests {
         let row = &search(&c, "note buy list")[0];
         assert_eq!((row.title.as_str(), row.section), ("New note “buy list”", "Notes"));
         assert_eq!(row.action, Action::NewNote("buy list".into()));
+        assert_eq!(row.sub.as_deref(), Some("In a small window"));
         assert_eq!(search(&c, "new note x")[0].action, Action::NewNote("x".into()));
+        assert_eq!(search(&c, "create note x")[0].action, Action::NewNote("x".into()));
+    }
+
+    #[test]
+    fn new_note_alone_starts_an_empty_one() {
+        let c = with_notes();
+        for q in ["new note", "create note", "Create Note ", "new note  "] {
+            let row = &search(&c, q)[0];
+            assert_eq!((row.title.as_str(), &row.action), ("New note", &Action::NewNote(String::new())), "{q}");
+        }
+    }
+
+    #[test]
+    fn notes_can_be_popped_out() {
+        let c = with_notes();
+        let rows: Vec<_> = search(&c, "notes").into_iter().filter(|i| i.section == "Notes").collect();
+        assert_eq!((rows[0].title.as_str(), &rows[0].action), ("All notes in a small window", &Action::PopOutNote(None)));
+        // Each note opens in Ledger, or with Ctrl+Enter in the small window.
+        assert_eq!(rows[1].second, Some((Action::PopOutNote(Some("n1".into())), "Pop out")));
+        // The Notes mode offers the list too, above its notes.
+        assert_eq!(search_in(&c, Mode::Notes, "")[0].action, Action::PopOutNote(None));
     }
 
     #[test]
     fn notes_lists_and_searches_them() {
         let c = with_notes();
         let all: Vec<_> = search(&c, "notes").into_iter().filter(|i| i.section == "Notes").map(|i| i.action).collect();
-        assert_eq!(all, [Action::OpenNote("n1".into()), Action::OpenNote("n2".into())]);
+        assert_eq!(all, [Action::PopOutNote(None), Action::OpenNote("n1".into()), Action::OpenNote("n2".into())]);
         assert_eq!(search(&c, "notes milk")[0].action, Action::OpenNote("n2".into()));
     }
 

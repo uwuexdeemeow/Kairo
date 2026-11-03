@@ -271,7 +271,31 @@ On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's 
 5. **Remembered.** Move and resize the window, close it, pop out again. *Expect:* where you left it.
 6. **Apart from Kairo.** Close Kairo's window. *Expect:* the pop-out stays (on a Mac, Kairo stays in
    the Dock until it closes too). ↗ opens Ledger on the note.
-7. **Deleted.** With a note popped out, delete it in Ledger. *Expect:* the pop-out closes.
+7. **Deleted.** With a note popped out, delete it in Ledger. *Expect:* the pop-out goes to its list.
+8. **All notes.** In Ledger's Notes, press Pop out beside + New note. *Expect:* the small window
+   titled "Notes": a search box, + New, your notes (pinned ones with the ribbon). Pick one; ☰
+   goes back to the list. + New starts an empty note, ready to type, its prompt faint.
+9. **Without Ledger.** With Ledger closed, type `new note` in the palette, then `create note
+   groceries`. *Expect:* each opens a new note in the small window (the second starting
+   "groceries"); Ledger stays closed. The ring's New note does the same. In the palette, `notes`
+   leads with "All notes in a small window"; on a note's row, Ctrl+Enter (⌘+Enter) pops it out.
+
+## Ledger notes, looking finished
+
+1. **None open.** In Notes with no note open. *Expect:* "Pick up where you left off" with the three
+   notes edited last as cards, + New note and a tip under them; with no notes, the book and + New.
+2. **Empty note.** Press + New note. *Expect:* a faint prompt ("# A title…") that goes as you type.
+3. **Ruled lines.** Write a dozen lines and scroll. *Expect:* a faint rule under every line of text,
+   staying under it as you scroll, at both window sizes and in both themes.
+4. **Delete.** Press Delete. *Expect:* the question sits inside the sheet, clear of its edges.
+
+## Palette: time charts on Enter
+
+1. Type an app's name, then `<app> this week`. Point at the "<app> this week" row and move over
+   the others. *Expect:* no chart, nothing moves. Press Enter (or click it). *Expect:* the chart,
+   the row saying "Enter again to open this week in Chrono"; moving the pointer leaves it. Enter
+   again opens the week in Chrono. Arrow to another row. *Expect:* the chart goes.
+2. Type `yesterday` and `focus 25`. *Expect:* their cards show as the row is selected, as before.
 
 ## Palette: web search
 
