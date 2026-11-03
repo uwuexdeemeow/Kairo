@@ -291,6 +291,8 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(not(windows))]
             palette::web::on_window_event(window, event);
+            #[cfg(not(windows))]
+            ring::web::on_window_event(window, event);
             if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard" | "ledger") {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
@@ -414,6 +416,9 @@ pub fn run() {
             commands::ring_settings,
             commands::set_ring_shortcut,
             commands::open_ring,
+            commands::ring_state,
+            commands::ring_pick,
+            commands::ring_close,
             commands::seed_demo_data,
             commands::export_time,
             commands::backup_data,

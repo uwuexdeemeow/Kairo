@@ -3668,3 +3668,130 @@ input[type="time"]::-webkit-calendar-picker-indicator {
     animation: none;
   }
 }
+
+/* ---------- The app ring ---------- */
+
+/* The window is see-through: only the ring shows. */
+.ring-root,
+.ring-page {
+  background: transparent !important;
+  background-image: none !important;
+}
+
+.ring-page {
+  margin: 0;
+  overflow: hidden;
+}
+
+.ring {
+  position: relative;
+  width: 300px;
+  height: 210px;
+  user-select: none;
+  touch-action: none;
+  animation: ring-in 140ms var(--ease) both;
+}
+
+@keyframes ring-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+.ring-arc {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  filter: drop-shadow(0 10px 18px var(--shadow));
+}
+
+.ring-seg {
+  fill: var(--raised);
+  stroke: var(--line);
+  stroke-width: 1.5;
+  transition: opacity 140ms var(--ease);
+}
+
+.ring-seg.off1 {
+  opacity: 0.5;
+}
+
+.ring-seg.off2 {
+  opacity: 0.22;
+}
+
+.ring-seg.lit {
+  fill: color-mix(in srgb, var(--raised) 88%, var(--ink));
+  stroke-width: 2.5;
+}
+
+.ring-seg.lit.seg-chrono,
+.ring-seg.lit.seg-focus {
+  stroke: var(--chrono);
+}
+
+.ring-seg.lit.seg-ledger,
+.ring-seg.lit.seg-task,
+.ring-seg.lit.seg-note {
+  stroke: var(--ledger);
+}
+
+.ring-seg.lit.seg-palette {
+  stroke: var(--palette);
+}
+
+.ring-seg.lit.seg-dashboard {
+  stroke: var(--kairo);
+}
+
+.ring-seg.dim {
+  opacity: 0.6;
+}
+
+.ring-mark,
+.ring-lit {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.ring-mark {
+  opacity: 0.55;
+}
+
+.ring-lit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 120px;
+  text-align: center;
+}
+
+.ring-name {
+  margin-top: 2px;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.ring-line {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ring.dragging {
+  cursor: grabbing;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .ring-seg {
+    animation: none;
+    transition: none;
+  }
+}
