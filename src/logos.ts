@@ -74,10 +74,11 @@ const DRAWINGS: Record<AppName, string> = {
     `<rect x="12" y="30" width="76" height="52" rx="13" style="fill:color-mix(in srgb,var(--palette) 55%,#000)"/>` +
     `<rect x="12" y="22" width="76" height="52" rx="13" style="fill:var(--raised);stroke:var(--palette)" stroke-width="4"/>` +
     `<path d="M34 48h32M42 40l-8 8 8 8" style="stroke:var(--palette)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
-  // A small k in a ring: Kairo itself.
+  // Kairo itself, as its app icon (app-icon.svg): a whole ring of time, one stretch at the top
+  // lit gold, the moment.
   kairo:
-    `<circle cx="50" cy="50" r="42" style="fill:none;stroke:var(--kairo)" stroke-width="6"/>` +
-    `<path d="M40 28v44M40 54l20-22M47 47l15 25" style="stroke:var(--ink)" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+    `<circle cx="50" cy="50" r="37" style="fill:none;stroke:var(--ink)" stroke-width="13"/>` +
+    `<path d="M23.84 23.84A37 37 0 0 1 76.16 23.84" style="fill:none;stroke:var(--ribbon)" stroke-width="13"/>`,
 };
 
 /// An app's logo as inline SVG, `size` pixels square.

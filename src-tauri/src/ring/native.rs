@@ -301,10 +301,23 @@ impl Painter {
                 line((34.0, 48.0), (42.0, 56.0), inks.palette, 5.0)?;
             }
             Segment::Dashboard => {
-                rt.DrawEllipse(&circle(50.0, 50.0, 42.0), &brush(inks.kairo, 1.0)?, 6.0, None);
-                line((40.0, 28.0), (40.0, 72.0), t.ink, 7.0)?;
-                line((40.0, 54.0), (60.0, 32.0), t.ink, 7.0)?;
-                line((47.0, 47.0), (62.0, 72.0), t.ink, 7.0)?;
+                // Kairo's own mark, as its app icon: a whole ring, one stretch at the top lit gold.
+                rt.DrawEllipse(&circle(50.0, 50.0, 37.0), &brush(t.ink, 1.0)?, 13.0, None);
+                let path = self.d2d.CreatePathGeometry()?;
+                let sink = path.Open()?;
+                let half = 45f32.to_radians();
+                sink.BeginFigure(v(50.0 - 37.0 * half.sin(), 50.0 - 37.0 * half.cos()), Default::default());
+                sink.AddArc(&D2D1_ARC_SEGMENT {
+                    point: v(50.0 + 37.0 * half.sin(), 50.0 - 37.0 * half.cos()),
+                    size: D2D_SIZE_F { width: 37.0, height: 37.0 },
+                    rotationAngle: 0.0,
+                    sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                    arcSize: D2D1_ARC_SIZE_SMALL,
+                });
+                sink.EndFigure(D2D1_FIGURE_END_OPEN);
+                sink.Close()?;
+                // Flat ends, as in the icon.
+                rt.DrawGeometry(&path, &brush(inks.ribbon, 1.0)?, 13.0, None);
             }
             Segment::Task => {
                 line((50.0, 22.0), (50.0, 78.0), inks.ledger, 10.0)?;
