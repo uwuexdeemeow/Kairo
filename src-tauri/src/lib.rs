@@ -471,9 +471,22 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str,
     let ring_item = MenuItem::with_id(app, "ring", "App ring", true, Some(ring_shortcut))?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
+    // Which Kairo this is, at the top: greyed out, so it reads as a label and can't be chosen.
+    let version = MenuItem::with_id(app, "version", format!("Kairo {}", app.package_info().version), false, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&dashboard, &updates, &palette_item, &ring_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
+        &[
+            &version,
+            &PredefinedMenuItem::separator(app)?,
+            &dashboard,
+            &updates,
+            &palette_item,
+            &ring_item,
+            &PredefinedMenuItem::separator(app)?,
+            &pause,
+            &PredefinedMenuItem::separator(app)?,
+            &quit,
+        ],
     )?;
     app.manage(PaletteItem(palette_item));
     app.manage(RingItem(ring_item));
