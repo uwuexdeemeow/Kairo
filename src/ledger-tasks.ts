@@ -227,6 +227,27 @@ function clock(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/// Minutes between the reminder times offered.
+const TIME_STEP = 15;
+
+/// "15:00" as this computer writes a time of day, like "3:00 PM".
+function timeLabel(hhmm: string): string {
+  const [hh, mm] = hhmm.split(":").map(Number);
+  return new Date(2000, 0, 1, hh, mm).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+/// A choice of times every quarter hour, drawn as Kairo's own dropdown, in place of the native
+/// time field; `value` stays chosen, as its own option when it's off the quarter hours.
+function timeSelect(value: string, label: string): HTMLSelectElement {
+  const times: string[] = [];
+  for (let m = 0; m < 24 * 60; m += TIME_STEP) times.push(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  if (!times.includes(value)) times.push(value);
+  times.sort();
+  const select = h("select", { class: "remind-time", "aria-label": label }, ...times.map((t) => h("option", { value: t }, timeLabel(t)))) as HTMLSelectElement;
+  select.value = value;
+  return select;
+}
+
 /// "Fri 8 Nov", with the year when it isn't this one.
 function dayName(iso: string): string {
   const d = parseDate(iso);
@@ -321,8 +342,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     const at = new Date(`${day}T${time}`).getTime();
     if (!Number.isNaN(at)) act.plan(t.id, t.dueDay, t.priority, at);
   };
-  const time = h("input", { type: "time", class: "filter remind-time", "aria-label": "Reminder time" }) as HTMLInputElement;
-  time.value = t.remindMs !== null ? clock(t.remindMs) : "09:00";
+  const time = timeSelect(t.remindMs !== null ? clock(t.remindMs) : "09:00", "Reminder time");
   time.addEventListener("change", () => {
     if (time.value) remindAt(remindDay ?? t.dueDay ?? todayIso(), time.value);
   });

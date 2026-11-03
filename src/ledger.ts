@@ -2,6 +2,7 @@ import "./fonts";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
+import { useDropdowns } from "./dropdown";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
@@ -172,6 +173,8 @@ async function saveSettings() {
 }
 
 followTheme();
+// Kairo's own dropdowns in place of the system's lists, like the reminder's time.
+useDropdowns();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
 // Kairo is one window: this goes back to its dashboard.
 $("#back-to-kairo").addEventListener("click", () => api.openDashboard());

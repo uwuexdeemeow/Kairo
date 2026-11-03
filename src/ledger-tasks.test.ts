@@ -302,7 +302,8 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-09", 1, null);
     expect(cal.hidden).toBe(true);
 
-    const time = panel().querySelector<HTMLInputElement>('input[type="time"]')!;
+    const time = panel().querySelector<HTMLSelectElement>("select.remind-time")!;
+    expect(panel().querySelector('input[type="time"]')).toBeNull();
     time.value = "15:00";
     remindDay.click();
     panel().querySelector<HTMLButtonElement>('.calendar:not([hidden]) [data-date="2026-11-08"]')!.click();
@@ -312,11 +313,20 @@ describe("the detail panel", () => {
   it("moves a reminder's time on the same day", () => {
     const at = new Date(2026, 10, 8, 9, 0).getTime();
     renderDetail(panel(), task("a", "Essay", { remindMs: at }), act);
-    const time = panel().querySelector<HTMLInputElement>('input[type="time"]')!;
+    const time = panel().querySelector<HTMLSelectElement>("select.remind-time")!;
     expect(time.value).toBe("09:00");
+    // Every quarter hour, as this computer writes times.
+    expect(time.options.length).toBe(96);
     time.value = "16:30";
     time.dispatchEvent(new Event("change"));
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, new Date(2026, 10, 8, 16, 30).getTime());
+  });
+
+  it("keeps a reminder's time off the quarter hours as its own choice", () => {
+    renderDetail(panel(), task("a", "Essay", { remindMs: new Date(2026, 10, 8, 9, 7).getTime() }), act);
+    const time = panel().querySelector<HTMLSelectElement>("select.remind-time")!;
+    expect(time.value).toBe("09:07");
+    expect(time.options.length).toBe(97);
   });
 
   it("renames on Enter, keeps the title when emptied, and deletes", () => {

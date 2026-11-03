@@ -3502,14 +3502,14 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   gap: 6px;
 }
 
-/* Drawn like the day beside it, not as the underlined time fields in settings. */
-.filter.remind-time {
-  width: auto;
-  background: var(--raised);
+/* The reminder's time, Kairo's dropdown drawn like the day beside it rather than as the
+   underlined dropdowns in settings. */
+.remind-when .dropdown-button {
+  min-height: 38px;
+  padding: 0 10px 0 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  min-height: 38px;
-  padding: 0 10px;
+  background: var(--raised);
 }
 
 /* The bubble that renames a task or note where it is listed, shown under the pointer. */
