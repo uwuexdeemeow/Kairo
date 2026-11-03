@@ -1,4 +1,5 @@
 import type { Task, TaskGroup } from "./api";
+import { calendar, isoDate, parseDate, todayIso } from "./calendar";
 import { logo } from "./logos";
 import { fmtDur, h } from "./ui";
 
@@ -219,11 +220,33 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
   return { add, preview };
 }
 
-/// "2026-11-08T15:00" for a time, in this computer's zone, as a datetime-local field takes it.
-function localInput(ms: number): string {
+/// "15:00" for a moment, in this computer's zone, as a time field takes it.
+function clock(ms: number): string {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/// "Fri 8 Nov", with the year when it isn't this one.
+function dayName(iso: string): string {
+  const d = parseDate(iso);
+  const year = d.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
+  return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", year });
+}
+
+/// A button that shows a day and opens Kairo's calendar under it, in place of a native date field.
+function dayButton(label: string, day: string | null, empty: string, pick: (iso: string) => void): HTMLElement {
+  const anchor = h("span", { class: "day-pick" });
+  const button = h(
+    "button",
+    { type: "button", class: "filter day-field", "aria-haspopup": "dialog", "aria-label": `${label}: ${day ? dayName(day) : empty}` },
+    day ? dayName(day) : empty,
+  ) as HTMLButtonElement;
+  button.classList.toggle("empty", !day);
+  anchor.append(button);
+  const cal = calendar({ anchor, trigger: button, label, selected: () => day, min: () => null, max: () => null, onPick: pick });
+  button.addEventListener("click", () => cal.toggle());
+  return anchor;
 }
 
 /// The panel's Note row: the attached note (open, detach), or a way to attach one: a search over
@@ -281,9 +304,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   });
   title.addEventListener("blur", saveTitle);
 
-  const due = h("input", { type: "date", class: "filter", "aria-label": "Due day" }) as HTMLInputElement;
-  due.value = t.dueDay ?? "";
-  due.addEventListener("change", () => act.plan(t.id, due.value || null, t.priority, t.remindMs));
+  const due = dayButton("Due day", t.dueDay, "No due day", (iso) => act.plan(t.id, iso, t.priority, t.remindMs));
   const clearDue = h("button", { class: "link-btn clear-due", "aria-label": "No due day", title: "No due day" }, "×");
   clearDue.addEventListener("click", () => act.plan(t.id, null, t.priority, t.remindMs));
 
@@ -294,12 +315,19 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     priorities.append(b);
   }
 
-  const remind = h("input", { type: "datetime-local", class: "filter", "aria-label": "Reminder" }) as HTMLInputElement;
-  remind.value = t.remindMs !== null ? localInput(t.remindMs) : "";
-  remind.addEventListener("change", () => {
-    const at = remind.value ? new Date(remind.value).getTime() : null;
-    act.plan(t.id, t.dueDay, t.priority, at !== null && !Number.isNaN(at) ? at : null);
+  // A reminder is a day from the calendar and a time beside it; either one sets it.
+  const remindDay = t.remindMs !== null ? isoDate(new Date(t.remindMs)) : null;
+  const remindAt = (day: string, time: string) => {
+    const at = new Date(`${day}T${time}`).getTime();
+    if (!Number.isNaN(at)) act.plan(t.id, t.dueDay, t.priority, at);
+  };
+  const time = h("input", { type: "time", class: "filter remind-time", "aria-label": "Reminder time" }) as HTMLInputElement;
+  time.value = t.remindMs !== null ? clock(t.remindMs) : "09:00";
+  time.addEventListener("change", () => {
+    if (time.value) remindAt(remindDay ?? t.dueDay ?? todayIso(), time.value);
   });
+  const remindPick = dayButton("Reminder day", remindDay, "No reminder", (iso) => remindAt(iso, time.value || "09:00"));
+  const remind = h("div", { class: "remind-when" }, remindPick, time);
   const clearRemind = h("button", { class: "link-btn clear-remind", "aria-label": "No reminder", title: "No reminder" }, "×");
   clearRemind.addEventListener("click", () => act.plan(t.id, t.dueDay, t.priority, null));
 
@@ -310,9 +338,9 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   close.addEventListener("click", () => act.select(t.id));
   root.replaceChildren(
     h("div", { class: "detail-head" }, title, close),
-    h("label", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
+    h("div", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
-    h("label", { class: "detail-field" }, h("span", {}, "Remind me"), remind, clearRemind),
+    h("div", { class: "detail-field" }, h("span", {}, "Remind me"), remind, clearRemind),
     noteRow(t, act, notes),
     h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
     remove,

@@ -1794,7 +1794,7 @@ html.palette-root {
 .cal-day.selected,
 .cal-day.selected:hover {
   background: var(--app);
-  color: #fff;
+  color: var(--on-app);
 }
 
 .cal-dot {
@@ -1808,7 +1808,7 @@ html.palette-root {
 }
 
 .cal-day.selected .cal-dot {
-  background: #fff;
+  background: var(--on-app);
 }
 
 .day-today {
@@ -3452,9 +3452,39 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 .detail-field > input,
 .detail-field > .range,
-.detail-field > .note-pick {
+.detail-field > .note-pick,
+.detail-field > .day-pick,
+.detail-field > .remind-when {
   width: 100%;
   min-width: 0;
+}
+
+/* A day picked from Kairo's calendar, drawn like the fields around it. */
+.day-field {
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-field.empty {
+  color: var(--muted);
+}
+
+/* The reminder's day and time side by side. */
+.remind-when {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+/* Drawn like the day beside it, not as the underlined time fields in settings. */
+.filter.remind-time {
+  width: auto;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  min-height: 38px;
+  padding: 0 10px;
 }
 
 /* The bubble that renames a task or note where it is listed, shown under the pointer. */

@@ -288,16 +288,35 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, 99);
   });
 
-  it("sets a day from the date field and a reminder from its own", () => {
-    renderDetail(panel(), task("a", "Essay"), act);
-    const due = panel().querySelector<HTMLInputElement>('input[type="date"]')!;
-    due.value = "2026-11-09";
-    due.dispatchEvent(new Event("change"));
+  it("sets a day from Kairo's calendar and a reminder from a day and a time, with no native date field", () => {
+    renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06" }), act);
+    expect(panel().querySelector('input[type="date"], input[type="datetime-local"]')).toBeNull();
+    const [due, remindDay] = panel().querySelectorAll<HTMLButtonElement>(".day-field");
+    expect(due.textContent).toMatch(/6/);
+    expect(remindDay.textContent).toBe("No reminder");
+
+    due.click();
+    const cal = panel().querySelector<HTMLElement>(".calendar:not([hidden])")!;
+    expect(cal.querySelector('[data-date="2026-11-06"]')!.classList.contains("selected")).toBe(true);
+    cal.querySelector<HTMLButtonElement>('[data-date="2026-11-09"]')!.click();
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-09", 1, null);
-    const remind = panel().querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
-    remind.value = "2026-11-08T15:00";
-    remind.dispatchEvent(new Event("change"));
-    expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, new Date(2026, 10, 8, 15, 0).getTime());
+    expect(cal.hidden).toBe(true);
+
+    const time = panel().querySelector<HTMLInputElement>('input[type="time"]')!;
+    time.value = "15:00";
+    remindDay.click();
+    panel().querySelector<HTMLButtonElement>('.calendar:not([hidden]) [data-date="2026-11-08"]')!.click();
+    expect(act.plan).toHaveBeenLastCalledWith("a", "2026-11-06", 1, new Date(2026, 10, 8, 15, 0).getTime());
+  });
+
+  it("moves a reminder's time on the same day", () => {
+    const at = new Date(2026, 10, 8, 9, 0).getTime();
+    renderDetail(panel(), task("a", "Essay", { remindMs: at }), act);
+    const time = panel().querySelector<HTMLInputElement>('input[type="time"]')!;
+    expect(time.value).toBe("09:00");
+    time.value = "16:30";
+    time.dispatchEvent(new Event("change"));
+    expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, new Date(2026, 10, 8, 16, 30).getTime());
   });
 
   it("renames on Enter, keeps the title when emptied, and deletes", () => {
