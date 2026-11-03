@@ -1,0 +1,194 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T17:32:36Z",
+  "title": "Design System: Kairo",
+  "extensions": {
+    "colorMeta": {
+      "ink-deep": {
+        "role": "neutral",
+        "displayName": "Deep Ink"
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Cream Paper"
+      },
+      "chrono-dark": {
+        "role": "primary",
+        "displayName": "Chrono Lake Blue (dark)"
+      },
+      "ledger-dark": {
+        "role": "primary",
+        "displayName": "Ledger Leather Amber (dark)"
+      },
+      "palette-dark": {
+        "role": "primary",
+        "displayName": "Palette Violet (dark)"
+      },
+      "kairo-dark": {
+        "role": "primary",
+        "displayName": "Kairo Pewter (dark)"
+      },
+      "ribbon-gold": {
+        "role": "secondary",
+        "displayName": "Ribbon Gold"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Page titles and greetings, with an italic 400 aside in the app's ink."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Big numbers: the focus timer, Today's total."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Everything read and pressed."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Section labels and field names, uppercase, in faint."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Keys, durations, tabular data, the note editor."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sheet-rest",
+        "value": "0 10px 24px -18px var(--shadow)",
+        "purpose": "Soft lift under sheets and cards."
+      },
+      {
+        "name": "button",
+        "value": "inset 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent), 0 1px 2px var(--shadow)",
+        "purpose": "A pressable edge."
+      },
+      {
+        "name": "float",
+        "value": "0 8px 24px var(--shadow)",
+        "purpose": "Popovers, the calendar, dropdown lists."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        "purpose": "Every transition, 140 to 320ms; off under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "window-min",
+        "value": "720px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "A sheet-coloured button with a hairline and a pressable edge.",
+      "html": "<button class=\"ds-btn\">Back up</button>",
+      "css": ".ds-btn{min-height:36px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:500 14px var(--sans);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--ink) 6%,transparent),0 1px 2px var(--shadow)}.ds-btn:focus-visible{outline:2px solid var(--app);outline-offset:2px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Filled with the window's app ink.",
+      "html": "<button class=\"ds-btn-primary\">Start focus</button>",
+      "css": ".ds-btn-primary{min-height:36px;padding:0 16px;border:1px solid var(--app);border-radius:10px;background:var(--app);color:var(--on-app);font:600 14px var(--sans)}.ds-btn-primary:focus-visible{outline:2px solid var(--app);outline-offset:2px}"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A boxed text field on a sheet.",
+      "html": "<input class=\"ds-field\" placeholder=\"Add a task\">",
+      "css": ".ds-field{min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:14px var(--sans);box-shadow:inset 0 1px 2px color-mix(in srgb,#000 12%,transparent)}.ds-field:focus-visible{border-color:var(--app);outline:2px solid var(--app);outline-offset:1px}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "A small pill of status; late takes the distracting tint.",
+      "html": "<span class=\"ds-chip\">Fri</span> <span class=\"ds-chip ds-late\">2 days late</span>",
+      "css": ".ds-chip{padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--line) 45%,transparent);color:var(--muted);font:11px var(--sans)}.ds-chip.ds-late{background:color-mix(in srgb,var(--distracting) 16%,transparent);color:var(--distracting-ink)}"
+    },
+    {
+      "name": "Section Label",
+      "kind": "custom",
+      "refersTo": "label",
+      "description": "Small capitals over a group.",
+      "html": "<h3 class=\"ds-label\">Today</h3>",
+      "css": ".ds-label{margin:0;color:var(--faint);font:600 10px var(--sans);letter-spacing:.14em;text-transform:uppercase}"
+    },
+    {
+      "name": "Palette Bubble",
+      "kind": "custom",
+      "refersTo": "palette-bubble",
+      "description": "The mode the palette is in, before its input.",
+      "html": "<span class=\"ds-bubble\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-3.5-3.5\"/></svg>GitHub</span>",
+      "css": ".ds-bubble{display:inline-flex;align-items:center;gap:6px;padding:3px 10px 3px 7px;border-radius:999px;background:color-mix(in srgb,var(--app) 18%,transparent);color:var(--app);font:600 13px var(--sans)}"
+    },
+    {
+      "name": "Calendar Day",
+      "kind": "custom",
+      "refersTo": "calendar-day",
+      "description": "A day in Kairo's calendar; picked is filled with the app ink.",
+      "html": "<button class=\"ds-day\">5</button><button class=\"ds-day ds-today\">3</button><button class=\"ds-day ds-picked\">6</button>",
+      "css": ".ds-day{width:36px;height:36px;border:0;border-radius:6px;background:none;color:var(--ink-2);font:13px var(--sans)}.ds-day.ds-today{box-shadow:inset 0 0 0 1px var(--line)}.ds-day.ds-picked{background:var(--app);color:var(--on-app)}.ds-day:hover{background:var(--line);color:var(--ink)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Objects on Paper",
+    "overview": "Each of Kairo's apps is drawn as the thing it is: Chrono a watch dial, Ledger a cloth notebook with a gold ribbon, the command palette a keycap, Kairo itself a ring with one stretch of it lit gold, the moment. They sit on a sheet of cream paper by day, or on deep blue ink by night (the default), with a faint grain over the ground. Everything else is ruled lines, small capitals and quiet sheets, so the objects and the numbers carry the character.",
+    "keyCharacteristics": [
+      "Real objects as app marks, drawn inline in each app's ink; no image files.",
+      "Two grounds: deep blue ink (default) and cream paper, each with a fine grain.",
+      "Fraunces 800 for titles and figures, with an italic 400 aside in the app's ink.",
+      "Section labels in small capitals with wide letter-spacing.",
+      "Kairo's own controls everywhere the system's would ignore the theme: dropdowns, the calendar, time lists."
+    ],
+    "rules": [
+      {
+        "name": "The Whose Window Rule",
+        "body": "Accent colour comes from --app, never a literal: the same component is blue in Chrono and amber in Ledger.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fill Is Not Ink Rule",
+        "body": "A data colour used as small text takes its -ink variant; fills keep the original so charts read the same.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Weights Rule",
+        "body": "Fraunces is 800 or an italic 400 aside; nothing in between.",
+        "section": "typography"
+      },
+      {
+        "name": "The Float Only Rule",
+        "body": "Strong shadows belong to what floats above the page (popovers, lists, the palette); everything at rest is a sheet.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour from the tokens on :root, and define a new one for both grounds.",
+      "Do use --app for accents and the -ink variants for data colours as text.",
+      "Do draw icons and marks inline in the 24-unit stroke family (or the 100-unit object drawings in src/logos.ts).",
+      "Do give every motion an alternative under prefers-reduced-motion.",
+      "Do change the native Windows palette and ring in step with the web ones when a shared value moves."
+    ],
+    "donts": [
+      "Don't use the system's date, time or select pickers; they ignore the theme.",
+      "Don't remove the outline on focus without putting a solid one back.",
+      "Don't set small text in the faint grey below 4.5:1, or a data fill colour as words.",
+      "Don't hard-code a colour in a component.",
+      "Don't add image files for marks or icons."
+    ]
+  }
+}
