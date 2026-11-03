@@ -4,6 +4,8 @@ import { dashboardBody as markup } from "./test-dashboard";
 const api = vi.hoisted(() => ({
   ringSettings: vi.fn(),
   setRingShortcut: vi.fn(),
+  setRingItems: vi.fn(),
+  setRingFocusMinutes: vi.fn(),
   version: vi.fn(),
   sync: vi.fn(),
   stopSync: vi.fn(),
@@ -68,8 +70,9 @@ beforeEach(async () => {
   api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false, searchFiles: true });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.setPaletteShortcut.mockResolvedValue(undefined);
-  api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q" });
-  api.setRingShortcut.mockResolvedValue({ shortcut: "Alt+R" });
+  const ring = { items: ["chrono", "ledger", "palette"], all: [["chrono", "Chrono"], ["ledger", "Ledger"], ["palette", "Palette"], ["week", "This week"]], focusMinutes: 25 };
+  api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", ...ring });
+  api.setRingShortcut.mockResolvedValue({ shortcut: "Alt+R", ...ring });
   document.body.innerHTML = markup;
   settings = await import("./kairo-settings");
   settings.wireKairoSettings();
@@ -122,6 +125,15 @@ describe("the Theme dropdown", () => {
     select.dispatchEvent(new Event("change"));
     expect(api.setAppearance).toHaveBeenCalledWith("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+});
+
+describe("what's on the app ring", () => {
+  it("lists the items and saves a change through Kairo", async () => {
+    await vi.waitFor(() => expect(document.querySelectorAll("#ring-items .ring-choice").length).toBe(11));
+    api.setRingItems.mockResolvedValue({ shortcut: "Alt+Q", items: ["chrono", "ledger", "palette", "week"], all: [], focusMinutes: 25 });
+    $<HTMLInputElement>('#ring-items [data-item="week"] input[type=checkbox]').click();
+    await vi.waitFor(() => expect(api.setRingItems).toHaveBeenCalledWith(["chrono", "ledger", "palette", "week"]));
   });
 });
 

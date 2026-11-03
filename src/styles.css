@@ -4205,13 +4205,16 @@ select,
 }
 
 .ring-seg.lit.seg-chrono,
-.ring-seg.lit.seg-focus {
+.ring-seg.lit.seg-focus,
+.ring-seg.lit.seg-week,
+.ring-seg.lit.seg-pause {
   stroke: var(--chrono);
 }
 
 .ring-seg.lit.seg-ledger,
 .ring-seg.lit.seg-task,
-.ring-seg.lit.seg-note {
+.ring-seg.lit.seg-note,
+.ring-seg.lit.seg-notes {
   stroke: var(--ledger);
 }
 
@@ -4219,7 +4222,8 @@ select,
   stroke: var(--palette);
 }
 
-.ring-seg.lit.seg-dashboard {
+.ring-seg.lit.seg-dashboard,
+.ring-seg.lit.seg-settings {
   stroke: var(--kairo);
 }
 
@@ -4504,4 +4508,151 @@ select,
 .popout-empty {
   margin: 24px 12px;
   text-align: center;
+}
+
+/* ☰ goes somewhere, B / I / ☐ change the text: it's filled in Ledger's ink, set apart from them. */
+.note-tool[data-tool="list"] {
+  margin-right: 2px;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ledger) 18%, transparent);
+  color: var(--ledger);
+  font-weight: 800;
+}
+
+.note-tool[data-tool="list"]:hover {
+  background: color-mix(in srgb, var(--ledger) 28%, transparent);
+}
+
+.popout-bar > .note-tools {
+  padding-left: 8px;
+  border-left: 1px solid var(--rule);
+}
+
+/* ---------- What's on the app ring, in Kairo's settings ---------- */
+.ring-items-title {
+  margin: 18px 0 8px;
+  font-size: 13px;
+}
+
+.ring-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: flex-start;
+}
+
+.ring-editor-list {
+  flex: 1 1 300px;
+  min-width: 0;
+}
+
+.ring-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.ring-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+}
+
+.ring-choice.on {
+  border-color: var(--rule);
+  background: var(--raised);
+}
+
+/* The last on the ring, before those off it: a little room between the two. */
+.ring-choice.on + .ring-choice:not(.on) {
+  margin-top: 8px;
+}
+
+.ring-choice-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ring-choice:not(.on) .ring-choice-name {
+  color: var(--muted);
+}
+
+.ring-choice-mark {
+  display: inline-flex;
+}
+
+.ring-choice:not(.on) .ring-choice-mark {
+  opacity: 0.55;
+}
+
+.ring-minutes-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ring-minutes {
+  width: 64px;
+  height: 30px;
+}
+
+.ring-moves {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ring-moves .note-tool:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ring-limit {
+  margin: 0;
+  font-size: 12px;
+}
+
+/* The ring as it opens, drawn as its window draws it but standing still. */
+.ring.ring-preview {
+  flex: none;
+  animation: none;
+  pointer-events: none;
+}
+
+/* The app ring's tile: an arc of its segments, the middle one lit and proud. */
+.app-arc {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.app-arc-drawing svg {
+  display: block;
+  width: 156px;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 8px 12px var(--shadow));
+}
+
+.app-arc .arc-seg {
+  fill: var(--raised);
+  stroke: var(--line);
+  stroke-width: 1.5;
+}
+
+.app-arc .arc-seg.lit {
+  fill: color-mix(in srgb, var(--raised) 88%, var(--ink));
+  stroke: var(--kairo);
+  stroke-width: 2.5;
 }

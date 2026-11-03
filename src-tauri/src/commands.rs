@@ -310,22 +310,55 @@ pub fn ledger_settings(state: State<AppState>) -> CmdResult<crate::ledger::Setti
 
 // ---------- the app ring ----------
 
+/// The ring's settings: its shortcut, what's on it, and every item that could be.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RingSettings {
     shortcut: String,
+    /// What's on it, by key, in order.
+    items: Vec<&'static str>,
+    /// Every item there is, by key, with its name.
+    all: Vec<(&'static str, String)>,
+    focus_minutes: u32,
+}
+
+fn ring_settings_of(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<RingSettings> {
+    let minutes = crate::ring::focus_minutes(conn);
+    let paused = crate::is_paused(app);
+    Ok(RingSettings {
+        shortcut: crate::ring::shortcut(conn).map_err(err)?,
+        items: crate::ring::items(conn).iter().map(|s| s.key()).collect(),
+        all: crate::ring::ALL.iter().map(|s| (s.key(), crate::ring::name(*s, minutes, paused))).collect(),
+        focus_minutes: minutes,
+    })
 }
 
 #[tauri::command]
-pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
+pub fn ring_settings(app: AppHandle, state: State<AppState>) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
-    Ok(RingSettings { shortcut: crate::ring::shortcut(&conn).map_err(err)? })
+    ring_settings_of(&app, &conn)
 }
 
 #[tauri::command]
 pub fn set_ring_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
     crate::ring::change_shortcut(&app, &conn, &shortcut)?;
-    Ok(RingSettings { shortcut })
+    ring_settings_of(&app, &conn)
+}
+
+/// Arranges the ring: what's on it, by key, in order.
+#[tauri::command]
+pub fn set_ring_items(app: AppHandle, state: State<AppState>, items: Vec<String>) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ring::set_items(&conn, &items)?;
+    ring_settings_of(&app, &conn)
+}
+
+#[tauri::command]
+pub fn set_ring_focus_minutes(app: AppHandle, state: State<AppState>, minutes: u32) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ring::set_focus_minutes(&conn, minutes)?;
+    ring_settings_of(&app, &conn)
 }
 
 #[tauri::command]
@@ -333,29 +366,36 @@ pub fn open_ring(app: AppHandle) {
     crate::ring::toggle(&app);
 }
 
-/// What the web ring shows as it opens: the segment it starts on and each one's line.
+/// What the web ring shows as it opens: what's on it, the one it starts on, and each one's name
+/// and line.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RingState {
+    items: Vec<&'static str>,
     lit: usize,
-    lines: [String; 7],
+    names: Vec<String>,
+    lines: Vec<String>,
     focus_running: bool,
+    /// Tracking is paused: Pause draws as Resume.
+    paused: bool,
 }
 
 #[tauri::command]
-pub fn ring_state(state: State<AppState>) -> CmdResult<RingState> {
+pub fn ring_state(app: AppHandle, state: State<AppState>) -> CmdResult<RingState> {
     let conn = state.db.lock().map_err(err)?;
-    let lines = crate::ring::lines(&conn, now_ms());
+    let ring = crate::ring::ring(&conn);
+    let paused = crate::is_paused(&app);
+    let (names, lines) = crate::ring::faces(&conn, now_ms(), &ring.items, paused).into_iter().unzip();
     let focus_running = crate::ring::focus_refusal(&conn).is_some();
-    Ok(RingState { lit: crate::ring::last(&conn), lines, focus_running })
+    Ok(RingState { items: ring.items.iter().map(|s| s.key()).collect(), lit: ring.lit, names, lines, focus_running, paused })
 }
 
-/// The web ring's pick: it closes, then the segment does what it does.
+/// The web ring's pick, by its place on the ring: it closes, then the segment does what it does.
 #[tauri::command]
 pub fn ring_pick(app: AppHandle, state: State<AppState>, index: usize) -> CmdResult<()> {
     ring_close(app.clone());
-    let Some(segment) = crate::ring::SEGMENTS.get(index).copied() else { return Ok(()) };
     let conn = state.db.lock().map_err(err)?;
+    let Some(segment) = crate::ring::items(&conn).get(index).copied() else { return Ok(()) };
     if let Err(why) = crate::ring::perform(&app, &conn, segment) {
         crate::ring::tell(&app, &why);
     }

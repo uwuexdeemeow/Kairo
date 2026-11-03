@@ -89,6 +89,20 @@ pub struct Navigation {
 pub struct PaletteItem(pub MenuItem<Wry>);
 /// The tray's App ring item, whose shortcut follows the ring's.
 pub struct RingItem(pub MenuItem<Wry>);
+/// The tray's Pause tracking item, whose words follow whether tracking is paused.
+pub struct PauseItem(pub MenuItem<Wry>, pub Arc<AtomicBool>);
+
+/// Pauses tracking, or resumes it: from the tray or the ring, the tray's item saying which.
+pub(crate) fn toggle_paused(app: &AppHandle) {
+    let Some(item) = app.try_state::<PauseItem>() else { return };
+    let now_paused = !item.1.fetch_xor(true, Ordering::Relaxed);
+    let _ = item.0.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });
+}
+
+/// Whether tracking is paused now.
+pub(crate) fn is_paused(app: &AppHandle) -> bool {
+    app.try_state::<PauseItem>().is_some_and(|item| item.1.load(Ordering::Relaxed))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -99,7 +113,7 @@ pub fn run() {
     }
     if let Some((path, lit, theme)) = startup::ring_png(&args) {
         #[cfg(windows)]
-        if let Err(e) = ring::native::render_png(std::path::Path::new(&path), lit, &theme) {
+        if let Err(e) = ring::native::render_png(std::path::Path::new(&path), &lit, &theme) {
             eprintln!("ring: cannot draw {path}: {e}");
         }
         #[cfg(not(windows))]
@@ -432,6 +446,8 @@ pub fn run() {
             commands::set_note_on_top,
             commands::ring_settings,
             commands::set_ring_shortcut,
+            commands::set_ring_items,
+            commands::set_ring_focus_minutes,
             commands::open_ring,
             commands::ring_state,
             commands::ring_pick,
@@ -496,7 +512,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str,
     app.manage(PaletteItem(palette_item));
     app.manage(RingItem(ring_item));
 
-    let pause_item = pause.clone();
+    app.manage(PauseItem(pause, paused));
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
         .tooltip("Kairo")
@@ -511,10 +527,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str,
             }
             "palette" => palette::toggle(app),
             "ring" => ring::toggle(app),
-            "pause" => {
-                let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
-                let _ = pause_item.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });
-            }
+            "pause" => toggle_paused(app),
             "quit" => app.exit(0),
             _ => {}
         })

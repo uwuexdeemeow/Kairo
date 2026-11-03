@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
   openChrono: vi.fn(),
   openPalette: vi.fn(),
   openLedger: vi.fn(),
+  openRing: vi.fn(),
+  ringSettings: vi.fn(),
   tasks: vi.fn(),
   appearance: vi.fn(),
   setAppearance: vi.fn(),
@@ -54,13 +56,14 @@ beforeEach(() => {
   api.sync.mockResolvedValue({ folder: null, name: "Tower", computers: [], shown: "all" });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.tasks.mockResolvedValue([{ id: "a", group: "today" }, { id: "b", group: "overdue" }]);
+  api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", items: ["chrono", "ledger", "notes", "week"], all: [], focusMinutes: 25 });
   document.body.innerHTML = markup;
 });
 
 describe("Home", () => {
   it("shows a tile for each app, with today's line", async () => {
     await open();
-    expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette"]);
+    expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette", "App ring"]);
     await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
     expect(line("palette")).toBe("Press it anywhere");
     expect(line("ledger")).toBe("1 due today · 1 overdue");
@@ -117,6 +120,42 @@ describe("Home", () => {
     expect(api.openChrono).toHaveBeenCalledWith();
     // Tiles carry no settings of their own; those are on the Settings tab.
     expect(document.querySelector("#app-tiles .link-btn")).toBeNull();
+  });
+});
+
+describe("the app ring's tile", () => {
+  it("shows its keys and how many are on it, and opens it", async () => {
+    await open();
+    await vi.waitFor(() => expect(line("ring")).toBe("AltQ · 4 items"));
+    expect([...document.querySelectorAll('[data-line="ring"] kbd')].map((k) => k.textContent)).toEqual(["Alt", "Q"]);
+    // Its picture: the arc, as many segments as show.
+    expect(document.querySelectorAll('[data-app="ring"] .arc-seg').length).toBe(4);
+    $<HTMLButtonElement>('[data-app="ring"] .app-object').click();
+    expect(api.openRing).toHaveBeenCalled();
+  });
+});
+
+describe("App settings", () => {
+  const rows = () => [...document.querySelectorAll("#app-settings li")].map((li) => [li.querySelector("strong")!.textContent, li.querySelector("button")!.textContent]);
+
+  it("lists every app with settings: Open for its own screen, Show for a section here", async () => {
+    await open();
+    expect(rows()).toEqual([
+      ["Chrono", "Open"],
+      ["Ledger", "Open"],
+      ["Command palette", "Show"],
+      ["App ring", "Show"],
+    ]);
+  });
+
+  it("opens Ledger on its settings, and shows the ring's section", async () => {
+    await open();
+    $<HTMLButtonElement>('[data-settings="ledger"]').click();
+    expect(api.openLedger).toHaveBeenCalledWith("settings");
+    $<HTMLButtonElement>('[data-settings="chrono"]').click();
+    expect(api.openChrono).toHaveBeenCalledWith("settings");
+    $<HTMLButtonElement>('[data-settings="ring"]').click();
+    expect(document.activeElement?.id).toBe("ring-record");
   });
 });
 

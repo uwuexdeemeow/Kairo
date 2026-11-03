@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type Linking, type SyncState } from "./api";
+import { mountRingEditor } from "./ring-editor";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
@@ -372,7 +373,9 @@ export async function loadKairoSettings(): Promise<void> {
   $<HTMLSelectElement>("#appearance").value = await api.appearance();
   const palette = await api.paletteSettings();
   showShortcut(PALETTE, palette.shortcut);
-  showShortcut(RING, (await api.ringSettings()).shortcut);
+  const ring = await api.ringSettings();
+  showShortcut(RING, ring.shortcut);
+  mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });
   $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
   $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
   $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;

@@ -12,7 +12,9 @@ import { $, fmtDur, followTheme, h, pct } from "./ui";
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
 
 /// An app in Kairo. Home draws a tile for each, and App settings (on the Settings tab) a row
-/// for each that has settings of its own, so a new app is one more entry here.
+/// for each that has settings, so a new app is one more entry here: its settings are either on
+/// its own screen (`open`, an Open button) or a section of Kairo's settings (`show`, the id of
+/// the control a Show button brings into view).
 interface KairoApp {
   id: string;
   name: string;
@@ -22,7 +24,7 @@ interface KairoApp {
   /** The app drawn as what it is; Chrono's dial redraws with its line. */
   object: () => HTMLElement;
   open: () => void;
-  settings?: { covers: string; open: () => void };
+  settings?: { covers: string; open: () => void } | { covers: string; show: string };
 }
 
 /// Today's local date, as Kairo's commands take it ("2026-10-29").
@@ -63,6 +65,10 @@ const APPS: KairoApp[] = [
       return book;
     },
     open: () => api.openLedger(),
+    settings: {
+      covers: "Reminders and the morning reminder",
+      open: () => api.openLedger("settings"),
+    },
   },
   {
     id: "palette",
@@ -76,8 +82,40 @@ const APPS: KairoApp[] = [
     },
     object: () => h("span", { class: "keycap" }),
     open: () => api.openPalette(),
+    settings: { covers: "Shortcut, suggestions and files", show: "palette-record" },
+  },
+  {
+    id: "ring",
+    name: "App ring",
+    what: "Kairo's apps at the pointer",
+    line: async () => {
+      const ring = await api.ringSettings();
+      document.querySelector('[data-app="ring"] .app-arc')?.replaceChildren(ringArc(ring.items.length));
+      return [...shortcutKeys(ring.shortcut), document.createTextNode(` · ${ring.items.length} items`)];
+    },
+    object: () => h("span", { class: "app-arc" }, ringArc(7)),
+    open: () => api.openRing(),
+    settings: { covers: "Shortcut, and what's on it", show: "ring-record" },
   },
 ];
+
+/// The ring as its tile's picture: an arc of segments, the middle one lit.
+function ringArc(count: number): HTMLElement {
+  const box = h("span", { class: "app-arc-drawing", "aria-hidden": "true" });
+  const n = Math.min(count, 5);
+  const offsets = [0, 1, -1, 2, -2].slice(0, n);
+  const at = (r: number, deg: number) => {
+    const a = (deg * Math.PI) / 180;
+    return `${(60 + r * Math.sin(a)).toFixed(1)} ${(118 - r * Math.cos(a)).toFixed(1)}`;
+  };
+  const band = (k: number) => {
+    const [from, to] = [k * 26 - 12, k * 26 + 12];
+    const outer = k === 0 ? 104 : 96;
+    return `<path class="arc-seg${k === 0 ? " lit" : ""}" d="M${at(outer, from)} A${outer} ${outer} 0 0 1 ${at(outer, to)} L${at(64, to)} A64 64 0 0 0 ${at(64, from)} Z"/>`;
+  };
+  box.innerHTML = `<svg viewBox="0 0 120 70" width="112" height="66">${offsets.sort((a, b) => Math.abs(b) - Math.abs(a)).map(band).join("")}</svg>`;
+  return box;
+}
 
 /// "2h 05" for the dial's middle.
 function dialTime(ms: number): string {
@@ -125,10 +163,13 @@ function drawTiles() {
 function drawAppSettings() {
   $("#app-settings").replaceChildren(
     ...APPS.filter((app) => app.settings).map((app) => {
-      const open = h("button", { class: "link-btn" }, "Open");
-      open.setAttribute("aria-label", `Open ${app.name}'s settings`);
-      open.addEventListener("click", app.settings!.open);
-      return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, app.settings!.covers)), open);
+      const s = app.settings!;
+      // On its own screen, Open; a section of this page, Show.
+      const here = "show" in s;
+      const go = h("button", { class: "link-btn", "data-settings": app.id }, here ? "Show" : "Open");
+      go.setAttribute("aria-label", `${here ? "Show" : "Open"} ${app.name}'s settings`);
+      go.addEventListener("click", () => ("show" in s ? jumpTo(s.show) : s.open()));
+      return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, s.covers)), go);
     }),
   );
 }

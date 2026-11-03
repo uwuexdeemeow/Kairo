@@ -229,6 +229,28 @@ On Windows and a Mac (⌥ for Alt).
 9. **Games.** In a full-screen game, Alt+Q does nothing unless "Open over games and full-screen apps
    too" is on.
 
+## Ring: arranged your way
+
+On Windows, a Mac and Linux. Kairo's dashboard.
+
+1. **Tile.** Home. *Expect:* an App ring tile, its picture an arc of segments, its line the shortcut
+   as keys and "· 7 items". Clicking the picture opens the ring.
+2. **Arrange.** Settings → App ring → What's on it. Tick This week, All notes and Pause tracking;
+   move All notes to the top with ↑. *Expect:* the preview redraws each time; the ring then opens
+   with All notes first (if it was the last one used, on it) and the new ones drawn with their own
+   marks: a sheet behind a sheet, a week's bars, two bars.
+3. **Limits.** Untick until three are left. *Expect:* the last three can't be unticked, and the line
+   says "At least three stay on the ring." The ring shows three segments, none twice. Tick until
+   ten. *Expect:* the rest can't be ticked. Reset goes back to the first seven.
+4. **New items.** Pause tracking: the tray's item says Resume tracking, and the ring's segment shows
+   a triangle, "Resume tracking", "Paused". All notes opens the pop-out's list; This week opens
+   Chrono's Week; Settings opens Kairo's settings.
+5. **Focus length.** Set Focus to 45. *Expect:* the segment says "Focus 45" and starts 45 minutes
+   (only in a copy that isn't your own, as with every focus check).
+6. **App settings.** Settings → App settings. *Expect:* Chrono and Ledger with Open (Ledger's opens
+   on its Settings view), Command palette and App ring with Show, which brings their section into
+   view.
+
 ## Ledger notes
 
 On Windows, a Mac and Linux. Open Ledger's Notes.

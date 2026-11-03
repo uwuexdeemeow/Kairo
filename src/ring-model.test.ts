@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CENTRE, INNER, OUTER, Ring, STEP, TAP_MS, angle, dragSteps, onModifierUp, segmentPath } from "./ring-model";
+import { ALL, CENTRE, DEFAULT, INNER, MAX_ITEMS, MIN_ITEMS, OUTER, Ring, STEP, TAP_MS, angle, dragSteps, onModifierUp, segmentPath, shown } from "./ring-model";
 
 // The same cases as the Rust model's tests, so both rings agree.
 
@@ -12,7 +12,7 @@ function onRing(deg: number): [number, number] {
 
 describe("the ring", () => {
   it("opens on the last one and turns both ways round", () => {
-    const ring = new Ring(1);
+    const ring = new Ring(DEFAULT, 1);
     expect(ring.segment()).toBe("ledger");
     ring.turn(1);
     expect(ring.segment()).toBe("palette");
@@ -21,15 +21,38 @@ describe("the ring", () => {
     ring.turn(8);
     expect(ring.segment()).toBe("chrono");
     expect([ring.at(-1), ring.at(1), ring.at(2)]).toEqual(["focus", "ledger", "palette"]);
-    expect(new Ring(40).segment()).toBe("chrono");
+    expect(new Ring(DEFAULT, 40).segment()).toBe("chrono");
+  });
+
+  it("turns any number of items round, and shows each once", () => {
+    const ring = new Ring(["notes", "week", "pause"], 0);
+    ring.turn(4);
+    expect(ring.segment()).toBe("week");
+    ring.turn(-2);
+    expect(ring.segment()).toBe("pause");
+    expect(shown(3)).toEqual([0, 1, -1]);
+    expect(shown(4)).toEqual([0, 1, -1, 2]);
+    expect(shown(10)).toEqual([0, 1, -1, 2, -2]);
+    for (let n = MIN_ITEMS; n <= MAX_ITEMS; n++) {
+      const r = new Ring(ALL.slice(0, n), 0);
+      expect(new Set(shown(n).map((k) => r.indexAt(k))).size).toBe(Math.min(n, 5));
+    }
   });
 
   it("knows which segment is under a point", () => {
-    const ring = new Ring(0);
-    expect(ring.hit(...onRing(0))).toBe("chrono");
-    expect(ring.hit(...onRing(STEP))).toBe("ledger");
-    expect(ring.hit(...onRing(-STEP))).toBe("focus");
-    expect(ring.hit(...onRing(STEP * 0.45))).toBe("chrono");
+    const ring = new Ring(DEFAULT, 0);
+    const hit = (deg: number) => {
+      const i = ring.hit(...onRing(deg));
+      return i === null ? null : ring.items[i];
+    };
+    expect(hit(0)).toBe("chrono");
+    expect(hit(STEP)).toBe("ledger");
+    expect(hit(-STEP)).toBe("focus");
+    expect(hit(STEP * 0.45)).toBe("chrono");
+    // With three, nothing is drawn two places round.
+    const three = new Ring(["notes", "week", "pause"], 0);
+    expect(three.hit(...onRing(STEP * 2))).toBeNull();
+    expect(three.hit(...onRing(-STEP))).toBe(2);
     expect(ring.hit(CENTRE.x, CENTRE.y - INNER + 20)).toBeNull();
     expect(ring.hit(CENTRE.x, 1)).toBeNull();
   });

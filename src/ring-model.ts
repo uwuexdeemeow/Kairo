@@ -1,9 +1,20 @@
-/// The app ring's model for the web ring (macOS, Linux), the twin of `src-tauri/src/ring/mod.rs`
-/// that the Windows ring uses: what's on it, how it turns, what's under a point. Both have the
-/// same tests, so they agree.
+/// The app ring's model for the web ring (macOS, Linux) and the ring's preview in Kairo's
+/// settings, the twin of `src-tauri/src/ring/mod.rs` that the Windows ring uses: what can be on
+/// it, how it turns, what's under a point. Both have the same tests, so they agree.
 
-export const SEGMENTS = ["chrono", "ledger", "palette", "dashboard", "task", "note", "focus"] as const;
-export type Segment = (typeof SEGMENTS)[number];
+/// Every item there is, in the order the settings list them.
+export const ALL = ["chrono", "ledger", "palette", "dashboard", "task", "note", "focus", "notes", "week", "settings", "pause"] as const;
+export type Segment = (typeof ALL)[number];
+/// What's on the ring until it's arranged, and after Reset.
+export const DEFAULT: Segment[] = ["chrono", "ledger", "palette", "dashboard", "task", "note", "focus"];
+export const MIN_ITEMS = 3;
+export const MAX_ITEMS = 10;
+
+/// Where the segments drawn sit, as places from the top, in the order each comes into view: the
+/// lit one, then right and left alternately. Five at most; with fewer items, each shows once.
+export function shown(count: number): number[] {
+  return [0, 1, -1, 2, -2].slice(0, Math.min(count, 5));
+}
 /// The window, in pixels.
 export const WIDTH = 300;
 export const HEIGHT = 210;
@@ -20,36 +31,49 @@ export const TAP_MS = 200;
 /// A press that moves less than this is a click, not a drag.
 export const DRAG_PX = 4;
 
-const wrap = (i: number) => ((i % SEGMENTS.length) + SEGMENTS.length) % SEGMENTS.length;
-
 export class Ring {
-  /** The segment at the top. */
+  /** What's on it, in order around it: never empty. */
+  items: Segment[];
+  /** The one at the top, by its place in `items`. */
   lit: number;
 
-  constructor(last: number) {
-    this.lit = Number.isInteger(last) && last >= 0 && last < SEGMENTS.length ? last : 0;
+  constructor(items: Segment[], lit: number) {
+    this.items = items.length ? items : DEFAULT;
+    this.lit = Number.isInteger(lit) && lit >= 0 && lit < this.items.length ? lit : 0;
+  }
+
+  private wrap(i: number): number {
+    const n = this.items.length;
+    return ((i % n) + n) % n;
   }
 
   /** Turns `steps` segments: positive brings the next ones (to the right) to the top. */
   turn(steps: number): void {
-    this.lit = wrap(this.lit + steps);
+    this.lit = this.wrap(this.lit + steps);
   }
 
   segment(): Segment {
-    return SEGMENTS[this.lit];
+    return this.items[this.lit];
+  }
+
+  /** The place in `items` of the one `offset` places from the top (negative to the left). */
+  indexAt(offset: number): number {
+    return this.wrap(this.lit + offset);
   }
 
   /** The segment shown `offset` places from the top (negative to the left). */
   at(offset: number): Segment {
-    return SEGMENTS[wrap(this.lit + offset)];
+    return this.items[this.indexAt(offset)];
   }
 
-  /** The segment under a point in the window, if one is drawn there. */
-  hit(x: number, y: number): Segment | null {
+  /** The place in `items` of the segment under a point in the window, if one is drawn there. */
+  hit(x: number, y: number): number | null {
     const r = Math.hypot(x - CENTRE.x, y - CENTRE.y);
     if (r < INNER || r > OUTER + PROUD) return null;
-    const offset = Math.round(angle(x, y) / STEP);
-    return Math.abs(offset) <= 2 ? this.at(offset) : null;
+    // Math.round takes -0.5 to -0; the Rust one rounds away from zero, as does this.
+    const steps = angle(x, y) / STEP;
+    const offset = Math.sign(steps) * Math.round(Math.abs(steps)) + 0;
+    return shown(this.items.length).includes(offset) ? this.indexAt(offset) : null;
   }
 }
 

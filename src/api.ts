@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { RingSettings } from "./ring-editor";
 
 export type Category = "productive" | "neutral" | "distracting";
 
@@ -507,8 +508,11 @@ export const api = {
   setNoteOnTop: (on: boolean) => invoke<void>("set_note_on_top", { on }),
   /** Where Ledger was asked to open, once: "note:<id>" or "task:<id>". */
   takeLedgerOpen: () => invoke<string | null>("take_ledger_open"),
-  ringSettings: () => invoke<{ shortcut: string }>("ring_settings"),
-  setRingShortcut: (shortcut: string) => invoke<{ shortcut: string }>("set_ring_shortcut", { shortcut }),
+  ringSettings: () => invoke<RingSettings>("ring_settings"),
+  setRingShortcut: (shortcut: string) => invoke<RingSettings>("set_ring_shortcut", { shortcut }),
+  /** Arranges the ring: what's on it, by key, in order. */
+  setRingItems: (items: string[]) => invoke<RingSettings>("set_ring_items", { items }),
+  setRingFocusMinutes: (minutes: number) => invoke<RingSettings>("set_ring_focus_minutes", { minutes }),
   openRing: () => invoke<void>("open_ring"),
   renameTask: (id: string, title: string) => invoke<Task[]>("rename_task", { id, title }),
   setTaskDone: (id: string, done: boolean) => invoke<Task[]>("set_task_done", { id, done }),

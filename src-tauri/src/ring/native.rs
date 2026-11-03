@@ -46,7 +46,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows_numerics::{Matrix3x2, Vector2};
 
-use super::{Release, Ring, Segment, CENTRE, DRAG_PX, HEIGHT, INNER, OUTER, PROUD, SEGMENTS, STEP, WIDTH};
+use super::{Release, Ring, Segment, CENTRE, DRAG_PX, HEIGHT, INNER, OUTER, PROUD, STEP, WIDTH};
 use crate::palette::native::{color, font_collection, theme_for, Theme, TEXT_FONT};
 
 /// Fraunces, for the lit segment's name, as on the web ring.
@@ -86,13 +86,15 @@ fn v(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
-const NAMES: [&str; 7] = ["Chrono", "Ledger", "Palette", "Dashboard", "New task", "New note", "Focus 25"];
-
 /// Everything the drawing needs: the ring, what each segment says, and how far a turn has got.
 struct Scene {
     ring: Ring,
-    lines: [String; 7],
+    /// Each item's name and line, in the ring's order.
+    names: Vec<String>,
+    lines: Vec<String>,
     focus_running: bool,
+    /// Tracking is paused: Pause draws as Resume.
+    paused: bool,
     /// Degrees the ring is still to turn, easing to 0.
     shift: f32,
     theme: Theme,
@@ -158,8 +160,10 @@ impl Painter {
 
     unsafe fn draw(&self, rt: &ID2D1RenderTarget, scene: &Scene, scale: f32) -> Result<()> {
         let (t, inks) = (scene.theme, scene.inks);
-        // Back to front: the far ones first, the lit one last so its outline sits on top.
-        let mut order: Vec<i32> = (-3..=3).collect();
+        // Back to front: the far ones first, the lit one last so its outline sits on top. Only
+        // the places that show a different item each: all seven round the top with seven items
+        // or more, fewer with fewer.
+        let mut order = super::shown(scene.ring.items.len());
         order.sort_by(|a, b| (*b as f32 * STEP + scene.shift).abs().total_cmp(&(*a as f32 * STEP + scene.shift).abs()));
         for k in order {
             let deg = k as f32 * STEP + scene.shift;
@@ -174,7 +178,8 @@ impl Painter {
                 continue;
             }
             let lit = (1.0 - near).max(0.0);
-            let segment = scene.ring.at(k);
+            let index = scene.ring.index_at(k);
+            let segment = scene.ring.items[index];
             let ink = ink(segment, inks);
             let shape = self.band(deg, OUTER + PROUD * lit)?;
             // A soft shadow under each, then the paper, then its edge.
@@ -192,11 +197,10 @@ impl Painter {
             let (x, y) = (CENTRE.0 + r * deg.to_radians().sin(), CENTRE.1 - r * deg.to_radians().cos());
             let size = 26.0 + 8.0 * lit;
             let mark_y = if lit > 0.0 { y - 22.0 * lit } else { y };
-            self.mark(rt, segment, x, mark_y, size, alpha * if lit > 0.0 { 1.0 } else { 0.55 }, scale, &t, &inks)?;
+            self.mark(rt, segment, scene.paused, x, mark_y, size, alpha * if lit > 0.0 { 1.0 } else { 0.55 }, scale, &t, &inks)?;
             if lit > 0.6 {
                 let a = (lit - 0.6) / 0.4;
-                let index = SEGMENTS.iter().position(|s| *s == segment).unwrap_or(0);
-                self.text(rt, NAMES[index], &self.name, x, mark_y + size / 2.0 + 2.0, t.ink, a)?;
+                self.text(rt, &scene.names[index], &self.name, x, mark_y + size / 2.0 + 2.0, t.ink, a)?;
                 self.text(rt, &scene.lines[index], &self.line, x, mark_y + size / 2.0 + 22.0, t.muted, a)?;
             }
         }
@@ -242,7 +246,7 @@ impl Painter {
 
     /// A segment's logo, drawn as `src/logos.ts` draws it, in a `size` box centred on (cx, cy).
     #[allow(clippy::too_many_arguments)]
-    unsafe fn mark(&self, rt: &ID2D1RenderTarget, segment: Segment, cx: f32, cy: f32, size: f32, alpha: f32, scale: f32, t: &Theme, inks: &Inks) -> Result<()> {
+    unsafe fn mark(&self, rt: &ID2D1RenderTarget, segment: Segment, paused: bool, cx: f32, cy: f32, size: f32, alpha: f32, scale: f32, t: &Theme, inks: &Inks) -> Result<()> {
         // The drawings use a 100-unit box.
         let k = size / 100.0;
         rt.SetTransform(&Matrix3x2 { M11: k * scale, M12: 0.0, M21: 0.0, M22: k * scale, M31: (cx - size / 2.0) * scale, M32: (cy - size / 2.0) * scale });
@@ -340,6 +344,45 @@ impl Painter {
                 line((50.0, 54.0), (50.0, 36.0), t.ink, 7.0)?;
                 line((42.0, 14.0), (58.0, 14.0), t.ink, 7.0)?;
             }
+            // Two sheets, one behind the other: notes, more than one.
+            Segment::Notes => {
+                rt.DrawRoundedRectangle(&rounded(32.0, 12.0, 82.0, 74.0, 6.0), &brush(inks.ledger, 0.55)?, 5.0, None);
+                rt.FillRoundedRectangle(&rounded(18.0, 26.0, 68.0, 88.0, 6.0), &brush(t.raised, 1.0)?);
+                rt.DrawRoundedRectangle(&rounded(18.0, 26.0, 68.0, 88.0, 6.0), &brush(inks.ledger, 1.0)?, 5.0, None);
+                for (y, end) in [(44.0, 56.0), (56.0, 56.0), (68.0, 46.0)] {
+                    line((30.0, y), (end, y), inks.ledger, 4.0)?;
+                }
+            }
+            // A week's days as bars.
+            Segment::Week => {
+                for (i, h) in [30.0, 46.0, 38.0, 58.0, 26.0, 50.0, 20.0].into_iter().enumerate() {
+                    let x = 17.0 + i as f32 * 11.0;
+                    line((x, 82.0), (x, 82.0 - h), inks.chrono, 7.0)?;
+                }
+            }
+            // Three sliders.
+            Segment::Settings => {
+                for (y, knob) in [(28.0, 64.0), (50.0, 34.0), (72.0, 56.0)] {
+                    line((16.0, y), (84.0, y), t.ink, 5.0)?;
+                    rt.FillEllipse(&circle(knob, y, 9.0), &brush(inks.ribbon, 1.0)?);
+                }
+            }
+            // Two bars, or a triangle to start again.
+            Segment::Pause if paused => {
+                let play = self.d2d.CreatePathGeometry()?;
+                let sink = play.Open()?;
+                sink.BeginFigure(v(32.0, 22.0), D2D1_FIGURE_BEGIN_FILLED);
+                for p in [(78.0, 50.0), (32.0, 78.0)] {
+                    sink.AddLine(v(p.0, p.1));
+                }
+                sink.EndFigure(D2D1_FIGURE_END_CLOSED);
+                sink.Close()?;
+                rt.FillGeometry(&play, &brush(inks.chrono, 1.0)?, None);
+            }
+            Segment::Pause => {
+                line((38.0, 24.0), (38.0, 76.0), inks.chrono, 13.0)?;
+                line((62.0, 24.0), (62.0, 76.0), inks.chrono, 13.0)?;
+            }
         }
         rt.SetTransform(&Matrix3x2 { M11: scale, M12: 0.0, M21: 0.0, M22: scale, M31: 0.0, M32: 0.0 });
         Ok(())
@@ -349,10 +392,10 @@ impl Painter {
 /// The colour a segment is outlined in when lit.
 fn ink(segment: Segment, inks: Inks) -> u32 {
     match segment {
-        Segment::Chrono | Segment::Focus => inks.chrono,
-        Segment::Ledger | Segment::Task | Segment::Note => inks.ledger,
+        Segment::Chrono | Segment::Focus | Segment::Week | Segment::Pause => inks.chrono,
+        Segment::Ledger | Segment::Task | Segment::Note | Segment::Notes => inks.ledger,
         Segment::Palette => inks.palette,
-        Segment::Dashboard => inks.kairo,
+        Segment::Dashboard | Segment::Settings => inks.kairo,
     }
 }
 
@@ -497,7 +540,16 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
         None,
     )?;
     let painter = Painter::new()?;
-    let scene = Scene { ring: Ring::new(0), lines: Default::default(), focus_running: false, shift: 0.0, theme: theme_for("system"), inks: DARK_INKS };
+    let scene = Scene {
+        ring: Ring::new(super::DEFAULT.to_vec(), None),
+        names: Vec::new(),
+        lines: Vec::new(),
+        focus_running: false,
+        paused: false,
+        shift: 0.0,
+        theme: theme_for("system"),
+        inks: DARK_INKS,
+    };
     POPUP.with(|p| {
         *p.borrow_mut() = Some(Popup {
             app,
@@ -548,9 +600,10 @@ impl Popup {
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.scene.theme = theme_for(&mode);
         self.scene.inks = if self.scene.theme.bg == theme_for("light").bg { LIGHT_INKS } else { DARK_INKS };
-        self.scene.ring = Ring::new(super::last(&self.conn));
-        self.scene.lines = super::lines(&self.conn, now);
+        self.scene.ring = super::ring(&self.conn);
+        (self.scene.names, self.scene.lines) = super::faces(&self.conn, now, &self.scene.ring.items, crate::is_paused(&self.app)).into_iter().unzip();
         self.scene.focus_running = super::focus_refusal(&self.conn).is_some();
+        self.scene.paused = crate::is_paused(&self.app);
         self.scene.shift = 0.0;
         self.announce();
         self.modifier = modifier_of(&super::shortcut(&self.conn).unwrap_or_default());
@@ -624,7 +677,7 @@ impl Popup {
     /// changed: the ring is drawn, not built from controls, so this is all they have to read.
     fn announce(&self) {
         let lit = self.scene.ring.lit;
-        let name = super::spoken(NAMES[lit], &self.scene.lines[lit]);
+        let name = super::spoken(&self.scene.names[lit], &self.scene.lines[lit]);
         let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
         unsafe {
             let _ = SetWindowTextW(self.hwnd, PCWSTR(wide.as_ptr()));
@@ -634,7 +687,7 @@ impl Popup {
 
     fn pick(&mut self, index: usize) {
         self.hide();
-        let Some(segment) = SEGMENTS.get(index).copied() else { return };
+        let Some(segment) = self.scene.ring.items.get(index).copied() else { return };
         if let Err(why) = super::perform(&self.app, &self.conn, segment) {
             super::tell(&self.app, &why);
         }
@@ -670,8 +723,8 @@ impl Popup {
             VK_LEFT | VK_UP => self.turn(-1),
             VK_RETURN => self.pick(self.scene.ring.lit),
             VK_ESCAPE => self.hide(),
-            // 1 to 7 open a segment directly.
-            k if (0x31..=0x37).contains(&k.0) => self.pick((k.0 - 0x31) as usize),
+            // 1 to 9 open the first nine directly.
+            k if (0x31..=0x39).contains(&k.0) => self.pick((k.0 - 0x31) as usize),
             // The shortcut's key with Shift turns back (without Shift, Windows hands it to Kairo
             // as the shortcut, which turns on).
             k if shift && (0x41..=0x5a).contains(&k.0) => self.turn(-1),
@@ -736,7 +789,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     return;
                 }
                 if let Some(under) = p.scene.ring.hit(x, y) {
-                    p.pick(SEGMENTS.iter().position(|s| *s == under).unwrap_or(0));
+                    p.pick(under);
                 }
             });
             LRESULT(0)
@@ -752,12 +805,29 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
 
 /// Draws the ring to a PNG and returns, for looking at it without showing it: `--ring-png <file>
 /// [lit] [light|dark]`. Sample lines, no database.
-pub fn render_png(path: &Path, lit: usize, mode: &str) -> std::result::Result<(), String> {
+pub fn render_png(path: &Path, lit: &str, mode: &str) -> std::result::Result<(), String> {
     let theme = theme_for(mode);
+    let ring = match lit.parse::<usize>() {
+        Ok(at) => Ring::new(super::DEFAULT.to_vec(), super::DEFAULT.get(at).copied()),
+        Err(_) => Ring::new(super::parse_items(lit), None),
+    };
+    let sample = |s: Segment| match s {
+        Segment::Chrono => "2h 05m today",
+        Segment::Ledger => "3 due today · 1 overdue",
+        Segment::Palette => "Ctrl + Space",
+        Segment::Dashboard | Segment::Settings => "Kairo",
+        Segment::Task => "In Ledger",
+        Segment::Note | Segment::Notes => "Pop-out",
+        Segment::Focus => "25 minutes",
+        Segment::Week => "Chrono",
+        Segment::Pause => "Tracking",
+    };
     let scene = Scene {
-        ring: Ring::new(lit),
-        lines: ["2h 05m today", "3 due today · 1 overdue", "Ctrl + Space", "Kairo", "In Ledger", "In Ledger", "25 minutes"].map(String::from),
+        names: ring.items.iter().map(|s| super::name(*s, super::DEFAULT_FOCUS_MINUTES, false)).collect(),
+        lines: ring.items.iter().map(|s| sample(*s).to_string()).collect(),
+        ring,
         focus_running: false,
+        paused: false,
         shift: 0.0,
         theme,
         inks: if mode == "light" { LIGHT_INKS } else { DARK_INKS },

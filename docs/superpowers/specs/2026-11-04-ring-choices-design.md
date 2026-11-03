@@ -14,7 +14,7 @@ included, so a future app's settings show up there by being added to the list of
 - The default, and what Reset gives: `chrono, ledger, palette, dashboard, task, note, focus`.
 - Between 3 and 10 items. Saved as the setting `ring_items` (the keys, comma-separated); a saved
   list is read with unknown and repeated keys dropped, and one left with fewer than 3 is the
-  default. Synced to combined computers like the ring's shortcut.
+  default. Kept per computer, like the ring's shortcut.
 - Focus's length is the setting `ring_focus_minutes` (5 to 240, default 25); the segment says
   "Focus 45" and starts that long a session.
 - The ring opens on the item picked last, saved by key; one no longer on it opens on the first.

@@ -139,6 +139,8 @@ async function followOpen() {
   const [kind, id] = (asked ?? "").split(":");
   if (kind === "note" && id) await openNote(id);
   if (kind === "task" && id) openTask(id);
+  // Kairo's App settings: Ledger's own.
+  if (kind === "settings") show("settings");
   // The ring's New task: the Tasks view, ready to type.
   if (kind === "add") {
     show("tasks");

@@ -14,7 +14,9 @@ beforeEach(() => {
   clock = 0;
 });
 
-const open = (lit = 1) => mountRing(root, { lit, lines, focusRunning: false }, act, () => clock);
+const items = ["chrono", "ledger", "palette", "dashboard", "task", "note", "focus"] as const;
+const names = ["Chrono", "Ledger", "Palette", "Dashboard", "New task", "New note", "Focus 25"];
+const open = (lit = 1) => mountRing(root, { items: [...items], lit, names, lines, focusRunning: false }, act, () => clock);
 const key = (type: "keydown" | "keyup", k: string, extra: KeyboardEventInit = {}) => document.dispatchEvent(new KeyboardEvent(type, { key: k, ...extra }));
 const litName = () => root.querySelector(".ring-seg.lit")!.getAttribute("data-segment");
 
@@ -135,7 +137,24 @@ describe("the web ring", () => {
   });
 
   it("says when a session is running", () => {
-    mountRing(root, { lit: 6, lines, focusRunning: true }, act, () => clock);
+    mountRing(root, { items: [...items], lit: 6, names, lines, focusRunning: true }, act, () => clock);
     expect(root.querySelector(".ring-seg.lit")!.classList.contains("dim")).toBe(true);
+  });
+
+  it("draws an arranged ring, each item once, and picks by place on it", () => {
+    mountRing(root, { items: ["notes", "week", "pause"], lit: 0, names: ["All notes", "This week", "Pause tracking"], lines: ["Pop-out", "Chrono", "Tracking"], focusRunning: false }, act, () => clock);
+    expect([...root.querySelectorAll(".ring-seg")].map((s) => s.getAttribute("data-segment")).sort()).toEqual(["notes", "pause", "week"]);
+    expect(root.querySelector(".ring-name")!.textContent).toBe("All notes");
+    // Past the items on it, a number does nothing.
+    key("keydown", "5");
+    expect(act.pick).not.toHaveBeenCalled();
+    key("keydown", "3");
+    expect(act.pick).toHaveBeenCalledWith(2);
+  });
+
+  it("draws Pause as Resume while tracking is paused", () => {
+    mountRing(root, { items: ["pause", "chrono", "ledger"], lit: 0, names: ["Resume tracking", "Chrono", "Ledger"], lines: ["Paused", "", ""], focusRunning: false, paused: true }, act, () => clock);
+    expect(root.querySelector(".ring-name")!.textContent).toBe("Resume tracking");
+    expect(root.querySelector(".ring-lit svg")!.innerHTML).toContain("M32 22l46 28-46 28z");
   });
 });
