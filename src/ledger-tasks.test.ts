@@ -122,6 +122,19 @@ describe("the task list", () => {
     expect(root.querySelector("details.task-done summary")!.textContent).toBe("Done (1)");
   });
 
+  it("keeps what's being typed when the list is drawn again", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    const add = root.querySelector<HTMLInputElement>(".task-add")!;
+    add.focus();
+    add.value = "call mu";
+    // Ledger redraws every few seconds, and when tasks change elsewhere.
+    renderTaskList(root, [task("a", "Essay"), task("b", "From the laptop")], null, act);
+    const after = root.querySelector<HTMLInputElement>(".task-add")!;
+    expect(after.value).toBe("call mu");
+    expect(document.activeElement).toBe(after);
+    expect(root.querySelectorAll(".task-row").length).toBe(2);
+  });
+
   it("adds on Enter and shows what it read", async () => {
     renderTaskList(root, [], null, act);
     expect(root.querySelector(".muted.ledger-empty")!.textContent).toBe(

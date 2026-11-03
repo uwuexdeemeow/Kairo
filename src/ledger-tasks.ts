@@ -95,9 +95,41 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
 /// Draws the Tasks view: the field to add one (with what it reads under it), the open tasks by
 /// group, and the done ones folded away under "Done (n)".
 export function renderTaskList(root: HTMLElement, tasks: Task[], session: RunningSession, act: LedgerActions): void {
-  // Typing several tasks in a row keeps the field, though each add draws the list anew.
-  const typing = document.activeElement?.classList.contains("task-add") && root.contains(document.activeElement);
+  const { add, preview } = addField(root, act);
+  // The same field, put back: what's typed in it, and the caret, stay through a redraw.
+  const typing = document.activeElement === add;
   const doneOpen = root.querySelector<HTMLDetailsElement>("details.task-done")?.open ?? false;
+  const parts: Node[] = [add, preview];
+  if (!tasks.length) {
+    const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
+    art.innerHTML = logo("ledger", 64);
+    parts.push(art, h("p", { class: "muted ledger-empty" }, "Add what you're working on. Give it a day with “fri” or a priority with “!h”."));
+  }
+  for (const [group, name] of GROUPS) {
+    const these = tasks.filter((t) => t.group === group);
+    if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h3", {}, name), ...these.map((t) => row(t, session, act))));
+  }
+  const done = tasks.filter((t) => t.group === "done");
+  if (done.length) {
+    const folded = h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act))) as HTMLDetailsElement;
+    folded.open = doneOpen;
+    parts.push(folded);
+  }
+  const caret = typing ? [add.selectionStart, add.selectionEnd] : null;
+  root.replaceChildren(...parts);
+  if (caret) {
+    add.focus();
+    add.setSelectionRange(caret[0], caret[1]);
+  }
+}
+
+/// The list's "Add a task" field and the line under it saying what it reads, made once per list
+/// and kept: Ledger redraws the list every few seconds, and a new field would drop what's typed.
+const fields = new WeakMap<HTMLElement, { add: HTMLInputElement; preview: HTMLElement }>();
+
+function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElement; preview: HTMLElement } {
+  const kept = fields.get(root);
+  if (kept) return kept;
   const add = h("input", { class: "filter task-add", maxlength: "120", placeholder: "Add a task", "aria-label": "Add a task", autocomplete: "off" }) as HTMLInputElement;
   const preview = h("p", { class: "task-preview muted", "aria-live": "polite" });
   let asked = 0;
@@ -117,24 +149,8 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
     asked++;
     if (text) act.add(text);
   });
-  const parts: Node[] = [add, preview];
-  if (!tasks.length) {
-    const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
-    art.innerHTML = logo("ledger", 64);
-    parts.push(art, h("p", { class: "muted ledger-empty" }, "Add what you're working on. Give it a day with “fri” or a priority with “!h”."));
-  }
-  for (const [group, name] of GROUPS) {
-    const these = tasks.filter((t) => t.group === group);
-    if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h3", {}, name), ...these.map((t) => row(t, session, act))));
-  }
-  const done = tasks.filter((t) => t.group === "done");
-  if (done.length) {
-    const folded = h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act))) as HTMLDetailsElement;
-    folded.open = doneOpen;
-    parts.push(folded);
-  }
-  root.replaceChildren(...parts);
-  if (typing) add.focus();
+  fields.set(root, { add, preview });
+  return { add, preview };
 }
 
 /// "2026-11-08T15:00" for a time, in this computer's zone, as a datetime-local field takes it.
