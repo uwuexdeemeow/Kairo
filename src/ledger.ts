@@ -161,6 +161,8 @@ async function saveSettings() {
 
 followTheme();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
+// Kairo is one window: this goes back to its dashboard.
+$("#back-to-kairo").addEventListener("click", () => api.openDashboard());
 $("#ledger-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.addEventListener("click", () => show(b.dataset.view as View));
 $("#ledger-reminders").addEventListener("change", saveSettings);

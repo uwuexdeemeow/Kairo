@@ -12,41 +12,16 @@
   "app": {
     "windows": [
       {
-        "label": "main",
+        "label": "kairo",
         "create": false,
-        "title": "Chrono",
+        "url": "dashboard.html",
+        "title": "Kairo",
         "visible": false,
         "width": 1120,
         "height": 780,
         "minWidth": 720,
         "minHeight": 520,
-        "backgroundColor": "#0e0f12",
-        "dragDropEnabled": false
-      },
-      {
-        "label": "dashboard",
-        "create": false,
-        "url": "dashboard.html",
-        "title": "Kairo",
-        "visible": false,
-        "width": 860,
-        "height": 620,
-        "minWidth": 560,
-        "minHeight": 440,
-        "backgroundColor": "#0e0f12",
-        "dragDropEnabled": false
-      },
-      {
-        "label": "ledger",
-        "create": false,
-        "url": "ledger.html",
-        "title": "Ledger",
-        "visible": false,
-        "width": 960,
-        "height": 680,
-        "minWidth": 640,
-        "minHeight": 480,
-        "backgroundColor": "#0e0f12",
+        "backgroundColor": "#141a24",
         "dragDropEnabled": false
       }
     ],

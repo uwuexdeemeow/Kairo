@@ -2299,4 +2299,6 @@ load();
 followNavigation();
 followTheme();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("chrono", 30));
+// Kairo is one window: this goes back to its dashboard.
+$("#back-to-kairo").addEventListener("click", () => api.openDashboard());
 useDropdowns();

@@ -305,7 +305,7 @@ pub fn run() {
             palette::web::on_window_event(window, event);
             #[cfg(not(windows))]
             ring::web::on_window_event(window, event);
-            if matches!(event, tauri::WindowEvent::Destroyed) && matches!(window.label(), "main" | "dashboard" | "ledger") {
+            if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == WINDOW {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
                 let windows = app.webview_windows();
@@ -527,19 +527,60 @@ fn end_opening(label: &str) {
     OPENING.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
 }
 
-/// Whether Kairo belongs in the Dock: while Chrono, the dashboard or Ledger is open.
+/// Kairo's one window: the dashboard, Chrono or Ledger, one at a time.
+pub(crate) const WINDOW: &str = "kairo";
+
+/// What Kairo's window shows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Page {
+    Dashboard,
+    Chrono,
+    Ledger,
+}
+
+impl Page {
+    fn file(self) -> &'static str {
+        match self {
+            Page::Dashboard => "dashboard.html",
+            Page::Chrono => "index.html",
+            Page::Ledger => "ledger.html",
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Page::Dashboard => "Kairo",
+            Page::Chrono => "Chrono",
+            Page::Ledger => "Ledger",
+        }
+    }
+}
+
+/// The address of `page` beside the one the window shows, so a development build (served by
+/// Vite) and an installed one (served by Tauri) both keep their own origin.
+fn page_url(current: &tauri::Url, page: Page) -> Option<tauri::Url> {
+    current.join(page.file()).ok()
+}
+
+/// Whether the window's address is `page`'s; the bare origin counts as the dashboard.
+fn shows(current: &tauri::Url, page: Page) -> bool {
+    let path = current.path().trim_start_matches('/');
+    path == page.file() || (page == Page::Dashboard && path.is_empty())
+}
+
+/// Whether Kairo belongs in the Dock: while its window is open.
 fn keep_in_dock(open: &[&str]) -> bool {
-    open.iter().any(|l| matches!(*l, "main" | "dashboard" | "ledger"))
+    open.contains(&WINDOW)
 }
 
-/// Brings up Chrono's window, making it if it was closed.
+/// Brings up Chrono in Kairo's window.
 pub(crate) fn show_main(app: &AppHandle) {
-    show_window(app, "main");
+    show_page(app, Page::Chrono);
 }
 
-/// Brings up Ledger's window, making it if it was closed.
+/// Brings up Ledger in Kairo's window.
 pub(crate) fn show_ledger(app: &AppHandle) {
-    show_window(app, "ledger");
+    show_page(app, Page::Ledger);
 }
 
 /// Brings up Ledger on a note or task ("note:<id>", "task:<id>"). As with the dashboard's tab,
@@ -548,8 +589,8 @@ pub(crate) fn show_ledger_at(app: &AppHandle, what: &str) {
     if let Some(state) = app.try_state::<AppState>() {
         *state.ledger_open.lock().unwrap_or_else(|e| e.into_inner()) = Some(what.to_string());
     }
-    show_window(app, "ledger");
-    let _ = app.emit_to("ledger", "kairo:ledger", ());
+    show_page(app, Page::Ledger);
+    let _ = app.emit_to(WINDOW, "kairo:ledger", ());
 }
 
 /// Brings up the dashboard, on `tab` when one is given. A window made for it is still loading
@@ -561,12 +602,44 @@ pub(crate) fn show_dashboard(app: &AppHandle, tab: Option<&str>) {
     if let (Some(state), Some(tab)) = (app.try_state::<AppState>(), tab) {
         *state.dashboard_tab.lock().unwrap_or_else(|e| e.into_inner()) = Some(tab.to_string());
     }
-    show_window(app, "dashboard");
-    let _ = app.emit_to("dashboard", "kairo:dashboard", ());
+    show_page(app, Page::Dashboard);
+    let _ = app.emit_to(WINDOW, "kairo:dashboard", ());
 }
 
-/// Brings up the window `label`, making it if it was closed. It isn't kept while closed: its web
-/// view is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+/// Brings up Kairo's window on `page`: another page the window shows is swapped for it, in the
+/// same window; a closed window is made on it. The window isn't kept while closed: its web view
+/// is most of the memory Kairo would use, and Kairo spends most of its time in the tray.
+pub(crate) fn show_page(app: &AppHandle, page: Page) {
+    in_dock(app, true);
+    if let Some(window) = app.get_webview_window(WINDOW) {
+        if let Ok(current) = window.url() {
+            if !shows(&current, page) {
+                if let Some(url) = page_url(&current, page) {
+                    let _ = window.navigate(url);
+                }
+            }
+        }
+        let _ = window.set_title(page.title());
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+    // Making a web view from inside one of Windows' callbacks (a tray click, a menu) can hang,
+    // so it's made on a thread of its own.
+    if !begin_opening(WINDOW) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = open_window(&app, WINDOW, Some(page)) {
+            eprintln!("cannot open Kairo's window: {e}");
+        }
+        end_opening(WINDOW);
+    });
+}
+
+/// Brings up the window `label`, making it if it was closed.
 pub(crate) fn show_window(app: &AppHandle, label: &str) {
     in_dock(app, true);
     if let Some(window) = app.get_webview_window(label) {
@@ -583,7 +656,7 @@ pub(crate) fn show_window(app: &AppHandle, label: &str) {
     let app = app.clone();
     let label = label.to_string();
     std::thread::spawn(move || {
-        if let Err(e) = open_window(&app, &label) {
+        if let Err(e) = open_window(&app, &label, None) {
             eprintln!("cannot open the {label} window: {e}");
         }
         end_opening(&label);
@@ -604,12 +677,17 @@ fn in_dock(app: &AppHandle, shown: bool) {
     let _ = (app, shown);
 }
 
-fn open_window(app: &AppHandle, label: &str) -> tauri::Result<()> {
+fn open_window(app: &AppHandle, label: &str, page: Option<Page>) -> tauri::Result<()> {
     if app.get_webview_window(label).is_some() {
         return Ok(());
     }
     let Some(config) = app.config().app.windows.iter().find(|w| w.label == label) else { return Ok(()) };
-    let window = tauri::WebviewWindowBuilder::from_config(app, config)?.build()?;
+    let mut config = config.clone();
+    if let Some(page) = page {
+        config.url = tauri::WebviewUrl::App(page.file().into());
+        config.title = page.title().into();
+    }
+    let window = tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
     // Before setup has made the state (a second launch), the window opens in the default colors.
     let mode = app
         .try_state::<AppState>()
@@ -632,7 +710,7 @@ pub(crate) fn open_main_to(app: &AppHandle, view: &str, date: Option<NaiveDate>,
     let target = Navigation { view: view.to_string(), date: date.map(|d| d.format("%Y-%m-%d").to_string()), target: target.map(str::to_string) };
     *app.state::<AppState>().navigation.lock().unwrap_or_else(|e| e.into_inner()) = Some(target);
     show_main(app);
-    let _ = app.emit_to("main", "kairo:navigate", ());
+    let _ = app.emit_to(WINDOW, "kairo:navigate", ());
 }
 
 #[cfg(test)]
@@ -658,10 +736,20 @@ mod tests {
     }
 
     #[test]
+    fn a_page_change_keeps_the_windows_own_origin() {
+        let url = |s: &str| s.parse::<tauri::Url>().unwrap();
+        assert_eq!(page_url(&url("http://tauri.localhost/dashboard.html"), Page::Ledger).unwrap().as_str(), "http://tauri.localhost/ledger.html");
+        assert_eq!(page_url(&url("http://localhost:1420/ledger.html?x=1"), Page::Chrono).unwrap().as_str(), "http://localhost:1420/index.html");
+        assert_eq!(page_url(&url("tauri://localhost/index.html"), Page::Dashboard).unwrap().as_str(), "tauri://localhost/dashboard.html");
+        assert!(shows(&url("http://tauri.localhost/ledger.html"), Page::Ledger));
+        assert!(!shows(&url("http://tauri.localhost/ledger.html"), Page::Chrono));
+        assert!(shows(&url("http://tauri.localhost/"), Page::Dashboard));
+    }
+
+    #[test]
     fn kairo_stays_in_the_dock_while_either_window_is_open() {
-        assert!(keep_in_dock(&["dashboard"]));
-        assert!(keep_in_dock(&["ledger"]));
-        assert!(keep_in_dock(&["main", "palette"]));
+        assert!(keep_in_dock(&["kairo"]));
+        assert!(keep_in_dock(&["kairo", "palette"]));
         assert!(!keep_in_dock(&["palette", "blocked"]));
         assert!(!keep_in_dock(&[]));
     }
