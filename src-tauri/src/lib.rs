@@ -26,6 +26,7 @@ mod projects;
 mod quick_add;
 mod recap;
 mod reminders;
+mod ring;
 mod schedule;
 mod startup;
 mod sync;
