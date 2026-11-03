@@ -1336,6 +1336,13 @@ function setTimerMinutes(minutes: number) {
 /// Whether the watch last showed a session about to end, so its finish can pulse.
 let watchRan = false;
 
+/// The big timer's digits; an hour or more ("1:30:00") is set smaller, so it stays inside the ring.
+function setTimerTime(text: string) {
+  const time = $("#timer-time");
+  time.textContent = text;
+  time.classList.toggle("hours", text.split(":").length > 2);
+}
+
 function paintTimer() {
   const running = runningFocus();
   $("#timer-setup").hidden = !!running;
@@ -1344,7 +1351,7 @@ function paintTimer() {
   if (!running) {
     $("#timer-eyebrow").textContent = "Focus";
     $("#timer-title").textContent = "Start a focus session";
-    time.textContent = fmtElapsed(timerMinutes * 60_000);
+    setTimerTime(fmtElapsed(timerMinutes * 60_000));
     time.classList.remove("paused");
     $("#timer-sub").textContent = "";
     $("#timer-minutes").textContent = `${timerMinutes} min`;
@@ -1362,7 +1369,7 @@ function paintTimer() {
   const paused = running.pausedAt !== null;
   $("#timer-eyebrow").textContent = paused ? "Focus · paused" : "Focus · in progress";
   $("#timer-title").textContent = running.label ?? "Focusing";
-  time.textContent = fmtElapsed(left);
+  setTimerTime(fmtElapsed(left));
   time.classList.toggle("paused", paused);
   $("#timer-sub").textContent = paused ? "Paused. Distraction nudges are off until you resume." : `Ends at ${fmtClock(Date.now() + left)}`;
   const ring = $("#timer-ring");

@@ -1362,6 +1362,11 @@ html.palette-root {
   font-variant-numeric: tabular-nums;
 }
 
+/* With hours ("1:30:00") the digits step down, so even 4:00:00 stays inside the ring. */
+.timer-time.hours {
+  font-size: 48px;
+}
+
 /* A paused clock dims, so it reads as stopped at a glance. */
 .timer-time.paused {
   color: var(--faint);
