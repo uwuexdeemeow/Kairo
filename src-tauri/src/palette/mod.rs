@@ -16,11 +16,13 @@ use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use crate::analysis::Category;
 use crate::goals::Kind;
 use crate::{db, focus, goals};
+use mode::Mode;
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
 pub mod calc;
 pub mod cards;
 pub mod files;
+pub mod mode;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
@@ -519,7 +521,8 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             }
             Ok(())
         }
-        Action::Nothing => Ok(()),
+        // The palettes put themselves in the mode before it would get here.
+        Action::EnterMode(_) | Action::Nothing => Ok(()),
     }
 }
 
@@ -584,17 +587,7 @@ impl From<&Item> for ItemView {
             Icon::App(path) => IconView::App { path: path.clone() },
             Icon::File(path) => IconView::File { path: path.clone(), file_kind: files::file_kind(path) },
             Icon::Glyph(glyph, tone) => IconView::Glyph {
-                glyph: match glyph {
-                    Glyph::Focus => "focus",
-                    Glyph::Day => "day",
-                    Glyph::Chart => "chart",
-                    Glyph::Tag => "tag",
-                    Glyph::Settings => "settings",
-                    Glyph::Today => "today",
-                    Glyph::Alert => "alert",
-                    Glyph::Calc => "calc",
-                    Glyph::Search => "search",
-                },
+                glyph: glyph_name(*glyph),
                 tone: match tone {
                     Tone::Plain => "",
                     Tone::Accent => "accent",
@@ -615,6 +608,39 @@ impl From<&Item> for ItemView {
     }
 }
 
+/// A glyph's name as the web palette draws it.
+fn glyph_name(glyph: Glyph) -> &'static str {
+    match glyph {
+        Glyph::Focus => "focus",
+        Glyph::Day => "day",
+        Glyph::Chart => "chart",
+        Glyph::Tag => "tag",
+        Glyph::Settings => "settings",
+        Glyph::Today => "today",
+        Glyph::Alert => "alert",
+        Glyph::Calc => "calc",
+        Glyph::Search => "search",
+    }
+}
+
+/// The palette's mode as the web palette draws its bubble.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeView {
+    /// What to hand back with the next query (`mode::Mode::key`).
+    key: String,
+    name: &'static str,
+    glyph: &'static str,
+    /// The input's hint while the bubble is there.
+    hint: String,
+}
+
+impl From<Mode> for ModeView {
+    fn from(mode: Mode) -> Self {
+        ModeView { key: mode.key(), name: mode.name(), glyph: glyph_name(mode.glyph()), hint: mode.hint() }
+    }
+}
+
 /// Results for the web palette: rows, then (with nothing typed) recent apps as tiles and places
 /// as chips. Items are numbered across all three, in that order.
 #[derive(Serialize)]
@@ -625,12 +651,27 @@ pub struct Results {
     rows: Vec<ItemView>,
     tiles: Vec<ItemView>,
     chips: Vec<ItemView>,
+    /// The mode these were found in, for the bubble; None for an ordinary search.
+    mode: Option<ModeView>,
+    /// What the input should now hold, when it changed: a short word typed at its start became
+    /// the bubble, leaving what came after it.
+    text: Option<String>,
 }
 
 impl Results {
     /// Which query these answer.
     pub fn seq(&self) -> u64 {
         self.seq
+    }
+
+    /// The mode these were found in.
+    pub fn mode(&self) -> Option<Mode> {
+        self.mode.as_ref().and_then(|m| Mode::from_key(&m.key))
+    }
+
+    /// What was searched for: the text after the bubble, when a short word became one.
+    pub fn text(&self) -> Option<&str> {
+        self.text.as_deref()
     }
 }
 
@@ -649,6 +690,8 @@ struct SessionState {
     seq: u64,
     /// What was typed for the results numbered `seq`, to ask again after a switch flips.
     query: String,
+    /// The mode it was typed in.
+    mode: Option<Mode>,
 }
 
 /// The web palette between keystrokes: what was known when it opened, and what it last showed.
@@ -666,36 +709,50 @@ impl Session {
         s.seq += 1;
     }
 
-    pub fn query(&self, query: &str) -> Results {
-        self.answer(query, None)
+    /// Results for `query` typed in `mode`. With no mode, a short word and a space at its start
+    /// ("gh ") puts the palette in that word's mode, and the results say so.
+    pub fn query(&self, query: &str, mode: Option<Mode>) -> Results {
+        match mode {
+            None => match mode::shortcut(query) {
+                Some((mode, rest)) => {
+                    let mut results = self.answer(rest, Some(mode), None);
+                    results.text = Some(rest.to_string());
+                    results
+                }
+                None => self.answer(query, None, None),
+            },
+            Some(_) => self.answer(query, mode, None),
+        }
     }
 
     /// The results for what was last typed, asked again after `switch` refused to flip: its row
     /// keeps its state and says why on its second line.
     pub fn refused(&self, switch: settings::Switch, why: &str) -> Results {
-        let query = self.last_query();
-        self.answer(&query, Some((switch, why)))
+        let (query, mode) = self.last();
+        self.answer(&query, mode, Some((switch, why)))
     }
 
     /// Results for `query`, numbered afresh, with a refused switch's reason on its row.
-    fn answer(&self, query: &str, refused: Option<(settings::Switch, &str)>) -> Results {
+    fn answer(&self, query: &str, mode: Option<Mode>, refused: Option<(settings::Switch, &str)>) -> Results {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         s.seq += 1;
         s.query = query.to_string();
-        let (rows, tiles, chips) = match &s.ctx {
-            None => (Vec::new(), Vec::new(), Vec::new()),
-            Some(ctx) if query.trim().is_empty() => {
+        s.mode = mode;
+        let (rows, tiles, chips) = match (&s.ctx, mode) {
+            (None, _) => (Vec::new(), Vec::new(), Vec::new()),
+            (Some(ctx), Some(mode)) => (search::search_in(ctx, mode, query), Vec::new(), Vec::new()),
+            (Some(ctx), None) if query.trim().is_empty() => {
                 let found = search::suggestions(ctx);
                 (found.rows, found.tiles, found.chips)
             }
-            Some(ctx) => (search::search(ctx, query), Vec::new(), Vec::new()),
+            (Some(ctx), None) => (search::search(ctx, query), Vec::new(), Vec::new()),
         };
         let mut rows = rows;
         if let Some((switch, why)) = refused {
             say_refused(&mut rows, switch, why);
         }
         let view = |items: &[Item]| items.iter().map(ItemView::from).collect();
-        let results = Results { seq: s.seq, rows: view(&rows), tiles: view(&tiles), chips: view(&chips) };
+        let results = Results { seq: s.seq, rows: view(&rows), tiles: view(&tiles), chips: view(&chips), mode: mode.map(ModeView::from), text: None };
         s.items = rows.into_iter().chain(tiles).chain(chips).collect();
         results
     }
@@ -706,9 +763,11 @@ impl Session {
         (s.seq == seq).then(|| s.items.get(index).cloned()).flatten()
     }
 
-    /// What was typed for the latest results, to ask again after a switch flips.
-    pub fn last_query(&self) -> String {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).query.clone()
+    /// What was typed for the latest results, and in which mode, to ask again after a switch
+    /// flips.
+    pub fn last(&self) -> (String, Option<Mode>) {
+        let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        (s.query.clone(), s.mode)
     }
 
     /// Adds file rows after the rows of the results numbered `seq`, and returns how they're drawn.
@@ -725,10 +784,10 @@ impl Session {
         Some(views)
     }
 
-    /// Whether files are searched for `query`: the switch is on and enough is typed.
-    pub fn wants_files(&self, query: &str) -> bool {
+    /// Whether files are searched for `query` typed in `mode`.
+    pub fn wants_files(&self, query: &str, mode: Option<Mode>) -> bool {
         let s = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        s.ctx.as_ref().is_some_and(|c| wants_files(c, query))
+        s.ctx.as_ref().is_some_and(|c| wants_files(c, query, mode))
     }
 
     /// Records that a switch was flipped, so the next results show its new state, and turns on
@@ -767,9 +826,19 @@ pub fn say_refused(items: &mut [Item], switch: settings::Switch, why: &str) {
     }
 }
 
-/// Whether files are searched for `query`, in either palette: the switch is on and enough is typed.
-pub fn wants_files(ctx: &Context, query: &str) -> bool {
-    ctx.search_files && query.trim().chars().count() >= files::MIN_CHARS
+/// Whether files are searched for `query` typed in `mode`, in either palette: the switch is on,
+/// enough is typed, and the palette is in no mode or in Files mode.
+pub fn wants_files(ctx: &Context, query: &str, mode: Option<Mode>) -> bool {
+    matches!(mode, None | Some(Mode::Files)) && ctx.search_files && query.trim().chars().count() >= files::MIN_CHARS
+}
+
+/// How many file rows to look for in `mode`: more in Files mode, where they're all it shows.
+pub fn files_wanted(mode: Option<Mode>) -> usize {
+    if mode == Some(Mode::Files) {
+        files::MODE_MAX_FILES
+    } else {
+        files::MAX_FILES
+    }
 }
 
 /// Records in `ctx` that a switch was flipped, in either palette, so the next results show its new
@@ -1054,9 +1123,9 @@ mod tests {
         let session = Session::default();
         let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
         session.open(ctx(today));
-        let first = session.query("");
+        let first = session.query("", None);
         assert!(!first.chips.is_empty());
-        let second = session.query("yesterday");
+        let second = session.query("yesterday", None);
         assert!(second.rows[0].preview);
         // An item from results that have been replaced isn't run.
         assert!(session.item(first.seq, 0).is_none());
@@ -1064,11 +1133,30 @@ mod tests {
     }
 
     #[test]
+    fn a_short_word_becomes_a_mode_and_a_mode_keeps_to_itself() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        // "gh " is GitHub's bubble, with what came after it left to search.
+        let gh = session.query("gh tauri", None);
+        assert_eq!((gh.mode(), gh.text()), (Some(Mode::Web(4)), Some("tauri")));
+        assert_eq!(session.item(gh.seq, 0).map(|i| i.action), Some(Action::OpenUrl("https://github.com/search?q=tauri".into())));
+        assert_eq!(session.last(), ("tauri".to_string(), Some(Mode::Web(4))));
+        // In a mode, its rows alone, and files only in Files mode.
+        let calc = session.query("2+2", Some(Mode::Calc));
+        assert_eq!((calc.rows.len(), calc.mode(), calc.text()), (1, Some(Mode::Calc), None));
+        assert!(!session.wants_files("budget", Some(Mode::Calc)));
+        assert!(session.wants_files("budget", Some(Mode::Files)));
+        assert_eq!((files_wanted(Some(Mode::Files)), files_wanted(None)), (files::MODE_MAX_FILES, files::MAX_FILES));
+        // With no mode, nothing changes.
+        assert_eq!(session.query("yesterday", None).mode(), None);
+    }
+
+    #[test]
     fn files_for_an_old_query_are_dropped() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
-        let first = session.query("bu");
-        let second = session.query("bud");
+        let first = session.query("bu", None);
+        let second = session.query("bud", None);
         let shown = second.rows.len();
         let before: Vec<_> = (0..shown).map(|i| session.item(second.seq, i).map(|i| i.action)).collect();
         assert!(session.add_files(first.seq, budget_files()).is_none());
@@ -1082,17 +1170,17 @@ mod tests {
     fn files_for_the_last_opening_are_dropped() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
-        let old = session.query("bud");
+        let old = session.query("bud", None);
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
         assert!(session.add_files(old.seq, budget_files()).is_none());
-        assert_eq!(session.last_query(), "");
+        assert_eq!(session.last().0, "");
     }
 
     #[test]
     fn files_join_the_end_of_the_rows() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
-        let results = session.query("bud");
+        let results = session.query("bud", None);
         let files = budget_files();
         let first = files[0].clone();
         let views = session.add_files(results.seq, files).expect("current files are added");
@@ -1107,7 +1195,7 @@ mod tests {
     fn files_never_follow_the_suggestions() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
-        let results = session.query("");
+        let results = session.query("", None);
         assert!(session.add_files(results.seq, budget_files()).is_none());
     }
 
@@ -1115,10 +1203,10 @@ mod tests {
     fn files_are_wanted_for_two_letters_with_the_switch_on() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
-        assert!(!session.wants_files(" b "));
-        assert!(session.wants_files("bu"));
+        assert!(!session.wants_files(" b ", None));
+        assert!(session.wants_files("bu", None));
         session.set_switch(settings::Switch::SearchFiles, false);
-        assert!(!session.wants_files("budget"));
+        assert!(!session.wants_files("budget", None));
     }
 
     #[test]
@@ -1130,7 +1218,7 @@ mod tests {
         let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
         c.switches = vec![(settings::Switch::Blocking, true)];
         session.open(c);
-        let before = session.query("focus blocking");
+        let before = session.query("focus blocking", None);
         let why = settings::flip_stored(&conn, settings::Switch::Blocking).unwrap_err();
         assert_eq!(why, crate::blocking::STRICT_REFUSAL);
         let after = session.refused(settings::Switch::Blocking, &why);
@@ -1141,7 +1229,7 @@ mod tests {
         assert_eq!(session.item(after.seq, at).and_then(|i| i.sub), Some(why.clone()));
         assert!(crate::blocking::settings(&conn).unwrap().enabled);
         // Asked again as usual, the row is back to naming its page.
-        let again = session.query(&session.last_query());
+        let again = session.query(&session.last().0, None);
         assert_eq!(again.rows[at].sub.as_deref(), Some("Chrono settings"));
     }
 
@@ -1151,10 +1239,10 @@ mod tests {
         let mut c = ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
         c.switches = vec![(settings::Switch::Nudges, false)];
         session.open(c);
-        session.query("focus nudges");
-        let before = session.query(&session.last_query());
+        session.query("focus nudges", None);
+        let before = session.query(&session.last().0, None);
         session.set_switch(settings::Switch::Nudges, true);
-        let after = session.query(&session.last_query());
+        let after = session.query(&session.last().0, None);
         assert!(after.seq > before.seq);
         assert_ne!(serde_json::to_string(&before.rows).unwrap(), serde_json::to_string(&after.rows).unwrap());
     }

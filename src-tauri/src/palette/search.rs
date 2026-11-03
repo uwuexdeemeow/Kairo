@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
 
 use super::calc;
+use super::mode::{self, Mode};
 use super::settings::{self, Switch};
 use super::AppEntry;
 use crate::analysis::Category;
@@ -15,7 +16,7 @@ const MAX_APPS: usize = 6;
 const MAX_TASKS: usize = 8;
 /// Web searches by a short word before what's searched for: the word, the site's name, and the
 /// address the search goes on the end of.
-const WEB: [(&str, &str, &str); 6] = [
+pub const WEB: [(&str, &str, &str); 6] = [
     ("g", "Google", "https://www.google.com/search?q="),
     ("yt", "YouTube", "https://www.youtube.com/results?search_query="),
     ("ddg", "DuckDuckGo", "https://duckduckgo.com/?q="),
@@ -23,9 +24,6 @@ const WEB: [(&str, &str, &str); 6] = [
     ("gh", "GitHub", "https://github.com/search?q="),
     ("maps", "Google Maps", "https://www.google.com/maps/search/"),
 ];
-/// Where a web search ranks: below the commands and above most matches, though an app whose
-/// name the whole query starts, like GitHub Desktop for "gh", is no web search anyway.
-const WEB_SCORE: f64 = 800.0;
 /// Window rows shown at most.
 const MAX_WINDOWS: usize = 8;
 /// A window that matches by its app's name ranks this far below one that matches by title.
@@ -324,6 +322,8 @@ pub enum Action {
     Toggle(Switch),
     /// Jumps to a setting's control, by its element id.
     Setting(&'static str),
+    /// Puts the palette in a mode, shown as a bubble in the input (mode.rs).
+    EnterMode(Mode),
     /// Does nothing, for a row that only says something.
     Nothing,
 }
@@ -337,7 +337,7 @@ impl Action {
 
     /// Whether the palette stays open after it, to show the new state.
     pub fn keeps_palette_open(&self) -> bool {
-        matches!(self, Action::Toggle(..))
+        matches!(self, Action::Toggle(..) | Action::EnterMode(..))
     }
 }
 
@@ -564,6 +564,15 @@ fn after<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
     query.get(..prefix.len()).filter(|head| head.eq_ignore_ascii_case(prefix)).map(|_| &query[prefix.len()..])
 }
 
+/// The row that adds `title` to Ledger as a task, saying what quick-add reads off its end.
+fn add_task_item(ctx: &Context, title: &str) -> Item {
+    let read = crate::quick_add::parse(title, ctx.today, ctx.day_first);
+    let mut item = Item::new(format!("Add task “{}”", read.title), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
+    let shown = crate::quick_add::describe(&read);
+    item.sub = Some(if shown.is_empty() { "In Ledger".into() } else { format!("{shown} · In Ledger") });
+    item
+}
+
 /// Rows for the task list: `tasks` lists the open ones (more words filter them), and
 /// `task <title>` or `add task <title>` offers to add one.
 fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
@@ -571,10 +580,7 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
     // "add task" always means it; a bare "task" ranks below an app it names, like Task Manager.
     let adding = [("add task ", 1000.0), ("task ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
     if let Some((title, score)) = adding {
-        let read = crate::quick_add::parse(title, ctx.today, ctx.day_first);
-        let mut item = Item::new(format!("Add task “{}”", read.title), Icon::Glyph(Glyph::Focus, Tone::Plain), "Tasks", Action::AddTask(title.to_string()));
-        let shown = crate::quick_add::describe(&read);
-        item.sub = Some(if shown.is_empty() { "In Ledger".into() } else { format!("{shown} · In Ledger") });
+        let mut item = add_task_item(ctx, title);
         item.score = score;
         return vec![item];
     }
@@ -585,6 +591,11 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
     } else {
         return Vec::new();
     };
+    task_rows(ctx, rest)
+}
+
+/// The open tasks whose title `rest` matches, all of them for nothing, in Ledger's order.
+fn task_rows(ctx: &Context, rest: &str) -> Vec<Item> {
     ctx.tasks
         .iter()
         .filter_map(|t| fuzzy(rest, &t.title).map(|m| (t, m)))
@@ -605,6 +616,35 @@ fn task_items(ctx: &Context, query: &str) -> Vec<Item> {
         .collect()
 }
 
+fn new_note_item(text: &str) -> Item {
+    let mut item = Item::new(format!("New note “{text}”"), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::NewNote(text.to_string()));
+    item.sub = Some("In Ledger".into());
+    item
+}
+
+fn open_note_item(n: &NoteEntry) -> Item {
+    let mut item = Item::new(n.title.clone(), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::OpenNote(n.id.clone()));
+    item.sub = Some("Open in Ledger".into());
+    item
+}
+
+/// The notes whose title or text has `rest`, all of them for nothing, pinned then newest.
+fn note_rows(ctx: &Context, rest: &str) -> Vec<Item> {
+    let rest_lower = rest.to_lowercase();
+    ctx.notes
+        .iter()
+        .filter(|n| rest.is_empty() || fuzzy(rest, &n.title).is_some() || n.text.contains(&rest_lower))
+        .take(MAX_TASKS)
+        .enumerate()
+        .map(|(i, n)| {
+            let mut item = open_note_item(n);
+            item.at = fuzzy(rest, &n.title).map(|m| m.at).unwrap_or_default();
+            item.score = 1100.0 - i as f64;
+            item
+        })
+        .collect()
+}
+
 /// Ledger's notes shown for any query, at most this many.
 const MAX_NOTES: usize = 3;
 
@@ -614,32 +654,13 @@ fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
     let starting = [("new note ", 1000.0), ("note ", 90.0)].into_iter().find_map(|(p, score)| after(q, p).map(|t| (t.trim(), score))).filter(|(t, _)| !t.is_empty());
     if let Some((text, score)) = starting {
-        let mut item = Item::new(format!("New note “{text}”"), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::NewNote(text.to_string()));
-        item.sub = Some("In Ledger".into());
+        let mut item = new_note_item(text);
         item.score = score;
         return vec![item];
     }
-    let open = |n: &NoteEntry| {
-        let mut item = Item::new(n.title.clone(), Icon::Glyph(Glyph::Tag, Tone::Plain), "Notes", Action::OpenNote(n.id.clone()));
-        item.sub = Some("Open in Ledger".into());
-        item
-    };
     let listing = if q.eq_ignore_ascii_case("notes") { Some("") } else { after(q, "notes ").map(str::trim) };
     if let Some(rest) = listing {
-        let rest_lower = rest.to_lowercase();
-        return ctx
-            .notes
-            .iter()
-            .filter(|n| rest.is_empty() || fuzzy(rest, &n.title).is_some() || n.text.contains(&rest_lower))
-            .take(MAX_TASKS)
-            .enumerate()
-            .map(|(i, n)| {
-                let mut item = open(n);
-                item.at = fuzzy(rest, &n.title).map(|m| m.at).unwrap_or_default();
-                item.score = 1100.0 - i as f64;
-                item
-            })
-            .collect();
+        return note_rows(ctx, rest);
     }
     if q.chars().count() < 2 {
         return Vec::new();
@@ -656,7 +677,7 @@ fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
                 None if n.text.contains(&lower) => 40.0,
                 None => return None,
             };
-            let mut item = open(n);
+            let mut item = open_note_item(n);
             item.at = by_title.map(|m| m.at).unwrap_or_default();
             item.score = score;
             Some(item)
@@ -671,7 +692,12 @@ fn note_items(ctx: &Context, query: &str) -> Vec<Item> {
 /// `windows` alone lists them all, front to back.
 fn window_items(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
-    let mut found: Vec<(f64, Vec<usize>, &WindowEntry)> = if q.eq_ignore_ascii_case("windows") {
+    window_rows(ctx, q, q.eq_ignore_ascii_case("windows"))
+}
+
+/// Open windows matching `q`, or with `all` every one of them, front to back.
+fn window_rows(ctx: &Context, q: &str, all: bool) -> Vec<Item> {
+    let mut found: Vec<(f64, Vec<usize>, &WindowEntry)> = if all {
         ctx.windows.iter().enumerate().map(|(i, w)| (LISTED_WINDOW_SCORE - i as f64, Vec::new(), w)).collect()
     } else {
         ctx.windows
@@ -712,12 +738,67 @@ fn web_item(title: String, url: String, score: f64) -> Item {
     item
 }
 
-/// A web search when the query starts with one of the short words and a space, like "yt lofi".
-fn web_shortcut(query: &str) -> Option<Item> {
-    let (word, rest) = query.trim().split_once(' ')?;
-    let rest = rest.trim();
-    let (_, site, address) = WEB.iter().find(|(w, _, _)| w.eq_ignore_ascii_case(word)).filter(|_| !rest.is_empty())?;
-    Some(web_item(format!("Search {site} for “{rest}”"), format!("{address}{}", url_escape(rest)), WEB_SCORE))
+
+/// A row that only says something, like a mode's hint before anything is typed.
+fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static str) -> Item {
+    Item::new(title, Icon::Glyph(glyph, Tone::Plain), section, Action::Nothing)
+}
+
+/// What `text` means with the palette in `mode`: that mode's rows alone. Files come from the
+/// system's index afterwards, as they do for an ordinary search.
+pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
+    let q = text.trim();
+    match mode {
+        Mode::Calc => match calc::evaluate(q) {
+            Some(answer) => {
+                let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
+                item.sub = Some(q.to_string());
+                item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
+                vec![item]
+            }
+            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80 or 5 km in mi", Glyph::Calc, "Calculator")],
+            None => vec![note_row("Not a sum yet", Glyph::Calc, "Calculator")],
+        },
+        Mode::Web(i) => {
+            let (_, site, address) = WEB[i];
+            if q.is_empty() {
+                vec![note_row(format!("Type what to search {site} for"), Glyph::Search, "Web")]
+            } else {
+                vec![web_item(format!("Search {site} for “{q}”"), format!("{address}{}", url_escape(q)), 0.0)]
+            }
+        }
+        Mode::Files if !ctx.search_files => {
+            let mut item = Item::new("File search is off", Icon::Glyph(Glyph::Settings, Tone::Plain), "Files", Action::Setting("palette-search-files"));
+            item.sub = Some("Turn it on in Kairo's settings".into());
+            vec![item]
+        }
+        Mode::Files if q.chars().count() < super::files::MIN_CHARS => vec![note_row("Type part of a file's name", Glyph::Search, "Files")],
+        Mode::Files => Vec::new(),
+        Mode::Windows => {
+            let found = window_rows(ctx, q, q.is_empty());
+            if found.is_empty() {
+                vec![note_row(if ctx.windows.is_empty() { "No open windows" } else { "No window matches" }, Glyph::Search, "Windows")]
+            } else {
+                found
+            }
+        }
+        Mode::Tasks => {
+            let found = task_rows(ctx, q);
+            match (found.is_empty(), q.is_empty()) {
+                (false, _) => found,
+                (true, false) => vec![add_task_item(ctx, q)],
+                (true, true) => vec![note_row("No open tasks. Type one to add it", Glyph::Focus, "Tasks")],
+            }
+        }
+        Mode::Notes => {
+            let found = note_rows(ctx, q);
+            match (found.is_empty(), q.is_empty()) {
+                (false, _) => found,
+                (true, false) => vec![new_note_item(q)],
+                (true, true) => vec![note_row("No notes yet. Type one to start it", Glyph::Tag, "Notes")],
+            }
+        }
+    }
 }
 
 /// What a typed query could mean, best first: the top match, then the rest by section.
@@ -847,7 +928,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
 
-    items.extend(web_shortcut(query));
+    items.extend(mode::rows(query));
     // With nothing else to offer, the web is.
     if items.is_empty() && !query.trim().is_empty() {
         let q = query.trim();
@@ -1352,9 +1433,15 @@ mod tests {
         items.iter().find(|i| i.section == "Web")
     }
 
+    /// What typing `text` shows once a leading short word has become its bubble.
+    fn typed(c: &Context, text: &str) -> Vec<Item> {
+        let (m, rest) = mode::shortcut(text).expect("a short word");
+        search_in(c, m, rest)
+    }
+
     #[test]
-    fn web_shortcuts_search_the_right_site() {
-        let first = &search(&ctx(), "yt lofi beats")[0];
+    fn web_modes_search_the_right_site() {
+        let first = &typed(&ctx(), "yt lofi beats")[0];
         assert_eq!(first.title, "Search YouTube for “lofi beats”");
         assert_eq!(first.action, Action::OpenUrl("https://www.youtube.com/results?search_query=lofi%20beats".into()));
         for (q, url) in [
@@ -1365,13 +1452,72 @@ mod tests {
             ("gh tauri", "https://github.com/search?q=tauri"),
             ("maps changi airport", "https://www.google.com/maps/search/changi%20airport"),
         ] {
-            assert_eq!(web_row(&search(&ctx(), q)).map(|i| &i.action), Some(&Action::OpenUrl(url.into())), "{q}");
+            assert_eq!(web_row(&typed(&ctx(), q)).map(|i| &i.action), Some(&Action::OpenUrl(url.into())), "{q}");
         }
+        // Before anything is typed after it, the bubble only says what to do.
+        let empty = typed(&ctx(), "gh ");
+        assert_eq!((empty[0].title.as_str(), &empty[0].action), ("Type what to search GitHub for", &Action::Nothing));
     }
 
     #[test]
     fn searches_are_encoded_for_an_address() {
-        assert_eq!(web_row(&search(&ctx(), "g a&b ü/#")).map(|i| &i.action), Some(&Action::OpenUrl("https://www.google.com/search?q=a%26b%20%C3%BC%2F%23".into())));
+        assert_eq!(web_row(&typed(&ctx(), "g a&b ü/#")).map(|i| &i.action), Some(&Action::OpenUrl("https://www.google.com/search?q=a%26b%20%C3%BC%2F%23".into())));
+    }
+
+    #[test]
+    fn a_site_name_offers_its_search_beside_its_app() {
+        let mut c = ctx();
+        c.apps.push(app("GitHub Desktop", 0));
+        let found = search(&c, "github");
+        assert_eq!(found[0].title, "GitHub Desktop");
+        assert!(found.iter().any(|i| i.action == Action::EnterMode(Mode::Web(4)) && i.title == "Search GitHub"));
+        // The short words are bubbles now: ordinary search doesn't search a site for them.
+        assert!(search(&c, "gh tauri").iter().all(|i| !matches!(&i.action, Action::OpenUrl(u) if u.contains("github"))));
+        assert!(Action::EnterMode(Mode::Calc).keeps_palette_open());
+    }
+
+    #[test]
+    fn the_calculator_mode_works_out_anything_it_can() {
+        let c = ctx();
+        assert_eq!(search_in(&c, Mode::Calc, "2^10")[0].title, "1024");
+        assert_eq!(search_in(&c, Mode::Calc, "sqrt 16")[0].title, "4");
+        assert!(search_in(&c, Mode::Calc, "pi")[0].title.starts_with("3.14159"));
+        let bad = &search_in(&c, Mode::Calc, "2 +")[0];
+        assert_eq!((bad.title.as_str(), &bad.action), ("Not a sum yet", &Action::Nothing));
+        assert_eq!(search_in(&c, Mode::Calc, "").len(), 1);
+        // Copying the answer, or with Ctrl+Enter the number alone.
+        let unit = &search_in(&c, Mode::Calc, "5 km to mi")[0];
+        assert!(matches!(unit.action, Action::Copy(_)) && unit.second.is_some());
+    }
+
+    #[test]
+    fn task_and_note_modes_list_find_and_add() {
+        let mut c = ctx();
+        c.tasks = vec![task("a", "Essay draft"), task("b", "Buy milk")];
+        c.notes = vec![NoteEntry { id: "n1".into(), title: "Ring ideas".into(), text: "ring ideas".into() }];
+        assert_eq!(titles(&search_in(&c, Mode::Tasks, "")), vec!["Essay draft", "Buy milk"]);
+        assert_eq!(titles(&search_in(&c, Mode::Tasks, "milk")), vec!["Buy milk"]);
+        assert_eq!(search_in(&c, Mode::Tasks, "call mum")[0].action, Action::AddTask("call mum".into()));
+        assert_eq!(search_in(&c, Mode::Notes, "ring")[0].action, Action::OpenNote("n1".into()));
+        assert_eq!(search_in(&c, Mode::Notes, "groceries")[0].action, Action::NewNote("groceries".into()));
+    }
+
+    #[test]
+    fn window_and_file_modes_keep_to_their_own() {
+        let mut c = ctx();
+        c.windows = vec![
+            WindowEntry { id: "1".into(), title: "Kairo – README.md".into(), app: "Visual Studio Code".into(), icon: None },
+            WindowEntry { id: "2".into(), title: "Inbox".into(), app: "Mail".into(), icon: None },
+        ];
+        assert_eq!(search_in(&c, Mode::Windows, "").len(), 2);
+        assert_eq!(titles(&search_in(&c, Mode::Windows, "inbox")), vec!["Inbox"]);
+        assert_eq!(search_in(&c, Mode::Windows, "zzqx")[0].action, Action::Nothing);
+        // Files come from the system's index; before enough is typed, or with file search off,
+        // the mode says so.
+        assert!(search_in(&c, Mode::Files, "budget").is_empty());
+        assert_eq!(search_in(&c, Mode::Files, "b")[0].action, Action::Nothing);
+        let off = Context { search_files: false, ..ctx() };
+        assert_eq!(search_in(&off, Mode::Files, "budget")[0].action, Action::Setting("palette-search-files"));
     }
 
     #[test]

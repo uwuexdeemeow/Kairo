@@ -164,12 +164,26 @@ export interface PaletteFiles {
   rows: PaletteItem[];
 }
 
+/** A mode the palette is in, drawn as a bubble at the left of the input; its `key` goes back with
+ *  each query typed after it. */
+export interface PaletteMode {
+  key: string;
+  name: string;
+  glyph: string;
+  /** The input's hint while it's on. */
+  hint: string;
+}
+
 /** Items are numbered across rows, tiles and chips, in that order. */
 export interface PaletteResults {
   seq: number;
   rows: PaletteItem[];
   tiles: PaletteItem[];
   chips: PaletteItem[];
+  /** The mode these were found in; none for an ordinary search. */
+  mode?: PaletteMode | null;
+  /** What the input should hold now, when a short word typed at its start became the bubble. */
+  text?: string | null;
 }
 
 /** The card above the results for a selected item: how a day went, time in an app or site over
@@ -566,7 +580,7 @@ export const api = {
   /** The web palette (macOS and Linux) opening afresh: today's footer line and the theme. */
   paletteOpen: () => invoke<{ footer: string; appearance: Appearance }>("palette_open"),
   /** What a query finds; with nothing typed, the suggestions. */
-  paletteQuery: (query: string) => invoke<PaletteResults>("palette_query", { query }),
+  paletteQuery: (query: string, mode: string | null = null) => invoke<PaletteResults>("palette_query", { query, mode }),
   /** Icons for listed apps, as data URLs by path. */
   paletteIcons: (paths: string[]) => invoke<Record<string, string>>("palette_icons", { paths }),
   /** The card for item `at` of the results numbered `seq`; null for one without. */

@@ -8,7 +8,7 @@ import "./styles.css";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, type Appearance, type PaletteCard, type PaletteFiles, type PaletteItem, type PaletteResults } from "./api";
+import { api, type Appearance, type PaletteCard, type PaletteFiles, type PaletteItem, type PaletteMode, type PaletteResults } from "./api";
 
 const MIN_MS = 60_000;
 /// The window's width, and the room around the panel for its shadow (`.palette-page`).
@@ -118,7 +118,11 @@ async function loadIcons() {
 // ---------- rendering ----------
 
 const input = $<HTMLInputElement>("#palette-input");
+const bubble = $("#palette-bubble");
+const defaultHint = input.placeholder;
 let results: PaletteResults = { seq: 0, rows: [], tiles: [], chips: [] };
+/// The mode the palette is in, shown as the bubble; null for an ordinary search.
+let mode: PaletteMode | null = null;
 let shown: PaletteItem[] = [];
 let selected = 0;
 /// Bumped by each query and day preview, so a slow answer can't replace a newer one.
@@ -161,10 +165,28 @@ function label(text: string): HTMLElement {
   return h("p", { class: "palette-label", role: "presentation" }, text);
 }
 
+/// Puts the palette in `next` (or out of any mode): the bubble before the input, and its hint.
+function setMode(next: PaletteMode | null) {
+  mode = next;
+  bubble.hidden = !next;
+  if (next) {
+    const icon = h("span", { "aria-hidden": "true" });
+    icon.innerHTML = `<svg class="icon" viewBox="0 0 24 24">${ICONS[next.glyph] ?? ICONS.search}</svg>`;
+    bubble.replaceChildren(icon, next.name);
+  } else {
+    bubble.replaceChildren();
+  }
+  input.placeholder = next?.hint ?? defaultHint;
+  input.setAttribute("aria-label", next ? `Search Kairo: ${next.name}` : "Search Kairo");
+}
+
 /// Lays out the results: rows grouped under their section, then recent apps as tiles and places
-/// as chips when nothing is typed.
+/// as chips when nothing is typed. Results found in a mode bring its bubble, and when a short word
+/// typed at the start became it, what the input should now hold.
 function render(r: PaletteResults) {
   results = r;
+  if ((r.mode?.key ?? null) !== (mode?.key ?? null)) setMode(r.mode ?? null);
+  if (r.text != null) input.value = r.text;
   shown = [...r.rows, ...r.tiles, ...r.chips];
   selected = Math.min(selected, Math.max(shown.length - 1, 0));
   const out: Node[] = [];
@@ -174,7 +196,7 @@ function render(r: PaletteResults) {
   for (const item of r.rows) {
     // When typing, the best match leads under its own heading; a file or the calculator's answer
     // keeps its section.
-    const heading = typed && index === 0 && item.section !== "Files" && item.section !== "Calculator" ? "Top hit" : item.section;
+    const heading = typed && !mode && index === 0 && item.section !== "Files" && item.section !== "Calculator" ? "Top hit" : item.section;
     if (heading !== section) out.push(label(heading));
     section = heading;
     out.push(row(item, index++, "row"));
@@ -312,7 +334,8 @@ function showError(err: unknown) {
 }
 
 /// Runs an item. A switch flips and the palette stays open on fresh results, with the
-/// selection where it was (one that refuses says why on its row); anything else hides the palette.
+/// selection where it was (one that refuses says why on its row); a mode row puts the palette in
+/// that mode with the input emptied; anything else hides the palette.
 async function run(index: number) {
   if (!shown[index]) return;
   // Running doesn't bump the token, so a query still in flight is drawn when it lands. A flip's
@@ -322,6 +345,10 @@ async function run(index: number) {
     const fresh = await api.paletteRun(results.seq, index);
     if (fresh && token === queryToken) {
       ++queryToken;
+      if (fresh.mode && fresh.mode.key !== mode?.key) {
+        input.value = "";
+        selected = 0;
+      }
       render(fresh);
     }
   } catch (err) {
@@ -341,7 +368,7 @@ async function runSecond(index: number) {
 
 async function refresh() {
   const token = ++queryToken;
-  const r = await api.paletteQuery(input.value).catch(() => null);
+  const r = await api.paletteQuery(input.value, mode?.key ?? null).catch(() => null);
   if (r && token === queryToken) render(r);
 }
 
@@ -352,10 +379,26 @@ input.addEventListener("input", () => {
   refresh();
 });
 
+/// Takes the palette out of its mode, back to an ordinary search of what's typed.
+function leaveMode() {
+  setMode(null);
+  selected = 0;
+  refresh();
+}
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.preventDefault();
-    api.paletteHide();
+    // Out of the mode first; a second Esc puts the palette away.
+    if (mode) leaveMode();
+    else api.paletteHide();
+  } else if (e.key === "Backspace" && mode && !input.value && input.selectionStart === 0) {
+    e.preventDefault();
+    leaveMode();
+  } else if (e.key === "Tab" && !e.shiftKey && shown[selected]?.section === "Modes") {
+    // Tab takes a mode row as Enter would, the way a completion is taken.
+    e.preventDefault();
+    run(selected);
   } else if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
     e.preventDefault();
     select(selected + 1);
@@ -385,6 +428,7 @@ function applyTheme(mode: Appearance) {
 async function open() {
   input.value = "";
   selected = 0;
+  setMode(null);
   // Files' icons aren't kept from one opening to the next; apps' come back from Kairo's cache.
   icons.clear();
   input.focus();

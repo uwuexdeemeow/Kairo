@@ -276,3 +276,65 @@ describe("running", () => {
     await vi.waitFor(() => expect($(".palette-error").textContent).toBe("not there"));
   });
 });
+
+describe("modes", () => {
+  const github = { key: "web:gh", name: "GitHub", glyph: "search", hint: "Search GitHub…" };
+  const field = () => $<HTMLInputElement>("#palette-input");
+  const typeText = (text: string) => {
+    field().value = text;
+    field().dispatchEvent(new Event("input"));
+  };
+  const bubbleText = () => ($("#palette-bubble").hidden ? null : $("#palette-bubble").textContent);
+
+  it("a mode row puts the palette in that mode, with the bubble and an empty input", async () => {
+    await open(results(1, [item("GitHub Desktop", { section: "Apps" }), item("Search GitHub", { section: "Modes" })]));
+    field().value = "github";
+    api.paletteRun.mockResolvedValueOnce({ ...results(2, [item("Type what to search GitHub for", { section: "Web" })]), mode: github });
+    key("ArrowDown");
+    key("Enter");
+    await vi.waitFor(() => expect(bubbleText()).toBe("GitHub"));
+    expect(field().value).toBe("");
+    expect(field().placeholder).toBe("Search GitHub…");
+    // What's typed next goes to GitHub.
+    api.paletteQuery.mockResolvedValueOnce({ ...results(3, [item("Search GitHub for “tauri”", { section: "Web" })]), mode: github });
+    typeText("tauri");
+    expect(api.paletteQuery).toHaveBeenLastCalledWith("tauri", "web:gh");
+  });
+
+  it("Tab takes a mode row too", async () => {
+    await open(results(1, [item("Calculator", { section: "Modes" })]));
+    key("Tab");
+    expect(api.paletteRun).toHaveBeenCalledWith(1, 0);
+  });
+
+  it("a short word and a space becomes the bubble, keeping what came after it", async () => {
+    await open(results(1, [item("Open Chrono")]));
+    api.paletteQuery.mockResolvedValueOnce({ ...results(2, [item("Search GitHub for “k”", { section: "Web" })]), mode: github, text: "k" });
+    typeText("gh k");
+    await vi.waitFor(() => expect(bubbleText()).toBe("GitHub"));
+    expect(field().value).toBe("k");
+    expect(labels()).toEqual(["Web"]);
+  });
+
+  it("Backspace on an empty input, or Esc, leaves the mode; a second Esc closes", async () => {
+    await open(results(1, [item("Open Chrono")]));
+    api.paletteQuery.mockResolvedValueOnce({ ...results(2, []), mode: github, text: "" });
+    typeText("gh ");
+    await vi.waitFor(() => expect(bubbleText()).toBe("GitHub"));
+    api.paletteQuery.mockResolvedValue(results(3, [item("Open Chrono")]));
+    field().setSelectionRange(0, 0);
+    key("Backspace");
+    expect(bubbleText()).toBeNull();
+    expect(field().placeholder).toBe("Open an app, jump to a day, or type a command");
+    expect(api.paletteQuery).toHaveBeenLastCalledWith("", null);
+
+    api.paletteQuery.mockResolvedValueOnce({ ...results(4, []), mode: github, text: "" });
+    typeText("gh ");
+    await vi.waitFor(() => expect(bubbleText()).toBe("GitHub"));
+    key("Escape");
+    expect(bubbleText()).toBeNull();
+    expect(api.paletteHide).not.toHaveBeenCalled();
+    key("Escape");
+    expect(api.paletteHide).toHaveBeenCalled();
+  });
+});

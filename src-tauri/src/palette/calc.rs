@@ -131,14 +131,24 @@ pub fn answer(query: &str) -> Option<Answer> {
     if !is_maths(query) {
         return None;
     }
+    let answer = evaluate(query)?;
+    let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace() && *c != '(' && *c != ')').collect::<String>();
+    (bare(&answer.text) != bare(query)).then_some(answer)
+}
+
+/// `query` worked out as it is, without first asking whether it looks like maths: the
+/// calculator mode's reading, where "pi" or "sqrt 16" is meant as a sum. None when fend can't.
+pub fn evaluate(query: &str) -> Option<Answer> {
+    if query.trim().is_empty() {
+        return None;
+    }
     let deadline = Deadline(Instant::now() + LIMIT);
     let ask = |q: &str| fend_core::evaluate_with_interrupt(&rewrite(q), &mut fend_core::Context::new(), &deadline).ok();
     let q = query.trim();
     // fend's units are lower case ("km"); typed in capitals, they're asked again in lower case.
     let result = ask(q).or_else(|| q.chars().any(char::is_uppercase).then(|| ask(&q.to_lowercase())).flatten())?;
     let (text, number) = format(result.get_main_result())?;
-    let bare = |s: &str| s.chars().filter(|c| !c.is_whitespace() && *c != '(' && *c != ')').collect::<String>();
-    (bare(&text) != bare(query)).then_some(Answer { text, number })
+    Some(Answer { text, number })
 }
 
 /// A number rounded to `DIGITS` significant digits without trailing zeros, in scientific notation

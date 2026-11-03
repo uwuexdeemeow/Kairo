@@ -51,6 +51,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows_numerics::Vector2;
 
 use super::files::{self, Worker};
+use super::mode::Mode;
 use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 use super::settings::{self, Switch};
 use super::cards::{self, Answer, Card, FocusPlan};
@@ -76,6 +77,13 @@ const ES_AUTOHSCROLL: u32 = 0x0080;
 // Sizes in device-independent pixels, the same as the drafts.
 const W: f32 = 640.0;
 const HEADER: f32 = 56.0;
+/// The edit box's left edge, after the magnifier, with no bubble before it.
+const EDIT_X: f32 = 48.0;
+/// The mode's bubble: its height, and the room inside it around its glyph and name.
+const BUBBLE_H: f32 = 26.0;
+const BUBBLE_GLYPH: f32 = 14.0;
+const BUBBLE_PAD: f32 = 9.0;
+const DEFAULT_CUE: &str = "Open an app, jump to a day, or type a command";
 const FOOTER: f32 = 38.0;
 const MAX_H: f32 = 520.0;
 const ROW_H: f32 = 44.0;
@@ -247,6 +255,8 @@ struct Palette {
     worker: Worker,
     /// The number of the results shown, so files found for older ones are dropped.
     seq: u64,
+    /// The mode it's in, drawn as a bubble before the edit box; None for an ordinary search.
+    mode: Option<Mode>,
 }
 
 thread_local! {
@@ -447,8 +457,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
         None,
     )?;
     let _ = SetWindowSubclass(edit, Some(edit_proc), 1, 0);
-    let cue: Vec<u16> = "Open an app, jump to a day, or type a command".encode_utf16().chain([0]).collect();
-    SendMessageW(edit, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(cue.as_ptr() as isize)));
+    set_cue(edit, DEFAULT_CUE);
 
     let d2d: ID2D1Factory = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None)?;
     let dwrite: IDWriteFactory = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)?;
@@ -521,6 +530,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             error: None,
             worker,
             seq: 0,
+            mode: None,
         })
     });
     WINDOW.store(hwnd.0 as isize, Ordering::Release);
@@ -612,7 +622,12 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
     let shift = GetKeyState(VK_SHIFT.0 as i32) < 0;
     let ctrl = GetKeyState(VK_CONTROL.0 as i32) < 0;
     match (msg, wparam.0 as u16) {
-        (WM_KEYDOWN, k) if k == VK_DOWN.0 || (k == VK_TAB.0 && !shift) => {
+        // Tab takes a mode row, the way a completion is taken; elsewhere it moves down.
+        (WM_KEYDOWN, k) if k == VK_TAB.0 && !shift => {
+            with(|p| if p.items.get(p.selected).is_some_and(|i| matches!(i.action, Action::EnterMode(_))) { p.run(p.selected) } else { p.select_by(1) });
+            LRESULT(0)
+        }
+        (WM_KEYDOWN, k) if k == VK_DOWN.0 => {
             with(|p| p.select_by(1));
             LRESULT(0)
         }
@@ -625,8 +640,14 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             with(|p| if ctrl { p.run_second(p.selected) } else { p.run(p.selected) });
             LRESULT(0)
         }
+        // Out of the mode first; a second Esc puts the palette away.
         (WM_KEYDOWN, k) if k == VK_ESCAPE.0 => {
-            with(|p| p.hide());
+            with(|p| if p.mode.is_some() { p.leave_mode() } else { p.hide() });
+            LRESULT(0)
+        }
+        // Backspace with nothing typed after the bubble takes it away.
+        (WM_KEYDOWN, k) if k == VK_BACK.0 && !ctrl && edit_text(hwnd).is_empty() && with(|p| p.mode.is_some()).unwrap_or(false) => {
+            with(|p| p.leave_mode());
             LRESULT(0)
         }
         // Ctrl+Backspace deletes a word, as everywhere else in Windows.
@@ -642,6 +663,23 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
         (WM_CHAR, 0x09 | 0x0a | 0x0d | 0x1b | 0x7f) => LRESULT(0),
         _ => DefSubclassProc(hwnd, msg, wparam, lparam),
     }
+}
+
+/// The edit box's hint while it's empty.
+fn set_cue(edit: HWND, cue: &str) {
+    let wide: Vec<u16> = cue.encode_utf16().chain([0]).collect();
+    unsafe {
+        SendMessageW(edit, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(wide.as_ptr() as isize)));
+    }
+}
+
+/// The mode a short word typed at the start of `text` puts the palette in, and what's left after
+/// it; only out of any mode, so "gh " typed in the calculator stays text.
+fn take_shortcut(mode: Option<Mode>, text: &str) -> Option<(Mode, &str)> {
+    if mode.is_some() {
+        return None;
+    }
+    super::mode::shortcut(text)
 }
 
 fn edit_text(edit: HWND) -> String {
@@ -703,6 +741,8 @@ impl Palette {
         }
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.set_theme(theme_for(&mode));
+        // Each opening starts out of any mode.
+        self.set_mode(None);
         set_edit_text(self.edit, "");
         self.worker.opened();
         self.refresh_results();
@@ -788,7 +828,8 @@ impl Palette {
                     let _ = DeleteObject(old.into());
                 }
             }
-            let _ = SetWindowPos(self.edit, None, (48.0 * s) as i32, (17.0 * s) as i32, ((W - 48.0 - 72.0) * s) as i32, (24.0 * s) as i32, SWP_NOZORDER | SWP_NOACTIVATE);
+            let left = EDIT_X + self.bubble_w().map_or(0.0, |w| w + 8.0);
+            let _ = SetWindowPos(self.edit, None, (left * s) as i32, (17.0 * s) as i32, ((W - left - 72.0) * s) as i32, (24.0 * s) as i32, SWP_NOZORDER | SWP_NOACTIVATE);
         }
     }
 
@@ -828,13 +869,25 @@ impl Palette {
     /// Results for what's typed, numbered afresh, with files asked for when they're wanted; they
     /// join the rows when found.
     fn refresh_results(&mut self) {
-        let query = self.query();
+        let mut query = self.query();
+        // A short word and a space ("gh ") becomes its bubble, leaving what came after it. The
+        // box's own change notice comes while the palette is busy, so it asks nothing twice.
+        if let Some((mode, rest)) = take_shortcut(self.mode, &query) {
+            let rest = rest.to_string();
+            self.set_mode(Some(mode));
+            set_edit_text(self.edit, &rest);
+            query = rest;
+        }
         let Some(ctx) = &self.ctx else { return };
         self.seq += 1;
-        if super::wants_files(ctx, &query) {
-            self.worker.ask(self.seq, query.clone());
+        if super::wants_files(ctx, &query, self.mode) {
+            self.worker.ask_up_to(self.seq, query.clone(), super::files_wanted(self.mode));
         }
-        if query.trim().is_empty() {
+        if let Some(mode) = self.mode {
+            self.items = search::search_in(ctx, mode, &query);
+            self.rows = self.items.len();
+            self.tiles = 0;
+        } else if query.trim().is_empty() {
             let s = search::suggestions(ctx);
             self.rows = s.rows.len();
             self.tiles = s.tiles.len();
@@ -893,7 +946,7 @@ impl Palette {
         let mut section = "";
         for i in 0..self.rows {
             let item = &self.items[i];
-            let heading = heading(typed, i, item);
+            let heading = heading(typed && self.mode.is_none(), i, item);
             if heading != section {
                 y += 6.0;
                 labels.push((heading.to_uppercase(), y));
@@ -1000,6 +1053,13 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned() else { return };
+        // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
+        if let Action::EnterMode(mode) = item.action {
+            self.set_mode(Some(mode));
+            set_edit_text(self.edit, "");
+            self.refresh();
+            return;
+        }
         // A switch flips where it is, and the palette stays open to show its new state.
         if item.action.keeps_palette_open() {
             if let Action::Toggle(switch) = item.action {
@@ -1008,6 +1068,26 @@ impl Palette {
             return;
         }
         self.perform(&item.action);
+    }
+
+    /// Puts the palette in `mode`, or out of any: the bubble, the edit box moved after it, and
+    /// the box's hint.
+    fn set_mode(&mut self, mode: Option<Mode>) {
+        self.mode = mode;
+        set_cue(self.edit, &mode.map_or_else(|| DEFAULT_CUE.to_string(), |m| m.hint()));
+        self.place_edit();
+        self.repaint();
+    }
+
+    /// Back to an ordinary search of what's typed.
+    fn leave_mode(&mut self) {
+        self.set_mode(None);
+        self.refresh();
+    }
+
+    /// The bubble's width, with the mode it shows; None out of any mode.
+    fn bubble_w(&self) -> Option<f32> {
+        self.mode.map(|m| BUBBLE_PAD + BUBBLE_GLYPH + 6.0 + self.measure(m.name(), &self.formats.chip) + BUBBLE_PAD + 2.0)
     }
 
     /// Does what Ctrl+Enter does for item `index`; nothing for an item without a second action.
@@ -1327,6 +1407,14 @@ impl Palette {
 
         // The search row: magnifier, the edit box (a real window, drawn by Windows), Esc.
         self.glyph(rt, None, 18.0, 19.0, 18.0, t.muted)?;
+        // The mode's bubble before the box: its glyph and name in the palette's ink.
+        if let (Some(mode), Some(width)) = (self.mode, self.bubble_w()) {
+            let r = rect(EDIT_X, (HEADER - BUBBLE_H) / 2.0, EDIT_X + width, (HEADER + BUBBLE_H) / 2.0);
+            let shape = D2D1_ROUNDED_RECT { rect: r, radiusX: BUBBLE_H / 2.0, radiusY: BUBBLE_H / 2.0 };
+            unsafe { rt.FillRoundedRectangle(&shape, &self.brush(rt, t.accent, 0.18)?) };
+            self.glyph(rt, Some(mode.glyph()), r.left + BUBBLE_PAD, (HEADER - BUBBLE_GLYPH) / 2.0, BUBBLE_GLYPH, t.accent)?;
+            self.text(rt, mode.name(), &self.formats.chip, r.left + BUBBLE_PAD + BUBBLE_GLYPH + 6.0, HEADER / 2.0 - 8.0, width, t.accent, &[], false)?;
+        }
         self.kbd(rt, "Esc", W - 18.0, HEADER / 2.0)?;
         unsafe { rt.DrawLine(v(0.0, HEADER - 0.5), v(W, HEADER - 0.5), &rule, 1.0, None) };
 
@@ -1353,7 +1441,7 @@ impl Palette {
         if let Some(error) = self.error.clone() {
             self.text(rt, &error, &self.formats.chip, 20.0, offset + 14.0, W - 40.0, t.warm, &[], false)?;
         }
-        if self.items.is_empty() && !self.query().trim().is_empty() {
+        if self.items.is_empty() && self.mode.is_none() && !self.query().trim().is_empty() {
             let message = "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”.";
             self.text(rt, message, &self.formats.chip, 20.0, offset + 16.0, W - 40.0, t.muted, &[], false)?;
         }
@@ -1695,6 +1783,14 @@ mod tests {
     #[test]
     fn the_footer_names_the_second_action() {
         assert_eq!(footer_hint(Some(&file("budget.xlsx"))), Some("Show in folder"));
+    }
+
+    #[test]
+    fn a_short_word_becomes_a_bubble_only_out_of_any_mode() {
+        assert_eq!(take_shortcut(None, "gh tauri"), Some((Mode::Web(4), "tauri")));
+        assert_eq!(take_shortcut(None, "gh"), None);
+        // In the calculator, "g " is just text.
+        assert_eq!(take_shortcut(Some(Mode::Calc), "g 2"), None);
     }
 
     #[test]

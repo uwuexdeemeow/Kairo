@@ -1173,23 +1173,23 @@ pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette
     Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
 }
 
-/// What a query finds; with nothing typed, the suggestions. Files come later, as `palette:files`.
+/// What a query finds, typed in `mode` (a mode's key, or none); with nothing typed and no mode,
+/// the suggestions. Files come later, as `palette:files`.
 #[tauri::command]
-pub fn palette_query(session: State<palette::Session>, worker: State<palette::files::Worker>, query: String) -> palette::Results {
-    palette_ask(&session, &worker, query)
-}
-
-/// Results for `query`, and a file search for them when the palette wants one.
-fn palette_ask(session: &palette::Session, worker: &palette::files::Worker, query: String) -> palette::Results {
-    let results = session.query(&query);
-    palette_ask_files(session, worker, &results, query);
+pub fn palette_query(session: State<palette::Session>, worker: State<palette::files::Worker>, query: String, mode: Option<String>) -> palette::Results {
+    let mode = mode.as_deref().and_then(palette::mode::Mode::from_key);
+    let results = session.query(&query, mode);
+    palette_ask_files(&session, &worker, &results, query);
     results
 }
 
-/// Asks for files to follow `results`, when the palette wants them for `query`.
+/// Asks for files to follow `results`, when the palette wants them for `query`: what's searched
+/// is the text after a bubble a short word just became.
 fn palette_ask_files(session: &palette::Session, worker: &palette::files::Worker, results: &palette::Results, query: String) {
-    if session.wants_files(&query) {
-        worker.ask(results.seq(), query);
+    let query = results.text().map(str::to_string).unwrap_or(query);
+    let mode = results.mode();
+    if session.wants_files(&query, mode) {
+        worker.ask_up_to(results.seq(), query, palette::files_wanted(mode));
     }
 }
 
@@ -1228,17 +1228,22 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
+    if let palette::search::Action::EnterMode(mode) = item.action {
+        return Ok(Some(session.query("", Some(mode))));
+    }
     if item.action.keeps_palette_open() {
-        let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches keep the palette open") };
+        let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches and modes keep the palette open") };
         let flipped = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch);
+        let (query, mode) = session.last();
         let results = match flipped {
             Ok(on) => {
                 session.set_switch(switch, on);
-                session.query(&session.last_query())
+                session.query(&query, mode)
             }
             Err(why) => session.refused(switch, &why),
         };
-        palette_ask_files(&session, &worker, &results, session.last_query());
+        palette_ask_files(&session, &worker, &results, query);
         return Ok(Some(results));
     }
     palette_perform(&app, &state, &index, &item.action)?;

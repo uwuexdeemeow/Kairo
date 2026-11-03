@@ -845,6 +845,31 @@ html.palette-root {
   color: var(--muted);
 }
 
+/* The mode the palette is in: everything typed after it goes to that mode alone. */
+.palette-bubble {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--app) 18%, transparent);
+  color: var(--app);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.palette-bubble[hidden] {
+  display: none;
+}
+
+.palette-bubble .palette-glyph,
+.palette-bubble .icon {
+  width: 15px;
+  height: 15px;
+}
+
 .palette-preview {
   flex: none;
   display: flex;

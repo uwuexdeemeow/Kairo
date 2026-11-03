@@ -21,6 +21,8 @@ mod process;
 pub const MIN_CHARS: usize = 2;
 /// Most file rows shown.
 pub const MAX_FILES: usize = 5;
+/// File rows shown at most with the palette in its Files mode, where they're all it shows.
+pub const MODE_MAX_FILES: usize = 12;
 /// How long typing must pause before the index is asked, in milliseconds.
 pub const QUIET_MS: u64 = 120;
 /// How long the index gets to answer before it's given up on, in milliseconds.
@@ -175,6 +177,11 @@ fn modified(path: &Path) -> SystemTime {
 /// before code, and within each names starting with the query first, then words, then anywhere,
 /// newest first, and at most `MAX_FILES`.
 pub fn rows(query: &str, home: &Path, found: Vec<PathBuf>) -> Vec<Item> {
+    rows_up_to(query, home, found, MAX_FILES)
+}
+
+/// As `rows`, keeping at most `limit`.
+pub fn rows_up_to(query: &str, home: &Path, found: Vec<PathBuf>, limit: usize) -> Vec<Item> {
     let query: Vec<char> = query.trim().chars().map(lower).collect();
     if query.is_empty() {
         return Vec::new();
@@ -189,7 +196,7 @@ pub fn rows(query: &str, home: &Path, found: Vec<PathBuf>) -> Vec<Item> {
         })
         .collect();
     matched.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| b.1.cmp(&a.1)));
-    matched.truncate(MAX_FILES);
+    matched.truncate(limit);
     matched
         .into_iter()
         .map(|(_, _, at, path)| {
@@ -243,7 +250,7 @@ const MAX_LATE: usize = 4;
 #[derive(Default)]
 struct Shared {
     /// The newest query not yet asked: its results' number, its text and when it came.
-    pending: Option<(u64, String, Instant)>,
+    pending: Option<(u64, String, Instant, usize)>,
     /// Whether the missing index was said since the palette last opened.
     told_no_indexer: bool,
     /// Whether a failed search was logged since the palette last opened, so an index that's
@@ -269,10 +276,11 @@ impl Worker {
         Worker(shared)
     }
 
-    /// Searches for `query` once typing pauses, in place of any query still waiting.
-    pub fn ask(&self, seq: u64, query: String) {
+    /// Searches for `query` once typing pauses, in place of any query still waiting, keeping at
+    /// most `limit` rows.
+    pub fn ask_up_to(&self, seq: u64, query: String, limit: usize) {
         let (lock, wake) = &*self.0;
-        lock.lock().unwrap_or_else(|e| e.into_inner()).pending = Some((seq, query, Instant::now()));
+        lock.lock().unwrap_or_else(|e| e.into_inner()).pending = Some((seq, query, Instant::now(), limit));
         wake.notify_one();
     }
 
@@ -299,27 +307,27 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
     let (lock, wake) = shared;
     let late = Arc::new(AtomicUsize::new(0));
     loop {
-        let (seq, query) = {
+        let (seq, query, limit) = {
             let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 if s.stop {
                     return;
                 }
                 // Each new query restarts the pause, so typing a word asks once.
-                let due = s.pending.as_ref().map(|(_, _, at)| *at + Duration::from_millis(QUIET_MS));
+                let due = s.pending.as_ref().map(|(_, _, at, _)| *at + Duration::from_millis(QUIET_MS));
                 match due.map(|due| due.saturating_duration_since(Instant::now())) {
                     None => s = wake.wait(s).unwrap_or_else(|e| e.into_inner()),
                     Some(wait) if !wait.is_zero() => s = wake.wait_timeout(s, wait).unwrap_or_else(|e| e.into_inner()).0,
                     Some(_) => break,
                 }
             }
-            let Some((seq, query, _)) = s.pending.take() else { continue };
-            (seq, query)
+            let Some((seq, query, _, limit)) = s.pending.take() else { continue };
+            (seq, query, limit)
         };
         let Some(home) = home() else { continue };
         let deadline = Instant::now() + Duration::from_millis(LIMIT_MS);
         let found = match ask_by(backend, &query, &home, deadline, &late) {
-            Some(Ok(paths)) => Ok(rows(&query, &home, paths)),
+            Some(Ok(paths)) => Ok(rows_up_to(&query, &home, paths, limit)),
             Some(Err(e)) => Err(e),
             // Past the deadline: nothing shows for it.
             None => continue,
@@ -574,9 +582,9 @@ mod tests {
             return;
         }
         let (worker, rx) = worker(finds_budget);
-        worker.ask(1, "bu".into());
-        worker.ask(2, "bud".into());
-        worker.ask(3, "budget".into());
+        worker.ask_up_to(1, "bu".into(), MAX_FILES);
+        worker.ask_up_to(2, "bud".into(), MAX_FILES);
+        worker.ask_up_to(3, "budget".into(), MAX_FILES);
         let (seq, items) = rx.recv_timeout(Duration::from_secs(1)).expect("an answer");
         assert_eq!(seq, 3);
         assert_eq!(items[0].title, "budget.txt");
@@ -587,7 +595,7 @@ mod tests {
     #[test]
     fn a_search_past_the_limit_shows_nothing() {
         let (worker, rx) = worker(too_slow);
-        worker.ask(1, "budget".into());
+        worker.ask_up_to(1, "budget".into(), MAX_FILES);
         // Waits longer than the slow answer takes, so one let through late would arrive.
         assert!(rx.recv_timeout(Duration::from_millis(QUIET_MS + LIMIT_MS + 1500)).is_err());
     }
@@ -595,21 +603,21 @@ mod tests {
     #[test]
     fn no_indexer_is_said_once_per_opening() {
         let (worker, rx) = worker(no_indexer);
-        worker.ask(1, "bu".into());
+        worker.ask_up_to(1, "bu".into(), MAX_FILES);
         let (seq, items) = rx.recv_timeout(Duration::from_secs(1)).expect("the no-indexer row");
         assert_eq!((seq, items.len(), items[0].title.as_str()), (1, 1, no_indexer_row().title.as_str()));
-        worker.ask(2, "bud".into());
+        worker.ask_up_to(2, "bud".into(), MAX_FILES);
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
         assert_eq!(*NO_INDEXER_CALLS.lock().unwrap(), 2, "the second query was asked too");
         worker.opened();
-        worker.ask(3, "budg".into());
+        worker.ask_up_to(3, "budg".into(), MAX_FILES);
         assert_eq!(rx.recv_timeout(Duration::from_secs(1)).expect("said again").0, 3);
     }
 
     #[test]
     fn a_failed_search_shows_nothing() {
         let (worker, rx) = worker(fails);
-        worker.ask(1, "budget".into());
+        worker.ask_up_to(1, "budget".into(), MAX_FILES);
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
     }
 
@@ -618,7 +626,7 @@ mod tests {
         let (worker, rx) = worker(fails);
         let logged = || worker.0 .0.lock().unwrap().logged_failure;
         assert!(!logged());
-        worker.ask(1, "budget".into());
+        worker.ask_up_to(1, "budget".into(), MAX_FILES);
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
         assert!(logged());
         worker.opened();
