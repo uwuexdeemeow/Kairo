@@ -48,6 +48,18 @@ export function ledgerLine(tasks: Task[]): string {
   return parts.length ? parts.join(" · ") : "Nothing due today";
 }
 
+/// The line under the Tasks title: "3 due today · 1 overdue · 4 open".
+export function taskSummary(tasks: Task[]): string {
+  const open = tasks.filter((t) => t.doneMs === null).length;
+  if (!tasks.length) return "Nothing to do yet";
+  const today = tasks.filter((t) => t.group === "today").length;
+  const late = tasks.filter((t) => t.group === "overdue").length;
+  const due = [today ? `${today} due today` : "", late ? `${late} overdue` : ""].filter(Boolean);
+  return [...(due.length ? due : ["Nothing due"]), `${open} open`].join(" · ");
+}
+
+const HINT = "Try “essay draft !h fri” for High priority, due Friday";
+
 /// "Fri 6 Nov" for "2026-11-06".
 export function dayText(day: string): string {
   const [y, m, d] = day.split("-").map(Number);
@@ -61,7 +73,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
   const done = t.doneMs !== null;
   const tick = h("input", { type: "checkbox", "aria-label": done ? "Reopen" : "Mark done" }) as HTMLInputElement;
   tick.checked = done;
-  const el = h("div", { class: `task-row${done ? " done" : ""}${t.group === "overdue" ? " ribbon" : ""}`, "data-task": t.id }, tick);
+  const el = h("div", { class: `task-row task-card${done ? " done" : ""}${t.group === "overdue" ? " ribbon" : ""}`, "data-task": t.id }, tick);
   tick.addEventListener("click", () => {
     // Ticking off draws an ink stroke through it first; reopening is at once.
     if (done || stillPlease()) return act.done(t.id, !done);
@@ -85,17 +97,23 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
     field.focus();
     field.select();
   });
-  el.append(title, bubble);
-  // Today's group says the day already.
-  if (t.dueDay && t.group !== "today") el.append(h("span", { class: "task-day muted" }, dayText(t.dueDay)));
-  if (t.remindMs !== null) el.append(h("span", { class: "task-bell", title: "Has a reminder", "aria-label": "Has a reminder" }, "🔔"));
-  if (t.note) el.append(h("span", { class: "task-note", title: "Has a note", "aria-label": "Has a note" }, "📝"));
-  el.append(h("span", { class: "task-time muted" }, t.focusedMs > 0 ? fmtDur(t.focusedMs) : ""));
+  el.append(h("div", { class: "task-main" }, title, bubble));
+  // Its details as chips: when it's due (today's group says that already), its reminder, its
+  // note, the time spent on it.
+  const chips = h("div", { class: "task-chips" });
+  if (t.dueDay && t.group !== "today") chips.append(h("span", { class: `task-day chip${t.group === "overdue" ? " late" : ""}` }, dayText(t.dueDay)));
+  if (t.remindMs !== null) {
+    const at = new Date(t.remindMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    chips.append(h("span", { class: "task-bell chip", title: "Has a reminder" }, `🔔 ${at}`));
+  }
+  if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note", "aria-label": "Has a note" }, "📝"));
+  if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, fmtDur(t.focusedMs)));
+  el.append(chips);
   if (!done) {
-    // While a session runs, Start would end it, so only the running task's row says anything.
+    // While a session runs, Start would end it, so only the running task's card says anything.
     if (session && t.id === session.task) el.append(h("span", { class: "task-now" }, "Focusing now"));
     else if (!session) {
-      const start = h("button", { class: "btn task-start", title: "Start a focus session on it" }, "Start focus");
+      const start = h("button", { class: "task-start", title: "Start focus", "aria-label": `Start focus on ${t.title}` }, "▶");
       start.addEventListener("click", () => act.start(t.id));
       el.append(start);
     }
@@ -179,12 +197,12 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
   const kept = fields.get(root);
   if (kept) return kept;
   const add = h("input", { class: "filter task-add", maxlength: "120", placeholder: "Add a task", "aria-label": "Add a task", autocomplete: "off" }) as HTMLInputElement;
-  const preview = h("p", { class: "task-preview muted", "aria-live": "polite" });
+  const preview = h("p", { class: "task-preview muted", "aria-live": "polite" }, HINT);
   let asked = 0;
   add.addEventListener("input", async () => {
     const text = add.value;
     const mine = ++asked;
-    const shown = text.trim() ? await act.preview(text).catch(() => "") : "";
+    const shown = text.trim() ? await act.preview(text).catch(() => "") : HINT;
     // Only the latest answer, should an earlier one arrive after it.
     if (mine === asked) preview.textContent = shown;
   });
@@ -193,7 +211,7 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
     const text = add.value.trim();
     // Emptied at once, so a second Enter before the redraw can't add it twice.
     add.value = "";
-    preview.textContent = "";
+    preview.textContent = HINT;
     asked++;
     if (text) act.add(text);
   });
@@ -288,8 +306,10 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   const remove = h("button", { class: "btn detail-delete" }, "Delete");
   remove.addEventListener("click", () => act.remove(t.id));
 
+  const close = h("button", { class: "detail-close", "aria-label": "Close", title: "Close (Esc)" }, "×");
+  close.addEventListener("click", () => act.select(t.id));
   root.replaceChildren(
-    title,
+    h("div", { class: "detail-head" }, title, close),
     h("label", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
     h("label", { class: "detail-field" }, h("span", {}, "Remind me"), remind, clearRemind),

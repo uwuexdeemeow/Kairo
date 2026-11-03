@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
-import { ledgerLine, renderDetail, renderTaskList, type LedgerActions } from "./ledger-tasks";
+import { ledgerLine, renderDetail, renderTaskList, taskSummary, type LedgerActions } from "./ledger-tasks";
 
 const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   id,
@@ -218,6 +218,52 @@ describe("a task's note", () => {
     expect(act.attach).toHaveBeenCalledWith("a", "n2");
     options()[0].click();
     expect(act.newNoteFor).toHaveBeenCalledWith("a", "Essay");
+  });
+});
+
+describe("the Tasks screen as cards", () => {
+  it("sums the list up under the title", () => {
+    expect(taskSummary([task("a", "A", { group: "today" }), task("b", "B", { group: "today" }), task("c", "C", { group: "overdue" }), task("d", "D")])).toBe(
+      "2 due today · 1 overdue · 4 open",
+    );
+    expect(taskSummary([task("d", "D"), task("e", "E", { group: "done", doneMs: 1 })])).toBe("Nothing due · 1 open");
+    expect(taskSummary([])).toBe("Nothing to do yet");
+  });
+
+  it("draws each task as a card with its chips", () => {
+    renderTaskList(
+      root,
+      [task("a", "Essay", { group: "overdue", dueDay: "2026-11-02", remindMs: new Date(2026, 10, 2, 15, 0).getTime(), note: "n1", focusedMs: 80 * 60_000 })],
+      null,
+      act,
+    );
+    const card = root.querySelector('[data-task="a"]')!;
+    expect(card.classList.contains("task-card")).toBe(true);
+    const chips = [...card.querySelectorAll(".task-chips > span")].map((c) => c.className.split(" ")[0]);
+    expect(chips).toEqual(["task-day", "task-bell", "task-note", "task-time"]);
+    expect(card.querySelector(".task-day")!.classList.contains("late")).toBe(true);
+    expect(card.querySelector(".task-bell")!.textContent).toMatch(/🔔 0?3:00/);
+    expect(card.querySelector(".task-time")!.textContent).toBe("1h 20m");
+  });
+
+  it("starts focus from a small play button", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    const play = root.querySelector<HTMLButtonElement>('[data-task="a"] .task-start')!;
+    expect(play.textContent).toBe("▶");
+    expect(play.getAttribute("aria-label")).toBe("Start focus on Essay");
+    play.click();
+    expect(act.start).toHaveBeenCalledWith("a");
+  });
+
+  it("shows a hint under an empty Add a task", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    expect(root.querySelector(".task-preview")!.textContent).toBe("Try “essay draft !h fri” for High priority, due Friday");
+  });
+
+  it("closes the task panel from its ×", () => {
+    renderDetail(root, task("a", "Essay"), act);
+    root.querySelector<HTMLButtonElement>(".detail-close")!.click();
+    expect(act.select).toHaveBeenCalledWith("a");
   });
 });
 

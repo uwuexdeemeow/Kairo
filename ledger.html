@@ -21,11 +21,11 @@
         <nav class="tabs" role="tablist" aria-label="Main" aria-orientation="vertical">
           <button role="tab" data-view="tasks" aria-selected="true">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
-            Tasks
+            Tasks <b class="nav-count" id="count-tasks"></b>
           </button>
           <button role="tab" data-view="notes" aria-selected="false">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 12h7M9 16h5" /></svg>
-            Notes
+            Notes <b class="nav-count" id="count-notes"></b>
           </button>
           <button role="tab" data-view="settings" aria-selected="false" class="tab-settings">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
@@ -38,6 +38,7 @@
           <div>
             <p class="eyebrow" id="ledger-date"></p>
             <h1 id="ledger-title">Tasks</h1>
+            <p class="ledger-summary muted" id="ledger-summary"></p>
           </div>
         </section>
 
