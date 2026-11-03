@@ -37,6 +37,19 @@ pub const SEARCH_FILES_ARG: &str = "--search-files";
 /// from a terminal.
 pub const LIST_WINDOWS_ARG: &str = "--list-windows";
 
+/// Draws the app ring to a PNG and exits, for looking at it without showing it (Windows):
+/// `--ring-png <file> [lit] [light|dark]`.
+pub const RING_PNG_ARG: &str = "--ring-png";
+
+/// The PNG to draw the ring to, which segment is lit, and the theme; None without the flag.
+pub fn ring_png(args: &[String]) -> Option<(String, usize, String)> {
+    let at = args.iter().position(|a| a == RING_PNG_ARG)?;
+    let path = args.get(at + 1)?.clone();
+    let lit = args.get(at + 2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let theme = args.get(at + 3).cloned().unwrap_or_else(|| "dark".into());
+    Some((path, lit, theme))
+}
+
 pub fn lists_windows(args: &[String]) -> bool {
     args.iter().any(|a| a == LIST_WINDOWS_ARG)
 }

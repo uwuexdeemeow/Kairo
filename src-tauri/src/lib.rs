@@ -96,6 +96,15 @@ pub fn run() {
         palette::files::print_search(&query);
         return;
     }
+    if let Some((path, lit, theme)) = startup::ring_png(&args) {
+        #[cfg(windows)]
+        if let Err(e) = ring::native::render_png(std::path::Path::new(&path), lit, &theme) {
+            eprintln!("ring: cannot draw {path}: {e}");
+        }
+        #[cfg(not(windows))]
+        let _ = (path, lit, theme);
+        return;
+    }
     if startup::lists_windows(&args) {
         palette::print_windows();
         return;
@@ -196,6 +205,8 @@ pub fn run() {
             }));
             #[cfg(windows)]
             palette::native::spawn(app.handle().clone(), db_path.clone(), launch == Launch::Palette);
+            #[cfg(windows)]
+            ring::native::spawn(app.handle().clone(), db_path.clone());
             let scripted_tab = browser::SharedScripted::default();
             #[cfg(target_os = "macos")]
             {

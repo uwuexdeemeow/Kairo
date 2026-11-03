@@ -151,6 +151,7 @@ impl Ring {
         self.lit = wrap(self.lit as i32 + steps);
     }
 
+    #[cfg(test)]
     pub fn segment(&self) -> Segment {
         SEGMENTS[self.lit]
     }

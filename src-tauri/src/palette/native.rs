@@ -87,27 +87,27 @@ const FOCUS_CARD_H: f32 = 140.0;
 /// From the top of the screen to the palette, as a share of the screen's height.
 const FROM_TOP: f32 = 0.16;
 
-const TEXT_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2");
+pub(crate) const TEXT_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2");
 const MONO_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
 
 /// Kairo's two papers, deep blue ink and cream, the same values as the tokens in `src/styles.css`;
 /// `accent` is the palette's own ink.
 #[derive(Clone, Copy, PartialEq)]
-struct Theme {
-    bg: u32,
-    ink: u32,
-    muted: u32,
-    rule: u32,
-    line: u32,
-    raised: u32,
-    productive: u32,
-    neutral: u32,
-    distracting: u32,
-    warm: u32,
+pub(crate) struct Theme {
+    pub(crate) bg: u32,
+    pub(crate) ink: u32,
+    pub(crate) muted: u32,
+    pub(crate) rule: u32,
+    pub(crate) line: u32,
+    pub(crate) raised: u32,
+    pub(crate) productive: u32,
+    pub(crate) neutral: u32,
+    pub(crate) distracting: u32,
+    pub(crate) warm: u32,
     /// A change for the better, in an answer.
-    good: u32,
+    pub(crate) good: u32,
     /// The palette's own ink: selection, highlights, accented glyphs.
-    accent: u32,
+    pub(crate) accent: u32,
 }
 
 const DARK: Theme = Theme {
@@ -140,7 +140,7 @@ const LIGHT: Theme = Theme {
     accent: 0x6a4c93,
 };
 
-fn color(hex: u32, alpha: f32) -> D2D1_COLOR_F {
+pub(crate) fn color(hex: u32, alpha: f32) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r: ((hex >> 16) & 255) as f32 / 255.0, g: ((hex >> 8) & 255) as f32 / 255.0, b: (hex & 255) as f32 / 255.0, a: alpha }
 }
 
@@ -157,7 +157,7 @@ fn v(x: f32, y: f32) -> Vector2 {
 }
 
 /// "system" follows Windows' own app theme.
-fn theme_for(mode: &str) -> Theme {
+pub(crate) fn theme_for(mode: &str) -> Theme {
     match mode {
         "light" => LIGHT,
         "dark" => DARK,
@@ -338,30 +338,10 @@ fn footer_hint(item: Option<&Item>) -> Option<&'static str> {
 /// raw data for the edit box, which draws with GDI. None where Windows won't take them; text then falls back to
 /// the system font.
 unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>, bool) {
-    let Ok(factory) = dwrite.cast::<IDWriteFactory5>() else { return (None, false) };
-    let collection = (|| -> Result<(IDWriteFontCollection, Vec<u8>)> {
-        let loader = factory.CreateInMemoryFontFileLoader()?;
-        factory.RegisterFontFileLoader(&loader)?;
-        let builder = factory.CreateFontSetBuilder()?;
-        let mut geist = Vec::new();
-        for (i, packed) in [TEXT_FONT, MONO_FONT].iter().enumerate() {
-            let stream = factory.UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, packed.as_ptr().cast(), packed.len() as u32)?;
-            let size = stream.GetFileSize()?;
-            let mut start = std::ptr::null_mut();
-            let mut context = std::ptr::null_mut();
-            stream.ReadFileFragment(&mut start, 0, size, &mut context)?;
-            let data = std::slice::from_raw_parts(start as *const u8, size as usize).to_vec();
-            stream.ReleaseFileFragment(context);
-            // With no owner, the loader keeps its own copy.
-            let file = loader.CreateInMemoryFontFileReference(&factory, data.as_ptr().cast(), data.len() as u32, None)?;
-            builder.AddFontFile(&file)?;
-            if i == 0 {
-                geist = data;
-            }
-        }
-        let set = builder.CreateFontSet()?;
-        Ok((factory.CreateFontCollectionFromFontSet(&set)?.cast()?, geist))
-    })();
+    if dwrite.cast::<IDWriteFactory5>().is_err() {
+        return (None, false);
+    }
+    let collection = font_collection(dwrite, &[TEXT_FONT, MONO_FONT]);
     match collection {
         Ok((fonts, geist)) => {
             // GDI needs the face registered with it too, for the edit box.
@@ -374,6 +354,33 @@ unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>,
             (None, false)
         }
     }
+}
+
+/// Kairo's own WOFF2 fonts as a DirectWrite collection, and the first one's unpacked data (which
+/// GDI may want too). Shared with the app ring.
+pub(crate) unsafe fn font_collection(dwrite: &IDWriteFactory, packed: &[&[u8]]) -> Result<(IDWriteFontCollection, Vec<u8>)> {
+    let factory = dwrite.cast::<IDWriteFactory5>()?;
+    let loader = factory.CreateInMemoryFontFileLoader()?;
+    factory.RegisterFontFileLoader(&loader)?;
+    let builder = factory.CreateFontSetBuilder()?;
+    let mut first = Vec::new();
+    for (i, packed) in packed.iter().enumerate() {
+        let stream = factory.UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, packed.as_ptr().cast(), packed.len() as u32)?;
+        let size = stream.GetFileSize()?;
+        let mut start = std::ptr::null_mut();
+        let mut context = std::ptr::null_mut();
+        stream.ReadFileFragment(&mut start, 0, size, &mut context)?;
+        let data = std::slice::from_raw_parts(start as *const u8, size as usize).to_vec();
+        stream.ReleaseFileFragment(context);
+        // With no owner, the loader keeps its own copy.
+        let file = loader.CreateInMemoryFontFileReference(&factory, data.as_ptr().cast(), data.len() as u32, None)?;
+        builder.AddFontFile(&file)?;
+        if i == 0 {
+            first = data;
+        }
+    }
+    let set = builder.CreateFontSet()?;
+    Ok((factory.CreateFontCollectionFromFontSet(&set)?.cast()?, first))
 }
 
 unsafe fn format(dwrite: &IDWriteFactory, fonts: Option<&IDWriteFontCollection>, mono: bool, weight: DWRITE_FONT_WEIGHT, size: f32) -> Result<IDWriteTextFormat> {
