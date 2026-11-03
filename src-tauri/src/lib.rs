@@ -190,6 +190,7 @@ pub fn run() {
             let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone(), strict_waits.clone());
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
             app.manage(palette::Index::default());
+            palette::keep_index_fresh(app.handle());
             app.manage(palette::Session::default());
             // Files join the web palette's rows when the index answers, if they're still wanted.
             // Windows' own palette keeps a worker of its own.
