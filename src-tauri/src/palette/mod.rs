@@ -566,6 +566,8 @@ pub struct ItemView {
     preview: bool,
     /// The label of what Ctrl+Enter does instead.
     second: Option<&'static str>,
+    /// Whether it only says something: drawn as a note, not chosen (`Item::is_note`).
+    note: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -604,6 +606,7 @@ impl From<&Item> for ItemView {
             section: item.section,
             preview: item.preview.is_some(),
             second: item.second.as_ref().map(|(_, label)| *label),
+            note: item.is_note(),
         }
     }
 }

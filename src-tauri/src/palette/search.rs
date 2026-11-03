@@ -371,6 +371,12 @@ pub struct Item {
 }
 
 impl Item {
+    /// Whether it only says something ("Not a sum yet", "Looking for files…"): drawn as a note,
+    /// passed over by the arrows, with nothing for Enter to do.
+    pub fn is_note(&self) -> bool {
+        self.action == Action::Nothing && self.second.is_none()
+    }
+
     pub(super) fn new(title: impl Into<String>, icon: Icon, section: &'static str, action: Action) -> Self {
         Item { title: title.into(), at: Vec::new(), sub: None, detail: None, icon, score: 0.0, section, action, preview: None, second: None }
     }

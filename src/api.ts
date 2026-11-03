@@ -155,6 +155,8 @@ export interface PaletteItem {
   second: string | null;
   /** Whether it has a card to show while it's selected (`paletteCard`). */
   preview: boolean;
+  /** Whether it only says something ("Not a sum yet"): drawn as a note, never chosen. */
+  note?: boolean;
 }
 
 /** File rows found for the results numbered `seq`, sent as `palette:files` after them; they

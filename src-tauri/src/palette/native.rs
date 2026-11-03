@@ -681,6 +681,13 @@ fn set_cue(edit: HWND, cue: &str) {
     }
 }
 
+/// The nearest item from `from` (itself included) in direction `step` that can be chosen, going
+/// round: anything but a note. None when only notes are shown.
+fn choosable(items: &[Item], from: i64, step: i32) -> Option<usize> {
+    let n = items.len() as i64;
+    (0..n).map(|k| (from + k * step as i64).rem_euclid(n.max(1)) as usize).find(|&i| !items[i].is_note())
+}
+
 /// What a screen reader is told for the selected row: its title, then its second line.
 fn spoken_row(item: Option<&Item>) -> String {
     match item {
@@ -914,7 +921,7 @@ impl Palette {
             self.rows = self.items.len();
             self.tiles = 0;
         }
-        self.selected = 0;
+        self.selected = choosable(&self.items, 0, 1).unwrap_or(0);
         self.scroll = 0.0;
         self.error = None;
         self.update_preview();
@@ -932,7 +939,7 @@ impl Palette {
             }
             self.items = super::files_mode_rows(&self.query(), items);
             self.rows = self.items.len();
-            self.selected = 0;
+            self.selected = choosable(&self.items, 0, 1).unwrap_or(0);
             self.update_preview();
             self.layout();
             self.resize();
@@ -1026,12 +1033,11 @@ impl Palette {
 
     // ---------- moving and running ----------
 
+    /// Moves the selection by `step`, passing over notes; nowhere when only notes are shown.
     fn select_by(&mut self, step: i32) {
-        if self.items.is_empty() {
-            return;
+        if let Some(i) = choosable(&self.items, self.selected as i64 + step as i64, step.signum()) {
+            self.select(i);
         }
-        let n = self.items.len() as i32;
-        self.select(((self.selected as i32 + step) % n + n) as usize % n as usize);
     }
 
     fn select(&mut self, index: usize) {
@@ -1079,13 +1085,13 @@ impl Palette {
             return;
         }
         self.mouse = (x, y);
-        if let Some(i) = self.hit(x, y) {
+        if let Some(i) = self.hit(x, y).filter(|&i| !self.items[i].is_note()) {
             self.select(i);
         }
     }
 
     fn run(&mut self, index: usize) {
-        let Some(item) = self.items.get(index).cloned() else { return };
+        let Some(item) = self.items.get(index).cloned().filter(|i| !i.is_note()) else { return };
         // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
         if let Action::EnterMode(mode) = item.action {
             self.set_mode(Some(mode));
@@ -1648,6 +1654,9 @@ impl Palette {
 
     fn draw_row(&mut self, rt: &ID2D1RenderTarget, item: &Item, r: D2D_RECT_F, selected: bool) -> Result<()> {
         let t = self.theme;
+        // A note is never drawn as chosen, and its words are quieter.
+        let selected = selected && !item.is_note();
+        let ink = if item.is_note() { t.muted } else { t.ink };
         if selected {
             unsafe { rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 }, &self.brush(rt, t.accent, 0.18)?) };
         }
@@ -1667,11 +1676,11 @@ impl Palette {
         let x = r.left + 52.0;
         match &item.sub {
             Some(sub) => {
-                self.text(rt, &item.title, &self.formats.title, x, mid - 18.0, right - x, t.ink, &item.at, false)?;
+                self.text(rt, &item.title, &self.formats.title, x, mid - 18.0, right - x, ink, &item.at, false)?;
                 self.text(rt, sub, &self.formats.sub, x, mid + 1.0, right - x, t.muted, &[], false)?;
             }
             None => {
-                self.text(rt, &item.title, &self.formats.title, x, mid - 9.5, right - x, t.ink, &item.at, false)?;
+                self.text(rt, &item.title, &self.formats.title, x, mid - 9.5, right - x, ink, &item.at, false)?;
             }
         }
         Ok(())
@@ -1834,6 +1843,18 @@ mod tests {
         assert_eq!(take_shortcut(None, "gh"), None);
         // In the calculator, "g " is just text.
         assert_eq!(take_shortcut(Some(Mode::Calc), "g 2"), None);
+    }
+
+    #[test]
+    fn notes_are_passed_over_and_never_chosen_alone() {
+        let note = || Item::new("Not a sum yet", Icon::Glyph(Glyph::Calc, Tone::Plain), "Calculator", Action::Nothing);
+        let go = |title: &str| Item::new(title, Icon::Glyph(Glyph::Today, Tone::Plain), "Go to", Action::Go("today", None));
+        let items = vec![note(), go("Today"), go("Week")];
+        assert_eq!(choosable(&items, 0, 1), Some(1));
+        assert_eq!(choosable(&items, 3, 1), Some(1));
+        assert_eq!(choosable(&items, 0, -1), Some(2));
+        assert_eq!(choosable(&[note()], 0, 1), None);
+        assert_eq!(choosable(&[], 0, 1), None);
     }
 
     #[test]

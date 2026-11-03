@@ -349,3 +349,28 @@ describe("files mode", () => {
     expect(document.querySelector(".palette-empty")).toBeNull();
   });
 });
+
+describe("note rows", () => {
+  const note = (title: string) => item(title, { section: "Calculator", note: true });
+
+  it("are shown but never chosen: no highlight, no Enter, the arrows pass them by", async () => {
+    await open(results(1, [note("Looking for files…"), item("Open Chrono"), item("Settings")]));
+    // The first row that can be chosen is selected, not the note.
+    expect($(".selected .palette-title").textContent).toBe("Open Chrono");
+    expect(document.querySelector(".palette-note-row kbd")).toBeNull();
+    key("ArrowDown");
+    key("ArrowDown");
+    expect($(".selected .palette-title").textContent).toBe("Open Chrono");
+    key("ArrowUp");
+    expect($(".selected .palette-title").textContent).toBe("Settings");
+  });
+
+  it("alone, leave Enter with nothing to do", async () => {
+    await open(results(1, [note("Not a sum yet")]));
+    expect(document.querySelector(".selected")).toBeNull();
+    key("ArrowDown");
+    key("Enter");
+    expect(api.paletteRun).not.toHaveBeenCalled();
+    expect(document.querySelector(".palette-row kbd")).toBeNull();
+  });
+});

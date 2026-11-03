@@ -845,6 +845,15 @@ html.palette-root {
   color: var(--muted);
 }
 
+/* A row that only says something: plain and quiet, never highlighted. */
+.palette-note-row {
+  color: var(--muted);
+}
+
+.palette-note-row .palette-title {
+  color: var(--muted);
+}
+
 /* The mode the palette is in: everything typed after it goes to that mode alone. */
 .palette-bubble {
   display: inline-flex;

@@ -137,7 +137,30 @@ function rowIcon(item: PaletteItem): HTMLElement {
   return strokeIcon(icon.glyph, icon.tone);
 }
 
+/// A row that only says something ("Not a sum yet", "Looking for files…"): shown, read out, but
+/// never chosen.
+function noteRow(item: PaletteItem, index: number): HTMLElement {
+  return h(
+    "div",
+    { class: "palette-row palette-note-row", role: "option", id: `palette-item-${index}`, "aria-selected": "false", "aria-disabled": "true" },
+    rowIcon(item),
+    h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, item.title)),
+  );
+}
+
+/// The nearest item from `from` (itself included) in direction `dir` that can be chosen, going
+/// round; -1 when none can.
+function choosable(from: number, dir: 1 | -1): number {
+  const n = shown.length;
+  for (let k = 0; k < n; k++) {
+    const i = (((from + k * dir) % n) + n) % n;
+    if (!shown[i].note) return i;
+  }
+  return -1;
+}
+
 function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): HTMLElement {
+  if (item.note && kind === "row") return noteRow(item, index);
   const isSelected = index === selected;
   const el = h("div", {
     class: `palette-${kind}${isSelected ? " selected" : ""}`,
@@ -188,7 +211,8 @@ function render(r: PaletteResults) {
   if ((r.mode?.key ?? null) !== (mode?.key ?? null)) setMode(r.mode ?? null);
   if (r.text != null) input.value = r.text;
   shown = [...r.rows, ...r.tiles, ...r.chips];
-  selected = Math.min(selected, Math.max(shown.length - 1, 0));
+  // On the first row that can be chosen; with notes alone, on the first, which isn't drawn as chosen.
+  selected = Math.max(choosable(Math.min(selected, Math.max(shown.length - 1, 0)), 1), 0);
   const out: Node[] = [];
   let index = 0;
   let section = "";
@@ -337,7 +361,7 @@ function showError(err: unknown) {
 /// selection where it was (one that refuses says why on its row); a mode row puts the palette in
 /// that mode with the input emptied; anything else hides the palette.
 async function run(index: number) {
-  if (!shown[index]) return;
+  if (!shown[index] || shown[index].note) return;
   // Running doesn't bump the token, so a query still in flight is drawn when it lands. A flip's
   // results are drawn only if no query was asked meanwhile, and then outdate any older one.
   const token = queryToken;
@@ -401,10 +425,12 @@ document.addEventListener("keydown", (e) => {
     run(selected);
   } else if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
     e.preventDefault();
-    select(selected + 1);
+    const to = choosable(selected + 1, 1);
+    if (to >= 0) select(to);
   } else if (e.key === "ArrowUp" || (e.key === "Tab" && e.shiftKey)) {
     e.preventDefault();
-    select(selected - 1);
+    const to = choosable(selected - 1, -1);
+    if (to >= 0) select(to);
   } else if (e.key === "Enter" && !e.isComposing) {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) runSecond(selected);
