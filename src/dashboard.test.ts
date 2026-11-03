@@ -115,8 +115,8 @@ describe("Home", () => {
     expect(api.openLedger).toHaveBeenCalled();
     $<HTMLButtonElement>('[data-app="chrono"] .app-object').click();
     expect(api.openChrono).toHaveBeenCalledWith();
-    $<HTMLButtonElement>('[data-app="chrono"] .link-btn').click();
-    expect(api.openChrono).toHaveBeenCalledWith("settings");
+    // Tiles carry no settings of their own; those are on the Settings tab.
+    expect(document.querySelector("#app-tiles .link-btn")).toBeNull();
   });
 });
 

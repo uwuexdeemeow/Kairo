@@ -3070,11 +3070,6 @@ select,
   background: var(--raised);
 }
 
-.app-tile-actions {
-  min-height: 28px;
-  padding-top: 4px;
-}
-
 @keyframes settle {
   from {
     opacity: 0;

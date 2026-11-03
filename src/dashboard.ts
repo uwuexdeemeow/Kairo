@@ -11,8 +11,8 @@ import { $, fmtDur, followTheme, h, pct } from "./ui";
 
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
 
-/// An app in Kairo. Home draws a tile for each, and App settings a row for each that has
-/// settings of its own, so a new app is one more entry here.
+/// An app in Kairo. Home draws a tile for each, and App settings (on the Settings tab) a row
+/// for each that has settings of its own, so a new app is one more entry here.
 interface KairoApp {
   id: string;
   name: string;
@@ -108,12 +108,6 @@ let settingsWired = false;
 function drawTiles() {
   $("#app-tiles").replaceChildren(
     ...APPS.map((app) => {
-      const actions = h("div", { class: "row-buttons app-tile-actions" });
-      if (app.settings) {
-        const settings = h("button", { class: "link-btn" }, "Settings");
-        settings.addEventListener("click", app.settings.open);
-        actions.append(settings);
-      }
       const object = h("button", { class: "app-object", "aria-label": `Open ${app.name}` }, app.object());
       object.addEventListener("click", app.open);
       return h(
@@ -123,7 +117,6 @@ function drawTiles() {
         h("h2", {}, app.name),
         h("p", { class: "muted app-tile-what" }, app.what),
         h("p", { class: "app-tile-line", "data-line": app.id, "aria-live": "polite" }),
-        actions,
       );
     }),
   );
