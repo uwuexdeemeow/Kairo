@@ -652,30 +652,6 @@ pub(crate) fn show_page(app: &AppHandle, page: Page) {
     });
 }
 
-/// Brings up the window `label`, making it if it was closed.
-pub(crate) fn show_window(app: &AppHandle, label: &str) {
-    in_dock(app, true);
-    if let Some(window) = app.get_webview_window(label) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-        return;
-    }
-    // Making a web view from inside one of Windows' callbacks (a tray click, a menu) can hang,
-    // so it's made on a thread of its own.
-    if !begin_opening(label) {
-        return;
-    }
-    let app = app.clone();
-    let label = label.to_string();
-    std::thread::spawn(move || {
-        if let Err(e) = open_window(&app, &label, None) {
-            eprintln!("cannot open the {label} window: {e}");
-        }
-        end_opening(&label);
-    });
-}
-
 /// On a Mac, Kairo lives in the menu bar: it's in the Dock and the app switcher only while its
 /// window is open, as Windows and Linux show it in the taskbar only then. Elsewhere, nothing.
 fn in_dock(app: &AppHandle, shown: bool) {

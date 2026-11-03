@@ -1592,12 +1592,6 @@ pub fn app_path(exe: &str) -> Option<String> {
         .map(|p| p.display().to_string())
 }
 
-/// Only the Windows command palette draws icons from pixels.
-#[cfg(not(windows))]
-pub fn icon_pixels(_path: &str) -> Option<(u32, u32, Vec<u8>)> {
-    None
-}
-
 /// Opens a file as the desktop would. A desktop entry (an installed app) goes through GLib's
 /// launcher, which every GNOME, KDE and most other desktops have, or its older GTK cousin.
 #[cfg(not(any(windows, target_os = "macos")))]

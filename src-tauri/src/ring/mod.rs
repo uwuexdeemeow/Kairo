@@ -2,6 +2,9 @@
 //! its own shortcut and picked by turning or dragging it. This is the part both rings share, the
 //! Windows one drawn natively and the web one on macOS and Linux: what's on it, how it turns,
 //! what's under a point, and where it goes on the screen.
+// The model (Ring, its sizes, the tap and drag rules) is drawn from only by the Windows ring;
+// the web ring has its own copy in src/ring-model.ts, with the same tests. Elsewhere it is tests only.
+#![cfg_attr(not(windows), allow(dead_code))]
 
 use tauri::AppHandle;
 
