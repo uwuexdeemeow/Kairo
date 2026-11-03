@@ -3,8 +3,7 @@
 // (src-tauri/src/palette), the same as Windows' own palette; this page draws it. Everything here
 // stays on this computer.
 
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";

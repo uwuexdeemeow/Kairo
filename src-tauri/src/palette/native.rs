@@ -23,7 +23,7 @@ use windows::Win32::Graphics::Direct2D::{
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1, DWRITE_CONTAINER_TYPE_WOFF2,
-    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_WEIGHT_MEDIUM, DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_WEIGHT_NORMAL,
     DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_HIT_TEST_METRICS, DWRITE_LINE_METRICS, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_TRIMMING,
     DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
@@ -87,10 +87,11 @@ const FOCUS_CARD_H: f32 = 140.0;
 /// From the top of the screen to the palette, as a share of the screen's height.
 const FROM_TOP: f32 = 0.16;
 
-const GEIST: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2");
-const GEIST_MONO: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
+const TEXT_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2");
+const MONO_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
 
-/// Kairo's two palettes, the same values as the tokens in `src/styles.css`.
+/// Kairo's two papers, deep blue ink and cream, the same values as the tokens in `src/styles.css`;
+/// `accent` is the palette's own ink.
 #[derive(Clone, Copy, PartialEq)]
 struct Theme {
     bg: u32,
@@ -105,34 +106,38 @@ struct Theme {
     warm: u32,
     /// A change for the better, in an answer.
     good: u32,
+    /// The palette's own ink: selection, highlights, accented glyphs.
+    accent: u32,
 }
 
 const DARK: Theme = Theme {
-    bg: 0x0e0f12,
-    ink: 0xe8e9ec,
-    muted: 0x9399a4,
-    rule: 0x1e2026,
-    line: 0x2a2d34,
-    raised: 0x17191e,
+    bg: 0x141a24,
+    ink: 0xe3e7ee,
+    muted: 0x97a1b2,
+    rule: 0x232c3d,
+    line: 0x33405a,
+    raised: 0x1b2230,
     productive: 0x3987e5,
     neutral: 0x4a505c,
     distracting: 0xd95926,
     warm: 0xf0a27c,
     good: 0x7fd18b,
+    accent: 0xb9a2e6,
 };
 
 const LIGHT: Theme = Theme {
-    bg: 0xf6f6f4,
-    ink: 0x17181c,
-    muted: 0x565c66,
-    rule: 0xe6e6e3,
-    line: 0xd2d3cf,
-    raised: 0xffffff,
+    bg: 0xf4efe6,
+    ink: 0x2b2622,
+    muted: 0x6e6358,
+    rule: 0xe3d9c9,
+    line: 0xd3c7b3,
+    raised: 0xfffaf2,
     productive: 0x2f6fd0,
     neutral: 0xa9aeb6,
     distracting: 0xcf5220,
     warm: 0xb95420,
     good: 0x2b8a3e,
+    accent: 0x6a4c93,
 };
 
 fn color(hex: u32, alpha: f32) -> D2D1_COLOR_F {
@@ -329,8 +334,8 @@ fn footer_hint(item: Option<&Item>) -> Option<&'static str> {
 
 // ---------- fonts ----------
 
-/// Geist and Geist Mono from Kairo's own copies, for DirectWrite, and Geist's raw data for the
-/// edit box, which draws with GDI. None where Windows won't take them; text then falls back to
+/// Instrument Sans and Geist Mono from Kairo's own copies, for DirectWrite, and Instrument Sans's
+/// raw data for the edit box, which draws with GDI. None where Windows won't take them; text then falls back to
 /// the system font.
 unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>, bool) {
     let Ok(factory) = dwrite.cast::<IDWriteFactory5>() else { return (None, false) };
@@ -339,7 +344,7 @@ unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>,
         factory.RegisterFontFileLoader(&loader)?;
         let builder = factory.CreateFontSetBuilder()?;
         let mut geist = Vec::new();
-        for (i, packed) in [GEIST, GEIST_MONO].iter().enumerate() {
+        for (i, packed) in [TEXT_FONT, MONO_FONT].iter().enumerate() {
             let stream = factory.UnpackFontFile(DWRITE_CONTAINER_TYPE_WOFF2, packed.as_ptr().cast(), packed.len() as u32)?;
             let size = stream.GetFileSize()?;
             let mut start = std::ptr::null_mut();
@@ -365,7 +370,7 @@ unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>,
             (Some(fonts), gdi)
         }
         Err(e) => {
-            eprintln!("palette: Geist unavailable, using the system font: {e}");
+            eprintln!("palette: Kairo's fonts unavailable, using the system font: {e}");
             (None, false)
         }
     }
@@ -373,7 +378,7 @@ unsafe fn load_fonts(dwrite: &IDWriteFactory) -> (Option<IDWriteFontCollection>,
 
 unsafe fn format(dwrite: &IDWriteFactory, fonts: Option<&IDWriteFontCollection>, mono: bool, weight: DWRITE_FONT_WEIGHT, size: f32) -> Result<IDWriteTextFormat> {
     let family = match (fonts.is_some(), mono) {
-        (true, false) => w!("Geist"),
+        (true, false) => w!("Instrument Sans"),
         (true, true) => w!("Geist Mono"),
         (false, false) => w!("Segoe UI"),
         (false, true) => w!("Cascadia Mono"),
@@ -442,7 +447,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
     let formats = Formats {
         title: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 14.0)?,
         sub: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 12.0)?,
-        label: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_MEDIUM, 11.0)?,
+        label: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_SEMI_BOLD, 10.0)?,
         mono: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 12.0)?,
         kbd: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 11.0)?,
         stat: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 15.0)?,
@@ -489,7 +494,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             bitmaps: HashMap::new(),
             theme: DARK,
             edit_font: None,
-            edit_face: if gdi_geist { "Geist" } else { "Segoe UI" },
+            edit_face: if gdi_geist { "Instrument Sans" } else { "Segoe UI" },
             dpi: 96.0,
             mouse: (-1, -1),
             ctx: None,
@@ -1086,7 +1091,7 @@ impl Palette {
             }
             if std::ptr::eq(format, &self.formats.label) {
                 if let Ok(spaced) = layout.cast::<IDWriteTextLayout1>() {
-                    let _ = spaced.SetCharacterSpacing(0.0, 0.66, 0.0, DWRITE_TEXT_RANGE { startPosition: 0, length: pos });
+                    let _ = spaced.SetCharacterSpacing(0.0, 1.4, 0.0, DWRITE_TEXT_RANGE { startPosition: 0, length: pos });
                 }
             }
             let brush = self.brush(rt, hex, 1.0)?;
@@ -1096,7 +1101,7 @@ impl Palette {
                 let mut lines = 0;
                 layout.GetLineMetrics(Some(&mut line), &mut lines)?;
                 let under = y + line[0].baseline + 3.5;
-                let accent = self.brush(rt, self.theme.productive, 1.0)?;
+                let accent = self.brush(rt, self.theme.accent, 1.0)?;
                 for range in marked {
                     let (mut px, mut py) = (0.0, 0.0);
                     let mut hit = DWRITE_HIT_TEST_METRICS::default();
@@ -1225,7 +1230,7 @@ impl Palette {
             }
             Icon::Glyph(g, tone) => {
                 let (tile, alpha, ink) = match tone {
-                    Tone::Accent => (Some(t.productive), 0.16, t.productive),
+                    Tone::Accent => (Some(t.accent), 0.16, t.accent),
                     Tone::Warm => (Some(t.distracting), 0.14, t.warm),
                     Tone::Plain => (None, 0.0, t.muted),
                 };
@@ -1315,7 +1320,8 @@ impl Palette {
         unsafe { rt.PushAxisAlignedClip(&view, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) };
         let offset = top - self.scroll;
         for (label, y) in self.labels.clone() {
-            self.text(rt, &label, &self.formats.label, 18.0, offset + y + 4.0, W - 36.0, t.muted, &[], false)?;
+            // Small capitals, as the web palette and Kairo's pages draw section labels.
+            self.text(rt, &label.to_uppercase(), &self.formats.label, 18.0, offset + y + 4.0, W - 36.0, t.muted, &[], false)?;
         }
         if let Some(error) = self.error.clone() {
             self.text(rt, &error, &self.formats.chip, 20.0, offset + 14.0, W - 40.0, t.warm, &[], false)?;
@@ -1485,7 +1491,7 @@ impl Palette {
     fn draw_row(&mut self, rt: &ID2D1RenderTarget, item: &Item, r: D2D_RECT_F, selected: bool) -> Result<()> {
         let t = self.theme;
         if selected {
-            unsafe { rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 }, &self.brush(rt, t.line, 1.0)?) };
+            unsafe { rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 }, &self.brush(rt, t.accent, 0.18)?) };
         }
         let mid = (r.top + r.bottom) / 2.0;
         // Icons sit in a 28-pixel box; an app's own is 24 within it.
@@ -1518,7 +1524,7 @@ impl Palette {
         let shape = D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 };
         unsafe {
             if selected {
-                rt.FillRoundedRectangle(&shape, &self.brush(rt, t.line, 1.0)?);
+                rt.FillRoundedRectangle(&shape, &self.brush(rt, t.accent, 0.18)?);
             }
             rt.DrawRoundedRectangle(&shape, &self.brush(rt, t.rule, 1.0)?, 1.0, None);
         }
@@ -1539,9 +1545,9 @@ impl Palette {
         let shape = D2D1_ROUNDED_RECT { rect: r, radiusX: CHIP_H / 2.0, radiusY: CHIP_H / 2.0 };
         unsafe {
             if selected {
-                rt.FillRoundedRectangle(&shape, &self.brush(rt, t.productive, 0.12)?);
+                rt.FillRoundedRectangle(&shape, &self.brush(rt, t.accent, 0.12)?);
             }
-            rt.DrawRoundedRectangle(&shape, &self.brush(rt, if selected { t.productive } else { t.line }, 1.0)?, 1.0, None);
+            rt.DrawRoundedRectangle(&shape, &self.brush(rt, if selected { t.accent } else { t.line }, 1.0)?, 1.0, None);
         }
         self.text(rt, &item.title, &self.formats.chip, r.left + 13.0, r.top + 7.0, r.right - r.left, t.ink, &[], false)?;
         Ok(())
@@ -1551,6 +1557,40 @@ impl Palette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// WCAG's contrast ratio between two colours.
+    fn contrast(a: u32, b: u32) -> f64 {
+        let lum = |hex: u32| {
+            let ch = |c: u32| {
+                let c = c as f64 / 255.0;
+                if c <= 0.03928 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * ch((hex >> 16) & 255) + 0.7152 * ch((hex >> 8) & 255) + 0.0722 * ch(hex & 255)
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn its_fonts_are_kairos_bundled_woff2_files() {
+        for font in [TEXT_FONT, MONO_FONT] {
+            assert_eq!(&font[..4], b"wOF2");
+        }
+    }
+
+    #[test]
+    fn both_papers_keep_their_text_readable() {
+        for t in [DARK, LIGHT] {
+            for paper in [t.bg, t.raised] {
+                assert!(contrast(t.ink, paper) >= 7.0, "ink on {paper:06x}");
+                assert!(contrast(t.muted, paper) >= 4.5, "muted on {paper:06x}");
+                assert!(contrast(t.accent, paper) >= 3.0, "accent on {paper:06x}");
+            }
+        }
+        // The new papers, as in styles.css.
+        assert_eq!((DARK.bg, DARK.raised, DARK.accent), (0x141a24, 0x1b2230, 0xb9a2e6));
+        assert_eq!((LIGHT.bg, LIGHT.raised, LIGHT.accent), (0xf4efe6, 0xfffaf2, 0x6a4c93));
+    }
 
     fn row(title: &str) -> Item {
         Item::new(title, Icon::Glyph(Glyph::Today, Tone::Plain), "Go to", Action::Nothing)

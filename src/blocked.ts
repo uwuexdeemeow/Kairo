@@ -1,10 +1,10 @@
 // The small always-on-top window shown when a focus session, or a hard daily limit, minimizes a
 // blocked app.
 
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
+import { blockedWatch } from "./chrono-look";
 
 interface Blocked {
   label: string;
@@ -37,8 +37,14 @@ function paint() {
   $("#blocked-detail").textContent = limit
     ? `You've passed today's limit for it, so it stays blocked until midnight.`
     : `Your focus session runs until ${until}, ${minutes} ${minutes === 1 ? "minute" : "minutes"} from now.`;
-  // A limit has no session to end.
+  // A limit has no session to end, and no watch: it lasts the day.
   $("#blocked-end").hidden = limit;
+  $("#blocked-watch").hidden = limit;
+  if (!limit) {
+    const watch = blockedWatch(current.untilMs, Date.now());
+    $("#blocked-ring").innerHTML = watch.svg;
+    $("#blocked-minutes").textContent = watch.minutes;
+  }
 }
 
 window.kairoBlocked = (b) => {

@@ -62,7 +62,7 @@ describe("Home", () => {
     await open();
     expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette"]);
     await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
-    expect(line("palette")).toBe("AltSpace");
+    expect(line("palette")).toBe("Press it anywhere");
     expect(line("ledger")).toBe("1 due today · 1 overdue");
   });
 
@@ -100,9 +100,20 @@ describe("Home", () => {
     expect(line("chrono")).toBe("2h 05m on screen · 40% productive");
   });
 
-  it("opens an app from its tile", async () => {
+  it("draws each app as its object", async () => {
     await open();
-    $<HTMLButtonElement>('[data-app="chrono"] .btn').click();
+    // Chrono's dial: today's time in its middle, its ring shared by productive and the rest.
+    await vi.waitFor(() => expect($('[data-app="chrono"] .dial-centre').textContent).toBe("2h 05"));
+    expect($('[data-app="chrono"] .dial-arc.productive')).not.toBeNull();
+    expect($('[data-app="ledger"] .app-object .logo-ledger')).not.toBeNull();
+    expect([...document.querySelectorAll('[data-app="palette"] .keycap kbd')].map((k) => k.textContent)).toEqual(["Alt", "Space"]);
+  });
+
+  it("opens an app from its object", async () => {
+    await open();
+    $<HTMLButtonElement>('[data-app="ledger"] .app-object').click();
+    expect(api.openLedger).toHaveBeenCalled();
+    $<HTMLButtonElement>('[data-app="chrono"] .app-object').click();
     expect(api.openChrono).toHaveBeenCalledWith();
     $<HTMLButtonElement>('[data-app="chrono"] .link-btn').click();
     expect(api.openChrono).toHaveBeenCalledWith("settings");
@@ -113,7 +124,9 @@ describe("tabs", () => {
   it("opens on Home when nothing asks otherwise", async () => {
     await open();
     expect(onTab()).toBe("home");
-    expect($("#dash-title").textContent).toBe("Your apps");
+    // The greeting for the hour, its aside in italic.
+    expect($("#dash-title").textContent).toMatch(/^(Good (morning|afternoon|evening),|Still up\?) /);
+    expect($("#dash-title em")).not.toBeNull();
   });
 
   it("opens on the tab it was asked for", async () => {

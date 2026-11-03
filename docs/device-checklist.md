@@ -24,7 +24,7 @@ On Windows and a Mac:
 1. **Click.** Left-click the tray icon (menu bar icon on a Mac), then try a double-click.
    *Expect:* the dashboard opens either way, once, never two windows. Right-click (or, on a Mac,
    any other click) shows the menu.
-2. **Menu.** *Expect:* Open dashboard, Open Chrono, Open Ledger, Check for updates, Command palette (with its
+2. **Menu.** *Expect:* Open dashboard, Check for updates, Command palette (with its
    shortcut), Pause tracking and Quit Kairo, in that order. Open dashboard opens the dashboard, and
    if it's already open, brings it forward. Check for updates shows a notification saying Kairo is
    up to date, or that it's installing the newer version.
@@ -33,7 +33,7 @@ On Windows and a Mac:
    settings; its link opens the dashboard's Settings tab. Change the theme there with Chrono open.
    *Expect:* Chrono repaints without a restart.
 
-On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same seven items,
+On Linux the tray doesn't report clicks, so open the menu instead: *expect* the same five items,
 and Open dashboard and Check for updates work as above.
 
 ## Mac
@@ -158,6 +158,29 @@ On Windows, a Mac and Linux.
 10. **Two computers.** With two combined computers (one on 1.27 or later), give a task a day and
     High on one. *Expect:* within about 5 minutes the other shows the same; a reminder sent on one
     isn't sent again on the other.
+
+## New look
+
+On Windows and a Mac, in light and dark (Kairo's settings → Appearance).
+
+1. **Dashboard.** *Expect:* a greeting for the hour ("Good morning, *let's begin.*" until noon), the
+   date in small capitals, and Chrono's dial, Ledger's notebook and the palette's key in a row,
+   lined up. The dial's ring shows today's productive (blue), other and distracting (orange) time,
+   with today's total in its middle. Hovering lifts each; clicking opens its app.
+2. **Paper.** *Expect:* dark is deep blue ink, light is cream paper, both with a faint grain; text
+   in Instrument Sans, titles and big numbers in Fraunces. Each window's buttons and links in its
+   app's colour: Chrono blue, Ledger amber, the palette violet.
+3. **Chrono.** Today: a small dial beside the big number. Focus: a watch whose ring unwinds as a
+   session runs; let a short session end with the Focus page open. *Expect:* one pulse.
+4. **Ledger.** Tick a task. *Expect:* an ink stroke drawn through it, then it moves to Done. An
+   overdue task has a red ribbon in the margin; a pinned note a gold one. Rows line up whatever
+   they show (day, bell, note, time).
+5. **Palette.** On Windows press Alt+Space. *Expect:* the new paper, the search field like a
+   raised key, small-capital section labels, the selected row lit violet. The same on a Mac.
+6. **Blocked window.** Start a focus session and open a blocked app. *Expect:* a watch with the
+   minutes left over "<app> is blocked".
+7. **Reduced motion.** Turn on the system's reduce-motion setting. *Expect:* no settling, lifting,
+   ink stroke or pulse; everything still works.
 
 ## Ledger notes
 

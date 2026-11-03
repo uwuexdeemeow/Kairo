@@ -45,6 +45,7 @@ pub struct DayTotal {
     date: String,
     active_ms: i64,
     productive_ms: i64,
+    distracting_ms: i64,
 }
 
 /// Time tracked on each local day from `from` to `to` (inclusive, at most 62 days), for the calendar.
@@ -62,11 +63,12 @@ pub fn get_day_totals(state: State<AppState>, from: String, to: String) -> CmdRe
         }
         let rows = analysis::load_rows_of(&conn, start, end.min(now), &shown).map_err(err)?;
         let active = rows.iter().filter(|r| !r.idle);
-        let (active_ms, productive_ms) = active.fold((0, 0), |(a, p), r| {
-            (a + r.dur(), p + if r.category == Category::Productive { r.dur() } else { 0 })
+        let (active_ms, productive_ms, distracting_ms) = active.fold((0, 0, 0), |(a, p, d), r| {
+            let of = |c: Category| if r.category == c { r.dur() } else { 0 };
+            (a + r.dur(), p + of(Category::Productive), d + of(Category::Distracting))
         });
         if active_ms > 0 {
-            out.push(DayTotal { date: date.to_string(), active_ms, productive_ms });
+            out.push(DayTotal { date: date.to_string(), active_ms, productive_ms, distracting_ms });
         }
     }
     Ok(out)

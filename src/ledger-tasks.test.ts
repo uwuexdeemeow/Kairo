@@ -65,13 +65,50 @@ describe("the task list", () => {
   });
 
   it("ticks, starts and opens a task", () => {
+    vi.useFakeTimers();
     renderTaskList(root, [task("a", "Essay")], null, act);
     root.querySelector<HTMLInputElement>('[data-task="a"] input[type="checkbox"]')!.click();
+    // The ink stroke is drawn through it first.
+    expect(root.querySelector('[data-task="a"]')!.classList.contains("inking")).toBe(true);
+    expect(act.done).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(280);
     expect(act.done).toHaveBeenCalledWith("a", true);
+    vi.useRealTimers();
     root.querySelector<HTMLButtonElement>('[data-task="a"] .task-start')!.click();
     expect(act.start).toHaveBeenCalledWith("a");
     root.querySelector<HTMLButtonElement>('[data-task="a"] .task-title')!.click();
     expect(act.select).toHaveBeenCalledWith("a");
+  });
+
+  it("keeps a second tick made while the first is inking", () => {
+    vi.useFakeTimers();
+    renderTaskList(root, [task("a", "Essay"), task("b", "Call")], null, act);
+    root.querySelector<HTMLInputElement>('[data-task="a"] input')!.click();
+    root.querySelector<HTMLInputElement>('[data-task="b"] input')!.click();
+    vi.advanceTimersByTime(280);
+    expect(act.done).toHaveBeenCalledWith("a", true);
+    expect(act.done).toHaveBeenCalledWith("b", true);
+    vi.useRealTimers();
+  });
+
+  it("ticks at once for those who ask for no motion", () => {
+    const was = window.matchMedia;
+    window.matchMedia = ((q: string) => ({ matches: q.includes("reduce") })) as unknown as typeof window.matchMedia;
+    try {
+      renderTaskList(root, [task("a", "Essay")], null, act);
+      root.querySelector<HTMLInputElement>('[data-task="a"] input')!.click();
+      expect(act.done).toHaveBeenCalledWith("a", true);
+    } finally {
+      window.matchMedia = was;
+    }
+  });
+
+  it("ribbons overdue tasks, and draws the notebook when there are none", () => {
+    renderTaskList(root, [task("a", "Late", { group: "overdue", dueDay: "2026-11-01" }), task("b", "Fine")], null, act);
+    expect(root.querySelector('[data-task="a"].ribbon')).not.toBeNull();
+    expect(root.querySelector('[data-task="b"].ribbon')).toBeNull();
+    renderTaskList(root, [], null, act);
+    expect(root.querySelector(".ledger-empty-art .logo-ledger")).not.toBeNull();
   });
 
   it("says Focusing now for the running task", () => {

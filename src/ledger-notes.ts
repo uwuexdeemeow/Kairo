@@ -1,4 +1,5 @@
 import type { Note } from "./api";
+import { logo } from "./logos";
 import { mountEditor, type Editor } from "./note-editor";
 import { h } from "./ui";
 
@@ -59,7 +60,10 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   const drawList = () => {
     if (!notes.length) {
-      list.replaceChildren(h("p", { class: "muted notes-empty" }, search.value.trim() ? "No notes match." : "Write anything: plans, lists, things to remember."));
+      const searching = !!search.value.trim();
+      const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
+      if (!searching) art.innerHTML = logo("ledger", 56);
+      list.replaceChildren(art, h("p", { class: "muted notes-empty" }, searching ? "No notes match." : "Write anything: plans, lists, things to remember."));
       return;
     }
     list.replaceChildren(
@@ -142,11 +146,19 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     });
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
     del.addEventListener("click", () => {
+      // Asked already: pressing again points at the question rather than asking twice.
+      const asking = pane.querySelector<HTMLElement>(".note-confirm");
+      if (asking) {
+        asking.querySelector<HTMLButtonElement>(".btn")?.focus();
+        return;
+      }
       const yes = h("button", { class: "btn" }, "Delete");
       const keep = h("button", { class: "link-btn note-keep" }, "Keep");
       const confirm = h("div", { class: "note-confirm", role: "alert" }, h("span", {}, `Delete “${n.title}”? Tasks attached to it lose the link.`), yes, keep);
       keep.addEventListener("click", () => confirm.remove());
       yes.addEventListener("click", async () => {
+        if (yes.hasAttribute("disabled")) return;
+        yes.setAttribute("disabled", "");
         dirty = false;
         window.clearTimeout(saveTimer);
         await act.remove(n.id);

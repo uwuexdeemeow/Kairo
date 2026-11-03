@@ -60,6 +60,7 @@ describe("the notes list", () => {
     notes = [];
     mountNotes(root, act, () => NOW);
     await vi.waitFor(() => expect(root.querySelector(".notes-empty")!.textContent).toBe("Write anything: plans, lists, things to remember."));
+    expect(root.querySelector(".notes-empty-art .logo-ledger")).not.toBeNull();
   });
 
   it("searches as you type", async () => {
@@ -139,6 +140,20 @@ describe("an open note", () => {
     root.querySelector<HTMLButtonElement>(".note-confirm .btn")!.click();
     await vi.waitFor(() => expect(act.remove).toHaveBeenCalledWith("a"));
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).toBeNull());
+  });
+
+  it("asks only once however often Delete is pressed", async () => {
+    await opened();
+    const del = root.querySelector<HTMLButtonElement>(".note-delete")!;
+    del.click();
+    del.click();
+    del.click();
+    expect(root.querySelectorAll(".note-confirm").length).toBe(1);
+    const yes = root.querySelector<HTMLButtonElement>(".note-confirm .btn")!;
+    yes.click();
+    yes.click();
+    await vi.waitFor(() => expect(act.remove).toHaveBeenCalled());
+    expect(act.remove).toHaveBeenCalledTimes(1);
   });
 
   it("takes a newer text from elsewhere unless typing", async () => {

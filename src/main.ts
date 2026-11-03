@@ -1,5 +1,6 @@
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
+import { dayParts, watchSvg } from "./chrono-look";
+import { dialSvg, logo } from "./logos";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type DayTotal, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
@@ -314,6 +315,8 @@ function renderToday(d: DaySummary) {
   const isToday = selectedDay === null;
   renderDayNav();
   $("#today-active").textContent = d.activeMs ? fmtDur(d.activeMs) : "0m";
+  // The day as Chrono's dial: its ring shared by what the time went on.
+  $("#today-dial").innerHTML = d.activeMs ? dialSvg(dayParts(d), `${pct(d.productiveMs, d.activeMs)}%`, "productive") : "";
   const sub = $("#today-sub");
   sub.replaceChildren(d.activeMs ? "on screen, " : isToday ? "on screen so far" : "on screen", ...(d.activeMs ? [h("strong", {}, `${pct(d.productiveMs, d.activeMs)}% productive`)] : []));
 
@@ -1494,6 +1497,9 @@ function setTimerMinutes(minutes: number) {
 }
 
 /// The big timer: the chosen length while idle, the countdown and controls while running.
+/// Whether the watch last showed a session about to end, so its finish can pulse.
+let watchRan = false;
+
 function paintTimer() {
   const running = runningFocus();
   $("#timer-setup").hidden = !!running;
@@ -1506,7 +1512,11 @@ function paintTimer() {
     time.classList.remove("paused");
     $("#timer-sub").textContent = "";
     $("#timer-minutes").textContent = `${timerMinutes} min`;
-    $("#timer-progress").style.width = "0%";
+    const ring = $("#timer-ring");
+    ring.innerHTML = watchSvg(1, 1, false);
+    // A session that just ran out gives the watch one pulse.
+    if (watchRan) ring.classList.add("pulse");
+    watchRan = false;
     for (const b of document.querySelectorAll<HTMLButtonElement>("[data-minutes]")) b.setAttribute("aria-pressed", String(Number(b.dataset.minutes) === timerMinutes));
     $<HTMLButtonElement>("#timer-less").disabled = timerMinutes <= TIMER_STEP_MIN;
     $<HTMLButtonElement>("#timer-more").disabled = timerMinutes >= TIMER_MAX_MIN;
@@ -1519,7 +1529,10 @@ function paintTimer() {
   time.textContent = fmtElapsed(left);
   time.classList.toggle("paused", paused);
   $("#timer-sub").textContent = paused ? "Paused. Distraction nudges are off until you resume." : `Ends at ${fmtClock(Date.now() + left)}`;
-  $("#timer-progress").style.width = `${(1 - left / running.plannedMs) * 100}%`;
+  const ring = $("#timer-ring");
+  ring.classList.remove("pulse");
+  ring.innerHTML = watchSvg(left, running.plannedMs, paused);
+  watchRan = left <= 1_000;
   $("#timer-pause").textContent = paused ? "Resume" : "Pause";
   $<HTMLButtonElement>("#timer-extend").disabled = running.plannedMs >= TIMER_MAX_MIN * 60_000;
 }
@@ -2285,4 +2298,5 @@ refreshStatus();
 load();
 followNavigation();
 followTheme();
+document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("chrono", 30));
 useDropdowns();

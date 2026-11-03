@@ -1,10 +1,10 @@
-import "@fontsource-variable/geist";
-import "@fontsource-variable/geist-mono";
+import "./fonts";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import { renderDetail, renderTaskList, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
+import { logo } from "./logos";
 import { $, followTheme } from "./ui";
 
 /// Chrono's timer keeps the length picked for the next session here; Start focus uses it too.
@@ -155,6 +155,7 @@ async function saveSettings() {
 }
 
 followTheme();
+document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
 $("#ledger-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.addEventListener("click", () => show(b.dataset.view as View));
 $("#ledger-reminders").addEventListener("change", saveSettings);
