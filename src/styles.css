@@ -2467,15 +2467,6 @@ html.palette-root {
 }
 
 select,
-input[type="time"] {
-  font: inherit;
-  color: var(--ink);
-  background: var(--bg);
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-  padding: 4px 2px;
-}
 
 /* Dropdowns (dropdown.ts): a button in place of each select, and a list in the theme's colors
    instead of the system's. */
@@ -2574,10 +2565,6 @@ input[type="time"] {
   color: var(--faint);
 }
 
-input[type="time"]::-webkit-calendar-picker-indicator {
-  opacity: 0.6;
-  cursor: pointer;
-}
 
 .row-buttons {
   display: flex;

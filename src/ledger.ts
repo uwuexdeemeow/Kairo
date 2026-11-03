@@ -6,7 +6,12 @@ import { useDropdowns } from "./dropdown";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
+import { replaceTimeInputs } from "./time-select";
 import { $, followTheme } from "./ui";
+
+// Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
+// takes hold of the fields it replaces.
+replaceTimeInputs();
 
 /// Chrono's timer keeps the length picked for the next session here; Start focus uses it too.
 const TIMER_KEY = "kairo.timerMinutes";
@@ -173,7 +178,7 @@ async function saveSettings() {
 }
 
 followTheme();
-// Kairo's own dropdowns in place of the system's lists, like the reminder's time.
+// Kairo's own dropdowns in place of the system's lists.
 useDropdowns();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
 // Kairo is one window: this goes back to its dashboard.

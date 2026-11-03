@@ -6,9 +6,14 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay, todayIso, weekdayIndex } from "./calendar";
 import { shownControl, useDropdowns } from "./dropdown";
+import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
 import { renderTaskPicker, type PickerActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
+
+// Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
+// takes hold of the fields it replaces.
+replaceTimeInputs();
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
