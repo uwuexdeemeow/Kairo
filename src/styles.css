@@ -3508,10 +3508,15 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 /* ---------- Ledger's notes ---------- */
 
+/* Two panes: the notes as cards on the left, the open one on a sheet on the right. */
+#view-notes {
+  container-type: inline-size;
+}
+
 .notes {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
 }
 
@@ -3521,61 +3526,154 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   gap: 8px;
 }
 
+.notes-side .notes-search {
+  width: 100%;
+}
+
 .notes-new {
-  align-self: flex-start;
+  align-self: stretch;
 }
 
 .notes-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .note-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
   color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
 }
 
-.note-row:hover,
+.note-row:hover {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--raised) 90%, var(--ink));
+}
+
 .note-row.open {
-  background: var(--raised);
+  border-color: var(--ledger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ledger) 14%, transparent);
 }
 
 .note-row-title {
   overflow: hidden;
+  padding-right: 64px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.note-row.pinned .note-row-title::before {
-  content: "📌 ";
+.note-row-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .note-row-meta {
-  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+/* The open note: one sheet with its tools on top and how it stands underneath. */
+.note-sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: 0 10px 24px -18px var(--shadow);
 }
 
 .note-top {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 24px;
-  margin-bottom: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
   font-size: 12px;
+}
+
+.note-top .link-btn {
+  min-height: 28px;
 }
 
 .note-top-buttons {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.note-tools {
+  display: flex;
+  gap: 4px;
+  padding-right: 6px;
+  border-right: 1px solid var(--rule);
+}
+
+.note-tool {
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+}
+
+.note-tool[data-tool="italic"] {
+  font-style: italic;
+}
+
+.note-tool:hover {
+  border-color: var(--ledger);
+  color: var(--ledger);
+}
+
+.note-foot {
+  display: flex;
+  gap: 14px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/* ← Notes shows only where the list and the note take turns. */
+.note-back {
+  display: none;
+}
+
+@container (max-width: 760px) {
+  .notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .notes.reading .notes-side,
+  .notes:not(.reading) .note-pane {
+    display: none;
+  }
+  .note-back {
+    display: inline-flex;
+  }
 }
 
 .note-confirm {
@@ -3762,13 +3860,12 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 /* ---------- Ledger as a notebook ---------- */
 
-/* Ruled paper with a margin rule, for the open note. */
+/* Ruled paper with a margin rule, for the open note, inside its sheet. */
 .note-pane .note-editor {
   background-color: var(--raised);
   background-image: linear-gradient(90deg, transparent 38px, color-mix(in srgb, var(--ledger) 25%, transparent) 38px 39px, transparent 39px);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  box-shadow: 0 1px 0 var(--rule), 0 10px 24px -18px var(--shadow);
+  border: 0;
+  border-radius: 0;
 }
 
 
@@ -3816,11 +3913,9 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
 }
 
-/* The notes list as page edges; a pinned note wears the gold ribbon. */
+/* A pinned note wears the gold ribbon. */
 .note-row {
   position: relative;
-  border-bottom: 1px solid var(--rule);
-  border-radius: 0;
 }
 
 .note-row.pinned .note-row-title::before {

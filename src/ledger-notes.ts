@@ -42,6 +42,26 @@ export function retitle(body: string, title: string): string {
   return lines.join("\n");
 }
 
+/// What a note's card shows under its title: the text after the title line, its Markdown marks
+/// taken out, on one line.
+export function notePreview(body: string): string {
+  const lines = body.split("\n");
+  const title = lines.findIndex((l) => l.trim() !== "");
+  return lines
+    .slice(title + 1)
+    .join(" ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(^|\s)[-*] \[[ xX]\] /g, "$1")
+    .replace(/(^|\s)(#{1,3}|[-*]|\d+\.) /g, "$1")
+    .replace(/\*\*|[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function wordCount(body: string): number {
+  return body.replace(/[#*_`>\[\]()-]/g, " ").split(/\s+/).filter((w) => /\w/.test(w)).length;
+}
+
 export function editedText(ms: number, now: number): string {
   const d = new Date(ms);
   const day = (t: Date) => `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}`;
@@ -59,7 +79,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   const create = h("button", { class: "btn notes-new" }, "+ New note");
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
-  root.replaceChildren(h("div", { class: "notes" }, h("aside", { class: "notes-side" }, search, create, list), pane));
+  const shell = h("div", { class: "notes" }, h("aside", { class: "notes-side" }, search, create, list), pane);
+  root.replaceChildren(shell);
 
   let notes: Note[] = [];
   let open: Note | null = null;
@@ -80,7 +101,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     }
     list.replaceChildren(
       ...notes.map((n) => {
-        const meta = [n.tasks.length ? `${n.tasks.length} task${n.tasks.length === 1 ? "" : "s"}` : "", editedText(n.editedMs, now())].filter(Boolean).join(" · ");
+        const chips = [n.tasks.length ? `${n.tasks.length} task${n.tasks.length === 1 ? "" : "s"}` : "", editedText(n.editedMs, now())].filter(Boolean);
+        const preview = notePreview(n.body);
         const title = h("span", { class: "note-row-title" }, n.title);
         // Hovering the row shows a bubble to rename the note where it is: its first line changes.
         const bubble = renameBubble(n.title, () => {
@@ -97,7 +119,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
           "div",
           { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem", tabindex: "0" },
           title,
-          h("span", { class: "note-row-meta muted" }, meta),
+          ...(preview ? [h("span", { class: "note-row-preview muted" }, preview)] : []),
+          h("span", { class: "note-row-meta" }, ...chips.map((c) => h("span", { class: "chip" }, c))),
           bubble,
         );
         row.addEventListener("click", () => void view.open(n.id));
@@ -148,6 +171,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     if (kept) {
       open = kept;
       drawTop();
+      drawFoot();
     } else {
       // Deleted on another computer meanwhile.
       closeNote();
@@ -161,7 +185,20 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     editor = null;
     dirty = false;
     pane.replaceChildren();
+    shell.classList.remove("reading");
     drawList();
+  };
+
+  /// Under the sheet: whether what's typed is kept yet, its words, when it was edited.
+  const foot = h("div", { class: "note-foot", "aria-live": "polite" });
+  const drawFoot = () => {
+    if (!open || !editor) return;
+    const words = wordCount(editor.value());
+    foot.replaceChildren(
+      h("span", {}, dirty ? "Saving…" : "Saved"),
+      h("span", {}, `${words} word${words === 1 ? "" : "s"}`),
+      h("span", {}, `Edited ${editedText(open.editedMs, now())}`),
+    );
   };
 
   const top = h("div", { class: "note-top" });
@@ -170,7 +207,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   const drawTop = () => {
     if (!open) return;
     const n = open;
-    const parts: Node[] = [];
+    // On a narrow window the list and the note take turns; this goes back to the list.
+    const back = h("button", { class: "link-btn note-back" }, "← Notes");
+    back.addEventListener("click", async () => {
+      await save();
+      closeNote();
+    });
+    const parts: Node[] = [back];
     if (n.tasks.length) {
       parts.push(
         h(
@@ -217,7 +260,21 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       });
       top.after(confirm);
     });
-    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, pin, del));
+    const tool = (name: string, label: string, text: string, run: () => void) => {
+      const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, text);
+      // Pressed without taking the keyboard from the note, so the selection stays.
+      b.addEventListener("mousedown", (e) => e.preventDefault());
+      b.addEventListener("click", run);
+      return b;
+    };
+    const tools = h(
+      "span",
+      { class: "note-tools" },
+      tool("bold", "Bold (Ctrl+B)", "B", () => editor?.wrap("**")),
+      tool("italic", "Italic (Ctrl+I)", "I", () => editor?.wrap("*")),
+      tool("box", "Checkbox", "☐", () => editor?.box()),
+    );
+    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, tools, pin, del));
   };
 
   const showLimit = () => (limit.textContent = editor && editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");
@@ -234,10 +291,12 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       if (!n) return;
       open = n;
       const box = h("div", { class: "note-body" });
-      pane.replaceChildren(top, box, limit);
+      pane.replaceChildren(h("div", { class: "note-sheet" }, top, box, foot), limit);
+      shell.classList.add("reading");
       drawTop();
       editor = mountEditor(box, n.body, () => {
         dirty = true;
+        drawFoot();
         showLimit();
         window.clearTimeout(saveTimer);
         saveTimer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
@@ -245,6 +304,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         syncTimer = window.setTimeout(() => act.syncSoon(), SYNC_AFTER_MS);
       });
       showLimit();
+      drawFoot();
       drawList();
     },
     refresh: async () => {

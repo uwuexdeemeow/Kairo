@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "./api";
-import { editedText, mountNotes, retitle, type NotesActions } from "./ledger-notes";
+import { editedText, mountNotes, notePreview, retitle, wordCount, type NotesActions } from "./ledger-notes";
 
 const NOW = new Date(2026, 10, 3, 15, 0).getTime();
 const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
@@ -79,6 +79,64 @@ describe("the notes list", () => {
     root.querySelector<HTMLButtonElement>(".notes-new")!.click();
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).not.toBeNull());
     expect(act.create).toHaveBeenCalled();
+  });
+});
+
+describe("the notes as cards", () => {
+  it("previews the text after the title, without its marks", () => {
+    expect(notePreview("# Essay plan\n\n- [x] pick a topic\n- [ ] **outline** the `three` parts")).toBe("pick a topic outline the three parts");
+    expect(notePreview("Shopping")).toBe("");
+    expect(notePreview("\n\nTitle\n[the brief](https://x.y) and *more*")).toBe("the brief and more");
+  });
+
+  it("counts words", () => {
+    expect(wordCount("# Plan\n- [ ] two words")).toBe(3);
+    expect(wordCount("   ")).toBe(0);
+  });
+
+  it("shows each note's preview", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(root.querySelector('[data-note="a"] .note-row-preview')!.textContent).toBe("intro"));
+  });
+});
+
+describe("the open note's sheet", () => {
+  async function opened() {
+    const view = mountNotes(root, act, () => NOW);
+    await settle();
+    await view.open("a");
+    return root.querySelector<HTMLTextAreaElement>(".note-pane textarea")!;
+  }
+
+  it("makes the selection bold or italic, and adds a checkbox, from its toolbar", async () => {
+    const area = await opened();
+    area.setSelectionRange(9, 14);
+    root.querySelector<HTMLButtonElement>('.note-tool[data-tool="bold"]')!.click();
+    expect(area.value).toBe("# Plan\nin**tro**");
+    root.querySelector<HTMLButtonElement>('.note-tool[data-tool="box"]')!.click();
+    expect(area.value.split("\n")[1]).toBe("- [ ] in**tro**");
+  });
+
+  it("says when it's saving and saved, and how many words", async () => {
+    const area = await opened();
+    const foot = () => root.querySelector(".note-foot")!.textContent;
+    expect(foot()).toContain("Saved");
+    expect(foot()).toContain("2 words");
+    area.value = "# Plan\nintro and more";
+    area.dispatchEvent(new Event("input"));
+    expect(foot()).toContain("Saving…");
+    expect(foot()).toContain("4 words");
+    vi.advanceTimersByTime(500);
+    await vi.waitFor(() => expect(foot()).toContain("Saved"));
+  });
+
+  it("goes back to the list from ← Notes", async () => {
+    await opened();
+    expect(root.querySelector(".notes")!.classList.contains("reading")).toBe(true);
+    root.querySelector<HTMLButtonElement>(".note-back")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).toBeNull());
+    expect(root.querySelector(".notes")!.classList.contains("reading")).toBe(false);
   });
 });
 

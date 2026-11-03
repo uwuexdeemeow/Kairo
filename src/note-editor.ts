@@ -90,7 +90,16 @@ export function wrapSelection(text: string, start: number, end: number, mark: st
   return { text: out, start: start + mark.length, end: end + mark.length };
 }
 
-export type Editor = { el: HTMLElement; set(text: string): void; value(): string; focus(): void };
+export type Editor = {
+  el: HTMLElement;
+  set(text: string): void;
+  value(): string;
+  focus(): void;
+  /** Wraps the selection in `mark` (** for bold, * for italic), as Ctrl+B and Ctrl+I do. */
+  wrap(mark: string): void;
+  /** Starts the caret's line with an unticked box. */
+  box(): void;
+};
 
 export function mountEditor(root: HTMLElement, text: string, onChange: (text: string) => void): Editor {
   const layer = document.createElement("pre");
@@ -165,5 +174,17 @@ export function mountEditor(root: HTMLElement, text: string, onChange: (text: st
     },
     value: () => area.value,
     focus: () => area.focus(),
+    wrap: (m) => {
+      const w = wrapSelection(area.value, area.selectionStart, area.selectionEnd, m);
+      replace(w.text, w.start, w.end);
+      area.focus();
+    },
+    box: () => {
+      const caret = area.selectionStart;
+      const start = area.value.lastIndexOf("\n", caret - 1) + 1;
+      if (/^\s*[-*] \[[ xX]\] /.test(area.value.slice(start))) return area.focus();
+      replace(area.value.slice(0, start) + "- [ ] " + area.value.slice(start), caret + 6);
+      area.focus();
+    },
   };
 }
