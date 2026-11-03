@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dashboardBody as markup } from "./test-dashboard";
 
 const api = vi.hoisted(() => ({
+  ringSettings: vi.fn(),
+  setRingShortcut: vi.fn(),
   version: vi.fn(),
   sync: vi.fn(),
   stopSync: vi.fn(),
@@ -66,6 +68,8 @@ beforeEach(async () => {
   api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false, searchFiles: true });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.setPaletteShortcut.mockResolvedValue(undefined);
+  api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q" });
+  api.setRingShortcut.mockResolvedValue({ shortcut: "Alt+R" });
   document.body.innerHTML = markup;
   settings = await import("./kairo-settings");
   settings.wireKairoSettings();
@@ -118,6 +122,31 @@ describe("the Theme dropdown", () => {
     select.dispatchEvent(new Event("change"));
     expect(api.setAppearance).toHaveBeenCalledWith("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+});
+
+describe("the app ring's shortcut", () => {
+  const ringKeys = () => [...document.querySelectorAll("#ring-keys kbd")].map((k) => k.textContent);
+
+  it("shows the saved one", async () => {
+    await vi.waitFor(() => expect(ringKeys()).toEqual(["Alt", "Q"]));
+  });
+
+  it("records a new one apart from the palette's", async () => {
+    $("#ring-record").click();
+    expect($("#ring-record").textContent).toBe("Cancel");
+    expect($("#palette-record").textContent).toBe("Change");
+    press("r", "KeyR", { altKey: true });
+    await vi.waitFor(() => expect(api.setRingShortcut).toHaveBeenCalledWith("Alt+R"));
+    await vi.waitFor(() => expect($("#ring-note").textContent).toBe("Saved. Alt+R opens the app ring from anywhere."));
+    expect(api.setPaletteShortcut).not.toHaveBeenCalled();
+  });
+
+  it("stops recording the palette's when the ring's starts", () => {
+    $("#palette-record").click();
+    $("#ring-record").click();
+    expect($("#palette-record").textContent).toBe("Change");
+    expect($("#ring-record").textContent).toBe("Cancel");
   });
 });
 
