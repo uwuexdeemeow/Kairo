@@ -30,6 +30,7 @@ beforeEach(() => {
     pin: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
     openTask: vi.fn(),
+    popOut: vi.fn(),
     syncSoon: vi.fn(),
   };
 });
@@ -207,6 +208,24 @@ describe("an open note", () => {
     area.dispatchEvent(new Event("input"));
     await view.open("b");
     expect(act.save).toHaveBeenCalledWith("a", "changed");
+  });
+
+  it("pops out into a window of its own, saving first", async () => {
+    const { area } = await opened();
+    area.value = "# Plan\nlast words";
+    area.dispatchEvent(new Event("input"));
+    root.querySelector<HTMLButtonElement>(".note-pop-out")!.click();
+    await vi.waitFor(() => expect(act.popOut).toHaveBeenCalledWith("a"));
+    expect(act.save).toHaveBeenCalledWith("a", "# Plan\nlast words");
+  });
+
+  it("takes a change made in the pop-out when nothing is unsaved, keeping the caret", async () => {
+    const { view, area } = await opened();
+    area.setSelectionRange(3, 3);
+    notes[0] = note("a", "# Plan\nintro, from the pop-out", { pinned: true });
+    await view.refresh();
+    expect(area.value).toBe("# Plan\nintro, from the pop-out");
+    expect(area.selectionStart).toBe(3);
   });
 
   it("pins and unpins", async () => {

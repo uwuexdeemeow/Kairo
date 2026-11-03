@@ -483,7 +483,8 @@ export const api = {
   parseTask: (text: string) => invoke<ParsedTask>("parse_task", { text }),
   setTaskPlan: (id: string, due: string | null, priority: number, remind: number | null) =>
     invoke<Task[]>("set_task_plan", { id, due, priority, remind }),
-  openLedger: () => invoke<void>("open_ledger"),
+  /** Opens Ledger, on "note:<id>" or "task:<id>" when given. */
+  openLedger: (at?: string) => invoke<void>("open_ledger", { at }),
   ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
   setLedgerSettings: (reminders: boolean, morning: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning }),
   /** Pinned first, then newest edited; with a query, those whose title or text has it. */
@@ -496,6 +497,12 @@ export const api = {
   removeNote: (id: string) => invoke<void>("remove_note", { id }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
   syncSoon: () => invoke<void>("sync_soon"),
+  /** Pops a note out into its own small window, or switches the open one to it. */
+  popOutNote: (id: string) => invoke<void>("pop_out_note", { id }),
+  /** The note the pop-out window is on. */
+  poppedNote: () => invoke<string | null>("popped_note"),
+  noteOnTop: () => invoke<boolean>("note_on_top"),
+  setNoteOnTop: (on: boolean) => invoke<void>("set_note_on_top", { on }),
   /** Where Ledger was asked to open, once: "note:<id>" or "task:<id>". */
   takeLedgerOpen: () => invoke<string | null>("take_ledger_open"),
   ringSettings: () => invoke<{ shortcut: string }>("ring_settings"),

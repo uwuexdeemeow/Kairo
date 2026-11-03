@@ -14,6 +14,8 @@ export type NotesActions = {
   pin(id: string, pinned: boolean): Promise<void>;
   remove(id: string): Promise<void>;
   openTask(id: string): void;
+  /** Shows the note in a small window of its own. */
+  popOut(id: string): void;
   /** Typing stopped a while ago: time to let combined computers have it. */
   syncSoon(): void;
 };
@@ -236,6 +238,12 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       await load();
       drawList();
     });
+    const popOut = h("button", { class: "link-btn note-pop-out", title: "Keep it in view in a small window of its own" }, "Pop out");
+    popOut.addEventListener("click", async () => {
+      // Saved first, so the window opens on what's typed.
+      await save();
+      act.popOut(n.id);
+    });
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
     del.addEventListener("click", () => {
       // Asked already: pressing again points at the question rather than asking twice.
@@ -274,7 +282,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       tool("italic", "Italic (Ctrl+I)", "I", () => editor?.wrap("*")),
       tool("box", "Checkbox", "☐", () => editor?.box()),
     );
-    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, tools, pin, del));
+    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, tools, popOut, pin, del));
   };
 
   const showLimit = () => (limit.textContent = editor && editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");

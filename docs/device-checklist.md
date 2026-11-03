@@ -255,6 +255,24 @@ On Windows, a Mac and Linux. Open Ledger's Notes.
    before either syncs. *Expect:* both end with the note and one "(conflicted copy)" of the edit
    that lost. Delete a note on one. *Expect:* it goes from the other too, and doesn't come back.
 
+## A note popped out
+
+On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's Notes.
+
+1. **Pop out.** Press Pop out. *Expect:* a small window (about 360 × 480) titled with the note's
+   title, its text in Ledger's editor, B / I / ☐ on the left, 📌 (pressed) and ↗ on the right,
+   "Saved · N words" under it. It stays above other apps you click into.
+2. **Both windows.** Type a line in the pop-out, then click into Ledger. *Expect:* the line is
+   already there. Tick a box in Ledger, click back into the pop-out. *Expect:* ticked, the caret
+   where it was. Rename the note's first line in either. *Expect:* the pop-out's title follows.
+3. **Floating.** Press 📌. *Expect:* unpressed; other apps can cover the window. Close it and pop
+   the note out again. *Expect:* still unpressed. Turn it back on.
+4. **Another note.** Pop out a second note. *Expect:* the same window switches to it; no second one.
+5. **Remembered.** Move and resize the window, close it, pop out again. *Expect:* where you left it.
+6. **Apart from Kairo.** Close Kairo's window. *Expect:* the pop-out stays (on a Mac, Kairo stays in
+   the Dock until it closes too). ↗ opens Ledger on the note.
+7. **Deleted.** With a note popped out, delete it in Ledger. *Expect:* the pop-out closes.
+
 ## Palette: web search
 
 On Windows, a Mac and Linux. Open the palette.

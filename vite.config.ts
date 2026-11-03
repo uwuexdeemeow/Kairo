@@ -4,12 +4,12 @@ import { defineConfig } from "vite";
 // Tauri expects a fixed dev port and handles its own console output.
 export default defineConfig({
   clearScreen: false,
-  // Chrono's window, the dashboard (Kairo's apps and settings), Ledger, the small window a focus session
+  // Chrono's window, the dashboard (Kairo's apps and settings), Ledger, a note popped out of it, the small window a focus session
   // shows over a blocked app, and the command palette on macOS and Linux (Windows draws its own:
   // src-tauri/src/palette/native.rs).
   build: {
     rollupOptions: {
-      input: { main: "index.html", dashboard: "dashboard.html", ledger: "ledger.html", blocked: "blocked.html", palette: "palette.html", ring: "ring.html" },
+      input: { main: "index.html", dashboard: "dashboard.html", ledger: "ledger.html", note: "note.html", blocked: "blocked.html", palette: "palette.html", ring: "ring.html" },
     },
   },
   // The web code's tests run in a simulated page, as Windows' web view: Kairo's code names keys and

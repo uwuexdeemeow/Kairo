@@ -16,6 +16,7 @@ mod focus;
 mod goals;
 mod ledger;
 mod lists;
+mod note_window;
 mod notebook;
 mod notes;
 mod nudge;
@@ -305,7 +306,7 @@ pub fn run() {
             palette::web::on_window_event(window, event);
             #[cfg(not(windows))]
             ring::web::on_window_event(window, event);
-            if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == WINDOW {
+            if matches!(event, tauri::WindowEvent::Destroyed) && (window.label() == WINDOW || window.label() == note_window::LABEL) {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
                 let windows = app.webview_windows();
@@ -425,6 +426,10 @@ pub fn run() {
             commands::set_task_note,
             commands::sync_soon,
             commands::take_ledger_open,
+            commands::pop_out_note,
+            commands::popped_note,
+            commands::note_on_top,
+            commands::set_note_on_top,
             commands::ring_settings,
             commands::set_ring_shortcut,
             commands::open_ring,
@@ -532,11 +537,11 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str,
 static OPENING: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
 /// Claims the making of `label`'s window; false when one is already being made.
-fn begin_opening(label: &str) -> bool {
+pub(crate) fn begin_opening(label: &str) -> bool {
     OPENING.lock().unwrap_or_else(|e| e.into_inner()).insert(label.to_string())
 }
 
-fn end_opening(label: &str) {
+pub(crate) fn end_opening(label: &str) {
     OPENING.lock().unwrap_or_else(|e| e.into_inner()).remove(label);
 }
 
@@ -581,9 +586,9 @@ fn shows(current: &tauri::Url, page: Page) -> bool {
     path == page.file() || (page == Page::Dashboard && path.is_empty())
 }
 
-/// Whether Kairo belongs in the Dock: while its window is open.
+/// Whether Kairo belongs in the Dock: while its window or a popped-out note is open.
 fn keep_in_dock(open: &[&str]) -> bool {
-    open.contains(&WINDOW)
+    open.contains(&WINDOW) || open.contains(&note_window::LABEL)
 }
 
 /// Brings up Chrono in Kairo's window.
@@ -654,7 +659,7 @@ pub(crate) fn show_page(app: &AppHandle, page: Page) {
 
 /// On a Mac, Kairo lives in the menu bar: it's in the Dock and the app switcher only while its
 /// window is open, as Windows and Linux show it in the taskbar only then. Elsewhere, nothing.
-fn in_dock(app: &AppHandle, shown: bool) {
+pub(crate) fn in_dock(app: &AppHandle, shown: bool) {
     #[cfg(target_os = "macos")]
     {
         let policy = if shown { tauri::ActivationPolicy::Regular } else { tauri::ActivationPolicy::Accessory };
@@ -741,5 +746,7 @@ mod tests {
         assert!(keep_in_dock(&["kairo", "palette"]));
         assert!(!keep_in_dock(&["palette", "blocked"]));
         assert!(!keep_in_dock(&[]));
+        assert!(keep_in_dock(&["note"]));
+        assert!(keep_in_dock(&["note", "palette"]));
     }
 }

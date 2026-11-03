@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "note",
+  "description": "A popped-out note names its window after the note and closes itself when the note is deleted",
+  "windows": ["note"],
+  "permissions": ["core:window:allow-set-title", "core:window:allow-close"]
+}

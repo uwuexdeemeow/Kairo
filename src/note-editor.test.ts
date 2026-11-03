@@ -90,6 +90,18 @@ describe("the editor", () => {
     expect(changed).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the caret where it was when the text is set from outside", () => {
+    const ed = mountEditor(root, "- [ ] milk\n- [ ] eggs", () => {});
+    const area = root.querySelector("textarea")!;
+    area.setSelectionRange(4, 4);
+    ed.set("- [x] milk\n- [ ] eggs");
+    expect([area.selectionStart, area.selectionEnd]).toEqual([4, 4]);
+    // Past the end of a shorter text, it goes to the end.
+    area.setSelectionRange(20, 20);
+    ed.set("short");
+    expect([area.selectionStart, area.selectionEnd]).toEqual([5, 5]);
+  });
+
   it("continues lists on Enter and ticks boxes on click", () => {
     const changed = vi.fn();
     mountEditor(root, "- [ ] milk", changed);

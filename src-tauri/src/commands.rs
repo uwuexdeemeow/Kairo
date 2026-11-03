@@ -293,9 +293,13 @@ pub fn remove_task(app: AppHandle, state: State<AppState>, id: String) -> CmdRes
     tasks_changed(&app, &conn)
 }
 
+/// Opens Ledger, on a note or task when `at` says one ("note:<id>", "task:<id>").
 #[tauri::command]
-pub fn open_ledger(app: AppHandle) {
-    crate::show_ledger(&app);
+pub fn open_ledger(app: AppHandle, at: Option<String>) {
+    match at {
+        Some(at) => crate::show_ledger_at(&app, &at),
+        None => crate::show_ledger(&app),
+    }
 }
 
 #[tauri::command]
@@ -388,25 +392,33 @@ pub fn new_note(state: State<AppState>, text: String) -> CmdResult<crate::notebo
 
 /// None when the note is gone, deleted on another computer since it was opened.
 #[tauri::command]
-pub fn save_note(state: State<AppState>, id: String, body: String) -> CmdResult<Option<crate::notebook::Note>> {
+pub fn save_note(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String, body: String) -> CmdResult<Option<crate::notebook::Note>> {
     let conn = state.db.lock().map_err(err)?;
-    crate::notebook::save(&conn, &id, &body, now_ms()).map_err(err)
+    let kept = crate::notebook::save(&conn, &id, &body, now_ms()).map_err(err)?;
+    drop(conn);
+    crate::note_window::changed(&app, &id, window.label(), kept.is_none());
+    Ok(kept)
 }
 
 #[tauri::command]
-pub fn pin_note(state: State<AppState>, id: String, pinned: bool) -> CmdResult<()> {
+pub fn pin_note(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String, pinned: bool) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    crate::notebook::set_pinned(&conn, &id, pinned, now_ms()).map_err(err)
+    crate::notebook::set_pinned(&conn, &id, pinned, now_ms()).map_err(err)?;
+    drop(conn);
+    crate::note_window::changed(&app, &id, window.label(), false);
+    Ok(())
 }
 
 /// Deletes a note; the tasks it was attached to lose the link, here and on combined computers.
 #[tauri::command]
-pub fn remove_note(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<()> {
+pub fn remove_note(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
     for task in crate::notebook::remove(&conn, &id, now_ms()).map_err(err)? {
         sync::record(&conn, &format!("tasknote:{task}"), "")?;
     }
+    drop(conn);
     let _ = app.emit("kairo:tasks", ());
+    crate::note_window::changed(&app, &id, window.label(), true);
     Ok(())
 }
 
@@ -424,6 +436,28 @@ pub fn set_task_note(app: AppHandle, state: State<AppState>, task: String, note:
 #[tauri::command]
 pub fn sync_soon(state: State<AppState>) {
     wake_sync(&state);
+}
+
+/// Pops a note out into its own small window, or switches the open one to it.
+#[tauri::command]
+pub fn pop_out_note(app: AppHandle, id: String) {
+    crate::note_window::pop_out(&app, &id);
+}
+
+/// The note the pop-out window is on.
+#[tauri::command]
+pub fn popped_note() -> Option<String> {
+    crate::note_window::popped()
+}
+
+#[tauri::command]
+pub fn note_on_top(app: AppHandle) -> bool {
+    crate::note_window::on_top(&app)
+}
+
+#[tauri::command]
+pub fn set_note_on_top(app: AppHandle, on: bool) -> CmdResult<()> {
+    crate::note_window::set_on_top(&app, on).map_err(err)
 }
 
 /// Where Ledger was asked to open, once: "note:<id>" or "task:<id>".

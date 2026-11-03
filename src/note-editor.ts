@@ -168,8 +168,12 @@ export function mountEditor(root: HTMLElement, text: string, onChange: (text: st
 
   return {
     el,
+    // A newer text from elsewhere (the other window, another computer) keeps the caret where it
+    // was, as far as the new text reaches.
     set: (t) => {
+      const [start, end] = [area.selectionStart, area.selectionEnd];
       area.value = t;
+      area.setSelectionRange(Math.min(start, t.length), Math.min(end, t.length));
       paint();
     },
     value: () => area.value,

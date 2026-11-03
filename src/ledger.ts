@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
 import { useDropdowns } from "./dropdown";
 import { mountNotes, type NotesView } from "./ledger-notes";
+import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { replaceTimeInputs } from "./time-select";
@@ -115,6 +116,7 @@ function notes(): NotesView {
     pin: (id, pinned) => api.pinNote(id, pinned),
     remove: (id) => api.removeNote(id),
     openTask: (id) => openTask(id),
+    popOut: (id) => void api.popOutNote(id),
     syncSoon: () => void api.syncSoon(),
   });
   return notesView;
@@ -201,11 +203,16 @@ listen("kairo:sync", () => {
   void notesView?.refresh();
 });
 listen("kairo:ledger", () => followOpen());
+// A note changed in its pop-out window: taken unless it's being typed in here.
+listen<NoteChange>("kairo:note", (e) => {
+  if (e.payload.from !== "kairo") void notesView?.refresh();
+});
 setInterval(() => !document.hidden && refresh(), 10_000);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) void notesView?.flush();
   else void refresh();
 });
-// Closing the window keeps what was typed.
+// Typed here is in the pop-out before you can type there; closing the window keeps it too.
+window.addEventListener("blur", () => void notesView?.flush());
 window.addEventListener("beforeunload", () => void notesView?.flush());
 window.addEventListener("pagehide", () => void notesView?.flush());

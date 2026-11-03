@@ -4266,3 +4266,56 @@ select,
     transition: none;
   }
 }
+
+/* A note popped out of Ledger: the whole window is the sheet, its bar, editor and footer. */
+.popout-page {
+  height: 100vh;
+  overflow: hidden;
+  background: var(--raised);
+}
+
+.popout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.popout-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.popout-window-tools {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.note-tool[aria-pressed="true"] {
+  border-color: var(--ledger);
+  background: color-mix(in srgb, var(--ledger) 14%, transparent);
+  color: var(--ledger);
+}
+
+.popout-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.popout .note-editor {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+/* A step smaller than in Ledger, so more of the note fits. */
+.popout .note-layer,
+.popout .note-text {
+  min-height: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+}
