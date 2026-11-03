@@ -426,6 +426,30 @@ describe("a time chart", () => {
     expect(subs()).toContain("Open this week in Chrono");
   });
 
+  it("stays up when files found for the same results arrive after it", async () => {
+    api.paletteCard.mockResolvedValue(card);
+    await open(results(1, [item("THE FINALS", { section: "Apps" }), answer]));
+    key("ArrowDown");
+    key("Enter");
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    emit("palette:files", { seq: 1, rows: [file("finals.txt")], replace: false });
+    await vi.waitFor(() => expect(titles()).toContain("finals.txt"));
+    expect($("#palette-preview").hidden).toBe(false);
+    expect(subs()).toContain("Enter again to open this week in Chrono");
+    key("Enter");
+    await vi.waitFor(() => expect(api.paletteRun).toHaveBeenCalledWith(1, 1));
+  });
+
+  it("says what Enter does now even on a row with no second line", async () => {
+    api.paletteCard.mockResolvedValue(card);
+    await open(results(1, [item("Plain"), { ...answer, sub: null, again: "Enter again to open it" }]));
+    key("ArrowDown");
+    key("Enter");
+    await vi.waitFor(() => expect(subs()).toContain("Enter again to open it"));
+    key("ArrowUp");
+    await vi.waitFor(() => expect(subs()).not.toContain("Enter again to open it"));
+  });
+
   it("shows a day's glance as the row is selected, as before", async () => {
     api.paletteCard.mockResolvedValue({ kind: "day", title: "Yesterday", activeMs: 0, productivePct: 0, focusCount: 0, focusMs: 0, segments: [] });
     await open(results(1, [item("Yesterday", { preview: true })]));

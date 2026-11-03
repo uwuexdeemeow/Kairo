@@ -723,8 +723,8 @@ impl Popup {
             VK_LEFT | VK_UP => self.turn(-1),
             VK_RETURN => self.pick(self.scene.ring.lit),
             VK_ESCAPE => self.hide(),
-            // 1 to 9 open the first nine directly.
-            k if (0x31..=0x39).contains(&k.0) => self.pick((k.0 - 0x31) as usize),
+            // 1 to 9 open the first nine directly; one past what's on it does nothing.
+            k if (0x31..=0x39).contains(&k.0) && ((k.0 - 0x31) as usize) < self.scene.ring.items.len() => self.pick((k.0 - 0x31) as usize),
             // The shortcut's key with Shift turns back (without Shift, Windows hands it to Kairo
             // as the shortcut, which turns on).
             k if shift && (0x41..=0x5a).contains(&k.0) => self.turn(-1),

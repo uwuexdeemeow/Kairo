@@ -174,7 +174,9 @@ function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): H
     el.append(item.title);
   } else {
     const text = h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, ...highlighted(item.title, item.at)));
-    if (item.sub && kind === "row") text.append(h("span", { class: "palette-sub" }, item.sub));
+    // A row whose chart was asked for says what Enter does now.
+    const sub = asked === index && item.again ? item.again : item.sub;
+    if (sub && kind === "row") text.append(h("span", { class: "palette-sub" }, sub));
     el.append(rowIcon(item), text);
     if (item.detail) el.append(h("span", { class: "palette-detail" }, item.detail));
     if (isSelected && kind === "row") el.append(h("kbd", {}, "Enter"));
@@ -210,8 +212,10 @@ function setMode(next: PaletteMode | null) {
 /// as chips when nothing is typed. Results found in a mode bring its bubble, and when a short word
 /// typed at the start became it, what the input should now hold.
 function render(r: PaletteResults) {
+  // Rows added to the same results (files found after them) keep a chart asked for; new
+  // results start without one.
+  if (r.seq !== results.seq) asked = null;
   results = r;
-  asked = null;
   if ((r.mode?.key ?? null) !== (mode?.key ?? null)) setMode(r.mode ?? null);
   if (r.text != null) input.value = r.text;
   shown = [...r.rows, ...r.tiles, ...r.chips];
@@ -261,9 +265,14 @@ function putAwayAsked() {
   asked = null;
 }
 
+/// Sets a row's second line, adding it to a row without one, or taking it away for none.
 function setSub(index: number, text: string | null) {
-  const sub = document.querySelector(`#palette-item-${index} .palette-sub`);
-  if (sub && text) sub.textContent = text;
+  const holder = document.querySelector(`#palette-item-${index} .palette-text`);
+  if (!holder) return;
+  let sub = holder.querySelector(".palette-sub");
+  if (!text) return sub?.remove();
+  if (!sub) holder.append((sub = h("span", { class: "palette-sub" })));
+  sub.textContent = text;
 }
 
 function select(index: number) {
@@ -501,7 +510,11 @@ async function open() {
 /// File rows for the current query follow the rows already shown; the selection stays on its item.
 listen<PaletteFiles>("palette:files", (e) => {
   if (e.payload.seq !== results.seq) return;
-  if (e.payload.replace) render({ ...results, rows: e.payload.rows });
+  if (e.payload.replace) {
+    // Files mode's rows take the place of the others: nothing asked for is left among them.
+    asked = null;
+    render({ ...results, rows: e.payload.rows });
+  }
   else if (e.payload.rows.length) render({ ...results, rows: [...results.rows, ...e.payload.rows] });
 });
 

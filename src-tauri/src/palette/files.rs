@@ -212,6 +212,11 @@ pub fn rows_up_to(query: &str, home: &Path, found: Vec<PathBuf>, limit: usize) -
 }
 
 /// The row shown in place of files when this computer has nothing to search them with.
+/// Files mode's answer when the index was too slow or failed: said, rather than left looking.
+pub fn unanswered_row() -> Item {
+    Item::new("File search didn't answer. Try again in a moment", Icon::File(String::new()), "Files", Action::Nothing)
+}
+
 pub fn no_indexer_row() -> Item {
     Item::new("File search needs localsearch or plocate", Icon::File(String::new()), "Files", Action::Nothing)
 }
@@ -324,14 +329,14 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
             let Some((seq, query, _, limit)) = s.pending.take() else { continue };
             (seq, query, limit)
         };
-        let Some(home) = home() else { continue };
+        // Files mode shows "Looking for files…" until it hears back, so it always does.
+        let files_mode = limit == MODE_MAX_FILES;
         let deadline = Instant::now() + Duration::from_millis(LIMIT_MS);
-        let found = match ask_by(backend, &query, &home, deadline, &late) {
-            Some(Ok(paths)) => Ok(rows_up_to(&query, &home, paths, limit)),
-            Some(Err(e)) => Err(e),
-            // Past the deadline: nothing shows for it.
-            None => continue,
-        };
+        // None when there was no answer in time (or no home folder to look in).
+        let found = home().and_then(|home| ask_by(backend, &query, &home, deadline, &late).map(|r| r.map(|paths| rows_up_to(&query, &home, paths, limit))));
+        if found.is_none() && !files_mode {
+            continue;
+        }
         let mut s = lock.lock().unwrap_or_else(|e| e.into_inner());
         // Gone, or a newer query is waiting, which makes these rows out of date already.
         if s.stop {
@@ -342,16 +347,18 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
         }
         // An index that answered is passed on even with nothing found, so Files mode can say so;
         // one that failed says nothing.
-        let answered = found.is_ok();
-        let items = match found {
-            Ok(items) => items,
-            Err(Unavailable::NoIndexer) if !s.told_no_indexer => {
+        let answered = matches!(found, Some(Ok(_)));
+        let mut items = match found {
+            Some(Ok(items)) => items,
+            // Said once per opening among other results; every time in Files mode, where it's
+            // the whole answer.
+            Some(Err(Unavailable::NoIndexer)) if !s.told_no_indexer || files_mode => {
                 s.told_no_indexer = true;
                 vec![no_indexer_row()]
             }
-            Err(Unavailable::NoIndexer) => Vec::new(),
+            Some(Err(Unavailable::NoIndexer)) | None => Vec::new(),
             // The reason names the program and how it failed, never the query or a path.
-            Err(Unavailable::Failed(e)) => {
+            Some(Err(Unavailable::Failed(e))) => {
                 if !s.logged_failure {
                     s.logged_failure = true;
                     eprintln!("palette: file search failed: {e}");
@@ -359,6 +366,9 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
                 Vec::new()
             }
         };
+        if files_mode && !answered && items.is_empty() {
+            items = vec![unanswered_row()];
+        }
         drop(s);
         if answered || !items.is_empty() {
             on_done(seq, items);
@@ -566,6 +576,11 @@ mod tests {
         Err(Unavailable::NoIndexer)
     }
 
+    /// No index, without counting: for tests other than the one that counts.
+    fn no_indexer_here(_: &str, _: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
+        Err(Unavailable::NoIndexer)
+    }
+
     fn fails(_: &str, _: &Path, _: Instant) -> Result<Vec<PathBuf>, Unavailable> {
         Err(Unavailable::Failed("broken".into()))
     }
@@ -622,6 +637,25 @@ mod tests {
         let (worker, rx) = worker(fails);
         worker.ask_up_to(1, "budget".into(), MAX_FILES);
         assert!(rx.recv_timeout(Duration::from_millis(400)).is_err());
+    }
+
+    #[test]
+    fn files_mode_always_hears_back() {
+        // Its "Looking for files…" row waits for an answer: a late or failed search says so,
+        // and a missing index after the first time says nothing was found rather than leaving it.
+        let (failing, rx) = worker(fails);
+        failing.ask_up_to(1, "budget".into(), MODE_MAX_FILES);
+        let (seq, items) = rx.recv_timeout(Duration::from_secs(1)).expect("an answer");
+        assert_eq!((seq, items[0].title.as_str()), (1, unanswered_row().title.as_str()));
+        let (slow, rx) = worker(too_slow);
+        slow.ask_up_to(2, "budget".into(), MODE_MAX_FILES);
+        let (seq, items) = rx.recv_timeout(Duration::from_millis(QUIET_MS + LIMIT_MS + 500)).expect("an answer");
+        assert_eq!((seq, items[0].title.as_str()), (2, unanswered_row().title.as_str()));
+        let (missing, rx) = worker(no_indexer_here);
+        missing.ask_up_to(3, "bu".into(), MODE_MAX_FILES);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).expect("the no-indexer row").1[0].title, no_indexer_row().title);
+        missing.ask_up_to(4, "bud".into(), MODE_MAX_FILES);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).expect("an answer").1[0].title, no_indexer_row().title);
     }
 
     #[test]

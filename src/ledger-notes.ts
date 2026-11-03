@@ -1,8 +1,10 @@
 import type { Note } from "./api";
 import { renameBubble, renameField } from "./ledger-tasks";
 import { logo } from "./logos";
-import { mountEditor, type Editor } from "./note-editor";
+import { openNoteSession, type NoteSession } from "./note-session";
 import { h } from "./ui";
+
+export { wordCount } from "./note-session";
 
 /// What the Notes view asks the page to do.
 export type NotesActions = {
@@ -28,13 +30,8 @@ export type NotesView = {
   flush(): Promise<void>;
 };
 
-const SAVE_AFTER_MS = 500;
-const SYNC_AFTER_MS = 30_000;
 const MAX_CHARS = 100_000;
-/// Shown faintly in an empty note: what it can hold.
-const PROMPT = "# A title\nAnything below it. - [ ] makes a checkbox, **bold**, *italic*.";
 
-/// "9:14" today, "Yesterday", or "28 Oct".
 /// A note renamed: its first line with text says `title` instead, its leading #s and spaces kept.
 /// An empty note becomes just the title.
 export function retitle(body: string, title: string): string {
@@ -62,10 +59,7 @@ export function notePreview(body: string): string {
     .trim();
 }
 
-export function wordCount(body: string): number {
-  return body.replace(/[#*_`>\[\]()-]/g, " ").split(/\s+/).filter((w) => /\w/.test(w)).length;
-}
-
+/// "9:14" today, "Yesterday", or "28 Oct".
 export function editedText(ms: number, now: number): string {
   const d = new Date(ms);
   const day = (t: Date) => `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}`;
@@ -90,11 +84,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   let notes: Note[] = [];
   let open: Note | null = null;
-  let editor: Editor | null = null;
-  // Typed since the last save: what's on screen is newer than what's kept.
-  let dirty = false;
-  let saveTimer = 0;
-  let syncTimer = 0;
+  // The open note being written in: its editor, saving and footer.
+  let session: NoteSession | null = null;
   let asked = 0;
 
   const drawList = () => {
@@ -142,21 +133,10 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   /// Renames a note from the list: its text with the new first line, kept; an open one's editor
   /// shows it too.
   const rename = async (n: Note, title: string) => {
-    const isOpen = open?.id === n.id && editor;
-    const body = retitle(isOpen ? editor!.value() : n.body, title);
-    if (isOpen) {
-      editor!.set(body);
-      dirty = false;
-      window.clearTimeout(saveTimer);
-    }
-    const kept = await act.save(n.id, body);
-    if (kept) {
-      notes = notes.map((x) => (x.id === n.id ? kept : x));
-      if (open?.id === n.id) {
-        open = kept;
-        drawTop();
-      }
-    }
+    // The open one is saved through its session, which shows the kept note when it's done.
+    if (open?.id === n.id && session) return session.replace(retitle(session.editor.value(), title));
+    const kept = await act.save(n.id, retitle(n.body, title));
+    if (kept) notes = notes.map((x) => (x.id === n.id ? kept : x));
     drawList();
   };
 
@@ -168,29 +148,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   };
 
   const save = async () => {
-    window.clearTimeout(saveTimer);
-    if (!open || !editor || !dirty) return;
-    const id = open.id;
-    const body = editor.value();
-    dirty = false;
-    const kept = await act.save(id, body);
-    if (open?.id !== id) return;
-    if (kept) {
-      open = kept;
-      drawTop();
-      drawFoot();
-    } else {
-      // Deleted on another computer meanwhile.
-      closeNote();
-    }
-    notes = notes.map((n) => (n.id === id && kept ? kept : n));
-    drawList();
+    await session?.save();
   };
 
   const closeNote = () => {
+    session?.close();
+    session = null;
     open = null;
-    editor = null;
-    dirty = false;
     shell.classList.remove("reading");
     drawList();
   };
@@ -222,18 +186,6 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     });
     pane.replaceChildren(
       h("div", { class: "notes-recent" }, h("h2", {}, "Pick up where you left off"), h("div", { class: "notes-recent-cards" }, ...cards), h("div", { class: "notes-recent-foot" }, newNote, tip)),
-    );
-  };
-
-  /// Under the sheet: whether what's typed is kept yet, its words, when it was edited.
-  const foot = h("div", { class: "note-foot", "aria-live": "polite" });
-  const drawFoot = () => {
-    if (!open || !editor) return;
-    const words = wordCount(editor.value());
-    foot.replaceChildren(
-      h("span", {}, dirty ? "Saving…" : "Saved"),
-      h("span", {}, `${words} word${words === 1 ? "" : "s"}`),
-      h("span", {}, `Edited ${editedText(open.editedMs, now())}`),
     );
   };
 
@@ -293,8 +245,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       yes.addEventListener("click", async () => {
         if (yes.hasAttribute("disabled")) return;
         yes.setAttribute("disabled", "");
-        dirty = false;
-        window.clearTimeout(saveTimer);
+        // Nothing typed is saved into a note being deleted.
+        session?.close();
         await act.remove(n.id);
         closeNote();
         await load();
@@ -302,24 +254,11 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       });
       top.after(confirm);
     });
-    const tool = (name: string, label: string, text: string, run: () => void) => {
-      const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, text);
-      // Pressed without taking the keyboard from the note, so the selection stays.
-      b.addEventListener("mousedown", (e) => e.preventDefault());
-      b.addEventListener("click", run);
-      return b;
-    };
-    const tools = h(
-      "span",
-      { class: "note-tools" },
-      tool("bold", "Bold (Ctrl+B)", "B", () => editor?.wrap("**")),
-      tool("italic", "Italic (Ctrl+I)", "I", () => editor?.wrap("*")),
-      tool("box", "Checkbox", "☐", () => editor?.box()),
-    );
-    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, tools, popOut, pin, del));
+    const tools = session ? [session.tools()] : [];
+    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, ...tools, popOut, pin, del));
   };
 
-  const showLimit = () => (limit.textContent = editor && editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");
+  const showLimit = () => (limit.textContent = session && session.editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");
 
   const view: NotesView = {
     open: async (id) => {
@@ -331,36 +270,34 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         n = notes.find((x) => x.id === id);
       }
       if (!n) return;
+      session?.close();
       open = n;
       const box = h("div", { class: "note-body" });
-      pane.replaceChildren(h("div", { class: "note-sheet" }, top, box, foot), limit);
+      // Under the sheet: whether what's typed is kept yet, its words, when it was edited.
+      session = openNoteSession(box, n, act, {
+        kept: (kept) => {
+          open = kept;
+          notes = notes.map((x) => (x.id === kept.id ? kept : x));
+          drawTop();
+          drawList();
+        },
+        // Deleted on another computer meanwhile.
+        gone: () => closeNote(),
+        typed: () => showLimit(),
+        footExtra: (note) => [h("span", {}, `Edited ${editedText(note.editedMs, now())}`)],
+      });
+      pane.replaceChildren(h("div", { class: "note-sheet" }, top, box, session.foot), limit);
       shell.classList.add("reading");
       drawTop();
-      editor = mountEditor(
-        box,
-        n.body,
-        () => {
-          dirty = true;
-          drawFoot();
-          showLimit();
-          window.clearTimeout(saveTimer);
-          saveTimer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
-          window.clearTimeout(syncTimer);
-          syncTimer = window.setTimeout(() => act.syncSoon(), SYNC_AFTER_MS);
-        },
-        PROMPT,
-      );
       showLimit();
-      drawFoot();
       drawList();
     },
     refresh: async () => {
       await load();
-      if (open) {
+      if (open && session) {
         const fresh = notes.find((x) => x.id === open!.id);
         if (!fresh && !search.value.trim()) closeNote();
-        else if (fresh && !dirty && editor) {
-          if (fresh.body !== editor.value()) editor.set(fresh.body);
+        else if (fresh && session.take(fresh)) {
           open = fresh;
           drawTop();
         }
@@ -380,7 +317,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     await load();
     if (!notes.some((x) => x.id === n.id)) notes = [n, ...notes];
     await view.open(n.id);
-    editor?.focus();
+    session?.editor.focus();
   }
   create.addEventListener("click", () => void createNote());
 

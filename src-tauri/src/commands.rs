@@ -322,43 +322,43 @@ pub struct RingSettings {
     focus_minutes: u32,
 }
 
-fn ring_settings_of(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<RingSettings> {
+fn ring_settings_of(conn: &rusqlite::Connection) -> CmdResult<RingSettings> {
     let minutes = crate::ring::focus_minutes(conn);
-    let paused = crate::is_paused(app);
     Ok(RingSettings {
         shortcut: crate::ring::shortcut(conn).map_err(err)?,
         items: crate::ring::items(conn).iter().map(|s| s.key()).collect(),
-        all: crate::ring::ALL.iter().map(|s| (s.key(), crate::ring::name(*s, minutes, paused))).collect(),
+        // Each by the name it's chosen by: Pause tracking, whether or not tracking is paused now.
+        all: crate::ring::ALL.iter().map(|s| (s.key(), crate::ring::name(*s, minutes, false))).collect(),
         focus_minutes: minutes,
     })
 }
 
 #[tauri::command]
-pub fn ring_settings(app: AppHandle, state: State<AppState>) -> CmdResult<RingSettings> {
+pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
-    ring_settings_of(&app, &conn)
+    ring_settings_of(&conn)
 }
 
 #[tauri::command]
 pub fn set_ring_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
     crate::ring::change_shortcut(&app, &conn, &shortcut)?;
-    ring_settings_of(&app, &conn)
+    ring_settings_of(&conn)
 }
 
 /// Arranges the ring: what's on it, by key, in order.
 #[tauri::command]
-pub fn set_ring_items(app: AppHandle, state: State<AppState>, items: Vec<String>) -> CmdResult<RingSettings> {
+pub fn set_ring_items(state: State<AppState>, items: Vec<String>) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
     crate::ring::set_items(&conn, &items)?;
-    ring_settings_of(&app, &conn)
+    ring_settings_of(&conn)
 }
 
 #[tauri::command]
-pub fn set_ring_focus_minutes(app: AppHandle, state: State<AppState>, minutes: u32) -> CmdResult<RingSettings> {
+pub fn set_ring_focus_minutes(state: State<AppState>, minutes: u32) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
     crate::ring::set_focus_minutes(&conn, minutes)?;
-    ring_settings_of(&app, &conn)
+    ring_settings_of(&conn)
 }
 
 #[tauri::command]

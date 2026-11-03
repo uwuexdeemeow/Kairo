@@ -207,10 +207,14 @@ listen("kairo:sync", () => {
 listen("kairo:ledger", () => followOpen());
 // A note changed in its pop-out window: taken unless it's being typed in here.
 listen<NoteChange>("kairo:note", (e) => {
-  if (e.payload.from === "kairo") return;
-  void notesView?.refresh();
-  // The sidebar's count, for a note made or deleted there.
-  void refresh();
+  const { id, from, gone } = e.payload;
+  if (from === "kairo") return;
+  // Notes are read again only while they show (opening the view reads them anyway), so the
+  // pop-out's every save doesn't reload Ledger.
+  if (shown === "notes") void notesView?.refresh();
+  // The sidebar's count and the task panel's note names: only a note made or deleted elsewhere
+  // changes them.
+  if (gone || !noteNames.some((n) => n.id === id)) void refresh();
 });
 setInterval(() => !document.hidden && refresh(), 10_000);
 document.addEventListener("visibilitychange", () => {

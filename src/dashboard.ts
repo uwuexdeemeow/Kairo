@@ -6,6 +6,7 @@ import { api } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { ledgerLine } from "./ledger-tasks";
+import { shown } from "./ring-model";
 import { dialSvg, greeting, logo } from "./logos";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
@@ -102,8 +103,8 @@ const APPS: KairoApp[] = [
 /// The ring as its tile's picture: an arc of segments, the middle one lit.
 function ringArc(count: number): HTMLElement {
   const box = h("span", { class: "app-arc-drawing", "aria-hidden": "true" });
-  const n = Math.min(count, 5);
-  const offsets = [0, 1, -1, 2, -2].slice(0, n);
+  // The places the ring itself shows, by the ring's own rule.
+  const offsets = shown(count);
   const at = (r: number, deg: number) => {
     const a = (deg * Math.PI) / 180;
     return `${(60 + r * Math.sin(a)).toFixed(1)} ${(118 - r * Math.cos(a)).toFixed(1)}`;

@@ -1,12 +1,12 @@
 import type { Note } from "./api";
-import { notePreview, wordCount } from "./ledger-notes";
-import { mountEditor, type Editor } from "./note-editor";
+import { notePreview } from "./ledger-notes";
+import { noteTool, openNoteSession, type NoteSession } from "./note-session";
 import { h } from "./ui";
 
 /// A Ledger note popped out into a small window of its own, to keep in view beside other apps,
-/// or the list of notes to pick one from or start a new one. Ledger's editor, a slim bar, and a
-/// footer. Ledger may have the same note open, so a change from elsewhere is taken only while
-/// nothing typed here is waiting to be kept.
+/// or the list of notes to pick one from or start a new one. Writing goes through the same
+/// session as Ledger's (`note-session`); Ledger may have the same note open, so a change from
+/// elsewhere is taken only while nothing typed here is waiting to be kept.
 
 /// What the pop-out asks of the page around it.
 export type PopoutActions = {
@@ -44,32 +44,14 @@ export type Popout = {
 /// This window's label, as changes made here are told back to it.
 export const LABEL = "note";
 
-const SAVE_AFTER_MS = 500;
-const SYNC_AFTER_MS = 30_000;
-/// Shown faintly in an empty note, as in Ledger.
-const PROMPT = "# A title\nAnything below it. - [ ] makes a checkbox, **bold**, *italic*.";
-
 export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
-  let open: Note | null = null;
-  let editor: Editor | null = null;
+  let session: NoteSession | null = null;
   let listing = false;
-  // Typed since the last save: what's on screen is newer than what's kept.
-  let dirty = false;
-  let saveTimer = 0;
-  let syncTimer = 0;
   let asked = 0;
-
-  const tool = (name: string, label: string, text: string, run: () => void) => {
-    const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, text);
-    // Pressed without taking the keyboard from the note, so the selection stays.
-    b.addEventListener("mousedown", (e) => e.preventDefault());
-    b.addEventListener("click", run);
-    return b;
-  };
 
   // Floating is the window's, whatever it shows.
   let onTop = true;
-  const pin = tool("on-top", "Keep above other windows", "📌", () => {
+  const pin = noteTool("on-top", "Keep above other windows", "📌", () => {
     onTop = !onTop;
     drawPin();
     void act.setOnTop(onTop);
@@ -84,74 +66,33 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   const shell = h("div", { class: "popout" });
   root.replaceChildren(shell);
 
+  /// Puts the note shown away, keeping what's typed.
+  const putAway = async () => {
+    if (!session) return;
+    const s = session;
+    await s.save();
+    s.close();
+    if (session === s) session = null;
+  };
+
   // ---------- one note ----------
-
-  const foot = h("div", { class: "note-foot", "aria-live": "polite" });
-  const drawFoot = () => {
-    if (!editor) return;
-    const words = wordCount(editor.value());
-    foot.replaceChildren(h("span", {}, dirty ? "Saving…" : "Saved"), h("span", {}, `${words} word${words === 1 ? "" : "s"}`));
-  };
-
-  const take = (n: Note) => {
-    open = n;
-    act.setTitle(n.title);
-  };
-
-  const save = async () => {
-    window.clearTimeout(saveTimer);
-    if (!open || !editor || !dirty) return;
-    const id = open.id;
-    const body = editor.value();
-    dirty = false;
-    const kept = await act.save(id, body);
-    if (open?.id !== id) return;
-    if (!kept) return view.list();
-    take(kept);
-    drawFoot();
-  };
 
   const drawNote = (n: Note) => {
     listing = false;
-    take(n);
-    dirty = false;
-    const back = tool("list", "All notes", "☰", () => void view.list());
-    const ledger = tool("ledger", "Open in Ledger", "↗", async () => {
-      if (!open) return;
-      const id = open.id;
-      await save();
-      act.openInLedger(id);
-    });
-    const bar = h(
-      "div",
-      { class: "popout-bar" },
-      back,
-      h(
-        "span",
-        { class: "note-tools" },
-        tool("bold", "Bold (Ctrl+B)", "B", () => editor?.wrap("**")),
-        tool("italic", "Italic (Ctrl+I)", "I", () => editor?.wrap("*")),
-        tool("box", "Checkbox", "☐", () => editor?.box()),
-      ),
-      h("span", { class: "popout-window-tools" }, pin, ledger),
-    );
+    act.setTitle(n.title);
     const box = h("div", { class: "popout-body" });
-    shell.replaceChildren(bar, box, foot);
-    editor = mountEditor(
-      box,
-      n.body,
-      () => {
-        dirty = true;
-        drawFoot();
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(() => void save(), SAVE_AFTER_MS);
-        window.clearTimeout(syncTimer);
-        syncTimer = window.setTimeout(() => act.syncSoon(), SYNC_AFTER_MS);
-      },
-      PROMPT,
-    );
-    drawFoot();
-    editor.focus();
+    const s = openNoteSession(box, n, act, {
+      kept: (kept) => act.setTitle(kept.title),
+      gone: () => void view.list(),
+    });
+    session = s;
+    const back = noteTool("list", "All notes", "☰", () => void view.list());
+    const ledger = noteTool("ledger", "Open in Ledger", "↗", async () => {
+      await s.save();
+      act.openInLedger(s.note().id);
+    });
+    shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, pin, ledger)), box, s.foot);
+    s.editor.focus();
   };
 
   // ---------- the list ----------
@@ -192,16 +133,13 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
 
   const view: Popout = {
     show: async (id) => {
-      await save();
+      await putAway();
       const n = await act.load(id);
       if (!n) return view.list();
       drawNote(n);
     },
     list: async () => {
-      await save();
-      open = null;
-      editor = null;
-      dirty = false;
+      await putAway();
       listing = true;
       act.setTitle("Notes");
       shell.replaceChildren(h("div", { class: "popout-bar" }, search, newNote, h("span", { class: "popout-window-tools" }, pin)), rows);
@@ -211,23 +149,31 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     changed: async (c) => {
       if (c.from === LABEL) return;
       if (listing) return loadList();
-      if (!open || c.id !== open.id) return;
-      if (c.gone) return view.list();
+      if (!session || c.id !== session.note().id) return;
+      if (c.gone) {
+        session.close();
+        session = null;
+        return view.list();
+      }
       await view.refresh();
     },
     refresh: async () => {
       if (listing) return loadList();
-      if (!open || dirty) return;
-      const id = open.id;
-      const fresh = await act.load(id);
-      // Typed in, or switched to another note, while it was being read.
-      if (open?.id !== id || dirty || !editor) return;
-      if (!fresh) return view.list();
-      if (fresh.body !== editor.value()) editor.set(fresh.body);
-      take(fresh);
-      drawFoot();
+      const s = session;
+      if (!s || s.dirty()) return;
+      const fresh = await act.load(s.note().id);
+      // Switched to another note while it was being read.
+      if (session !== s) return;
+      if (!fresh) {
+        s.close();
+        session = null;
+        return view.list();
+      }
+      if (s.take(fresh)) act.setTitle(fresh.title);
     },
-    flush: () => save(),
+    flush: async () => {
+      await session?.save();
+    },
   };
   return view;
 }
