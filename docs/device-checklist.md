@@ -217,7 +217,8 @@ On Windows and a Mac (⌥ for Alt).
 3. **Tap.** Press Alt+Q and let go at once. *Expect:* the ring stays. ← → and the scroll wheel turn
    it; Enter opens; 1–7 open a segment; Esc, or clicking elsewhere, closes it.
 4. **Drag.** Open it with a tap, press on the ring and drag round. *Expect:* it follows and snaps;
-   letting go opens the one at the top. A plain click on a side segment opens that one.
+   letting go leaves it there. Click the lit one, or press Enter. *Expect:* it opens. A plain
+   click on a side segment opens that one.
 5. **Edges.** Open it with the pointer in each corner of the screen, and on a second screen.
    *Expect:* always wholly on the screen.
 6. **Actions.** New task: Ledger with "Add a task" ready. New note: a new note. Focus 25: a

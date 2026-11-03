@@ -117,7 +117,8 @@ export function mountRing(root: HTMLElement, state: RingState, act: RingActions,
     { passive: false },
   );
 
-  // Dragging round the ring turns it with the pointer; a press without a drag opens what's under it.
+  // Dragging round the ring turns it with the pointer and leaves it there: a click or Enter then
+  // opens the lit one. A press without a drag opens what's under it.
   let press: { x: number; y: number; angle: number; turned: number } | null = null;
   const local = (e: PointerEvent) => {
     const box = root.getBoundingClientRect();
@@ -143,7 +144,11 @@ export function mountRing(root: HTMLElement, state: RingState, act: RingActions,
     const dragged = root.classList.contains("dragging");
     root.classList.remove("dragging");
     press = null;
-    if (dragged) return pick(ring.lit);
+    if (dragged) {
+      // The ring now waits for a click or Enter, so letting go of a held modifier doesn't open it.
+      tapped = true;
+      return;
+    }
     const under = ring.hit(p.x, p.y);
     if (under) pick(SEGMENTS.indexOf(under));
   });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mountRing, type RingActions } from "./ring-view";
+import { CENTRE, INNER, OUTER, STEP } from "./ring-model";
 
 let root: HTMLElement;
 let act: { [K in keyof RingActions]: ReturnType<typeof vi.fn> };
@@ -73,6 +74,45 @@ describe("the web ring", () => {
     open(2);
     clock = 400;
     key("keyup", "Alt");
+    expect(act.pick).toHaveBeenCalledWith(2);
+  });
+
+  it("stays turned after a drag, then opens with a click or Enter", () => {
+    open(0);
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 210, width: 300, height: 210, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    // On the ring at a given angle (degrees clockwise from the top), in window pixels.
+    const at = (deg: number) => {
+      const r = (OUTER + INNER) / 2;
+      const a = (deg * Math.PI) / 180;
+      return { clientX: CENTRE.x + r * Math.sin(a), clientY: CENTRE.y - r * Math.cos(a) };
+    };
+    const pointer = (type: string, deg: number) => root.dispatchEvent(new MouseEvent(type, { ...at(deg), bubbles: true }));
+    pointer("pointerdown", STEP);
+    pointer("pointermove", 0);
+    pointer("pointerup", 0);
+    expect(litName()).toBe("ledger");
+    expect(act.pick).not.toHaveBeenCalled();
+    // A held modifier let go after the drag doesn't open it either.
+    clock = 900;
+    key("keyup", "Alt");
+    expect(act.pick).not.toHaveBeenCalled();
+    // A click on the lit one opens it.
+    pointer("pointerdown", 0);
+    pointer("pointerup", 0);
+    expect(act.pick).toHaveBeenCalledWith(1);
+  });
+
+  it("opens the lit one with Enter after a drag", () => {
+    open(0);
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 210, width: 300, height: 210, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const y = (deg: number) => CENTRE.y - ((OUTER + INNER) / 2) * Math.cos((deg * Math.PI) / 180);
+    const x = (deg: number) => CENTRE.x + ((OUTER + INNER) / 2) * Math.sin((deg * Math.PI) / 180);
+    root.dispatchEvent(new MouseEvent("pointerdown", { clientX: x(STEP * 2), clientY: y(STEP * 2), bubbles: true }));
+    root.dispatchEvent(new MouseEvent("pointermove", { clientX: x(0), clientY: y(0), bubbles: true }));
+    root.dispatchEvent(new MouseEvent("pointerup", { clientX: x(0), clientY: y(0), bubbles: true }));
+    expect(litName()).toBe("palette");
+    expect(act.pick).not.toHaveBeenCalled();
+    key("keydown", "Enter");
     expect(act.pick).toHaveBeenCalledWith(2);
   });
 

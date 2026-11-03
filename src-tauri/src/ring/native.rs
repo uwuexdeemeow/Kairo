@@ -700,8 +700,11 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 let _ = ReleaseCapture();
                 let Some((x0, y0, _, turned)) = p.press.take() else { return };
                 let (x, y) = p.local(lparam);
+                // A drag only turns it: the ring stays for a click or Enter, and letting go of a
+                // held modifier no longer opens it.
                 if turned != 0 || (x - x0).hypot(y - y0) >= DRAG_PX {
-                    return p.pick(p.scene.ring.lit);
+                    p.tapped = true;
+                    return;
                 }
                 if let Some(under) = p.scene.ring.hit(x, y) {
                     p.pick(SEGMENTS.iter().position(|s| *s == under).unwrap_or(0));

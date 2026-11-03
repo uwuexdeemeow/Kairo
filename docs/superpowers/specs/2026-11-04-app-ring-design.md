@@ -43,8 +43,9 @@ the first time).
 - **Tap:** if the modifier is let go within 200 ms of opening, it stays open instead.
 - Either way: ← / → or the scroll wheel turn it; Enter opens; 1–7 open a segment directly.
 - **Drag:** press on the ring and drag around it; it follows the pointer's angle about its centre,
-  snapping to segments; letting go opens the one at the top. A press and release without dragging
-  (under 4 px) on a segment opens that segment.
+  snapping to segments; letting go leaves it turned, and a click or Enter then opens the one at the
+  top (a held modifier let go after a drag no longer opens it). A press and release without
+  dragging (under 4 px) on a segment opens that segment.
 - Opening something closes the ring and remembers the segment.
 
 ## Actions
