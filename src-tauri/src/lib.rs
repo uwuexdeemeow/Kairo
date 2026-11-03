@@ -112,7 +112,7 @@ pub fn run() {
                 }
                 Launch::Chrono => show_main(app),
                 Launch::Dashboard => show_dashboard(app, None),
-                Launch::Quiet => {}
+                Launch::Quiet | Launch::Ring => {}
             }
         }))
         .plugin(tauri_plugin_autostart::init(

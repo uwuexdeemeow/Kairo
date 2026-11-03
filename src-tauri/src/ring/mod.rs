@@ -83,6 +83,85 @@ fn wrap(i: i32) -> usize {
     i.rem_euclid(SEGMENTS.len() as i32) as usize
 }
 
+// ---------- what each segment says, and settings ----------
+
+/// Alt+Q; Option+Q on a Mac, where Alt is Option.
+pub const DEFAULT_SHORTCUT: &str = "Alt+Q";
+const SHORTCUT_KEY: &str = "ring_shortcut";
+const LAST_KEY: &str = "ring_last";
+
+/// Chrono's line: today's time on screen.
+pub fn chrono_line(active_ms: i64) -> String {
+    if active_ms <= 0 {
+        "Nothing yet today".into()
+    } else {
+        format!("{} today", crate::palette::search::fmt_dur(active_ms))
+    }
+}
+
+/// Ledger's line, as on the dashboard.
+pub fn ledger_line(due: usize, late: usize) -> String {
+    let parts: Vec<String> = [(due, "due today"), (late, "overdue")].iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect();
+    if parts.is_empty() {
+        "Nothing due today".into()
+    } else {
+        parts.join(" · ")
+    }
+}
+
+/// A shortcut as the palette's segment shows it: "Ctrl + Space".
+pub fn keys_line(shortcut: &str) -> String {
+    shortcut.split('+').collect::<Vec<_>>().join(" + ")
+}
+
+/// The line under each segment, in ring order.
+pub fn lines(conn: &rusqlite::Connection, now: i64) -> [String; 7] {
+    let today = chrono::Local::now().date_naive();
+    let active = crate::goals::rows_for(conn, today, now).map(|rows| crate::analysis::glance(&rows).active_ms).unwrap_or(0);
+    let tasks = crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default();
+    let count = |g: &str| tasks.iter().filter(|t| t.group == g).count();
+    let palette = crate::palette::shortcut(conn).unwrap_or_else(|_| crate::palette::DEFAULT_SHORTCUT.into());
+    [
+        chrono_line(active),
+        ledger_line(count("today"), count("overdue")),
+        keys_line(&palette),
+        "Kairo".into(),
+        "In Ledger".into(),
+        "In Ledger".into(),
+        if focus_running(conn) { "A session is running".into() } else { "25 minutes".into() },
+    ]
+}
+
+fn focus_running(conn: &rusqlite::Connection) -> bool {
+    crate::focus::active(conn).ok().flatten().is_some()
+}
+
+/// Why Focus 25 can't start now, if it can't.
+pub fn focus_refusal(conn: &rusqlite::Connection) -> Option<String> {
+    if focus_running(conn) {
+        return Some("A focus session is already running.".into());
+    }
+    None
+}
+
+pub fn shortcut(conn: &rusqlite::Connection) -> rusqlite::Result<String> {
+    Ok(crate::db::get_setting(conn, SHORTCUT_KEY)?.filter(|s| !s.is_empty()).unwrap_or_else(|| DEFAULT_SHORTCUT.into()))
+}
+
+pub fn set_shortcut(conn: &rusqlite::Connection, keys: &str) -> rusqlite::Result<()> {
+    crate::db::set_setting(conn, SHORTCUT_KEY, keys)
+}
+
+/// The segment picked last, which the ring opens on.
+pub fn last(conn: &rusqlite::Connection) -> usize {
+    crate::db::get_setting(conn, LAST_KEY).ok().flatten().and_then(|s| s.parse().ok()).filter(|i| *i < SEGMENTS.len()).unwrap_or(0)
+}
+
+pub fn set_last(conn: &rusqlite::Connection, segment: Segment) -> rusqlite::Result<()> {
+    let at = SEGMENTS.iter().position(|s| *s == segment).unwrap_or(0);
+    crate::db::set_setting(conn, LAST_KEY, &at.to_string())
+}
+
 /// The angle of a point about the ring's centre, in degrees clockwise from straight up.
 pub fn angle(x: f32, y: f32) -> f32 {
     (x - CENTRE.0).atan2(CENTRE.1 - y).to_degrees()
@@ -113,6 +192,45 @@ pub fn place(cursor: (i32, i32), area: (i32, i32, i32, i32), size: (i32, i32)) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn conn() -> rusqlite::Connection {
+        crate::db::open(std::path::Path::new(":memory:")).unwrap()
+    }
+
+    #[test]
+    fn each_segment_says_how_things_stand() {
+        assert_eq!(chrono_line(0), "Nothing yet today");
+        assert_eq!(chrono_line(125 * 60_000), "2h 05m today");
+        assert_eq!(ledger_line(3, 1), "3 due today · 1 overdue");
+        assert_eq!(ledger_line(0, 1), "1 overdue");
+        assert_eq!(ledger_line(2, 0), "2 due today");
+        assert_eq!(ledger_line(0, 0), "Nothing due today");
+        assert_eq!(keys_line("Ctrl+Space"), "Ctrl + Space");
+        let c = conn();
+        let lines = lines(&c, 0);
+        assert_eq!(lines[3], "Kairo");
+        assert_eq!((lines[4].as_str(), lines[5].as_str(), lines[6].as_str()), ("In Ledger", "In Ledger", "25 minutes"));
+    }
+
+    #[test]
+    fn a_running_session_dims_focus() {
+        let c = conn();
+        assert!(focus_refusal(&c).is_none());
+        crate::focus::start_by_hand(&c, 25, None, None, 0).unwrap();
+        assert_eq!(lines(&c, 1)[6], "A session is running");
+        assert_eq!(focus_refusal(&c).as_deref(), Some("A focus session is already running."));
+    }
+
+    #[test]
+    fn its_shortcut_and_last_segment_are_kept() {
+        let c = conn();
+        assert_eq!(shortcut(&c).unwrap(), DEFAULT_SHORTCUT);
+        set_shortcut(&c, "Ctrl+Alt+R").unwrap();
+        assert_eq!(shortcut(&c).unwrap(), "Ctrl+Alt+R");
+        assert_eq!(last(&c), 0);
+        set_last(&c, Segment::Note).unwrap();
+        assert_eq!(last(&c), 5);
+    }
 
     /// A point on the ring's middle line at `deg` degrees from straight up.
     fn on_ring(deg: f32) -> (f32, f32) {
