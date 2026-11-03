@@ -86,6 +86,8 @@ pub struct Navigation {
 
 /// The tray's palette item, which shows the shortcut and follows it when it changes.
 pub struct PaletteItem(pub MenuItem<Wry>);
+/// The tray's App ring item, whose shortcut follows the ring's.
+pub struct RingItem(pub MenuItem<Wry>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -112,7 +114,12 @@ pub fn run() {
                 }
                 Launch::Chrono => show_main(app),
                 Launch::Dashboard => show_dashboard(app, None),
-                Launch::Quiet | Launch::Ring => {}
+                Launch::Ring => {
+                    if palette::shortcut_may_open() {
+                        ring::toggle(app);
+                    }
+                }
+                Launch::Quiet => {}
             }
         }))
         .plugin(tauri_plugin_autostart::init(
@@ -135,13 +142,17 @@ pub fn run() {
         )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
+                .with_handler(|app, shortcut, event| {
                     // A game or full-screen app in front keeps its keys to itself, unless
-                    // Settings lets the palette open over it.
+                    // Settings lets the palette and the ring open over it.
                     if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed
                         && palette::shortcut_may_open()
                     {
-                        palette::toggle(app);
+                        if ring::is_ring(shortcut) {
+                            ring::toggle(app);
+                        } else {
+                            palette::toggle(app);
+                        }
                     }
                 })
                 .build(),
@@ -158,6 +169,8 @@ pub fn run() {
                 eprintln!("startup: cannot enable start at login: {e}");
             }
             let palette_shortcut = palette::shortcut(&conn)?;
+            let ring_shortcut = ring::shortcut(&conn)?;
+            ring::remember_keys(&ring_shortcut);
             palette::over_fullscreen(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -219,7 +232,7 @@ pub fn run() {
                 dashboard_tab: Mutex::default(),
                 ledger_open: Mutex::default(),
             });
-            setup_tray(app, paused, &palette_shortcut)?;
+            setup_tray(app, paused, &palette_shortcut, &ring_shortcut)?;
             // Wayland shows apps no other windows; on GNOME, Kairo's extension does, once GNOME
             // has loaded it at a login, and on KDE Plasma its KWin script does right away.
             #[cfg(not(any(windows, target_os = "macos")))]
@@ -239,12 +252,23 @@ pub fn run() {
                         palette::toggle(&handle);
                     }
                 }));
+                let handle = app.handle().clone();
+                platform::on_ring_shortcut(Box::new(move || {
+                    if palette::shortcut_may_open() {
+                        ring::toggle(&handle);
+                    }
+                }));
             }
             // Wayland keeps keys from apps, so there the desktop's own shortcuts open the palette.
             // Another app holding the keys mustn't stop Kairo starting; the clash is only logged.
             if !platform::desktop_palette_shortcut(&palette_shortcut) {
                 if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                     eprintln!("palette: cannot use {palette_shortcut}: {e}");
+                }
+            }
+            if !platform::desktop_ring_shortcut(&ring_shortcut) {
+                if let Err(e) = app.global_shortcut().register(ring_shortcut.as_str()) {
+                    eprintln!("ring: cannot use {ring_shortcut}: {e}");
                 }
             }
             updater::spawn(app.handle().clone());
@@ -257,6 +281,7 @@ pub fn run() {
                 // Windows' palette opens itself once its window exists.
                 #[cfg(not(windows))]
                 Launch::Palette => palette::toggle(app.handle()),
+                Launch::Ring => ring::toggle(app.handle()),
                 _ => {}
             }
             Ok(())
@@ -386,6 +411,9 @@ pub fn run() {
             commands::set_task_note,
             commands::sync_soon,
             commands::take_ledger_open,
+            commands::ring_settings,
+            commands::set_ring_shortcut,
+            commands::open_ring,
             commands::seed_demo_data,
             commands::export_time,
             commands::backup_data,
@@ -417,19 +445,21 @@ fn tray_click_opens_dashboard(button: MouseButton, state: MouseButtonState) -> b
     button == MouseButton::Left && state == MouseButtonState::Up
 }
 
-fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str) -> tauri::Result<()> {
+fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str, ring_shortcut: &str) -> tauri::Result<()> {
     let dashboard = MenuItem::with_id(app, "dashboard", "Open dashboard", true, None::<&str>)?;
     let updates = MenuItem::with_id(app, "updates", "Check for updates", true, None::<&str>)?;
     // The shortcut shows beside it; the menu opens the palette even where the shortcut doesn't,
     // like over a game, since choosing it from the tray is no stray key press.
     let palette_item = MenuItem::with_id(app, "palette", "Command palette", true, Some(palette_shortcut))?;
+    let ring_item = MenuItem::with_id(app, "ring", "App ring", true, Some(ring_shortcut))?;
     let pause = MenuItem::with_id(app, "pause", "Pause tracking", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kairo", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&dashboard, &updates, &palette_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
+        &[&dashboard, &updates, &palette_item, &ring_item, &PredefinedMenuItem::separator(app)?, &pause, &PredefinedMenuItem::separator(app)?, &quit],
     )?;
     app.manage(PaletteItem(palette_item));
+    app.manage(RingItem(ring_item));
 
     let pause_item = pause.clone();
     TrayIconBuilder::with_id("main")
@@ -445,6 +475,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str)
                 tauri::async_runtime::spawn(async move { updater::check(&app, true).await });
             }
             "palette" => palette::toggle(app),
+            "ring" => ring::toggle(app),
             "pause" => {
                 let now_paused = !paused.fetch_xor(true, Ordering::Relaxed);
                 let _ = pause_item.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });

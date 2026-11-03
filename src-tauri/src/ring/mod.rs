@@ -3,6 +3,99 @@
 //! Windows one drawn natively and the web one on macOS and Linux: what's on it, how it turns,
 //! what's under a point, and where it goes on the screen.
 
+use tauri::AppHandle;
+
+#[cfg(windows)]
+pub mod native;
+#[cfg(not(windows))]
+pub mod web;
+
+/// Opens the ring at the pointer; if it's open, turns it one segment, so holding the modifier and
+/// pressing the key again goes round.
+pub fn toggle(app: &AppHandle) {
+    #[cfg(windows)]
+    {
+        let _ = app;
+        native::open_or_turn();
+    }
+    #[cfg(not(windows))]
+    web::open_or_turn(app);
+}
+
+/// What picking a segment does. The ring has closed by then; the segment is remembered.
+pub fn perform(app: &AppHandle, conn: &rusqlite::Connection, segment: Segment) -> Result<(), String> {
+    let _ = set_last(conn, segment);
+    match segment {
+        Segment::Chrono => crate::show_main(app),
+        Segment::Ledger => crate::show_ledger(app),
+        Segment::Palette => crate::palette::toggle(app),
+        Segment::Dashboard => crate::show_dashboard(app, None),
+        Segment::Task => crate::show_ledger_at(app, "add:task"),
+        Segment::Note => {
+            let note = crate::notebook::create(conn, "", chrono::Utc::now().timestamp_millis()).map_err(|e| e.to_string())?;
+            crate::show_ledger_at(app, &format!("note:{}", note.id));
+        }
+        Segment::Focus => {
+            if let Some(why) = focus_refusal(conn) {
+                return Err(why);
+            }
+            if crate::blocking::strict_now(conn).unwrap_or(false) {
+                return Err("Strict mode is on: end the current session from Chrono's Focus page first.".into());
+            }
+            crate::focus::start_by_hand(conn, 25, None, None, chrono::Utc::now().timestamp_millis()).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// A refusal from the ring, said as a notification, since the ring has gone.
+pub fn tell(app: &AppHandle, why: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title("Kairo").body(why).show();
+}
+
+/// The ring's keys as last set, so the shortcut handler can tell them from the palette's.
+static KEYS: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+pub fn remember_keys(keys: &str) {
+    *KEYS.lock().unwrap_or_else(|e| e.into_inner()) = keys.to_string();
+}
+
+/// Whether a global shortcut pressed is the ring's.
+pub fn is_ring(pressed: &tauri_plugin_global_shortcut::Shortcut) -> bool {
+    same_keys(&KEYS.lock().unwrap_or_else(|e| e.into_inner()), pressed)
+}
+
+/// Whether `keys` as saved ("Alt+Q") name the shortcut `pressed`.
+pub fn same_keys(keys: &str, pressed: &tauri_plugin_global_shortcut::Shortcut) -> bool {
+    keys.parse::<tauri_plugin_global_shortcut::Shortcut>().is_ok_and(|k| &k == pressed)
+}
+
+/// Swaps the ring's global shortcut, as the palette's: the palette's own keys are refused, and
+/// if the new ones can't be had the old ones stay.
+pub fn change_shortcut(app: &AppHandle, conn: &rusqlite::Connection, new: &str) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    let old = shortcut(conn).map_err(|e| e.to_string())?;
+    let palette = crate::palette::shortcut(conn).map_err(|e| e.to_string())?;
+    if new.eq_ignore_ascii_case(&palette) {
+        return Err(format!("{new} opens the command palette."));
+    }
+    if !crate::platform::desktop_ring_shortcut(new) {
+        let keys = app.global_shortcut();
+        let _ = keys.unregister(old.as_str());
+        if let Err(e) = keys.register(new) {
+            let _ = keys.register(old.as_str());
+            return Err(format!("{new} can't be used: {e}. Another app may already use it."));
+        }
+    }
+    set_shortcut(conn, new).map_err(|e| e.to_string())?;
+    remember_keys(new);
+    if let Some(item) = tauri::Manager::try_state::<crate::RingItem>(app) {
+        let _ = item.0.set_accelerator(Some(new));
+    }
+    Ok(())
+}
+
 /// What's on the ring, in order around it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Segment {
@@ -219,6 +312,15 @@ mod tests {
         crate::focus::start_by_hand(&c, 25, None, None, 0).unwrap();
         assert_eq!(lines(&c, 1)[6], "A session is running");
         assert_eq!(focus_refusal(&c).as_deref(), Some("A focus session is already running."));
+    }
+
+    #[test]
+    fn the_handler_tells_the_rings_keys_from_others() {
+        let pressed = |k: &str| k.parse::<tauri_plugin_global_shortcut::Shortcut>().unwrap();
+        assert!(same_keys("Alt+Q", &pressed("Alt+Q")));
+        assert!(same_keys("alt+q", &pressed("Alt+Q")));
+        assert!(!same_keys("Alt+Q", &pressed("Ctrl+Space")));
+        assert!(!same_keys("", &pressed("Alt+Q")));
     }
 
     #[test]

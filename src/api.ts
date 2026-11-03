@@ -480,6 +480,9 @@ export const api = {
   syncSoon: () => invoke<void>("sync_soon"),
   /** Where Ledger was asked to open, once: "note:<id>" or "task:<id>". */
   takeLedgerOpen: () => invoke<string | null>("take_ledger_open"),
+  ringSettings: () => invoke<{ shortcut: string }>("ring_settings"),
+  setRingShortcut: (shortcut: string) => invoke<{ shortcut: string }>("set_ring_shortcut", { shortcut }),
+  openRing: () => invoke<void>("open_ring"),
   renameTask: (id: string, title: string) => invoke<Task[]>("rename_task", { id, title }),
   setTaskDone: (id: string, done: boolean) => invoke<Task[]>("set_task_done", { id, done }),
   removeTask: (id: string) => invoke<Task[]>("remove_task", { id }),

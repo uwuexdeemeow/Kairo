@@ -194,28 +194,39 @@ fn with_item(list: &str, item: &str) -> Option<String> {
 
 const KEYBINDINGS: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const PALETTE_KEYBINDING: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kairo-palette/";
+const RING_KEYBINDING: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kairo-ring/";
 
 /// Makes `shortcut` open the palette as one of GNOME's own keyboard shortcuts, on its Wayland
 /// session, where apps can't listen for keys; it runs `kairo --palette`. False elsewhere, or when
 /// GNOME didn't take it, which leaves Kairo listening itself.
 pub fn palette_shortcut(shortcut: &str) -> bool {
+    custom_shortcut(PALETTE_KEYBINDING, "Kairo command palette", crate::startup::PALETTE_ARG, shortcut)
+}
+
+/// The app ring's, as the palette's: GNOME runs `kairo --ring`.
+pub fn ring_shortcut(shortcut: &str) -> bool {
+    custom_shortcut(RING_KEYBINDING, "Kairo app ring", crate::startup::RING_ARG, shortcut)
+}
+
+/// One of GNOME's custom shortcuts, at `path`, running this Kairo with `arg`.
+fn custom_shortcut(path: &str, name: &str, arg: &str, shortcut: &str) -> bool {
     if !wayland() || !desktop_is("GNOME") {
         return false;
     }
-    let (Some(binding), Some(command)) = (accelerator(shortcut), palette_command()) else { return false };
-    let schema = format!("{KEYBINDINGS}.custom-keybinding:{PALETTE_KEYBINDING}");
-    let set = [("name", "Kairo command palette".to_string()), ("command", command), ("binding", binding)]
+    let (Some(binding), Some(command)) = (accelerator(shortcut), command(arg)) else { return false };
+    let schema = format!("{KEYBINDINGS}.custom-keybinding:{path}");
+    let set = [("name", name.to_string()), ("command", command), ("binding", binding)]
         .iter()
         .all(|(key, value)| gsettings(&["set", &schema, key, &quoted(value)]).is_some());
-    set && add_to_list(KEYBINDINGS, "custom-keybindings", PALETTE_KEYBINDING)
+    set && add_to_list(KEYBINDINGS, "custom-keybindings", path)
 }
 
-/// How GNOME's shortcut runs this copy of Kairo: the AppImage it came from, if it did.
-fn palette_command() -> Option<String> {
+/// How GNOME's shortcut runs this copy of Kairo, with `arg`: the AppImage it came from, if it did.
+fn command(arg: &str) -> Option<String> {
     let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok())?;
     let program = program.to_str()?;
     let program = if program.contains(' ') { format!("\"{program}\"") } else { program.to_string() };
-    Some(format!("{program} {}", crate::startup::PALETTE_ARG))
+    Some(format!("{program} {arg}"))
 }
 
 /// A shortcut as Kairo saves it ("Ctrl+Shift+K") in GNOME's spelling ("<Control><Shift>k").

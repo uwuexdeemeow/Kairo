@@ -304,6 +304,31 @@ pub fn ledger_settings(state: State<AppState>) -> CmdResult<crate::ledger::Setti
     crate::ledger::settings(&conn).map_err(err)
 }
 
+// ---------- the app ring ----------
+
+#[derive(Serialize)]
+pub struct RingSettings {
+    shortcut: String,
+}
+
+#[tauri::command]
+pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    Ok(RingSettings { shortcut: crate::ring::shortcut(&conn).map_err(err)? })
+}
+
+#[tauri::command]
+pub fn set_ring_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<RingSettings> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ring::change_shortcut(&app, &conn, &shortcut)?;
+    Ok(RingSettings { shortcut })
+}
+
+#[tauri::command]
+pub fn open_ring(app: AppHandle) {
+    crate::ring::toggle(&app);
+}
+
 // ---------- Ledger's notes ----------
 
 #[tauri::command]
