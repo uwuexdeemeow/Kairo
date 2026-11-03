@@ -116,6 +116,24 @@ describe("the web ring", () => {
     expect(act.pick).toHaveBeenCalledWith(2);
   });
 
+  it("lets go of a drag that's cut off, so moving the mouse after doesn't turn it", () => {
+    open(0);
+    root.getBoundingClientRect = () => ({ left: 0, top: 0, right: 300, bottom: 210, width: 300, height: 210, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    const at = (deg: number) => {
+      const a = (deg * Math.PI) / 180;
+      const r = (OUTER + INNER) / 2;
+      return { clientX: CENTRE.x + r * Math.sin(a), clientY: CENTRE.y - r * Math.cos(a), bubbles: true };
+    };
+    root.dispatchEvent(new MouseEvent("pointerdown", at(STEP)));
+    root.dispatchEvent(new MouseEvent("pointermove", at(0)));
+    expect(litName()).toBe("ledger");
+    root.dispatchEvent(new MouseEvent("pointercancel", at(0)));
+    root.dispatchEvent(new MouseEvent("pointermove", at(-STEP)));
+    expect(litName()).toBe("ledger");
+    expect(root.classList.contains("dragging")).toBe(false);
+    expect(act.pick).not.toHaveBeenCalled();
+  });
+
   it("says when a session is running", () => {
     mountRing(root, { lit: 6, lines, focusRunning: true }, act, () => clock);
     expect(root.querySelector(".ring-seg.lit")!.classList.contains("dim")).toBe(true);

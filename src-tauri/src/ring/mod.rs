@@ -267,6 +267,15 @@ pub fn drag_steps(from: f32, to: f32) -> i32 {
     ((from - to) / STEP).round() as i32
 }
 
+/// What a screen reader hears for the lit segment: its name, then its line.
+pub fn spoken(name: &str, line: &str) -> String {
+    if line.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name}, {line}")
+    }
+}
+
 pub fn on_modifier_up(elapsed_ms: i64) -> Release {
     if elapsed_ms < TAP_MS {
         Release::Stay
@@ -388,6 +397,12 @@ mod tests {
         assert_eq!(drag_steps(0.0, STEP * 2.0), -2);
         assert_eq!(drag_steps(0.0, STEP * 0.4), 0);
         assert_eq!(drag_steps(0.0, -STEP * 0.6), 1);
+    }
+
+    #[test]
+    fn a_screen_reader_hears_the_lit_ones_name_and_line() {
+        assert_eq!(spoken("Ledger", "3 due today"), "Ledger, 3 due today");
+        assert_eq!(spoken("Dashboard", ""), "Dashboard");
     }
 
     #[test]

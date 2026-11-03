@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use rusqlite::Connection;
 use tauri::AppHandle;
-use windows::core::{w, Interface, Result};
+use windows::core::{w, Interface, Result, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows::Win32::Graphics::Direct2D::Common::{
     D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_FILLED, D2D1_FIGURE_END_CLOSED, D2D1_FIGURE_END_OPEN, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_F,
@@ -31,6 +31,7 @@ use windows::Win32::Graphics::Gdi::{
     BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Accessibility::NotifyWinEvent;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetAsyncKeyState, GetKeyState, ReleaseCapture, SetCapture, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_LEFT, VK_LWIN, VK_MENU, VK_RETURN,
@@ -38,7 +39,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetCursorPos, GetForegroundWindow, GetMessageW, IsWindowVisible, KillTimer, LoadCursorW, PostMessageW,
-    RegisterClassExW, SetForegroundWindow, SetTimer, ShowWindow, TranslateMessage, UpdateLayeredWindow, HWND_TOPMOST, IDC_ARROW, MSG, SWP_NOACTIVATE, SW_HIDE,
+    RegisterClassExW, SetForegroundWindow, SetTimer, SetWindowTextW, ShowWindow, TranslateMessage, UpdateLayeredWindow, CHILDID_SELF, EVENT_OBJECT_NAMECHANGE, HWND_TOPMOST, IDC_ARROW, MSG,
+    OBJID_WINDOW, SWP_NOACTIVATE, SW_HIDE,
     SW_SHOW, ULW_ALPHA, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_SYSKEYDOWN, WM_TIMER, WNDCLASSEXW,
     WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
@@ -537,6 +539,7 @@ impl Popup {
         self.scene.lines = super::lines(&self.conn, now);
         self.scene.focus_running = super::focus_refusal(&self.conn).is_some();
         self.scene.shift = 0.0;
+        self.announce();
         self.modifier = modifier_of(&super::shortcut(&self.conn).unwrap_or_default());
         self.modifier_was_down = key_down(self.modifier);
         self.tapped = false;
@@ -598,9 +601,22 @@ impl Popup {
             return;
         }
         self.scene.ring.turn(steps);
+        self.announce();
         // Eases from where it was: the new top segment starts `steps` places round.
         self.scene.shift = if reduce_motion() { 0.0 } else { (self.scene.shift + steps as f32 * STEP).clamp(-2.0 * STEP, 2.0 * STEP) };
         self.paint();
+    }
+
+    /// Names the window after the lit segment ("Ledger, 3 due today") and tells screen readers it
+    /// changed: the ring is drawn, not built from controls, so this is all they have to read.
+    fn announce(&self) {
+        let lit = self.scene.ring.lit;
+        let name = super::spoken(NAMES[lit], &self.scene.lines[lit]);
+        let wide: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+        unsafe {
+            let _ = SetWindowTextW(self.hwnd, PCWSTR(wide.as_ptr()));
+            NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, self.hwnd, OBJID_WINDOW.0, CHILDID_SELF as i32);
+        }
     }
 
     fn pick(&mut self, index: usize) {

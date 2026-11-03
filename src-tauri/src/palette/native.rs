@@ -130,15 +130,16 @@ const DARK: Theme = Theme {
 const LIGHT: Theme = Theme {
     bg: 0xf4efe6,
     ink: 0x2b2622,
-    muted: 0x6e6358,
+    muted: 0x5e544a,
     rule: 0xe3d9c9,
     line: 0xd3c7b3,
     raised: 0xfffaf2,
     productive: 0x2f6fd0,
     neutral: 0xa9aeb6,
     distracting: 0xcf5220,
-    warm: 0xb95420,
-    good: 0x2b8a3e,
+    // Warm and good are text here, so they take the web's text inks (--warm-ink, --good-ink).
+    warm: 0xae4f1e,
+    good: 0x267a37,
     accent: 0x6a4c93,
 };
 
@@ -1610,6 +1611,8 @@ mod tests {
             for paper in [t.bg, t.raised] {
                 assert!(contrast(t.ink, paper) >= 7.0, "ink on {paper:06x}");
                 assert!(contrast(t.muted, paper) >= 4.5, "muted on {paper:06x}");
+                assert!(contrast(t.warm, paper) >= 4.5, "warm on {paper:06x}");
+                assert!(contrast(t.good, paper) >= 4.5, "good on {paper:06x}");
                 assert!(contrast(t.accent, paper) >= 3.0, "accent on {paper:06x}");
             }
         }

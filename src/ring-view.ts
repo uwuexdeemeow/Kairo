@@ -138,6 +138,15 @@ export function mountRing(root: HTMLElement, state: RingState, act: RingActions,
     press.turned = steps;
     root.classList.add("dragging");
   });
+  // A drag cut off before the button came up (the window lost the pointer, a touch was
+  // cancelled) ends where it is, so moving the mouse afterwards doesn't keep turning the ring.
+  const drop = () => {
+    press = null;
+    root.classList.remove("dragging");
+  };
+  root.addEventListener("pointercancel", drop);
+  root.addEventListener("lostpointercapture", drop);
+  window.addEventListener("blur", drop);
   root.addEventListener("pointerup", (e) => {
     if (!press) return;
     const p = local(e);

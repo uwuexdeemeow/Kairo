@@ -9,7 +9,7 @@
   --ink: #e3e7ee;
   --ink-2: #c4cbd6;
   --muted: #97a1b2;
-  --faint: #7a8598;
+  --faint: #818c9e;
   --rule: #232c3d;
   --line: #33405a;
   /* The faint baseline under the day timeline. */
@@ -33,6 +33,10 @@
   --warm: #f0a27c;
   --good: #7fd18b;
   --rec: #e5484d;
+  /* The data colours as small text, where the fills would be too faint to read. */
+  --distracting-ink: #e17a51;
+  --good-ink: var(--good);
+  --warm-ink: var(--warm);
 
   /* Sequential blue for dark: near-zero recedes into the background, high values are light. */
   --seq-0: #184f95;
@@ -56,8 +60,8 @@
   --raised: #fffaf2;
   --ink: #2b2622;
   --ink-2: #4a423b;
-  --muted: #6e6358;
-  --faint: #8a7f72;
+  --muted: #5e544a;
+  --faint: #746a60;
   --rule: #e3d9c9;
   --line: #d3c7b3;
   --track: #e6dccb;
@@ -77,6 +81,9 @@
   --warm: #b95420;
   --good: #2b8a3e;
   --rec: #d73a40;
+  --distracting-ink: #ac441b;
+  --good-ink: #267a37;
+  --warm-ink: #ae4f1e;
 
   /* Sequential blue for light: near-zero recedes into the paper, high values are deep. */
   --seq-0: #d9e6fa;
@@ -631,11 +638,11 @@ h2 {
 .wk-goal {
   min-height: 18px;
   font-size: 12px;
-  color: var(--good);
+  color: var(--good-ink);
 }
 
 .wk-goal.missed {
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 /* A month's bars sit close together, with every week's first date under them. */
@@ -692,7 +699,7 @@ h2 {
 }
 
 .usage-value.over {
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 /* ---------- app icons ---------- */
@@ -753,8 +760,8 @@ h2 {
 }
 
 .btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app) 30%, transparent);
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
 }
 
 .btn.primary {
@@ -930,11 +937,11 @@ html.palette-root {
 }
 
 .palette-change.good {
-  color: var(--good);
+  color: var(--good-ink);
 }
 
 .palette-change.worse {
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 
 .palette-chart {
@@ -1003,7 +1010,7 @@ html.palette-root {
 }
 
 .palette-note.warm {
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 
 .palette-plan {
@@ -1117,7 +1124,7 @@ html.palette-root {
 .palette-glyph.warm {
   background: var(--line);
   background: color-mix(in srgb, var(--distracting) 14%, transparent);
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 
 .palette-row .app-icon.palette-app {
@@ -1179,7 +1186,7 @@ html.palette-root {
 }
 
 .palette-error {
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 
 .palette-footer {
@@ -1550,6 +1557,11 @@ html.palette-root {
   border-color: var(--app);
 }
 
+.calendar-urls:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 1px;
+}
+
 /* A stretch away from the computer: when, then what it was. */
 .away-row {
   display: flex;
@@ -1684,7 +1696,7 @@ html.palette-root {
 }
 
 .history-state.done {
-  color: var(--good);
+  color: var(--good-ink);
 }
 
 .history-state.cut {
@@ -2172,7 +2184,7 @@ html.palette-root {
 }
 
 .goal.over .usage-value {
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 .heads-up {
@@ -2193,7 +2205,7 @@ html.palette-root {
 .heads-up-time {
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 
 .heads-up p {
@@ -2251,10 +2263,10 @@ html.palette-root {
 }
 
 .insight.warning .insight-metric {
-  color: var(--warm);
+  color: var(--warm-ink);
 }
 .insight.positive .insight-metric {
-  color: var(--good);
+  color: var(--good-ink);
 }
 
 .insight-unit {
@@ -2692,9 +2704,9 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .filter:focus-visible {
-  outline: none;
   border-color: var(--app);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app) 25%, transparent);
+  outline: 2px solid var(--app);
+  outline-offset: 1px;
 }
 
 /* Back to Kairo's dashboard, at the top of an app's sidebar. */
@@ -2715,7 +2727,11 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .back-to-kairo:focus-visible {
   color: var(--ink);
   border-color: var(--kairo);
-  outline: none;
+}
+
+.back-to-kairo:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
 }
 
 .ext-status {
@@ -2763,7 +2779,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 /* Destructive buttons ask twice; the armed state reads as a warning. */
 .link-btn.armed,
 .link-btn.armed:hover {
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 .toggle {
@@ -3177,7 +3193,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .ledger-group.overdue > h3 {
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 /* A task: tick, dot, title, its chips, then ▶; each its own small card. */
@@ -3259,7 +3275,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 .chip.late {
   background: color-mix(in srgb, var(--distracting) 16%, transparent);
-  color: var(--distracting);
+  color: var(--distracting-ink);
 }
 
 /* Start focus: a small ▶ that shows under the pointer or the keyboard. */
@@ -3390,7 +3406,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .prio-medium {
-  background: #d9a326;
+  background: var(--ribbon);
 }
 
 .task-day,
