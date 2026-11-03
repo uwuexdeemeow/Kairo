@@ -198,8 +198,8 @@ pub fn run() {
             let handle = app.handle().clone();
             #[cfg(not(windows))]
             app.manage(palette::files::Worker::new(palette::files::ask_system, move |seq, items| {
-                if let Some(rows) = handle.state::<palette::Session>().add_files(seq, items) {
-                    if let Err(e) = handle.emit_to(palette::LABEL, "palette:files", palette::FilesFound { seq, rows }) {
+                if let Some((rows, replace)) = handle.state::<palette::Session>().add_files(seq, items) {
+                    if let Err(e) = handle.emit_to(palette::LABEL, "palette:files", palette::FilesFound { seq, rows, replace }) {
                         eprintln!("palette: cannot show files: {e}");
                     }
                 }

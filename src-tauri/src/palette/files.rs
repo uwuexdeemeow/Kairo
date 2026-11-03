@@ -340,6 +340,9 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
         if s.pending.is_some() {
             continue;
         }
+        // An index that answered is passed on even with nothing found, so Files mode can say so;
+        // one that failed says nothing.
+        let answered = found.is_ok();
         let items = match found {
             Ok(items) => items,
             Err(Unavailable::NoIndexer) if !s.told_no_indexer => {
@@ -357,7 +360,7 @@ fn work(shared: &(Mutex<Shared>, Condvar), backend: Backend, on_done: impl Fn(u6
             }
         };
         drop(s);
-        if !items.is_empty() {
+        if answered || !items.is_empty() {
             on_done(seq, items);
         }
     }

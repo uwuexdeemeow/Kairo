@@ -44,7 +44,7 @@ use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowTextLengthW, GetWindowTextW,
     IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassExW, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage,
-    CS_DROPSHADOW, HWND_TOPMOST, IDC_ARROW, MSG, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, WA_INACTIVE, WINDOW_EX_STYLE,
+    CHILDID_SELF, CS_DROPSHADOW, EVENT_OBJECT_NAMECHANGE, HWND_TOPMOST, IDC_ARROW, MSG, OBJID_CLIENT, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, WA_INACTIVE, WINDOW_EX_STYLE,
     WINDOW_STYLE, WM_ACTIVATE, WM_APP, WM_CHAR, WM_COMMAND, WM_CTLCOLOREDIT, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
     WM_SETFONT, WNDCLASSEXW, WS_CHILD, WS_CLIPCHILDREN, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
@@ -52,6 +52,7 @@ use windows_numerics::Vector2;
 
 use super::files::{self, Worker};
 use super::mode::Mode;
+use windows::Win32::UI::Accessibility::NotifyWinEvent;
 use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 use super::settings::{self, Switch};
 use super::cards::{self, Answer, Card, FocusPlan};
@@ -220,6 +221,8 @@ struct Palette {
     conn: Connection,
     hwnd: HWND,
     edit: HWND,
+    /// The hidden label before the edit box, which names it after the selected row.
+    label: HWND,
     d2d: ID2D1Factory,
     dwrite: IDWriteFactory,
     formats: Formats,
@@ -442,6 +445,10 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
     let round = DWMWCP_ROUND;
     let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, (&round as *const DWM_WINDOW_CORNER_PREFERENCE).cast(), 4);
 
+    // An empty label just before the box: Windows names a box after the label before it, so this
+    // one carries the selected row for screen readers (Palette::announce). It has no size, so it
+    // never shows.
+    let label = CreateWindowExW(WINDOW_EX_STYLE(0), w!("STATIC"), w!("Results"), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, Some(hwnd), None, Some(instance.into()), None)?;
     let edit = CreateWindowExW(
         WINDOW_EX_STYLE(0),
         w!("EDIT"),
@@ -503,6 +510,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             conn,
             hwnd,
             edit,
+            label,
             d2d,
             dwrite,
             formats,
@@ -670,6 +678,15 @@ fn set_cue(edit: HWND, cue: &str) {
     let wide: Vec<u16> = cue.encode_utf16().chain([0]).collect();
     unsafe {
         SendMessageW(edit, EM_SETCUEBANNER, Some(WPARAM(1)), Some(LPARAM(wide.as_ptr() as isize)));
+    }
+}
+
+/// What a screen reader is told for the selected row: its title, then its second line.
+fn spoken_row(item: Option<&Item>) -> String {
+    match item {
+        Some(Item { title, sub: Some(sub), .. }) => format!("{title}, {sub}"),
+        Some(item) => item.title.clone(),
+        None => "No results".into(),
     }
 }
 
@@ -901,12 +918,27 @@ impl Palette {
         self.scroll = 0.0;
         self.error = None;
         self.update_preview();
+        self.announce();
         self.layout();
     }
 
     /// Files found for the results numbered `seq` join the end of the rows, if those are still
-    /// shown; the selection and scroll stay where they were.
+    /// shown; the selection and scroll stay where they were. In Files mode they take the place of
+    /// its "Looking for files…" row, or say none were found.
     fn add_files(&mut self, seq: u64, items: Vec<Item>) {
+        if self.mode == Some(Mode::Files) {
+            if seq != self.seq {
+                return;
+            }
+            self.items = super::files_mode_rows(&self.query(), items);
+            self.rows = self.items.len();
+            self.selected = 0;
+            self.update_preview();
+            self.layout();
+            self.resize();
+            self.announce();
+            return;
+        }
         if merge_files(&mut self.items, &mut self.rows, seq, self.seq, items) {
             self.layout();
             self.resize();
@@ -1009,6 +1041,7 @@ impl Palette {
         let card_h = self.card_h();
         self.selected = index;
         self.update_preview();
+        self.announce();
         // Keep the selection in view.
         if let Some(p) = self.placed.iter().find(|p| p.index == index) {
             let view = self.results_h();
@@ -1068,6 +1101,16 @@ impl Palette {
             return;
         }
         self.perform(&item.action);
+    }
+
+    /// Tells screen readers the selected row: the hidden label before the edit box takes its words,
+    /// and the box, which has the keyboard, is said to be renamed, so the row is read out.
+    fn announce(&self) {
+        let wide: Vec<u16> = spoken_row(self.items.get(self.selected)).encode_utf16().chain([0]).collect();
+        unsafe {
+            let _ = SetWindowTextW(self.label, PCWSTR(wide.as_ptr()));
+            NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, self.edit, OBJID_CLIENT.0, CHILDID_SELF as i32);
+        }
     }
 
     /// Puts the palette in `mode`, or out of any: the bubble, the edit box moved after it, and
@@ -1791,6 +1834,15 @@ mod tests {
         assert_eq!(take_shortcut(None, "gh"), None);
         // In the calculator, "g " is just text.
         assert_eq!(take_shortcut(Some(Mode::Calc), "g 2"), None);
+    }
+
+    #[test]
+    fn a_screen_reader_hears_the_selected_rows_title_then_its_second_line() {
+        let mut item = row("Budget.xlsx");
+        assert_eq!(spoken_row(Some(&item)), "Budget.xlsx");
+        item.sub = Some("Documents".into());
+        assert_eq!(spoken_row(Some(&item)), "Budget.xlsx, Documents");
+        assert_eq!(spoken_row(None), "No results");
     }
 
     #[test]

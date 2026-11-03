@@ -162,6 +162,8 @@ export interface PaletteItem {
 export interface PaletteFiles {
   seq: number;
   rows: PaletteItem[];
+  /** In Files mode they take the place of the rows (its "Looking for files…" row). */
+  replace?: boolean;
 }
 
 /** A mode the palette is in, drawn as a bubble at the left of the input; its `key` goes back with

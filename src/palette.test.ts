@@ -338,3 +338,14 @@ describe("modes", () => {
     expect(api.paletteHide).toHaveBeenCalled();
   });
 });
+
+describe("files mode", () => {
+  it("says it's looking, then shows the files in that row's place", async () => {
+    const files = { key: "files", name: "Files", glyph: "search", hint: "Type part of a file's name…" };
+    await open({ ...results(5, [item("Looking for files…", { section: "Files" })]), mode: files });
+    expect(titles()).toEqual(["Looking for files…"]);
+    emit("palette:files", { seq: 5, rows: [file("budget.xlsx")], replace: true });
+    expect(titles()).toEqual(["budget.xlsx"]);
+    expect(document.querySelector(".palette-empty")).toBeNull();
+  });
+});

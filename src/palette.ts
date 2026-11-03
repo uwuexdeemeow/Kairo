@@ -209,7 +209,7 @@ function render(r: PaletteResults) {
     out.push(label("Go to"));
     out.push(h("div", { class: "palette-chips" }, ...r.chips.map((c) => row(c, index++, "chip"))));
   }
-  if (!shown.length && typed) out.push(h("p", { class: "palette-empty" }, "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”."));
+  if (!shown.length && typed && !mode) out.push(h("p", { class: "palette-empty" }, "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”."));
   $("#palette-results").replaceChildren(...out);
   input.setAttribute("aria-activedescendant", shown.length ? `palette-item-${selected}` : "");
   renderHint();
@@ -446,8 +446,9 @@ async function open() {
 /// before searching, so a query's answer is drawn long before its files.
 /// File rows for the current query follow the rows already shown; the selection stays on its item.
 listen<PaletteFiles>("palette:files", (e) => {
-  if (e.payload.seq !== results.seq || !e.payload.rows.length) return;
-  render({ ...results, rows: [...results.rows, ...e.payload.rows] });
+  if (e.payload.seq !== results.seq) return;
+  if (e.payload.replace) render({ ...results, rows: e.payload.rows });
+  else if (e.payload.rows.length) render({ ...results, rows: [...results.rows, ...e.payload.rows] });
 });
 
 listen("palette:open", open);

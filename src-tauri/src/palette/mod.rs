@@ -675,12 +675,24 @@ impl Results {
     }
 }
 
-/// File rows found for the results numbered `seq`, sent to the web palette as `palette:files`.
+/// File rows found for the results numbered `seq`, sent to the web palette as `palette:files`:
+/// after the rows shown, or with `replace` in their place (Files mode).
 #[cfg(not(windows))]
 #[derive(Serialize, Clone)]
 pub struct FilesFound {
     pub seq: u64,
     pub rows: Vec<ItemView>,
+    pub replace: bool,
+}
+
+/// What Files mode shows once the index answers for `query`: the files, or that there are none.
+/// Either takes the place of its "Looking for files…" row.
+pub fn files_mode_rows(query: &str, found: Vec<Item>) -> Vec<Item> {
+    if found.is_empty() {
+        vec![search::no_files_row(query)]
+    } else {
+        found
+    }
 }
 
 #[derive(Default)]
@@ -773,15 +785,23 @@ impl Session {
     /// Adds file rows after the rows of the results numbered `seq`, and returns how they're drawn.
     /// None once newer results replaced them, or when nothing is typed, since files would then
     /// land after the tiles and chips. Windows' own palette adds its files itself.
+    /// In Files mode they take the place of the rows (`true`), as `files_mode_rows` says.
     #[cfg(any(not(windows), test))]
-    pub fn add_files(&self, seq: u64, items: Vec<Item>) -> Option<Vec<ItemView>> {
+    pub fn add_files(&self, seq: u64, items: Vec<Item>) -> Option<(Vec<ItemView>, bool)> {
         let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
         if s.seq != seq || s.query.trim().is_empty() {
             return None;
         }
+        if s.mode == Some(Mode::Files) {
+            s.items = files_mode_rows(&s.query, items);
+            return Some((s.items.iter().map(ItemView::from).collect(), true));
+        }
+        if items.is_empty() {
+            return None;
+        }
         let views = items.iter().map(ItemView::from).collect();
         s.items.extend(items);
-        Some(views)
+        Some((views, false))
     }
 
     /// Whether files are searched for `query` typed in `mode`.
@@ -1152,6 +1172,27 @@ mod tests {
     }
 
     #[test]
+    fn files_mode_says_it_is_looking_then_shows_the_files_or_that_there_are_none() {
+        let session = Session::default();
+        session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
+        let looking = session.query("budget", Some(Mode::Files));
+        assert_eq!(session.item(looking.seq, 0).map(|i| i.title), Some(search::LOOKING_FOR_FILES.to_string()));
+        // Found: the files take its place, numbered from the first row.
+        let (views, replace) = session.add_files(looking.seq, budget_files()).expect("current");
+        assert!(replace);
+        assert_eq!(views.len(), budget_files().len());
+        assert!(matches!(session.item(looking.seq, 0).map(|i| i.action), Some(Action::OpenFile(_))));
+        // None found: it says so.
+        let again = session.query("zzqx", Some(Mode::Files));
+        let (views, _) = session.add_files(again.seq, Vec::new()).expect("an answer of none is shown");
+        assert_eq!(views.len(), 1);
+        assert_eq!(session.item(again.seq, 0).map(|i| i.title), Some("No files named “zzqx”".to_string()));
+        // Out of Files mode, an empty answer changes nothing.
+        let plain = session.query("bud", None);
+        assert!(session.add_files(plain.seq, Vec::new()).is_none());
+    }
+
+    #[test]
     fn files_for_an_old_query_are_dropped() {
         let session = Session::default();
         session.open(ctx(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap()));
@@ -1183,7 +1224,7 @@ mod tests {
         let results = session.query("bud", None);
         let files = budget_files();
         let first = files[0].clone();
-        let views = session.add_files(results.seq, files).expect("current files are added");
+        let (views, _) = session.add_files(results.seq, files).expect("current files are added");
         assert_eq!(views.len(), 2);
         assert_eq!(session.item(results.seq, results.rows.len()).map(|i| i.action), Some(first.action));
         // Their icons may be asked for now.

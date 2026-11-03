@@ -739,6 +739,14 @@ fn web_item(title: String, url: String, score: f64) -> Item {
 }
 
 
+/// Files mode's row while the system's index is asked.
+pub const LOOKING_FOR_FILES: &str = "Looking for files…";
+
+/// Files mode's row when the index found nothing for `query`.
+pub fn no_files_row(query: &str) -> Item {
+    note_row(format!("No files named “{}”", query.trim()), Glyph::Search, "Files")
+}
+
 /// A row that only says something, like a mode's hint before anything is typed.
 fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static str) -> Item {
     Item::new(title, Icon::Glyph(glyph, Tone::Plain), section, Action::Nothing)
@@ -773,7 +781,8 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
             vec![item]
         }
         Mode::Files if q.chars().count() < super::files::MIN_CHARS => vec![note_row("Type part of a file's name", Glyph::Search, "Files")],
-        Mode::Files => Vec::new(),
+        // Files come from the system's index a moment later, in its place (mod.rs, files_mode_rows).
+        Mode::Files => vec![note_row(LOOKING_FOR_FILES, Glyph::Search, "Files")],
         Mode::Windows => {
             let found = window_rows(ctx, q, q.is_empty());
             if found.is_empty() {
@@ -1514,7 +1523,7 @@ mod tests {
         assert_eq!(search_in(&c, Mode::Windows, "zzqx")[0].action, Action::Nothing);
         // Files come from the system's index; before enough is typed, or with file search off,
         // the mode says so.
-        assert!(search_in(&c, Mode::Files, "budget").is_empty());
+        assert_eq!(titles(&search_in(&c, Mode::Files, "budget")), vec![LOOKING_FOR_FILES]);
         assert_eq!(search_in(&c, Mode::Files, "b")[0].action, Action::Nothing);
         let off = Context { search_files: false, ..ctx() };
         assert_eq!(search_in(&off, Mode::Files, "budget")[0].action, Action::Setting("palette-search-files"));
