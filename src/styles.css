@@ -3171,23 +3171,100 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .ledger-detail {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 280px;
-  padding: 16px;
+  gap: 14px;
+  width: 300px;
+  min-width: 0;
+  padding: 18px;
   border: 1px solid var(--rule);
-  border-radius: 10px;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: 0 10px 24px -18px var(--shadow);
 }
 
+/* Each field under its label, as wide as the panel, with its clear button beside it: nothing
+   reaches past the panel's edge, whatever the system draws a date field as. */
 .detail-field {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
 }
 
 .detail-field > span:first-child {
-  min-width: 72px;
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.detail-note .open-note {
+  justify-self: start;
+}
+
+.detail-field > input,
+.detail-field > .range,
+.detail-field > .note-pick {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The bubble that renames a task or note where it is listed, shown under the pointer. */
+.rename-bubble {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--raised);
   color: var(--muted);
-  font-size: 12px;
+  font: 500 11px var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 140ms var(--ease), transform 140ms var(--ease);
+}
+
+.task-row:hover .rename-bubble,
+.task-row:focus-within .rename-bubble,
+.note-row:hover .rename-bubble,
+.note-row:focus-within .rename-bubble {
+  opacity: 1;
+  transform: none;
+}
+
+.rename-bubble:hover {
+  border-color: var(--app);
+  color: var(--app);
+}
+
+.ledger-list .rename-bubble {
+  grid-column: 3;
+  justify-self: end;
+}
+
+.note-row {
+  position: relative;
+}
+
+.note-row .rename-bubble {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+}
+
+.task-rename,
+.note-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rename-bubble {
+    transition: none;
+  }
 }
 
 .detail-delete {

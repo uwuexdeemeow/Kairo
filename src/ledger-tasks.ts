@@ -74,7 +74,18 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
   }
   const title = h("button", { class: "task-title", title: "Details" }, t.title);
   title.addEventListener("click", () => act.select(t.id));
-  el.append(title);
+  // Hovering the title shows a bubble that turns it into a field, to rename it where it is.
+  const bubble = renameBubble(t.title, () => {
+    const field = renameField(t.title, "task-rename", (text) => act.rename(t.id, text), () => {
+      field.replaceWith(title);
+      bubble.hidden = false;
+    });
+    title.replaceWith(field);
+    bubble.hidden = true;
+    field.focus();
+    field.select();
+  });
+  el.append(title, bubble);
   // Today's group says the day already.
   if (t.dueDay && t.group !== "today") el.append(h("span", { class: "task-day muted" }, dayText(t.dueDay)));
   if (t.remindMs !== null) el.append(h("span", { class: "task-bell", title: "Has a reminder", "aria-label": "Has a reminder" }, "🔔"));
@@ -94,7 +105,44 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
 
 /// Draws the Tasks view: the field to add one (with what it reads under it), the open tasks by
 /// group, and the done ones folded away under "Done (n)".
+/// The small "Rename" bubble shown beside a name under the pointer.
+export function renameBubble(name: string, rename: () => void): HTMLElement {
+  const bubble = h("button", { class: "rename-bubble", "aria-label": `Rename ${name}`, title: "Rename" }, "✎ Rename");
+  bubble.addEventListener("click", (e) => {
+    e.stopPropagation();
+    rename();
+  });
+  return bubble;
+}
+
+/// A name turned into a field: Enter or leaving it saves a new name, Esc or an emptied one puts the
+/// old one back (`done` is called either way, after `save` when it saves).
+export function renameField(name: string, className: string, save: (text: string) => void, done: () => void): HTMLInputElement {
+  const field = h("input", { class: `filter ${className}`, maxlength: "80", "aria-label": "New name" }) as HTMLInputElement;
+  field.value = name;
+  let finished = false;
+  const finish = (keep: boolean) => {
+    if (finished) return;
+    finished = true;
+    const text = field.value.trim();
+    if (keep && text && text !== name) save(text);
+    done();
+  };
+  field.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") finish(true);
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      finish(false);
+    }
+  });
+  field.addEventListener("blur", () => finish(true));
+  field.addEventListener("click", (e) => e.stopPropagation());
+  return field;
+}
+
 export function renderTaskList(root: HTMLElement, tasks: Task[], session: RunningSession, act: LedgerActions): void {
+  // A task being renamed in the list keeps its field: the next redraw brings the changes.
+  if (document.activeElement?.classList.contains("task-rename") && root.contains(document.activeElement)) return;
   const { add, preview } = addField(root, act);
   // The same field, put back: what's typed in it, and the caret, stay through a redraw.
   const typing = document.activeElement === add;

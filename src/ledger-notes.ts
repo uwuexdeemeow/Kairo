@@ -1,4 +1,5 @@
 import type { Note } from "./api";
+import { renameBubble, renameField } from "./ledger-tasks";
 import { logo } from "./logos";
 import { mountEditor, type Editor } from "./note-editor";
 import { h } from "./ui";
@@ -30,6 +31,17 @@ const SYNC_AFTER_MS = 30_000;
 const MAX_CHARS = 100_000;
 
 /// "9:14" today, "Yesterday", or "28 Oct".
+/// A note renamed: its first line with text says `title` instead, its leading #s and spaces kept.
+/// An empty note becomes just the title.
+export function retitle(body: string, title: string): string {
+  const lines = body.split("\n");
+  const at = lines.findIndex((l) => l.trim() !== "");
+  if (at < 0) return title;
+  const lead = /^[#\s]*/.exec(lines[at])![0];
+  lines[at] = lead + title;
+  return lines.join("\n");
+}
+
 export function editedText(ms: number, now: number): string {
   const d = new Date(ms);
   const day = (t: Date) => `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}`;
@@ -69,16 +81,53 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     list.replaceChildren(
       ...notes.map((n) => {
         const meta = [n.tasks.length ? `${n.tasks.length} task${n.tasks.length === 1 ? "" : "s"}` : "", editedText(n.editedMs, now())].filter(Boolean).join(" · ");
+        const title = h("span", { class: "note-row-title" }, n.title);
+        // Hovering the row shows a bubble to rename the note where it is: its first line changes.
+        const bubble = renameBubble(n.title, () => {
+          const field = renameField(n.title, "note-rename", (text) => void rename(n, text), () => {
+            field.replaceWith(title);
+            bubble.hidden = false;
+          });
+          title.replaceWith(field);
+          bubble.hidden = true;
+          field.focus();
+          field.select();
+        });
         const row = h(
-          "button",
-          { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem" },
-          h("span", { class: "note-row-title" }, n.title),
+          "div",
+          { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem", tabindex: "0" },
+          title,
           h("span", { class: "note-row-meta muted" }, meta),
+          bubble,
         );
         row.addEventListener("click", () => void view.open(n.id));
+        row.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && e.target === row) void view.open(n.id);
+        });
         return row;
       }),
     );
+  };
+
+  /// Renames a note from the list: its text with the new first line, kept; an open one's editor
+  /// shows it too.
+  const rename = async (n: Note, title: string) => {
+    const isOpen = open?.id === n.id && editor;
+    const body = retitle(isOpen ? editor!.value() : n.body, title);
+    if (isOpen) {
+      editor!.set(body);
+      dirty = false;
+      window.clearTimeout(saveTimer);
+    }
+    const kept = await act.save(n.id, body);
+    if (kept) {
+      notes = notes.map((x) => (x.id === n.id ? kept : x));
+      if (open?.id === n.id) {
+        open = kept;
+        drawTop();
+      }
+    }
+    drawList();
   };
 
   const load = async () => {

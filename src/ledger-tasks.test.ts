@@ -122,6 +122,38 @@ describe("the task list", () => {
     expect(root.querySelector("details.task-done summary")!.textContent).toBe("Done (1)");
   });
 
+  it("renames a task in the list from its bubble", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    const bubble = root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!;
+    expect(bubble.getAttribute("aria-label")).toBe("Rename Essay");
+    bubble.click();
+    const field = root.querySelector<HTMLInputElement>('[data-task="a"] .task-rename')!;
+    expect(field.value).toBe("Essay");
+    expect(document.activeElement).toBe(field);
+    // A redraw while renaming leaves it be.
+    renderTaskList(root, [task("a", "Essay"), task("b", "New")], null, act);
+    expect(root.querySelector('[data-task="a"] .task-rename')).toBe(field);
+    field.value = "Essay draft";
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(act.rename).toHaveBeenCalledWith("a", "Essay draft");
+  });
+
+  it("puts the title back on Esc, or when emptied", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!.click();
+    let field = root.querySelector<HTMLInputElement>(".task-rename")!;
+    field.value = "Other";
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(root.querySelector(".task-rename")).toBeNull();
+    expect(root.querySelector('[data-task="a"] .task-title')!.textContent).toBe("Essay");
+    root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!.click();
+    field = root.querySelector<HTMLInputElement>(".task-rename")!;
+    field.value = "  ";
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(act.rename).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-task="a"] .task-title')!.textContent).toBe("Essay");
+  });
+
   it("keeps what's being typed when the list is drawn again", () => {
     renderTaskList(root, [task("a", "Essay")], null, act);
     const add = root.querySelector<HTMLInputElement>(".task-add")!;

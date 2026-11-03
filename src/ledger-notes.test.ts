@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "./api";
-import { editedText, mountNotes, type NotesActions } from "./ledger-notes";
+import { editedText, mountNotes, retitle, type NotesActions } from "./ledger-notes";
 
 const NOW = new Date(2026, 10, 3, 15, 0).getTime();
 const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
@@ -79,6 +79,36 @@ describe("the notes list", () => {
     root.querySelector<HTMLButtonElement>(".notes-new")!.click();
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).not.toBeNull());
     expect(act.create).toHaveBeenCalled();
+  });
+});
+
+describe("renaming a note", () => {
+  it("changes its first line with text, keeping its #s", () => {
+    expect(retitle("# Essay plan\nintro", "Essay")).toBe("# Essay\nintro");
+    expect(retitle("Shopping\nmilk", "Groceries")).toBe("Groceries\nmilk");
+    expect(retitle("\n\nlater\nx", "Now")).toBe("\n\nNow\nx");
+    expect(retitle("", "New")).toBe("New");
+    expect(retitle("##   Deep", "Deeper")).toBe("##   Deeper");
+  });
+
+  it("renames from the list's bubble", async () => {
+    const view = mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
+    root.querySelector<HTMLButtonElement>('[data-note="b"] .rename-bubble')!.click();
+    const field = root.querySelector<HTMLInputElement>('[data-note="b"] .note-rename')!;
+    expect(field.value).toBe("Shopping");
+    field.value = "Groceries";
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(act.save).toHaveBeenCalledWith("b", "Groceries"));
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Groceries"]));
+    // An open note's editor shows the new name too.
+    await view.open("a");
+    root.querySelector<HTMLButtonElement>('[data-note="a"] .rename-bubble')!.click();
+    const open = root.querySelector<HTMLInputElement>('[data-note="a"] .note-rename')!;
+    open.value = "Outline";
+    open.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")!.value).toBe("# Outline\nintro"));
   });
 });
 
