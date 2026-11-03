@@ -79,7 +79,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   const create = h("button", { class: "btn notes-new" }, "+ New note");
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
-  const shell = h("div", { class: "notes" }, h("aside", { class: "notes-side" }, search, create, list), pane);
+  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, create, list), pane);
   root.replaceChildren(shell);
 
   let notes: Note[] = [];

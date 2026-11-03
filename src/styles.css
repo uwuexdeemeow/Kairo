@@ -1135,7 +1135,7 @@ html.palette-root {
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 7px;
+  border-radius: 8px;
   color: var(--muted);
 }
 
@@ -2550,12 +2550,13 @@ select,
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--raised);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  box-shadow: 0 8px 24px var(--shadow);
 }
 
 .dropdown-option {
+  position: relative;
   padding: 6px 28px 6px 10px;
-  border-radius: 5px;
+  border-radius: 4px;
   white-space: nowrap;
   color: var(--ink);
 }
@@ -2564,12 +2565,19 @@ select,
   background: var(--line);
 }
 
-/* The current choice carries a check, as the system's lists do. */
-.dropdown-option[aria-selected="true"] {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233987e5' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 14px;
+/* The current choice carries a check, as the system's lists do, in the window's own ink: the
+   shape is a mask, so its colour comes from --app. */
+.dropdown-option[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--app);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .dropdown-option[aria-disabled="true"] {
@@ -3203,7 +3211,7 @@ select,
   font-size: 12px;
 }
 
-.ledger-group > h3 {
+.ledger-group > h2 {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3215,7 +3223,7 @@ select,
   text-transform: uppercase;
 }
 
-.ledger-group.overdue > h3 {
+.ledger-group.overdue > h2 {
   color: var(--distracting-ink);
 }
 
@@ -3307,7 +3315,7 @@ select,
   width: 30px;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: none;
   color: var(--ledger);
   font-size: 11px;
@@ -3394,7 +3402,7 @@ select,
   width: 30px;
   height: 30px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: none;
   color: var(--muted);
   font-size: 16px;
@@ -4020,7 +4028,7 @@ select,
   text-align: center;
 }
 
-.ledger-group > h3 {
+.ledger-group > h2 {
   font-family: var(--sans);
   letter-spacing: 0.14em;
 }

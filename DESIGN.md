@@ -42,6 +42,11 @@ typography:
     fontWeight: 800
     lineHeight: 1.08
     letterSpacing: "-0.02em"
+  hero:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "84px"
+    fontWeight: 800
+    lineHeight: 1
   figure:
     fontFamily: "Fraunces Variable, Georgia, serif"
     fontSize: "64px"
@@ -49,26 +54,65 @@ typography:
     lineHeight: 1
     letterSpacing: "-0.03em"
     fontFeature: "tnum"
+  figure-hours:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "48px"
+    fontWeight: 800
+    lineHeight: 1
+  headline:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "22px"
+    fontWeight: 800
+  title:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "16px"
+    fontWeight: 800
+  total:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "40px"
+    fontWeight: 300
+  data-lg:
+    fontFamily: "Geist Mono Variable, ui-monospace, monospace"
+    fontSize: "30px"
+  data:
+    fontFamily: "Geist Mono Variable, ui-monospace, monospace"
+    fontSize: "18px"
+  input:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "17px"
   body:
     fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
+  small:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "13px"
+    fontWeight: 400
   label:
     fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
     fontSize: "11px"
     fontWeight: 600
     letterSpacing: "0.12em"
+  caption:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "10px"
+    fontWeight: 600
+    letterSpacing: "0.14em"
   mono:
     fontFamily: "Geist Mono Variable, ui-monospace, monospace"
     fontSize: "12px"
     fontWeight: 400
 rounded:
+  hair: "2px"
+  hair-2: "3px"
   xs: "4px"
   sm: "6px"
   md: "8px"
   lg: "10px"
   xl: "12px"
+  panel: "14px"
+  object: "16px"
   pill: "999px"
 spacing:
   xs: "6px"
@@ -166,10 +210,18 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 **Character:** a soft, bookish serif with real weight for the few things that deserve it, beside a plain modern sans that stays out of the way.
 
 ### Hierarchy
+- **Hero** (Fraunces 800, 84px): Today's total beside its dial.
+- **Figure** (Fraunces 800, 64px, tabular): the focus timer. With hours ("1:30:00") it steps down to **figure-hours** (48px) to stay inside its ring.
 - **Display** (Fraunces 800, 42px, 1.08): page titles and greetings; the aside in italic 400 in the app's ink ("Good evening, *nearly done.*").
-- **Figure** (Fraunces 800, 64px, tabular): the big numbers, like the focus timer and Today's total. With hours ("1:30:00") the timer steps down to 48px to stay inside its ring.
+- **Headline** (Fraunces 800, 22px): wordmarks and app names on the dashboard.
+- **Title** (Fraunces 800, 16px): the lit name on the ring, panel titles.
+- **Data** (Geist Mono, 30px and 18px): an insight's metric; stat values.
+- **Total** (Instrument Sans 300, 40px): an answer's total in the palette.
+- **Input** (Instrument Sans, 17px): the palette's search box.
 - **Body** (Instrument Sans 400, 14px, 1.5): everything read and pressed.
-- **Label** (Instrument Sans 600, 10 to 11px, 0.12 to 0.14em, uppercase): section labels and field names, in faint.
+- **Small** (Instrument Sans 400, 13px): palette notes, chips, the bubble.
+- **Label** (Instrument Sans 600, 11px, 0.12em, uppercase): section labels, in faint.
+- **Caption** (Instrument Sans 600, 10px, 0.14em, uppercase): group headings and field names in panels; chart labels.
 - **Mono** (Geist Mono, 11 to 12px): keys, durations, tabular data, the note editor.
 
 ### Named Rules
@@ -194,7 +246,7 @@ Mostly flat: depth comes from the ground and sheet tones and from a hairline rul
 
 ## Shapes
 
-Gently rounded: 10px for sheets, fields and buttons, 6 to 8px for small targets like calendar days and options, a full pill for chips, the palette's bubble and the "← Kairo" link. Lines are hairlines (1px). Objects are drawn with round caps and joins.
+Gently rounded: 10px for sheets, fields and buttons, 6 to 8px for small targets like calendar days and options, a full pill for chips, the palette's bubble and the "← Kairo" link, a hair (2 to 3px) for bars and timeline segments, 14px for the palette's floating panel, and 16px for the keycap the dashboard draws. Lines are hairlines (1px). Objects are drawn with round caps and joins.
 
 ## Components
 

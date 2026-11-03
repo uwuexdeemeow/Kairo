@@ -175,7 +175,7 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
   }
   for (const [group, name] of GROUPS) {
     const these = tasks.filter((t) => t.group === group);
-    if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h3", {}, name), ...these.map((t) => row(t, session, act))));
+    if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h2", {}, name), ...these.map((t) => row(t, session, act))));
   }
   const done = tasks.filter((t) => t.group === "done");
   if (done.length) {

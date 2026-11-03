@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-03T17:32:36Z",
+  "generatedAt": "2026-11-03T17:43:53Z",
   "title": "Design System: Kairo",
   "extensions": {
     "colorMeta": {
@@ -53,6 +53,46 @@
       "mono": {
         "displayName": "Mono",
         "purpose": "Keys, durations, tabular data, the note editor."
+      },
+      "hero": {
+        "displayName": "Hero",
+        "purpose": "Today's total beside its dial."
+      },
+      "figure-hours": {
+        "displayName": "Figure, with hours",
+        "purpose": "The focus timer at an hour or more, to stay inside its ring."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Wordmarks and app names on the dashboard."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The lit name on the ring, panel titles."
+      },
+      "total": {
+        "displayName": "Total",
+        "purpose": "An answer's total in the palette."
+      },
+      "data-lg": {
+        "displayName": "Data, large",
+        "purpose": "An insight's metric."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Stat values."
+      },
+      "input": {
+        "displayName": "Input",
+        "purpose": "The palette's search box."
+      },
+      "small": {
+        "displayName": "Small",
+        "purpose": "Palette notes, chips, the bubble."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Group headings and field names in panels; chart labels."
       }
     },
     "shadows": [

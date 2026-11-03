@@ -39,7 +39,7 @@ beforeEach(() => {
   };
 });
 
-const headings = () => [...root.querySelectorAll(".ledger-group > h3")].map((e) => e.textContent);
+const headings = () => [...root.querySelectorAll(".ledger-group > h2")].map((e) => e.textContent);
 const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 
 describe("the task list", () => {
