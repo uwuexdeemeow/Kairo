@@ -729,17 +729,32 @@ h2 {
 
 /* ---------- buttons ---------- */
 
+/* Buttons: a soft raised surface with a faint top light, lifting a pixel under the pointer. */
 .btn {
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 16px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--ink);
+  background: var(--raised);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent), 0 1px 2px var(--shadow);
+  font-weight: 500;
+  transition: transform 140ms var(--ease), border-color 140ms var(--ease), background 140ms var(--ease);
 }
 
 .btn:hover:not(:disabled) {
-  border-color: var(--neutral);
-  background: var(--raised);
+  border-color: color-mix(in srgb, var(--app) 45%, var(--line));
+  background: color-mix(in srgb, var(--raised) 85%, var(--ink));
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: none;
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app) 30%, transparent);
 }
 
 .btn.primary {
@@ -2649,15 +2664,27 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   margin-bottom: 16px;
 }
 
+/* Fields: filled, rounded, and ringed in the app's ink while typed in. */
 .filter {
   width: 280px;
   max-width: 100%;
+  min-height: 38px;
   font: inherit;
   color: var(--ink);
   background: var(--raised);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 10px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  box-shadow: inset 0 1px 2px color-mix(in srgb, #000 12%, transparent);
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+
+.filter::placeholder {
+  color: var(--faint);
+}
+
+.filter:hover {
+  border-color: color-mix(in srgb, var(--app) 30%, var(--line));
 }
 
 .filter::placeholder {
@@ -2665,8 +2692,30 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 .filter:focus-visible {
-  outline: 2px solid var(--app);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--app);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--app) 25%, transparent);
+}
+
+/* Back to Kairo's dashboard, at the top of an app's sidebar. */
+.back-to-kairo {
+  align-self: flex-start;
+  margin: 0 0 6px 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 500 12px var(--sans);
+  cursor: pointer;
+  transition: color 140ms var(--ease), border-color 140ms var(--ease);
+}
+
+.back-to-kairo:hover,
+.back-to-kairo:focus-visible {
+  color: var(--ink);
+  border-color: var(--kairo);
+  outline: none;
 }
 
 .ext-status {
@@ -3065,29 +3114,65 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 /* ---------- Ledger ---------- */
 
+/* The Tasks view: the list of cards at full width; a task's panel slides over it from the right. */
 .ledger-tasks {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
-  align-items: start;
+  position: relative;
 }
 
+.ledger-summary {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.ledger-list {
+  container-type: inline-size;
+  max-width: 880px;
+}
+
+/* Add a task: a raised field with a + and the Enter it takes. */
 .ledger-list .task-add {
   width: 100%;
+  min-height: 46px;
+  padding-left: 44px;
+  background-image: radial-gradient(circle at 23px 50%, var(--ledger) 0 11px, transparent 11.5px);
+  font-size: 14px;
+}
+
+.ledger-list .task-add::placeholder {
+  color: var(--muted);
+}
+
+.ledger-list:has(.task-add) {
+  position: relative;
+}
+
+.ledger-list::before {
+  content: "+";
+  position: absolute;
+  top: 12px;
+  left: 18px;
+  width: 11px;
+  font: 700 15px/22px var(--sans);
+  color: var(--bg);
+  text-align: center;
+  pointer-events: none;
 }
 
 .task-preview {
   min-height: 1.4em;
-  margin: 4px 0 12px;
+  margin: 6px 4px 16px;
   font-size: 12px;
 }
 
 .ledger-group > h3 {
-  margin: 16px 0 4px;
-  color: var(--muted);
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 0 8px;
+  color: var(--faint);
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -3095,57 +3180,203 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   color: var(--distracting);
 }
 
-/* Tick, dot, title, day, bell, time, Start; a row without a dot keeps its title in line. */
-/* Every row on the same columns, each detail in its own whether a row has it or not:
-   tick, dot, title, day, bell, note, time, Start. */
-.ledger-list .task-row {
-  grid-template-columns: 16px 8px minmax(0, 1fr) 76px 16px 16px 56px 112px;
+/* A task: tick, dot, title, its chips, then ▶; each its own small card. */
+.task-card {
+  display: grid;
+  grid-template-columns: 18px 8px minmax(40%, 1fr) auto 30px;
+  align-items: center;
   column-gap: 10px;
+  margin-bottom: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule);
+  border-top: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
 }
 
-.ledger-list .task-row > input {
+.task-card:hover,
+.task-card:focus-within {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--raised) 90%, var(--ink));
+}
+
+.task-card > input[type="checkbox"] {
   grid-column: 1;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
 }
 
-.ledger-list .prio-dot {
+.task-card > input[type="checkbox"]:hover {
+  border-color: var(--ledger);
+}
+
+.task-card > input[type="checkbox"]:checked {
+  border-color: var(--ledger);
+  background: radial-gradient(circle, var(--ledger) 0 4px, transparent 4.5px);
+}
+
+.task-card .prio-dot {
   grid-column: 2;
 }
 
-.ledger-list .task-title {
+.task-main {
   grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
-.ledger-list .task-day {
+.task-main .task-title {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.task-chips {
   grid-column: 4;
-  text-align: right;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
-.ledger-list .task-bell {
+.chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line) 45%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.chip.late {
+  background: color-mix(in srgb, var(--distracting) 16%, transparent);
+  color: var(--distracting);
+}
+
+/* Start focus: a small ▶ that shows under the pointer or the keyboard. */
+.task-start {
   grid-column: 5;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: none;
+  color: var(--ledger);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms var(--ease), background 140ms var(--ease);
 }
 
-.ledger-list .task-note {
-  grid-column: 6;
+.task-card:hover .task-start,
+.task-card:focus-within .task-start,
+.task-start:focus-visible {
+  opacity: 1;
 }
 
-.ledger-list .task-time {
-  grid-column: 7;
-  text-align: right;
+.task-start:hover {
+  background: color-mix(in srgb, var(--ledger) 15%, transparent);
 }
 
-.ledger-list .task-start,
-.ledger-list .task-now {
-  grid-column: 8;
+.task-now {
+  grid-column: 4 / -1;
   justify-self: end;
 }
 
-/* Rows in one cell each, so every detail lands on its line. */
-.ledger-list .task-row > * {
-  grid-row: 1;
+.task-card .rename-bubble {
+  flex: none;
 }
 
-.ledger-list .task-title {
+/* Narrower: chips shrink to their marks. */
+@container (max-width: 560px) {
+  .task-time {
+    display: none;
+  }
+}
+
+/* Narrow: the chips go under the title. */
+@container (max-width: 420px) {
+  .task-card {
+    grid-template-columns: 18px 8px minmax(0, 1fr) 30px;
+  }
+  .task-chips {
+    grid-column: 3 / 4;
+    grid-row: 2;
+    justify-content: flex-start;
+    margin-top: 4px;
+  }
+  .task-start {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
+
+/* The task's panel, over the list from the right. */
+.ledger-tasks .ledger-detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  width: min(320px, 90%);
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  box-shadow: -18px 0 40px -24px var(--shadow), 0 18px 40px -20px var(--shadow);
+  animation: slide-in 180ms var(--ease) both;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-head .detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.detail-close {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
   cursor: pointer;
+}
+
+.detail-close:hover {
+  color: var(--ink);
+}
+
+.nav-count {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-tasks .ledger-detail {
+    animation: none;
+  }
 }
 
 .prio-dot {
@@ -3171,23 +3402,95 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .ledger-detail {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 280px;
-  padding: 16px;
+  gap: 14px;
+  width: 300px;
+  min-width: 0;
+  padding: 18px;
   border: 1px solid var(--rule);
-  border-radius: 10px;
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: 0 10px 24px -18px var(--shadow);
 }
 
+/* Each field under its label, as wide as the panel, with its clear button beside it: nothing
+   reaches past the panel's edge, whatever the system draws a date field as. */
 .detail-field {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
 }
 
 .detail-field > span:first-child {
-  min-width: 72px;
+  grid-column: 1 / -1;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.detail-note .open-note {
+  justify-self: start;
+}
+
+.detail-field > input,
+.detail-field > .range,
+.detail-field > .note-pick {
+  width: 100%;
+  min-width: 0;
+}
+
+/* The bubble that renames a task or note where it is listed, shown under the pointer. */
+.rename-bubble {
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--raised);
   color: var(--muted);
-  font-size: 12px;
+  font: 500 11px var(--sans);
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 140ms var(--ease), transform 140ms var(--ease);
+}
+
+.task-row:hover .rename-bubble,
+.task-row:focus-within .rename-bubble,
+.note-row:hover .rename-bubble,
+.note-row:focus-within .rename-bubble {
+  opacity: 1;
+  transform: none;
+}
+
+.rename-bubble:hover {
+  border-color: var(--app);
+  color: var(--app);
+}
+
+.note-row {
+  position: relative;
+}
+
+.note-row .rename-bubble {
+  position: absolute;
+  top: 8px;
+  right: 22px;
+}
+
+.task-rename,
+.note-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 8px;
+  font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rename-bubble {
+    transition: none;
+  }
 }
 
 .detail-delete {
@@ -3205,10 +3508,15 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 /* ---------- Ledger's notes ---------- */
 
+/* Two panes: the notes as cards on the left, the open one on a sheet on the right. */
+#view-notes {
+  container-type: inline-size;
+}
+
 .notes {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
   align-items: start;
 }
 
@@ -3218,61 +3526,154 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   gap: 8px;
 }
 
+.notes-side .notes-search {
+  width: 100%;
+}
+
 .notes-new {
-  align-self: flex-start;
+  align-self: stretch;
 }
 
 .notes-list {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .note-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
   color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: border-color 140ms var(--ease), background 140ms var(--ease);
 }
 
-.note-row:hover,
+.note-row:hover {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--raised) 90%, var(--ink));
+}
+
 .note-row.open {
-  background: var(--raised);
+  border-color: var(--ledger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ledger) 14%, transparent);
 }
 
 .note-row-title {
   overflow: hidden;
+  padding-right: 64px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.note-row.pinned .note-row-title::before {
-  content: "📌 ";
+.note-row-preview {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .note-row-meta {
-  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+/* The open note: one sheet with its tools on top and how it stands underneath. */
+.note-sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+  box-shadow: 0 10px 24px -18px var(--shadow);
 }
 
 .note-top {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 24px;
-  margin-bottom: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
   font-size: 12px;
+}
+
+.note-top .link-btn {
+  min-height: 28px;
 }
 
 .note-top-buttons {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+}
+
+.note-tools {
+  display: flex;
+  gap: 4px;
+  padding-right: 6px;
+  border-right: 1px solid var(--rule);
+}
+
+.note-tool {
+  min-width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: 600 12px var(--sans);
+  cursor: pointer;
+}
+
+.note-tool[data-tool="italic"] {
+  font-style: italic;
+}
+
+.note-tool:hover {
+  border-color: var(--ledger);
+  color: var(--ledger);
+}
+
+.note-foot {
+  display: flex;
+  gap: 14px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--rule);
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/* ← Notes shows only where the list and the note take turns. */
+.note-back {
+  display: none;
+}
+
+@container (max-width: 760px) {
+  .notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .notes.reading .notes-side,
+  .notes:not(.reading) .note-pane {
+    display: none;
+  }
+  .note-back {
+    display: inline-flex;
+  }
 }
 
 .note-confirm {
@@ -3459,23 +3860,14 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 
 /* ---------- Ledger as a notebook ---------- */
 
-/* Ruled paper with a margin rule, for the task list and the open note. */
-.ledger-list,
+/* Ruled paper with a margin rule, for the open note, inside its sheet. */
 .note-pane .note-editor {
   background-color: var(--raised);
   background-image: linear-gradient(90deg, transparent 38px, color-mix(in srgb, var(--ledger) 25%, transparent) 38px 39px, transparent 39px);
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  box-shadow: 0 1px 0 var(--rule), 0 10px 24px -18px var(--shadow);
+  border: 0;
+  border-radius: 0;
 }
 
-.ledger-list {
-  padding: 14px 18px 18px 52px;
-}
-
-.ledger-list .task-row {
-  border-top-color: color-mix(in srgb, var(--line) 70%, transparent);
-}
 
 /* A ticked task gets an ink stroke drawn through its title before it moves to Done. */
 .task-row .task-title {
@@ -3513,19 +3905,17 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 .task-row.ribbon::before {
   content: "";
   position: absolute;
-  left: -30px;
-  top: 6px;
+  right: 52px;
+  top: -1px;
   width: 8px;
-  height: 22px;
+  height: 18px;
   background: var(--distracting);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
 }
 
-/* The notes list as page edges; a pinned note wears the gold ribbon. */
+/* A pinned note wears the gold ribbon. */
 .note-row {
   position: relative;
-  border-bottom: 1px solid var(--rule);
-  border-radius: 0;
 }
 
 .note-row.pinned .note-row-title::before {

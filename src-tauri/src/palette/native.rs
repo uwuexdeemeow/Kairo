@@ -64,6 +64,8 @@ static WINDOW: AtomicIsize = AtomicIsize::new(0);
 const WM_TOGGLE: u32 = WM_APP + 1;
 /// Files were found; they wait in `FILES` for the palette's thread.
 const WM_FILES: u32 = WM_APP + 2;
+/// Sent to itself as it opens: what it shows is gathered afresh once it's up.
+const WM_RELOAD: u32 = WM_APP + 3;
 /// The latest files found and the number of the results they're for, handed from the file
 /// search's thread to the palette's, which takes them when `WM_FILES` arrives.
 static FILES: Mutex<Option<(u64, Vec<Item>)>> = Mutex::new(None);
@@ -534,6 +536,15 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             }
             LRESULT(0)
         }
+        WM_RELOAD => {
+            with(|p| {
+                if IsWindowVisible(p.hwnd).as_bool() {
+                    p.load();
+                    p.refresh();
+                }
+            });
+            LRESULT(0)
+        }
         WM_FILES => {
             with(|p| {
                 if let Some((seq, items)) = FILES.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -683,7 +694,12 @@ impl Palette {
     // ---------- opening and closing ----------
 
     fn show(&mut self) {
-        self.load();
+        // The first time there's nothing to show yet; after that it opens at once with what it
+        // gathered last time, and gathers afresh straight after (WM_RELOAD).
+        let shown_before = self.ctx.is_some();
+        if !shown_before {
+            self.load();
+        }
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.set_theme(theme_for(&mode));
         set_edit_text(self.edit, "");
@@ -720,6 +736,9 @@ impl Palette {
             }
             let _ = SetFocus(Some(self.edit));
             let _ = InvalidateRect(Some(self.hwnd), None, false);
+            if shown_before {
+                let _ = PostMessageW(Some(self.hwnd), WM_RELOAD, WPARAM(0), LPARAM(0));
+            }
         }
     }
 

@@ -3,7 +3,7 @@ import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
 import { mountNotes, type NotesView } from "./ledger-notes";
-import { renderDetail, renderTaskList, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
+import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { $, followTheme } from "./ui";
 
@@ -22,6 +22,9 @@ function sessionMinutes(): number {
 let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
+/// The view showing: the summary line is the Tasks view's.
+let shown: "tasks" | "notes" | "settings" = "tasks";
+
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
 
@@ -33,13 +36,20 @@ function draw(list?: Task[]) {
   // Typing in the panel isn't undone by a redraw from elsewhere.
   if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames);
   panel.hidden = !t;
+  // The panel slides over the list, which keeps its width.
+  $("#view-tasks").classList.toggle("detail-open", !!t);
   if (!t) selected = null;
+  $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null).length || "");
+  if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(tasks);
 }
 
 async function refresh() {
   const [list, running, notes] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null)]);
   session = running ? { task: running.task } : null;
-  if (notes) noteNames = notes.map((n) => ({ id: n.id, title: n.title }));
+  if (notes) {
+    noteNames = notes.map((n) => ({ id: n.id, title: n.title }));
+    $("#count-notes").textContent = String(notes.length || "");
+  }
   draw(list);
 }
 
@@ -131,11 +141,13 @@ async function followOpen() {
 type View = "tasks" | "notes" | "settings";
 
 function show(view: View) {
+  shown = view;
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.setAttribute("aria-selected", String(b.dataset.view === view));
   $("#view-tasks").hidden = view !== "tasks";
   $("#view-notes").hidden = view !== "notes";
   $("#view-settings").hidden = view !== "settings";
   $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", settings: "Settings" }[view];
+  $("#ledger-summary").textContent = view === "tasks" ? taskSummary(tasks) : "";
   // A note typed in is kept before another view takes the window.
   if (view !== "notes") void notesView?.flush();
   if (view === "notes") void notes().refresh();
@@ -161,6 +173,8 @@ async function saveSettings() {
 
 followTheme();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
+// Kairo is one window: this goes back to its dashboard.
+$("#back-to-kairo").addEventListener("click", () => api.openDashboard());
 $("#ledger-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.addEventListener("click", () => show(b.dataset.view as View));
 $("#ledger-reminders").addEventListener("change", saveSettings);

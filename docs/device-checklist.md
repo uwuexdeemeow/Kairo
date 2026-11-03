@@ -182,6 +182,29 @@ On Windows and a Mac, in light and dark (Kairo's settings → Appearance).
 7. **Reduced motion.** Turn on the system's reduce-motion setting. *Expect:* no settling, lifting,
    ink stroke or pulse; everything still works.
 
+## One window
+
+On Windows and a Mac.
+
+1. **Switching.** Open the dashboard, then Chrono from its dial. *Expect:* the same window shows
+   Chrono (no second window), titled "Chrono"; ← Kairo at the top of its sidebar goes back to the
+   dashboard. The same with Ledger.
+2. **From elsewhere.** With the dashboard open, open Ledger from the palette, then Chrono from the
+   ring, then a reminder's task. *Expect:* always the one window, on the right screen.
+3. **Size.** Resize the window on Ledger, go back to the dashboard and to Chrono, quit and reopen.
+   *Expect:* the same size and place throughout.
+4. **Typing kept.** Start typing a note, press ← Kairo within a second, come back. *Expect:* the
+   note has what you typed.
+5. **Tasks.** *Expect:* cards with chips (due day, 🔔 time, 📝, focus time); ▶ shows under the
+   pointer and starts focus; Rename shows on hover; the panel slides over the list and its × or
+   Esc closes it. Make the window narrow. *Expect:* chips shrink, then move under the title;
+   nothing overlaps or cuts a title to nothing.
+6. **Notes.** *Expect:* cards with a preview; the open note on a sheet with B, I and ☐ (each acts on
+   the text), Pin, Delete, and "Saving…" then "Saved" underneath. Narrow the window. *Expect:*
+   the list, then the note with ← Notes.
+7. **Add a task.** Type something without pressing Enter and wait 20 seconds. *Expect:* it's still
+   there.
+
 ## Ring
 
 On Windows and a Mac (⌥ for Alt).

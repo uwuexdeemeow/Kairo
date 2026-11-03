@@ -39,7 +39,7 @@ const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
 /// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
 /// here so each key press needn't ask the database.
 static OVER_FULLSCREEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// The installed apps are read again after this long, so new installs show up.
+/// The installed apps are listed again this often, in the background, so new installs show up.
 const INDEX_FOR_MS: i64 = 5 * 60_000;
 /// Usage counts toward an app's rank over this window.
 const USAGE_WINDOW_MS: i64 = 30 * 24 * 60 * 60_000;
@@ -56,15 +56,39 @@ pub struct AppEntry {
     used_ms: i64,
 }
 
-/// The installed apps, kept a few minutes between reads.
+/// The installed apps (name, what opens it), listed in the background and kept: asking Windows'
+/// shell for them takes a noticeable moment, which the palette mustn't wait on as it opens.
 #[derive(Default)]
-pub struct Index(Mutex<Option<(i64, Vec<AppEntry>)>>);
+pub struct Index(Mutex<Option<Vec<(String, String)>>>);
 
 impl Index {
     /// Whether `path` is one of the apps last listed.
     pub fn knows(&self, path: &str) -> bool {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|(_, apps)| apps.iter().any(|a| a.path == path))
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_some_and(|apps| apps.iter().any(|(_, p)| p == path))
     }
+
+    /// The apps as last listed, however long ago; `list`ed only when there are none yet.
+    pub fn get_or_list(&self, list: impl FnOnce() -> Vec<(String, String)>) -> Vec<(String, String)> {
+        let mut kept = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        kept.get_or_insert_with(list).clone()
+    }
+
+    pub fn replace(&self, apps: Vec<(String, String)>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(apps);
+    }
+}
+
+/// Lists the installed apps now and then every few minutes, on a thread of its own, so new
+/// installs show up and opening the palette never waits for the list.
+pub fn keep_index_fresh(app: &AppHandle) {
+    let app = app.clone();
+    let _ = std::thread::Builder::new().name("kairo-apps".into()).spawn(move || loop {
+        let apps = installed_apps();
+        if let Some(index) = tauri::Manager::try_state::<Index>(&app) {
+            index.replace(apps);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(INDEX_FOR_MS as u64));
+    });
 }
 
 /// Prints what the palette would list as open windows: id, process, title and program, a line
@@ -192,14 +216,9 @@ fn usage(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> {
 
 /// The apps the palette can open, most used first.
 pub fn apps(conn: &Connection, index: &Index, now: i64) -> Result<Vec<AppEntry>> {
-    let mut cached = index.0.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((at, apps)) = cached.as_ref() {
-        if now - at < INDEX_FOR_MS {
-            return Ok(apps.clone());
-        }
-    }
     let used = usage(conn, now)?;
-    let mut apps: Vec<AppEntry> = installed_apps()
+    let mut apps: Vec<AppEntry> = index
+        .get_or_list(installed_apps)
         .into_iter()
         .map(|(name, path)| {
             let used_ms = used.get(&name.to_lowercase()).copied().unwrap_or(0);
@@ -207,7 +226,6 @@ pub fn apps(conn: &Connection, index: &Index, now: i64) -> Result<Vec<AppEntry>>
         })
         .collect();
     apps.sort_by(|a, b| b.used_ms.cmp(&a.used_ms).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-    *cached = Some((now, apps.clone()));
     Ok(apps)
 }
 
@@ -966,6 +984,19 @@ mod tests {
         assert!(shortcut_may_open());
         set_over_fullscreen(&conn, false).unwrap();
         assert!(!over_fullscreen(&conn).unwrap());
+    }
+
+    #[test]
+    fn the_app_list_is_kept_however_old_and_replaced_in_the_background() {
+        let index = Index::default();
+        let app = |name: &str| (name.to_string(), format!("C:/{name}.lnk"));
+        assert_eq!(index.get_or_list(|| vec![app("Code")]), vec![app("Code")]);
+        // Opening the palette never lists the apps again once it has them.
+        assert_eq!(index.get_or_list(|| panic!("listed again")), vec![app("Code")]);
+        index.replace(vec![app("Code"), app("Figma")]);
+        assert_eq!(index.get_or_list(|| panic!("listed again")).len(), 2);
+        assert!(index.knows("C:/Figma.lnk"));
+        assert!(!index.knows("C:/Other.lnk"));
     }
 
     #[test]

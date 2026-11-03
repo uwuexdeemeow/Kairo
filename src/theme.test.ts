@@ -51,6 +51,16 @@ describe("each window says whose it is", () => {
   });
 });
 
+describe("the way back", () => {
+  it.each([
+    ["index.html", "src/main.ts"],
+    ["ledger.html", "src/ledger.ts"],
+  ])("%s has a button back to the dashboard", (page, script) => {
+    expect(read(page)).toMatch(/<button[^>]*id="back-to-kairo"[^>]*>← Kairo<\/button>/);
+    expect(read(script)).toMatch(/#back-to-kairo"\)\.addEventListener\("click", \(\) => api\.openDashboard\(\)\)/);
+  });
+});
+
 describe("the two papers", () => {
   const dark = { bg: "#141a24", raised: "#1b2230", ink: "#e3e7ee", rule: "#232c3d", line: "#33405a", chrono: "#7fc4e8", ledger: "#e8a86a", palette: "#b9a2e6", kairo: "#a7b0bf" };
   const light = { bg: "#f4efe6", raised: "#fffaf2", ink: "#2b2622", rule: "#e3d9c9", line: "#d3c7b3", chrono: "#2f6f8f", ledger: "#a35a1f", palette: "#6a4c93", kairo: "#7a6f63" };
