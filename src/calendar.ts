@@ -55,6 +55,14 @@ export const shiftMonthKeepDay = (iso: string, months: number) => {
 };
 export const weekdayIndex = (iso: string) => (parseDate(iso).getDay() + 6) % 7;
 
+/// The top of the nearest box around `el` that clips what spills out of it; 0 for the window.
+function clipTop(el: HTMLElement): number {
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    if (/(auto|scroll|hidden)/.test(getComputedStyle(p).overflowY)) return p.getBoundingClientRect().top;
+  }
+  return 0;
+}
+
 export function calendar(opts: CalendarOptions): { toggle(): void; close(): void } {
   const pop = h("div", { class: "calendar", role: "dialog", "aria-label": opts.label });
   pop.hidden = true;
@@ -143,8 +151,22 @@ export function calendar(opts: CalendarOptions): { toggle(): void; close(): void
 
   function open() {
     pop.hidden = false;
+    pop.classList.remove("up");
     document.addEventListener("pointerdown", onOutside, true);
     go(opts.selected() ?? todayIso());
+    fit();
+  }
+
+  /// Opens upward when the window has no room below for the whole month but has it above (a short
+  /// window, a field low in a panel); with room on neither side, it scrolls into view.
+  function fit() {
+    const edge = 8;
+    const box = pop.getBoundingClientRect();
+    if (box.bottom <= window.innerHeight - edge) return;
+    // Room above runs to the window's top, or to the top of a panel that scrolls (and so clips).
+    const above = opts.anchor.getBoundingClientRect().top - Math.max(edge, clipTop(opts.anchor) + edge);
+    if (box.height + 6 <= above) pop.classList.add("up");
+    else pop.scrollIntoView?.({ block: "nearest" });
   }
 
   function close(refocus = true) {

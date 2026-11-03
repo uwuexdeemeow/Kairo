@@ -174,3 +174,19 @@ describe("shownControl", () => {
     expect(shownControl(document.createElement("select"))).toBeInstanceOf(HTMLSelectElement);
   });
 });
+
+describe("screen readers", () => {
+  it("hear a combobox whose open list is named and points at the option the arrows are on", () => {
+    expect(button.getAttribute("role")).toBe("combobox");
+    press("Enter");
+    const shown = list()!;
+    expect(shown.getAttribute("aria-label")).toBe("Whose time");
+    expect(button.getAttribute("aria-controls")).toBe(shown.id);
+    expect(button.getAttribute("aria-activedescendant")).toBe(shown.children[0].id);
+    press("ArrowDown");
+    expect(button.getAttribute("aria-activedescendant")).toBe(shown.children[1].id);
+    press("Escape");
+    expect(button.hasAttribute("aria-activedescendant")).toBe(false);
+    expect(button.hasAttribute("aria-controls")).toBe(false);
+  });
+});

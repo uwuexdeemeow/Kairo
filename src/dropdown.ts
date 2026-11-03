@@ -19,6 +19,16 @@ const enhanced = new WeakMap<HTMLSelectElement, Parts>();
 let open: { select: HTMLSelectElement; list: HTMLElement; active: number } | null = null;
 let typed = "";
 let typedAt = 0;
+/// Numbers each list, so its id and its options' ids are unique on the page.
+let lists = 0;
+
+/// What the select is called: its own label attribute, the <label> around or for it, or its title.
+function nameOf(select: HTMLSelectElement): string {
+  const labelledBy = select.getAttribute("aria-labelledby");
+  const byId = labelledBy && document.getElementById(labelledBy)?.textContent?.trim();
+  const label = [...(select.labels ?? [])].map((l) => l.textContent?.trim()).find(Boolean);
+  return select.getAttribute("aria-label") || byId || label || select.title || "Choices";
+}
 
 /// The button shows every option's text stacked in one place, only the chosen one visible, so it
 /// keeps the width of the longest and doesn't jump when the choice changes.
@@ -63,6 +73,9 @@ function enhance(select: HTMLSelectElement) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "dropdown-button";
+  // A select-only combobox: its text is the choice, and while its list is open it points screen
+  // readers at the option the arrows are on.
+  button.setAttribute("role", "combobox");
   button.setAttribute("aria-haspopup", "listbox");
   button.setAttribute("aria-expanded", "false");
   const labels = document.createElement("span");
@@ -94,11 +107,14 @@ function show(select: HTMLSelectElement) {
   if (!parts || select.disabled || !select.options.length) return;
   const list = document.createElement("div");
   list.className = "dropdown-list";
+  list.id = `dropdown-list-${++lists}`;
   list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", nameOf(select));
   list.tabIndex = -1;
   document.body.append(list);
   open = { select, list, active: Math.max(select.selectedIndex, 0) };
   parts.button.setAttribute("aria-expanded", "true");
+  parts.button.setAttribute("aria-controls", list.id);
   renderList();
   place(parts.button, list);
   list.querySelector<HTMLElement>(".active")?.scrollIntoView({ block: "nearest" });
@@ -111,6 +127,7 @@ function renderList() {
     ...[...select.options].map((o, i) => {
       const item = document.createElement("div");
       item.className = `dropdown-option${i === open!.active ? " active" : ""}`;
+      item.id = `${list.id}-${i}`;
       item.setAttribute("role", "option");
       item.setAttribute("aria-selected", String(i === select.selectedIndex));
       if (o.disabled) item.setAttribute("aria-disabled", "true");
@@ -124,6 +141,7 @@ function renderList() {
       return item;
     }),
   );
+  enhanced.get(select)?.button.setAttribute("aria-activedescendant", `${list.id}-${open.active}`);
 }
 
 /// Under the button, or above it when there's more room there; never past the window's edges.
@@ -145,6 +163,7 @@ function setActive(i: number) {
   if (!open || i === open.active) return;
   open.active = i;
   open.list.querySelectorAll(".dropdown-option").forEach((el, j) => el.classList.toggle("active", j === i));
+  enhanced.get(open.select)?.button.setAttribute("aria-activedescendant", `${open.list.id}-${i}`);
   open.list.children[i]?.scrollIntoView({ block: "nearest" });
 }
 
@@ -166,6 +185,8 @@ function close(refocus: boolean) {
   list.remove();
   const button = enhanced.get(select)?.button;
   button?.setAttribute("aria-expanded", "false");
+  button?.removeAttribute("aria-controls");
+  button?.removeAttribute("aria-activedescendant");
   if (refocus) button?.focus();
 }
 

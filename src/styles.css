@@ -1756,6 +1756,12 @@ html.palette-root {
   box-shadow: 0 12px 32px var(--shadow);
 }
 
+/* Above its field, where the window has no room for it below. */
+.calendar.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 .cal-head {
   display: flex;
   align-items: center;

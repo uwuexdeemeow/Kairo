@@ -84,7 +84,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions): HTMLElement 
   });
   if (t.priority >= 1) {
     const name = PRIORITY[Math.min(t.priority, 2)];
-    el.append(h("span", { class: `prio-dot prio-${name.toLowerCase()}`, title: `${name} priority`, "aria-label": `${name} priority` }));
+    el.append(h("span", { class: `prio-dot prio-${name.toLowerCase()}`, role: "img", title: `${name} priority`, "aria-label": `${name} priority` }));
   }
   const title = h("button", { class: "task-title", title: "Details" }, t.title);
   title.addEventListener("click", () => act.select(t.id));
