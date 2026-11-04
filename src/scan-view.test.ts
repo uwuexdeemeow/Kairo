@@ -109,6 +109,16 @@ describe("the scan window", () => {
     expect(first().querySelector(".scan-upload")).toBeNull();
   });
 
+  it("tells screen readers only the result that changed", async () => {
+    const scan = await mountScan(root, act);
+    expect(root.querySelector(".scan-results")!.hasAttribute("aria-live")).toBe(false);
+    const said = () => root.querySelector(".sr-only[aria-live]")!.textContent;
+    scan.file("/x/setup.exe");
+    await vi.waitFor(() => expect(said()).toBe("setup.exe: 3 of 71 engines flag it"));
+    scan.check("https://example.com");
+    await vi.waitFor(() => expect(said()).toBe("example.com: 0 of 71 engines flag it"));
+  });
+
   it("keeps the last ten, newest first", async () => {
     const scan = await mountScan(root, act);
     for (let i = 0; i < 12; i++) scan.check(`https://site${i}.example`);

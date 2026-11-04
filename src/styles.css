@@ -37,6 +37,12 @@
   --distracting-ink: #e17a51;
   --good-ink: var(--good);
   --warm-ink: var(--warm);
+  /* Red and gold as text: a malicious verdict, a suspicious one. */
+  --rec-ink: #e96569;
+  --ribbon-ink: var(--ribbon);
+  /* The edge of something to press or type into: 3:1 on the page and on sheets, where --line,
+     for dividers and containers, stays quiet. */
+  --edge: #657086;
 
   /* Sequential blue for dark: near-zero recedes into the background, high values are light. */
   --seq-0: #184f95;
@@ -84,6 +90,9 @@
   --distracting-ink: #ac441b;
   --good-ink: #267a37;
   --warm-ink: #ae4f1e;
+  --rec-ink: #c03237;
+  --ribbon-ink: #7f6212;
+  --edge: #8d8274;
 
   /* Sequential blue for light: near-zero recedes into the paper, high values are deep. */
   --seq-0: #d9e6fa;
@@ -353,7 +362,7 @@ h2 {
 .focus-start button {
   flex: 1;
   min-height: 30px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   font-family: var(--mono);
   font-size: 12px;
@@ -740,7 +749,7 @@ h2 {
 .btn {
   min-height: 36px;
   padding: 0 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   color: var(--ink);
   background: var(--raised);
@@ -750,7 +759,7 @@ h2 {
 }
 
 .btn:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--app) 45%, var(--line));
+  border-color: color-mix(in srgb, var(--app) 45%, var(--edge));
   background: color-mix(in srgb, var(--raised) 85%, var(--ink));
   transform: translateY(-1px);
 }
@@ -1414,7 +1423,7 @@ html.palette-root {
 .timer-presets button {
   min-width: 52px;
   min-height: 36px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   font-family: var(--mono);
   font-size: 13px;
@@ -1695,7 +1704,7 @@ html.palette-root {
 .day-toggle {
   min-width: 34px;
   min-height: 30px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   font-family: var(--mono);
   font-size: 12px;
@@ -2078,7 +2087,7 @@ html.palette-root {
 .note-field textarea {
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 6px;
   background: var(--raised);
   color: var(--ink);
@@ -2507,7 +2516,7 @@ select,
   width: 100%;
   padding: 4px 2px;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--edge);
   color: var(--ink);
   text-align: left;
 }
@@ -2631,7 +2640,7 @@ select,
 
 .sync-code-text {
   font-family: var(--mono);
-  font-size: 28px;
+  font-size: 30px;
   font-weight: 600;
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
@@ -2724,7 +2733,7 @@ select,
   font: inherit;
   color: var(--ink);
   background: var(--raised);
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   padding: 8px 12px;
   box-shadow: inset 0 1px 2px color-mix(in srgb, #000 12%, transparent);
@@ -2736,7 +2745,7 @@ select,
 }
 
 .filter:hover {
-  border-color: color-mix(in srgb, var(--app) 30%, var(--line));
+  border-color: color-mix(in srgb, var(--app) 30%, var(--edge));
 }
 
 .filter::placeholder {
@@ -3221,6 +3230,7 @@ select,
   gap: 8px;
   margin: 18px 0 8px;
   color: var(--faint);
+  font-family: var(--sans);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -3258,7 +3268,7 @@ select,
   width: 18px;
   height: 18px;
   margin: 0;
-  border: 1.5px solid var(--line);
+  border: 1.5px solid var(--edge);
   border-radius: 50%;
   cursor: pointer;
 }
@@ -3318,7 +3328,7 @@ select,
   grid-column: 5;
   width: 30px;
   height: 30px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   background: none;
   color: var(--ledger);
@@ -3405,7 +3415,7 @@ select,
 .detail-close {
   width: 30px;
   height: 30px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   background: none;
   color: var(--muted);
@@ -3441,7 +3451,8 @@ select,
 }
 
 .prio-medium {
-  background: var(--ribbon);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ribbon);
 }
 
 .task-day,
@@ -3454,7 +3465,6 @@ select,
   display: flex;
   flex-direction: column;
   gap: 14px;
-  width: 300px;
   min-width: 0;
   padding: 18px;
   border: 1px solid var(--rule);
@@ -3517,7 +3527,7 @@ select,
 .remind-when .dropdown-button {
   min-height: 38px;
   padding: 0 10px 0 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 10px;
   background: var(--raised);
 }
@@ -3525,7 +3535,7 @@ select,
 /* The bubble that renames a task or note where it is listed, shown under the pointer. */
 .rename-bubble {
   padding: 2px 9px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 999px;
   background: var(--raised);
   color: var(--muted);
@@ -3550,10 +3560,6 @@ select,
   color: var(--app);
 }
 
-.note-row {
-  position: relative;
-}
-
 .note-row .rename-bubble {
   position: absolute;
   top: 8px;
@@ -3576,15 +3582,6 @@ select,
 
 .detail-delete {
   align-self: flex-start;
-}
-
-@media (max-width: 860px) {
-  .ledger-tasks {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .ledger-detail {
-    width: auto;
-  }
 }
 
 /* ---------- Ledger's notes ---------- */
@@ -3629,6 +3626,7 @@ select,
 }
 
 .note-row {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -3719,7 +3717,7 @@ select,
 .note-tool {
   min-width: 28px;
   height: 28px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 8px;
   background: none;
   color: var(--muted);
@@ -3985,7 +3983,8 @@ select,
   }
 }
 
-/* Overdue: a small red ribbon at the row's left edge, in the margin. */
+/* Overdue: a small red ribbon hanging from the card's top edge, beside its chips, as a pinned
+   note's gold one hangs from its row. */
 .task-row.ribbon {
   position: relative;
 }
@@ -4002,10 +4001,6 @@ select,
 }
 
 /* A pinned note wears the gold ribbon. */
-.note-row {
-  position: relative;
-}
-
 .note-row.pinned .note-row-title::before {
   content: none;
 }
@@ -4039,11 +4034,6 @@ select,
   text-align: center;
 }
 
-.ledger-group > h2 {
-  font-family: var(--sans);
-  letter-spacing: 0.14em;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .task-row.inking .task-title::after {
     animation: none;
@@ -4069,7 +4059,7 @@ select,
 /* The search field sits like a key, a little raised on its own edge. */
 .palette-search {
   margin: 10px 10px 4px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--edge);
   border-radius: 12px;
   background: var(--bg);
   box-shadow: 0 3px 0 color-mix(in srgb, var(--palette) 30%, var(--bg));
@@ -4378,7 +4368,7 @@ select,
 }
 
 .notes-recent-card strong {
-  font-size: 15px;
+  font-size: 16px;
   overflow-wrap: anywhere;
 }
 
@@ -4765,7 +4755,6 @@ select,
 .scan-result {
   padding: 10px 12px;
   border: 1px solid var(--rule);
-  border-left-width: 4px;
   border-radius: 10px;
   background: var(--raised);
 }
@@ -4788,36 +4777,22 @@ select,
   font-size: 12px;
 }
 
-/* The verdict's colour: any engine calling it malicious, only suspicious ones, or none. */
-.scan-result.bad {
-  border-left-color: var(--rec);
+/* The verdict carries the colour, in an ink that reads as text: any engine calling it malicious,
+   only suspicious ones, or none. */
+.scan-verdict {
+  font-weight: 600;
 }
 
 .scan-result.bad .scan-verdict {
-  color: var(--rec);
-  font-weight: 600;
-}
-
-.scan-result.odd {
-  border-left-color: var(--ribbon);
+  color: var(--rec-ink);
 }
 
 .scan-result.odd .scan-verdict {
-  color: var(--ribbon);
-  font-weight: 600;
-}
-
-.scan-result.clean {
-  border-left-color: var(--good);
+  color: var(--ribbon-ink);
 }
 
 .scan-result.clean .scan-verdict {
   color: var(--good-ink);
-}
-
-.scan-result.unseen,
-.scan-result.error {
-  border-left-color: var(--line);
 }
 
 .scan-result .row-buttons {
@@ -4882,7 +4857,7 @@ select,
 
 .speed-figure {
   font-family: var(--display);
-  font-size: 34px;
+  font-size: 48px;
   font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -4917,4 +4892,124 @@ select,
   .speed-dial {
     transition: none;
   }
+}
+
+/* Read out to screen readers, not drawn. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A destructive answer: Delete in a question. Filled in the warning ink, as the app's ink fills a
+   primary button. */
+.btn.danger {
+  border-color: transparent;
+  background: var(--distracting-ink);
+  color: var(--on-app);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--distracting-ink) 88%, var(--ink));
+}
+
+/* Where the keyboard is in Notes: a row, and the sheet being written on. */
+.note-row:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+}
+
+.note-pane .note-body:focus-within {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--app) 60%, transparent);
+}
+
+/* A save that hasn't been kept says so in the warning ink, not like the others. */
+.note-state.unsaved {
+  color: var(--distracting-ink);
+  font-weight: 600;
+}
+
+.note-foot-rest {
+  display: contents;
+}
+
+.note-copy {
+  margin-left: auto;
+  font-size: 11px;
+}
+
+/* The task whose panel is open: lit in Ledger's ink, as the open note's row is. */
+.task-card.open {
+  border-color: var(--app);
+  background: color-mix(in srgb, var(--app) 7%, var(--raised));
+}
+
+/* "Deleted “Essay” · Undo", above the list for a moment after a delete. */
+.task-undo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--raised);
+  font-size: 13px;
+}
+
+/* Ledger's drawn icons (src/glyphs.ts), sized to what they sit in. */
+.task-chips .icon,
+.rename-bubble .icon {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+}
+
+.task-bell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.note-tool .icon,
+.detail-close .icon,
+.clear-due .icon,
+.clear-remind .icon,
+.detach-note .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.rename-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* The play mark is a filled triangle, as the ring's Resume is. */
+.icon .fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+.task-start .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* The note's own actions after its writing tools: Delete stands apart, in the warning ink. */
+.note-top-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule);
+}
+
+.note-top .note-delete {
+  color: var(--distracting-ink);
 }

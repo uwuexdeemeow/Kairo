@@ -126,6 +126,18 @@ describe("the popped-out note", () => {
     await vi.waitFor(() => expect(root.querySelector(".popout-list")).not.toBeNull());
   });
 
+  it("stays on a note whose save is failing rather than lose its typing", async () => {
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    act.save.mockRejectedValue("database is locked");
+    type("# Plan\nnot kept");
+    await pop.show("b");
+    expect(area().value).toBe("# Plan\nnot kept");
+    await pop.list();
+    expect(root.querySelector(".popout-list")).toBeNull();
+    expect(area().value).toBe("# Plan\nnot kept");
+  });
+
   it("saves the note it shows before switching to another", async () => {
     const pop = mountPopout(root, act);
     await pop.show("a");
@@ -177,6 +189,18 @@ describe("the list of notes in the pop-out", () => {
     expect(act.setTitle).toHaveBeenLastCalledWith("Notes");
     expect(root.querySelector('.popout-row[data-note="a"]')!.classList.contains("pinned")).toBe(true);
     expect(root.querySelector('.popout-row[data-note="a"] .popout-row-preview')!.textContent).toBe("intro");
+  });
+
+  it("keeps each note a button inside its list item, for screen readers", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    const items = [...root.querySelectorAll('.popout-list > [role="listitem"]')];
+    expect(items.length).toBe(2);
+    for (const item of items) {
+      const button = item.querySelector("button.popout-row")!;
+      expect(button.hasAttribute("role")).toBe(false);
+    }
   });
 
   it("searches as you type", async () => {

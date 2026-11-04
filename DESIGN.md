@@ -35,6 +35,11 @@ colors:
   distracting-ink-light: "#ac441b"
   good-dark: "#7fd18b"
   good-light: "#267a37"
+  rec-ink-dark: "#e96569"
+  rec-ink-light: "#c03237"
+  ribbon-ink-light: "#7f6212"
+  edge-dark: "#657086"
+  edge-light: "#8d8274"
 typography:
   display:
     fontFamily: "Fraunces Variable, Georgia, serif"
@@ -103,6 +108,22 @@ typography:
     fontFamily: "Geist Mono Variable, ui-monospace, monospace"
     fontSize: "12px"
     fontWeight: 400
+  display-narrow:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "34px"
+    fontWeight: 800
+  watch:
+    fontFamily: "Fraunces Variable, Georgia, serif"
+    fontSize: "44px"
+    fontWeight: 800
+  stat:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "15px"
+    fontWeight: 600
+  dial-label:
+    fontFamily: "Instrument Sans Variable, system-ui, sans-serif"
+    fontSize: "8px"
+    fontWeight: 600
 rounded:
   hair: "2px"
   hair-2: "3px"
@@ -278,6 +299,7 @@ Gently rounded: 10px for sheets, fields and buttons, 6 to 8px for small targets 
 ### Do:
 - **Do** take every colour from the tokens on `:root`, and define a new one for both grounds.
 - **Do** use `--app` for accents and the `-ink` variants for data colours as text.
+- **Do** draw the edge of anything pressed or typed into (buttons, fields, toggles, checkboxes) with `--edge`, which holds 3:1 on page and sheet; `--line` and `--rule` are for dividers and containers.
 - **Do** draw icons and marks inline in the 24-unit stroke family (or the 100-unit object drawings in `src/logos.ts`).
 - **Do** give every motion an alternative under `prefers-reduced-motion`.
 - **Do** change the native Windows palette and ring in step with the web ones when a shared value moves.

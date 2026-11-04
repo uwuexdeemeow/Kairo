@@ -58,7 +58,9 @@ const day = (ms: number) => new Date(ms).toLocaleDateString(undefined, { day: "n
 
 export async function mountScan(root: HTMLElement, act: ScanActions): Promise<ScanView> {
   const entries: Entry[] = [];
-  const list = h("div", { class: "scan-results", "aria-live": "polite" });
+  const list = h("div", { class: "scan-results" });
+  // Screen readers hear the result that just changed, once, rather than the whole list again.
+  const said = h("p", { class: "sr-only", "aria-live": "polite" });
   const query = h("input", { class: "filter scan-query", type: "text", placeholder: "Paste a link or a hash", "aria-label": "A link or a hash", autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
   const checkButton = h("button", { class: "btn primary scan-check" }, "Check");
   const choose = h("button", { class: "btn scan-choose" }, "Choose file…");
@@ -83,7 +85,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       upload.addEventListener("click", () => void uploadEntry(e));
       notNow.addEventListener("click", () => {
         e.state = { kind: "skipped" };
-        draw();
+        changed(e);
       });
       return h(
         "article",
@@ -104,6 +106,22 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     return h("article", { class: `scan-result ${tone(a)}` }, ...parts);
   };
 
+  /// What a result's state says, for the screen reader.
+  const sayOf = (e: Entry): string => {
+    const s = e.state;
+    if (s.kind === "checking") return `${e.name}: checking`;
+    if (s.kind === "error") return `${e.name}: ${s.why}`;
+    if (s.kind === "skipped") return `${e.name}: not uploaded`;
+    const a = s.answer;
+    if (a.state === "scanning") return `${e.name}: scanning`;
+    if (a.state === "notSeen") return `${e.name}: VirusTotal hasn't seen this file`;
+    return `${e.name}: ${a.malicious + a.suspicious} of ${a.total} engines flag it`;
+  };
+  const changed = (e: Entry) => {
+    draw();
+    said.textContent = sayOf(e);
+  };
+
   /// Adds a result at the top and asks for it, following a scan until it's done.
   const run = async (e: Entry, ask: () => Promise<VtAnswer>) => {
     if (!entries.includes(e)) {
@@ -111,21 +129,21 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       entries.splice(KEEP);
     }
     e.state = { kind: "checking" };
-    draw();
+    changed(e);
     try {
       let answer = await ask();
       e.state = { kind: "answer", answer };
-      draw();
+      changed(e);
       while (answer.state === "scanning" && entries.includes(e)) {
         const { analysis, then } = answer;
         await new Promise((r) => window.setTimeout(r, FOLLOW_MS));
         answer = await act.follow(analysis, then);
         e.state = { kind: "answer", answer };
-        draw();
+        changed(e);
       }
     } catch (err) {
       e.state = { kind: "error", why: String(err) };
-      draw();
+      changed(e);
     }
   };
 
@@ -139,7 +157,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     file: (path) => void run({ name: nameOf(path, true), path, state: { kind: "checking" } }, () => act.checkFile(path)),
     refreshKey: async () => {
       if (await act.hasKey()) {
-        root.replaceChildren(h("div", { class: "scan" }, drop, h("div", { class: "scan-ask" }, query, checkButton), list));
+        root.replaceChildren(h("div", { class: "scan" }, drop, h("div", { class: "scan-ask" }, query, checkButton), list, said));
         draw();
         return;
       }

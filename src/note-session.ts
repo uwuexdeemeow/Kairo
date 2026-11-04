@@ -1,5 +1,6 @@
 import type { Note, Paper } from "./api";
 import { mountEditor, type Editor } from "./note-editor";
+import { glyph } from "./glyphs";
 import { h } from "./ui";
 
 /// One open note being written in: Ledger's editor, saved a moment after typing stops, the
@@ -27,8 +28,8 @@ export function wordCount(body: string): number {
 
 /// A toolbar button that acts on the note without taking the keyboard from it, so the
 /// selection stays.
-export function noteTool(name: string, label: string, text: string, run: () => void): HTMLButtonElement {
-  const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, text) as HTMLButtonElement;
+export function noteTool(name: string, label: string, content: string | Node, run: () => void): HTMLButtonElement {
+  const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, content) as HTMLButtonElement;
   b.addEventListener("mousedown", (e) => e.preventDefault());
   b.addEventListener("click", run);
   return b;
@@ -58,13 +59,14 @@ export type NoteSession = {
   note(): Note;
   /** Typed since the last save: what's on screen is newer than what's kept. */
   dirty(): boolean;
-  /** Saves what's typed, if anything. A failure leaves it unsaved, to be tried again. */
-  save(): Promise<void>;
+  /** Saves what's typed, if anything: whether it's kept now. A failure leaves it unsaved and
+   *  tried again; a note that isn't kept mustn't be put away. */
+  save(): Promise<boolean>;
   /** A newer copy from elsewhere: taken (the caret kept) unless typing here is waiting to be
    *  kept. Whether it was. */
   take(fresh: Note): boolean;
   /** Puts this text in place of what's there, as typed here, and saves it now. */
-  replace(body: string): Promise<void>;
+  replace(body: string): Promise<boolean>;
   /** The note is put away (another opened, or deleted): nothing more is saved. */
   close(): void;
   foot: HTMLElement;
@@ -77,25 +79,45 @@ export type NoteSession = {
 export function openNoteSession(box: HTMLElement, first: Note, act: SessionActions, hooks: SessionHooks): NoteSession {
   let note = first;
   let dirty = false;
-  // The last save failed: the footer says it'll be tried again.
-  let failed = false;
+  // Saves that have failed in a row: the footer says it'll be tried again, and after a couple
+  // offers the text to copy somewhere safe.
+  let failures = 0;
   let closed = false;
   let saveTimer = 0;
   let syncTimer = 0;
-  const foot = h("div", { class: "note-foot", "aria-live": "polite" });
+  // Only whether it's kept is told to screen readers, and only when that changes: not the
+  // word count at every pause.
+  const state = h("span", { class: "note-state", "aria-live": "polite" });
+  const rest = h("span", { class: "note-foot-rest" });
+  const copy = h("button", { class: "link-btn note-copy" }, "Copy text") as HTMLButtonElement;
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(editor.value());
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Couldn't copy";
+    }
+  });
+  const foot = h("div", { class: "note-foot" }, state, rest);
 
   const drawFoot = () => {
     const words = wordCount(editor.value());
-    foot.replaceChildren(
-      h("span", {}, failed ? "Not saved yet. Trying again…" : dirty ? "Saving…" : "Saved"),
-      h("span", {}, `${words} word${words === 1 ? "" : "s"}`),
-      ...(hooks.footExtra?.(note) ?? []),
-    );
+    const said = failures ? "Not saved yet. Trying again…" : dirty ? "Saving…" : "Saved";
+    if (state.textContent !== said) state.textContent = said;
+    state.classList.toggle("unsaved", failures > 0);
+    rest.replaceChildren(h("span", {}, `${words} word${words === 1 ? "" : "s"}`), ...(hooks.footExtra?.(note) ?? []));
+    if (failures >= 2) {
+      if (!copy.isConnected) foot.append(copy);
+    } else {
+      copy.remove();
+      copy.textContent = "Copy text";
+    }
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     window.clearTimeout(saveTimer);
-    if (closed || !dirty) return;
+    if (closed) return true;
+    if (!dirty) return failures === 0;
     const body = editor.value();
     // Typing while it saves marks it dirty again, for the next save.
     dirty = false;
@@ -103,21 +125,26 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
     try {
       kept = await act.save(note.id, body);
     } catch {
-      if (closed) return;
+      if (closed) return false;
       // Still unsaved: kept on screen, not taken over by an older copy, and tried again.
       dirty = true;
-      failed = true;
+      failures++;
       drawFoot();
       saveTimer = window.setTimeout(() => void save(), RETRY_AFTER_MS);
-      return;
+      return false;
     }
-    if (closed) return;
-    failed = false;
-    if (!kept) return hooks.gone();
+    if (closed) return true;
+    failures = 0;
+    if (!kept) {
+      hooks.gone();
+      return true;
+    }
     // The paper is what's chosen here: a save that set out before a new choice brings the old one.
     note = { ...kept, paper: note.paper };
     hooks.kept(kept);
     drawFoot();
+    // Typed while it saved: that's saved too before it counts as kept.
+    return dirty ? save() : true;
   };
 
   const editor = mountEditor(
@@ -191,7 +218,7 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
         { class: "note-tools" },
         noteTool("bold", "Bold (Ctrl+B)", "B", () => editor.wrap("**")),
         noteTool("italic", "Italic (Ctrl+I)", "I", () => editor.wrap("*")),
-        noteTool("box", "Checkbox", "☐", () => editor.box()),
+        noteTool("box", "Checkbox", glyph("box"), () => editor.box()),
       ),
     paper: h("span", { class: "note-paper" }, paperPick),
   };

@@ -19,15 +19,15 @@
         <button class="back-to-kairo" id="back-to-kairo">← Kairo</button>
         <span class="wordmark">ledger</span>
         <nav class="tabs" role="tablist" aria-label="Main" aria-orientation="vertical">
-          <button role="tab" data-view="tasks" aria-selected="true">
+          <button role="tab" data-view="tasks" id="tab-tasks" aria-selected="true" aria-controls="view-tasks" title="Tasks (Ctrl+1)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" /></svg>
             Tasks <b class="nav-count" id="count-tasks"></b>
           </button>
-          <button role="tab" data-view="notes" aria-selected="false">
+          <button role="tab" data-view="notes" id="tab-notes" aria-selected="false" aria-controls="view-notes" title="Notes (Ctrl+2)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v5h5M9 12h7M9 16h5" /></svg>
             Notes <b class="nav-count" id="count-notes"></b>
           </button>
-          <button role="tab" data-view="settings" aria-selected="false" class="tab-settings">
+          <button role="tab" data-view="settings" id="tab-settings" aria-selected="false" aria-controls="view-settings" class="tab-settings" title="Settings (Ctrl+3)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
             Settings
           </button>
@@ -42,14 +42,16 @@
           </div>
         </section>
 
-        <section id="view-tasks" class="view ledger-tasks" aria-label="Tasks">
+        <section id="view-tasks" class="view ledger-tasks" role="tabpanel" aria-labelledby="tab-tasks">
+          <p id="task-undo" class="task-undo" role="status" hidden></p>
+          <p id="task-status" class="task-status" role="status"></p>
           <div id="task-list" class="ledger-list"></div>
           <section id="task-detail" class="ledger-detail" hidden aria-label="Task details"></section>
         </section>
 
-        <section id="view-notes" class="view" aria-label="Notes" hidden></section>
+        <section id="view-notes" class="view" role="tabpanel" aria-labelledby="tab-notes" hidden></section>
 
-        <section id="view-settings" class="view" aria-label="Settings" hidden>
+        <section id="view-settings" class="view" role="tabpanel" aria-labelledby="tab-settings" hidden>
           <section class="block">
             <h2>Reminders</h2>
             <label class="toggle">

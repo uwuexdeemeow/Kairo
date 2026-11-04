@@ -39,6 +39,20 @@ describe("a note being written in", () => {
     expect(kept).toHaveBeenCalledWith(note("Plan\nmore"));
   });
 
+  it("says a failed save wasn't kept, and offers the text to copy after two", async () => {
+    const save = vi.fn().mockRejectedValue("database is locked");
+    const s = openNoteSession(box, note("Plan"), { save, setPaper: vi.fn(), syncSoon: vi.fn() }, { kept: vi.fn(), gone: vi.fn() });
+    type("Plan\nmore");
+    expect(await s.save()).toBe(false);
+    expect(s.foot.querySelector(".note-state")!.classList.contains("unsaved")).toBe(true);
+    expect(s.foot.querySelector(".note-copy")).toBeNull();
+    expect(await s.save()).toBe(false);
+    expect(s.foot.querySelector(".note-copy")!.textContent).toBe("Copy text");
+    // Only whether it's kept is announced, not the word count.
+    expect(s.foot.querySelector("[aria-live]")!.textContent).toBe("Not saved yet. Trying again…");
+    expect(s.foot.hasAttribute("aria-live")).toBe(false);
+  });
+
   it("takes a newer copy when nothing is waiting, and saves nothing once closed", async () => {
     const save = vi.fn(async (_: string, body: string) => note(body));
     const s = openNoteSession(box, note("Plan"), { save, setPaper: vi.fn(), syncSoon: vi.fn() }, { kept: vi.fn(), gone: vi.fn() });

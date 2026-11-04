@@ -264,6 +264,17 @@ describe("an open note", () => {
     expect(act.save).toHaveBeenCalledWith("a", "changed");
   });
 
+  it("keeps a note open, typing and all, while its save is failing", async () => {
+    const { view, area } = await opened();
+    act.save.mockRejectedValue("database is locked");
+    area.value = "# Plan\nwords not kept yet";
+    area.dispatchEvent(new Event("input"));
+    await view.open("b");
+    // Still on the first note, its typing still there, rather than put away with it lost.
+    expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")!.value).toBe("# Plan\nwords not kept yet");
+    expect(root.querySelector(".note-foot")!.textContent).toContain("Not saved yet");
+  });
+
   it("pops out into a window of its own, saving first", async () => {
     const { area } = await opened();
     area.value = "# Plan\nlast words";
@@ -301,6 +312,18 @@ describe("an open note", () => {
     root.querySelector<HTMLButtonElement>(".note-confirm .btn")!.click();
     await vi.waitFor(() => expect(act.remove).toHaveBeenCalledWith("a"));
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).toBeNull());
+  });
+
+  it("takes the keyboard to the delete question, and Esc leaves the note as it was", async () => {
+    await opened();
+    const del = root.querySelector<HTMLButtonElement>(".note-delete")!;
+    del.click();
+    expect(document.activeElement).toBe(root.querySelector(".note-keep"));
+    expect(root.querySelector(".note-confirm .btn")!.classList.contains("danger")).toBe(true);
+    root.querySelector(".note-confirm")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(root.querySelector(".note-confirm")).toBeNull();
+    expect(document.activeElement).toBe(root.querySelector(".note-delete"));
+    expect(act.remove).not.toHaveBeenCalled();
   });
 
   it("asks only once however often Delete is pressed", async () => {

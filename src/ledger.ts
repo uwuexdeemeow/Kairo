@@ -8,7 +8,7 @@ import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { replaceTimeInputs } from "./time-select";
-import { $, followTheme } from "./ui";
+import { $, followTheme, h } from "./ui";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
@@ -35,19 +35,77 @@ let shown: "tasks" | "notes" | "settings" = "tasks";
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
 
+/// The panel opened on `id`: level with its card, so it opens in view wherever the task is in
+/// the list, and the keyboard in its title.
+function openedPanel(id: string) {
+  const panel = $("#task-detail");
+  const card = document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"]`);
+  const room = $("#view-tasks").clientHeight - panel.offsetHeight;
+  panel.style.top = card ? `${Math.max(0, Math.min(card.offsetTop - 8, room))}px` : "0px";
+  panel.querySelector<HTMLInputElement>(".detail-title")?.focus();
+}
+
+/// Closes the panel, the keyboard back on the task it was open on.
+function closePanel() {
+  const was = selected;
+  selected = null;
+  draw();
+  if (was) document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(was)}"] .task-title`)?.focus();
+}
+
+/// A task deleted a moment ago: gone from the list, but only really deleted once its Undo line
+/// has gone, so Delete can be taken back.
+let deleting: { id: string; title: string; timer: number } | null = null;
+const UNDO_MS = 6000;
+
+/// The tasks as shown: one being deleted is left out.
+const shownTasks = () => tasks.filter((t) => t.id !== deleting?.id);
+
+/// Deletes for good the task waiting on its Undo, now.
+function finishDelete() {
+  if (!deleting) return;
+  const { id, timer } = deleting;
+  window.clearTimeout(timer);
+  deleting = null;
+  drawUndo();
+  void api.removeTask(id).then((list) => draw(list), () => refresh());
+}
+
+function undoDelete() {
+  if (!deleting) return;
+  const { id, timer } = deleting;
+  window.clearTimeout(timer);
+  deleting = null;
+  drawUndo();
+  draw();
+  document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"] .task-title`)?.focus();
+}
+
+/// "Deleted “Essay” · Undo" while a delete can still be taken back.
+function drawUndo() {
+  const line = $("#task-undo");
+  line.hidden = !deleting;
+  if (!deleting) return line.replaceChildren();
+  const undo = h("button", { class: "link-btn task-undo-btn" }, "Undo");
+  undo.addEventListener("click", undoDelete);
+  line.replaceChildren(`Deleted “${deleting.title}” · `, undo);
+  undo.focus();
+}
+
 function draw(list?: Task[]) {
   if (list) tasks = list;
-  renderTaskList($("#task-list"), tasks, session, actions);
+  const visible = shownTasks();
+  renderTaskList($("#task-list"), visible, session, actions, selected);
   const panel = $("#task-detail");
-  const t = tasks.find((x) => x.id === selected);
+  const t = visible.find((x) => x.id === selected);
   // Typing in the panel isn't undone by a redraw from elsewhere.
   if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames);
   panel.hidden = !t;
   // The panel slides over the list, which keeps its width.
   $("#view-tasks").classList.toggle("detail-open", !!t);
   if (!t) selected = null;
-  $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null).length || "");
-  if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(tasks);
+  $("#count-tasks").textContent = String(visible.filter((x) => x.doneMs === null).length || "");
+  if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(visible);
 }
 
 async function refresh() {
@@ -69,8 +127,10 @@ const actions: LedgerActions = {
     await refresh();
   },
   select: (id) => {
-    selected = selected === id ? null : id;
+    if (selected === id) return closePanel();
+    selected = id;
     draw();
+    openedPanel(id);
   },
   rename: async (id, title) => draw(await api.renameTask(id, title)),
   plan: async (id, due, priority, remind) => {
@@ -82,10 +142,17 @@ const actions: LedgerActions = {
     if (t) renderDetail($("#task-detail"), t, actions, noteNames);
     draw();
   },
-  remove: async (id) => {
+  // Gone at once, deleted for good after a moment unless Undo is pressed; another delete makes
+  // the one before it final.
+  remove: (id) => {
+    finishDelete();
     if (selected === id) selected = null;
-    draw(await api.removeTask(id));
+    const title = tasks.find((x) => x.id === id)?.title ?? "the task";
+    deleting = { id, title, timer: window.setTimeout(finishDelete, UNDO_MS) };
+    draw();
+    drawUndo();
   },
+  focusMinutes: () => sessionMinutes(),
   openNote: (id) => void openNote(id),
   attach: async (task, note) => {
     const list = await api.setTaskNote(task, note);
@@ -169,6 +236,12 @@ async function loadSettings() {
   const s = await api.ledgerSettings();
   $<HTMLInputElement>("#ledger-reminders").checked = s.reminders;
   $<HTMLInputElement>("#ledger-morning").value = s.morning;
+  morningFollowsReminders();
+}
+
+/// The morning reminder's time means nothing with reminders off.
+function morningFollowsReminders() {
+  $<HTMLInputElement>("#ledger-morning").disabled = !$<HTMLInputElement>("#ledger-reminders").checked;
 }
 
 async function saveSettings() {
@@ -178,7 +251,7 @@ async function saveSettings() {
     $<HTMLInputElement>("#ledger-morning").value = s.morning;
     note.textContent = "";
   } catch (e) {
-    note.textContent = String(e);
+    note.textContent = `Couldn't save this: ${e}`;
   }
 }
 
@@ -190,13 +263,13 @@ document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledg
 $("#back-to-kairo").addEventListener("click", () => api.openDashboard());
 $("#ledger-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.addEventListener("click", () => show(b.dataset.view as View));
-$("#ledger-reminders").addEventListener("change", saveSettings);
+$("#ledger-reminders").addEventListener("change", () => {
+  morningFollowsReminders();
+  void saveSettings();
+});
 $("#ledger-morning").addEventListener("change", saveSettings);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && selected) {
-    selected = null;
-    draw();
-  }
+  if (e.key === "Escape" && selected) closePanel();
 });
 void refresh().then(followOpen);
 // Tasks change from Chrono, the palette and other computers too; and sessions start and end.
@@ -226,3 +299,5 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("blur", () => void notesView?.flush());
 window.addEventListener("beforeunload", () => void notesView?.flush());
 window.addEventListener("pagehide", () => void notesView?.flush());
+// Closing the window makes a delete waiting on its Undo final.
+window.addEventListener("pagehide", finishDelete);

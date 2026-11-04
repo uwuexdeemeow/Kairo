@@ -148,9 +148,9 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     if (mine === asked) notes = found;
   };
 
-  const save = async () => {
-    await session?.save();
-  };
+  /// Saves what's typed: whether it's kept. A note that isn't stays open, its footer saying so,
+  /// rather than being put away with the typing lost.
+  const save = async (): Promise<boolean> => (session ? session.save() : true);
 
   const closeNote = () => {
     session?.close();
@@ -199,8 +199,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     // On a narrow window the list and the note take turns; this goes back to the list.
     const back = h("button", { class: "link-btn note-back" }, "← Notes");
     back.addEventListener("click", async () => {
-      await save();
-      closeNote();
+      if (await save()) closeNote();
     });
     const parts: Node[] = [back];
     if (n.tasks.length) {
@@ -228,8 +227,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     const popOut = h("button", { class: "link-btn note-pop-out", title: "Keep it in view in a small window of its own" }, "Pop out");
     popOut.addEventListener("click", async () => {
       // Saved first, so the window opens on what's typed.
-      await save();
-      act.popOut(n.id);
+      if (await save()) act.popOut(n.id);
     });
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
     del.addEventListener("click", () => {
@@ -239,10 +237,21 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         asking.querySelector<HTMLButtonElement>(".btn")?.focus();
         return;
       }
-      const yes = h("button", { class: "btn" }, "Delete");
+      const yes = h("button", { class: "btn danger" }, "Delete");
       const keep = h("button", { class: "link-btn note-keep" }, "Keep");
       const confirm = h("div", { class: "note-confirm", role: "alert" }, h("span", {}, `Delete “${n.title}”? Tasks attached to it lose the link.`), yes, keep);
-      keep.addEventListener("click", () => confirm.remove());
+      // Kept: the question goes, and the keyboard goes back to Delete where it was.
+      const dismiss = () => {
+        confirm.remove();
+        del.focus();
+      };
+      keep.addEventListener("click", dismiss);
+      confirm.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        // The question's own Esc: it doesn't also close what's behind it.
+        e.stopPropagation();
+        dismiss();
+      });
       yes.addEventListener("click", async () => {
         if (yes.hasAttribute("disabled")) return;
         yes.setAttribute("disabled", "");
@@ -254,16 +263,19 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         drawList();
       });
       top.after(confirm);
+      // The keyboard goes to the question, on its safe answer.
+      keep.focus();
     });
     const tools = session ? [session.tools(), session.paper] : [];
-    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, ...tools, popOut, pin, del));
+    // Writing tools, then the note's own: Pop out and Pin, and apart from them Delete.
+    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, ...tools, popOut, pin, h("span", { class: "note-top-sep", "aria-hidden": "true" }), del));
   };
 
   const showLimit = () => (limit.textContent = session && session.editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");
 
   const view: NotesView = {
     open: async (id) => {
-      await save();
+      if (!(await save())) return;
       let n = notes.find((x) => x.id === id);
       if (!n) {
         search.value = "";
@@ -305,7 +317,9 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       }
       drawList();
     },
-    flush: () => save(),
+    flush: async () => {
+      await save();
+    },
   };
 
   search.addEventListener("input", async () => {

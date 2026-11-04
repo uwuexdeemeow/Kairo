@@ -1,6 +1,7 @@
 import type { Note, Paper } from "./api";
 import { notePreview } from "./ledger-notes";
 import { noteTool, openNoteSession, type NoteSession } from "./note-session";
+import { glyph } from "./glyphs";
 import { h } from "./ui";
 
 /// A Ledger note popped out into a small window of its own, to keep in view beside other apps,
@@ -52,7 +53,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
 
   // Floating is the window's, whatever it shows.
   let onTop = true;
-  const pin = noteTool("on-top", "Keep above other windows", "📌", () => {
+  const pin = noteTool("on-top", "Keep above other windows", glyph("pin"), () => {
     onTop = !onTop;
     drawPin();
     void act.setOnTop(onTop);
@@ -68,12 +69,15 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   root.replaceChildren(shell);
 
   /// Puts the note shown away, keeping what's typed.
-  const putAway = async () => {
-    if (!session) return;
+  /// Puts the note shown away, keeping what's typed: a note whose typing isn't kept yet stays,
+  /// its footer saying so. Whether it was put away.
+  const putAway = async (): Promise<boolean> => {
+    if (!session) return true;
     const s = session;
-    await s.save();
+    if (!(await s.save())) return false;
     s.close();
     if (session === s) session = null;
+    return true;
   };
 
   // ---------- one note ----------
@@ -87,10 +91,9 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
       gone: () => void view.list(),
     });
     session = s;
-    const back = noteTool("list", "All notes", "☰", () => void view.list());
-    const ledger = noteTool("ledger", "Open in Ledger", "↗", async () => {
-      await s.save();
-      act.openInLedger(s.note().id);
+    const back = noteTool("list", "All notes", glyph("list"), () => void view.list());
+    const ledger = noteTool("ledger", "Open in Ledger", glyph("open"), async () => {
+      if (await s.save()) act.openInLedger(s.note().id);
     });
     shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, s.paper, pin, ledger)), box, s.foot);
     s.editor.focus();
@@ -120,27 +123,28 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     rows.replaceChildren(
       ...found.map((n) => {
         const preview = notePreview(n.body);
+        // A button inside each list item, so it's still said to be one that can be pressed.
         const row = h(
           "button",
-          { class: `popout-row${n.pinned ? " pinned" : ""}`, "data-note": n.id, role: "listitem" },
+          { class: `popout-row${n.pinned ? " pinned" : ""}`, "data-note": n.id },
           h("strong", {}, n.title),
           ...(preview ? [h("span", { class: "popout-row-preview muted" }, preview)] : []),
         );
         row.addEventListener("click", () => void view.show(n.id));
-        return row;
+        return h("div", { role: "listitem" }, row);
       }),
     );
   };
 
   const view: Popout = {
     show: async (id) => {
-      await putAway();
+      if (!(await putAway())) return;
       const n = await act.load(id);
       if (!n) return view.list();
       drawNote(n);
     },
     list: async () => {
-      await putAway();
+      if (!(await putAway())) return;
       listing = true;
       act.setTitle("Notes");
       shell.replaceChildren(h("div", { class: "popout-bar" }, search, newNote, h("span", { class: "popout-window-tools" }, pin)), rows);

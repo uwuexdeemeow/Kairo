@@ -42,6 +42,24 @@ beforeEach(() => {
 const headings = () => [...root.querySelectorAll(".ledger-group > h2")].map((e) => e.textContent);
 const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 
+describe("a done task", () => {
+  it("isn't offered for renaming", () => {
+    renderTaskList(root, [task("a", "Essay", { group: "done", doneMs: 1 }), task("b", "Milk")], null, act);
+    expect(root.querySelector('[data-task="a"] .rename-bubble')).toBeNull();
+    expect(root.querySelector('[data-task="b"] .rename-bubble')).not.toBeNull();
+  });
+});
+
+describe("the open task", () => {
+  it("is lit, and its title says the panel is open", () => {
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act, "b");
+    expect(root.querySelector('[data-task="b"]')!.classList.contains("open")).toBe(true);
+    expect(root.querySelector('[data-task="a"]')!.classList.contains("open")).toBe(false);
+    expect(root.querySelector('[data-task="b"] .task-title')!.getAttribute("aria-expanded")).toBe("true");
+    expect(root.querySelector('[data-task="a"] .task-title')!.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
 describe("the task list", () => {
   it("shows only the groups with tasks, in order", () => {
     renderTaskList(root, [task("a", "Late", { group: "overdue", dueDay: "2026-11-01" }), task("b", "Someday")], null, act);
@@ -169,9 +187,8 @@ describe("the task list", () => {
 
   it("adds on Enter and shows what it read", async () => {
     renderTaskList(root, [], null, act);
-    expect(root.querySelector(".muted.ledger-empty")!.textContent).toBe(
-      "Add what you're working on. Give it a day with “fri” or a priority with “!h”.",
-    );
+    // The hint above the field teaches the shorthand; the empty list doesn't repeat it.
+    expect(root.querySelector(".muted.ledger-empty")!.textContent).toBe("Nothing to do yet. What are you working on?");
     const add = root.querySelector<HTMLInputElement>(".task-add")!;
     add.value = "essay !h fri";
     add.dispatchEvent(new Event("input"));
@@ -242,15 +259,21 @@ describe("the Tasks screen as cards", () => {
     const chips = [...card.querySelectorAll(".task-chips > span")].map((c) => c.className.split(" ")[0]);
     expect(chips).toEqual(["task-day", "task-bell", "task-note", "task-time"]);
     expect(card.querySelector(".task-day")!.classList.contains("late")).toBe(true);
-    expect(card.querySelector(".task-bell")!.textContent).toMatch(/🔔 0?3:00/);
+    const bell = card.querySelector(".task-bell")!;
+    // A drawn bell, not an emoji, and the time it rings said aloud.
+    expect(bell.querySelector("svg.glyph-bell")).not.toBeNull();
+    expect(bell.textContent).toMatch(/^0?3:00/);
+    expect(bell.getAttribute("aria-label")).toMatch(/^Reminder at 0?3:00/);
+    expect(card.querySelector(".task-note svg.glyph-note")).not.toBeNull();
     expect(card.querySelector(".task-time")!.textContent).toBe("1h 20m");
   });
 
   it("starts focus from a small play button", () => {
     renderTaskList(root, [task("a", "Essay")], null, act);
     const play = root.querySelector<HTMLButtonElement>('[data-task="a"] .task-start')!;
-    expect(play.textContent).toBe("▶");
-    expect(play.getAttribute("aria-label")).toBe("Start focus on Essay");
+    expect(play.querySelector("svg.glyph-play")).not.toBeNull();
+    expect(play.getAttribute("aria-label")).toBe("Start a 25-minute focus on Essay");
+    expect(play.title).toBe("Start a 25-minute focus");
     play.click();
     expect(act.start).toHaveBeenCalledWith("a");
   });
@@ -286,6 +309,12 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-06", 2, 99);
     panel().querySelector<HTMLButtonElement>(".clear-due")!.click();
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, 99);
+  });
+
+  it("names its × buttons by what they do", () => {
+    renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06", remindMs: 5 }), act);
+    expect(panel().querySelector(".clear-due")!.getAttribute("aria-label")).toBe("Clear due day");
+    expect(panel().querySelector(".clear-remind")!.getAttribute("aria-label")).toBe("Clear reminder");
   });
 
   it("sets a day from Kairo's calendar and a reminder from a day and a time, with no native date field", () => {
