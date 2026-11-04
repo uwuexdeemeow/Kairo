@@ -117,22 +117,23 @@ describe("with no note open", () => {
     expect(root.querySelector(".notes-recent")).toBeNull();
   });
 
-  it("comes back when the note is put away, and makes a new one", async () => {
+  it("comes back when the note is put away, with one New note, the list's", async () => {
     const view = mountNotes(root, act, () => NOW);
     await settle();
     await view.open("a");
     root.querySelector<HTMLButtonElement>(".note-back")!.click();
     await vi.waitFor(() => expect(root.querySelector(".note-pane .notes-recent")).not.toBeNull());
-    root.querySelector<HTMLButtonElement>(".note-pane .notes-recent-new")!.click();
-    await vi.waitFor(() => expect(act.create).toHaveBeenCalled());
+    expect(root.querySelectorAll(".notes-new, .notes-recent-new").length).toBe(1);
+    await view.create();
+    expect(act.create).toHaveBeenCalled();
     await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).not.toBeNull());
   });
 
-  it("with no notes at all, shows the book and New note", async () => {
+  it("with no notes at all, shows the book and how to start one", async () => {
     notes = [];
     mountNotes(root, act, () => NOW);
-    await vi.waitFor(() => expect(root.querySelector(".note-pane .notes-recent-new")).not.toBeNull());
-    expect(root.querySelector(".note-pane .logo-ledger")).not.toBeNull();
+    await vi.waitFor(() => expect(root.querySelector(".note-pane .logo-ledger")).not.toBeNull());
+    expect(root.querySelector(".note-pane .notes-recent-tip")!.textContent).toContain("Ctrl+N starts a note");
     expect(root.querySelector(".note-pane .notes-recent-card")).toBeNull();
   });
 });
@@ -301,43 +302,33 @@ describe("an open note", () => {
     expect(act.pin).toHaveBeenCalledWith("a", false);
   });
 
-  it("asks in place before deleting, and Keep leaves it", async () => {
+  it("deletes at once, and Undo brings the note back", async () => {
     await opened();
     root.querySelector<HTMLButtonElement>(".note-delete")!.click();
-    expect(root.querySelector(".note-confirm")!.textContent).toContain("Delete “Plan”? Tasks attached to it lose the link.");
-    root.querySelector<HTMLButtonElement>(".note-keep")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".notes-undo")!.textContent).toBe("Deleted “Plan” · Undo"));
+    // Gone from sight, but not deleted yet: no question asked, and the note can come back.
     expect(root.querySelector(".note-confirm")).toBeNull();
+    expect(rows()).toEqual(["Shopping"]);
     expect(act.remove).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(root.querySelector(".notes-undo button"));
+    root.querySelector<HTMLButtonElement>(".notes-undo button")!.click();
+    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("# Plan\nintro"));
+    expect(act.remove).not.toHaveBeenCalled();
+  });
+
+  it("deletes for good at the next delete, or on leaving Notes", async () => {
+    const view = mountNotes(root, act, () => NOW);
+    await settle();
+    await view.open("a");
     root.querySelector<HTMLButtonElement>(".note-delete")!.click();
-    root.querySelector<HTMLButtonElement>(".note-confirm .btn")!.click();
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
+    await view.open("b");
+    root.querySelector<HTMLButtonElement>(".note-delete")!.click();
+    // The second delete makes the first final.
     await vi.waitFor(() => expect(act.remove).toHaveBeenCalledWith("a"));
-    await vi.waitFor(() => expect(root.querySelector(".note-pane textarea")).toBeNull());
-  });
-
-  it("takes the keyboard to the delete question, and Esc leaves the note as it was", async () => {
-    await opened();
-    const del = root.querySelector<HTMLButtonElement>(".note-delete")!;
-    del.click();
-    expect(document.activeElement).toBe(root.querySelector(".note-keep"));
-    expect(root.querySelector(".note-confirm .btn")!.classList.contains("danger")).toBe(true);
-    root.querySelector(".note-confirm")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(root.querySelector(".note-confirm")).toBeNull();
-    expect(document.activeElement).toBe(root.querySelector(".note-delete"));
-    expect(act.remove).not.toHaveBeenCalled();
-  });
-
-  it("asks only once however often Delete is pressed", async () => {
-    await opened();
-    const del = root.querySelector<HTMLButtonElement>(".note-delete")!;
-    del.click();
-    del.click();
-    del.click();
-    expect(root.querySelectorAll(".note-confirm").length).toBe(1);
-    const yes = root.querySelector<HTMLButtonElement>(".note-confirm .btn")!;
-    yes.click();
-    yes.click();
-    await vi.waitFor(() => expect(act.remove).toHaveBeenCalled());
-    expect(act.remove).toHaveBeenCalledTimes(1);
+    expect(act.remove).not.toHaveBeenCalledWith("b");
+    view.finishDelete();
+    expect(act.remove).toHaveBeenCalledWith("b");
   });
 
   it("takes a newer text from elsewhere unless typing", async () => {

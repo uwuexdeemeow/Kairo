@@ -3447,7 +3447,13 @@ select,
 }
 
 .prio-high {
-  background: var(--distracting);
+  background: var(--app);
+}
+
+/* Low: a faint ring; Medium, where every task starts, wears no mark. */
+.prio-low {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--faint);
 }
 
 .prio-medium {
@@ -3992,7 +3998,7 @@ select,
 .task-row.ribbon::before {
   content: "";
   position: absolute;
-  right: 52px;
+  right: 14px;
   top: -1px;
   width: 8px;
   height: 18px;
@@ -5012,4 +5018,30 @@ select,
 
 .note-top .note-delete {
   color: var(--distracting-ink);
+}
+
+/* The task's tick shows the keyboard in Ledger's ink, as every other control does. */
+.task-card > input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+}
+
+/* Priority is a word to choose, not a key or a figure: the text face, not mono. */
+.ledger-detail .range button {
+  font-family: var(--sans);
+}
+
+/* What didn't work, under the add field until the next thing does. */
+.task-status {
+  margin: 0 0 8px;
+  color: var(--distracting-ink);
+  font-size: 13px;
+}
+
+.task-status:empty {
+  display: none;
+}
+
+.notes-undo {
+  margin: 4px 0 0;
 }

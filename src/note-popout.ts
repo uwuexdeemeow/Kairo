@@ -74,7 +74,10 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   const putAway = async (): Promise<boolean> => {
     if (!session) return true;
     const s = session;
-    if (!(await s.save())) return false;
+    if (!(await s.save())) {
+      s.blocked();
+      return false;
+    }
     s.close();
     if (session === s) session = null;
     return true;
@@ -94,6 +97,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     const back = noteTool("list", "All notes", glyph("list"), () => void view.list());
     const ledger = noteTool("ledger", "Open in Ledger", glyph("open"), async () => {
       if (await s.save()) act.openInLedger(s.note().id);
+      else s.blocked();
     });
     shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, s.paper, pin, ledger)), box, s.foot);
     s.editor.focus();

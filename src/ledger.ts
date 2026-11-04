@@ -8,7 +8,8 @@ import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { replaceTimeInputs } from "./time-select";
-import { $, followTheme, h } from "./ui";
+import { $, followTheme } from "./ui";
+import { mountUndo } from "./undo";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
@@ -53,43 +54,30 @@ function closePanel() {
   if (was) document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(was)}"] .task-title`)?.focus();
 }
 
-/// A task deleted a moment ago: gone from the list, but only really deleted once its Undo line
-/// has gone, so Delete can be taken back.
-let deleting: { id: string; title: string; timer: number } | null = null;
-const UNDO_MS = 6000;
+/// A task deleted a moment ago: gone from the list at once, deleted for good when the next
+/// delete comes, the view is left or the window closes. Until then Undo (or Ctrl+Z) brings it back.
+const taskUndo = mountUndo($("#task-undo"));
+let deletingTask: string | null = null;
 
-/// The tasks as shown: one being deleted is left out.
-const shownTasks = () => tasks.filter((t) => t.id !== deleting?.id);
+/// The tasks as shown: one waiting on its Undo is left out.
+const shownTasks = () => tasks.filter((t) => t.id !== deletingTask);
 
-/// Deletes for good the task waiting on its Undo, now.
-function finishDelete() {
-  if (!deleting) return;
-  const { id, timer } = deleting;
-  window.clearTimeout(timer);
-  deleting = null;
-  drawUndo();
-  void api.removeTask(id).then((list) => draw(list), () => refresh());
+const titleOf = (id: string) => document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"] .task-title`);
+
+/// A line saying what didn't work, until the next thing does.
+function say(text: string) {
+  $("#task-status").textContent = text;
 }
 
-function undoDelete() {
-  if (!deleting) return;
-  const { id, timer } = deleting;
-  window.clearTimeout(timer);
-  deleting = null;
-  drawUndo();
-  draw();
-  document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"] .task-title`)?.focus();
-}
-
-/// "Deleted “Essay” · Undo" while a delete can still be taken back.
-function drawUndo() {
-  const line = $("#task-undo");
-  line.hidden = !deleting;
-  if (!deleting) return line.replaceChildren();
-  const undo = h("button", { class: "link-btn task-undo-btn" }, "Undo");
-  undo.addEventListener("click", undoDelete);
-  line.replaceChildren(`Deleted “${deleting.title}” · `, undo);
-  undo.focus();
+/// Runs a task action, saying so if it fails rather than leaving it looking done.
+async function tried(what: string, run: () => Promise<void>) {
+  try {
+    await run();
+    say("");
+  } catch {
+    say(`Couldn't ${what}. Try again in a moment.`);
+    void refresh();
+  }
 }
 
 function draw(list?: Task[]) {
@@ -119,49 +107,74 @@ async function refresh() {
 }
 
 const actions: LedgerActions = {
-  add: async (text) => draw(await api.addTask(text)),
-  preview: async (text) => (await api.parseTask(text)).shown,
-  done: async (id, done) => draw(await api.setTaskDone(id, done)),
-  start: async (id) => {
-    await api.startFocus(sessionMinutes(), undefined, id);
-    await refresh();
+  // A failure is the add field's to say: it keeps what was typed.
+  add: async (text) => {
+    draw(await api.addTask(text));
+    say("");
   },
+  preview: async (text) => (await api.parseTask(text)).shown,
+  done: (id, done) => tried(done ? "tick it off" : "reopen it", async () => draw(await api.setTaskDone(id, done))),
+  start: (id) =>
+    tried("start the focus session", async () => {
+      await api.startFocus(sessionMinutes(), undefined, id);
+      await refresh();
+    }),
   select: (id) => {
     if (selected === id) return closePanel();
     selected = id;
     draw();
     openedPanel(id);
   },
-  rename: async (id, title) => draw(await api.renameTask(id, title)),
-  plan: async (id, due, priority, remind) => {
-    const list = await api.setTaskPlan(id, due, priority, remind);
-    // The panel shows the new plan, though it has the focus.
-    selected = id;
-    tasks = list;
-    const t = list.find((x) => x.id === id);
-    if (t) renderDetail($("#task-detail"), t, actions, noteNames);
-    draw();
-  },
-  // Gone at once, deleted for good after a moment unless Undo is pressed; another delete makes
-  // the one before it final.
+  rename: (id, title) => tried("rename it", async () => draw(await api.renameTask(id, title))),
+  plan: (id, due, priority, remind) =>
+    tried("change it", async () => {
+      const list = await api.setTaskPlan(id, due, priority, remind);
+      // The panel shows the new plan, though it has the focus.
+      selected = id;
+      tasks = list;
+      const t = list.find((x) => x.id === id);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames);
+      draw();
+    }),
   remove: (id) => {
-    finishDelete();
     if (selected === id) selected = null;
-    const title = tasks.find((x) => x.id === id)?.title ?? "the task";
-    deleting = { id, title, timer: window.setTimeout(finishDelete, UNDO_MS) };
+    const visible = shownTasks();
+    const at = visible.findIndex((x) => x.id === id);
+    // The keyboard's next place once it's gone for good: the task after it, or before it.
+    const neighbour = visible[at + 1] ?? visible[at - 1];
+    taskUndo.offer({
+      what: visible[at]?.title ?? "the task",
+      finish: () => {
+        deletingTask = null;
+        void api.removeTask(id).then(
+          (list) => draw(list),
+          () => {
+            say("Couldn't delete it, so it's back in the list.");
+            void refresh();
+          },
+        );
+      },
+      undo: () => {
+        deletingTask = null;
+        draw();
+        titleOf(id)?.focus();
+      },
+      focusAfter: () => (neighbour && titleOf(neighbour.id)) || document.querySelector<HTMLElement>(".task-add"),
+    });
+    deletingTask = id;
     draw();
-    drawUndo();
   },
   focusMinutes: () => sessionMinutes(),
   openNote: (id) => void openNote(id),
-  attach: async (task, note) => {
-    const list = await api.setTaskNote(task, note);
-    selected = task;
-    tasks = list;
-    const t = list.find((x) => x.id === task);
-    if (t) renderDetail($("#task-detail"), t, actions, noteNames);
-    draw();
-  },
+  attach: (task, note) =>
+    tried(note ? "attach the note" : "detach the note", async () => {
+      const list = await api.setTaskNote(task, note);
+      selected = task;
+      tasks = list;
+      const t = list.find((x) => x.id === task);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames);
+      draw();
+    }),
   newNoteFor: async (task, title) => {
     const n = await api.newNote(`# ${title}
 
@@ -217,10 +230,23 @@ async function followOpen() {
 }
 
 type View = "tasks" | "notes" | "settings";
+const VIEWS: View[] = ["tasks", "notes", "settings"];
+
+/// The tabs as one Tab stop, the chosen one; the arrows move between them.
+function markTabs() {
+  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
+    const on = b.dataset.view === shown;
+    b.setAttribute("aria-selected", String(on));
+    b.tabIndex = on ? 0 : -1;
+  }
+}
 
 function show(view: View) {
+  // Leaving a view makes a delete waiting on its Undo there final.
+  if (view !== "tasks") taskUndo.finish();
+  if (view !== "notes") notesView?.finishDelete();
   shown = view;
-  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.setAttribute("aria-selected", String(b.dataset.view === view));
+  markTabs();
   $("#view-tasks").hidden = view !== "tasks";
   $("#view-notes").hidden = view !== "notes";
   $("#view-settings").hidden = view !== "settings";
@@ -268,8 +294,42 @@ $("#ledger-reminders").addEventListener("change", () => {
   void saveSettings();
 });
 $("#ledger-morning").addEventListener("change", saveSettings);
+markTabs();
+// The tabs: the arrows move along them, as tabs do; Home and End go to the ends.
+$(".tabs").addEventListener("keydown", (e) => {
+  const at = VIEWS.indexOf(shown);
+  const to = ({ ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: VIEWS.length - 1 } as Record<string, number>)[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  const view = VIEWS[(to + VIEWS.length) % VIEWS.length];
+  show(view);
+  document.querySelector<HTMLElement>(`[data-view="${view}"]`)?.focus();
+});
+
+/// Whether a key press belongs to something being typed in.
+const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable]");
+
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && selected) closePanel();
+  if (e.key === "Escape" && selected) return closePanel();
+  const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+  // Ctrl+1 to 3: the views.
+  if (ctrl && ["1", "2", "3"].includes(e.key)) {
+    e.preventDefault();
+    return show(VIEWS[Number(e.key) - 1]);
+  }
+  // Ctrl+N: a new note in Notes; elsewhere, the add field, ready to type a task.
+  if (ctrl && e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    if (shown === "notes") return void notesView?.create();
+    show("tasks");
+    return document.querySelector<HTMLInputElement>(".task-add")?.focus();
+  }
+  // "/": the notes' search in Notes, the add field in Tasks.
+  if (e.key === "/" && !ctrl && !typingIn(e.target)) {
+    e.preventDefault();
+    if (shown === "notes") document.querySelector<HTMLInputElement>(".notes-search")?.focus();
+    else if (shown === "tasks") document.querySelector<HTMLInputElement>(".task-add")?.focus();
+  }
 });
 void refresh().then(followOpen);
 // Tasks change from Chrono, the palette and other computers too; and sessions start and end.
@@ -300,4 +360,7 @@ window.addEventListener("blur", () => void notesView?.flush());
 window.addEventListener("beforeunload", () => void notesView?.flush());
 window.addEventListener("pagehide", () => void notesView?.flush());
 // Closing the window makes a delete waiting on its Undo final.
-window.addEventListener("pagehide", finishDelete);
+window.addEventListener("pagehide", () => {
+  taskUndo.finish();
+  notesView?.finishDelete();
+});

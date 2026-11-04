@@ -69,6 +69,8 @@ export type NoteSession = {
   replace(body: string): Promise<boolean>;
   /** The note is put away (another opened, or deleted): nothing more is saved. */
   close(): void;
+  /** Says why the note is staying open: its save is failing. Copy text is offered at once. */
+  blocked(): void;
   foot: HTMLElement;
   /** B, I and ☐, as a group. */
   tools(): HTMLElement;
@@ -85,9 +87,12 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
   let closed = false;
   let saveTimer = 0;
   let syncTimer = 0;
-  // Only whether it's kept is told to screen readers, and only when that changes: not the
-  // word count at every pause.
-  const state = h("span", { class: "note-state", "aria-live": "polite" });
+  // Screen readers hear only a save failing, a note held open because of it, and recovering:
+  // not "Saving… Saved" at every pause in the typing.
+  const state = h("span", { class: "note-state" });
+  const told = h("span", { class: "sr-only", "aria-live": "polite" });
+  // A message held over the state for a moment: why the note can't be put away yet.
+  let held = "";
   const rest = h("span", { class: "note-foot-rest" });
   const copy = h("button", { class: "link-btn note-copy" }, "Copy text") as HTMLButtonElement;
   copy.addEventListener("click", async () => {
@@ -98,15 +103,15 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
       copy.textContent = "Couldn't copy";
     }
   });
-  const foot = h("div", { class: "note-foot" }, state, rest);
+  const foot = h("div", { class: "note-foot" }, state, rest, told);
 
   const drawFoot = () => {
     const words = wordCount(editor.value());
-    const said = failures ? "Not saved yet. Trying again…" : dirty ? "Saving…" : "Saved";
+    const said = held || (failures ? "Not saved yet. Trying again…" : dirty ? "Saving…" : "Saved");
     if (state.textContent !== said) state.textContent = said;
     state.classList.toggle("unsaved", failures > 0);
     rest.replaceChildren(h("span", {}, `${words} word${words === 1 ? "" : "s"}`), ...(hooks.footExtra?.(note) ?? []));
-    if (failures >= 2) {
+    if (failures >= 2 || held) {
       if (!copy.isConnected) foot.append(copy);
     } else {
       copy.remove();
@@ -129,12 +134,15 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
       // Still unsaved: kept on screen, not taken over by an older copy, and tried again.
       dirty = true;
       failures++;
+      if (failures === 1) told.textContent = "Not saved yet. Trying again.";
       drawFoot();
       saveTimer = window.setTimeout(() => void save(), RETRY_AFTER_MS);
       return false;
     }
     if (closed) return true;
+    if (failures) told.textContent = "Saved.";
     failures = 0;
+    held = "";
     if (!kept) {
       hooks.gone();
       return true;
@@ -210,6 +218,11 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
     close: () => {
       closed = true;
       window.clearTimeout(saveTimer);
+    },
+    blocked: () => {
+      held = "Not saved yet: copy the text, or wait while Kairo tries again.";
+      told.textContent = held;
+      drawFoot();
     },
     foot,
     tools: () =>

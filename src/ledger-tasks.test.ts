@@ -75,11 +75,19 @@ describe("the task list", () => {
     expect(row.querySelector(".task-bell")).not.toBeNull();
   });
 
-  it("doesn't repeat the day for today's tasks, and Low has no dot", () => {
-    renderTaskList(root, [task("a", "Essay", { group: "today", dueDay: "2026-11-03", priority: 0 })], null, act);
-    const row = root.querySelector('[data-task="a"]')!;
-    expect(row.querySelector(".task-day")).toBeNull();
-    expect(row.querySelector(".prio-dot")).toBeNull();
+  it("doesn't repeat the day for today's tasks, and marks only priorities other than Medium", () => {
+    renderTaskList(root, [task("a", "Essay", { group: "today", dueDay: "2026-11-03", priority: 0 }), task("b", "Milk", { priority: 1 }), task("c", "Bank", { priority: 2 })], null, act);
+    expect(root.querySelector('[data-task="a"] .task-day')).toBeNull();
+    // Medium is where every task starts: no mark. Low a faint ring, High a filled dot.
+    expect(root.querySelector('[data-task="a"] .prio-dot.prio-low')).not.toBeNull();
+    expect(root.querySelector('[data-task="b"] .prio-dot')).toBeNull();
+    expect(root.querySelector('[data-task="c"] .prio-dot.prio-high')).not.toBeNull();
+  });
+
+  it("names each tick for its task", () => {
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk", { group: "done", doneMs: 1 })], null, act);
+    expect(root.querySelector('[data-task="a"] input')!.getAttribute("aria-label")).toBe("Mark “Essay” done");
+    expect(root.querySelector('[data-task="b"] input')!.getAttribute("aria-label")).toBe("Reopen “Milk”");
   });
 
   it("ticks, starts and opens a task", () => {
@@ -196,7 +204,18 @@ describe("the task list", () => {
     expect(act.preview).toHaveBeenCalledWith("essay !h fri");
     press(add, "Enter");
     expect(act.add).toHaveBeenCalledWith("essay !h fri");
-    expect(add.value).toBe("");
+    // Emptied once it's kept.
+    await vi.waitFor(() => expect(add.value).toBe(""));
+  });
+
+  it("keeps what was typed when adding fails, to try again", async () => {
+    renderTaskList(root, [], null, act);
+    const add = root.querySelector<HTMLInputElement>(".task-add")!;
+    act.add.mockRejectedValueOnce("database is locked");
+    add.value = "call the bank";
+    press(add, "Enter");
+    await vi.waitFor(() => expect(root.querySelector(".task-preview")!.textContent).toBe("Couldn't add this. Press Enter to try again."));
+    expect(add.value).toBe("call the bank");
   });
 });
 
@@ -262,10 +281,12 @@ describe("the Tasks screen as cards", () => {
     const bell = card.querySelector(".task-bell")!;
     // A drawn bell, not an emoji, and the time it rings said aloud.
     expect(bell.querySelector("svg.glyph-bell")).not.toBeNull();
-    expect(bell.textContent).toMatch(/^0?3:00/);
-    expect(bell.getAttribute("aria-label")).toMatch(/^Reminder at 0?3:00/);
+    // Read out as "Reminder at 3:00": the words are there, unseen, beside the drawn bell.
+    expect(bell.textContent).toMatch(/^Reminder at 0?3:00/);
+    expect(bell.querySelector(".sr-only")!.textContent).toBe("Reminder at ");
     expect(card.querySelector(".task-note svg.glyph-note")).not.toBeNull();
-    expect(card.querySelector(".task-time")!.textContent).toBe("1h 20m");
+    expect(card.querySelector(".task-note .sr-only")!.textContent).toBe("Has a note");
+    expect(card.querySelector(".task-time")!.textContent).toBe("Focused 1h 20m");
   });
 
   it("starts focus from a small play button", () => {

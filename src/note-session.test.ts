@@ -49,7 +49,9 @@ describe("a note being written in", () => {
     expect(await s.save()).toBe(false);
     expect(s.foot.querySelector(".note-copy")!.textContent).toBe("Copy text");
     // Only whether it's kept is announced, not the word count.
-    expect(s.foot.querySelector("[aria-live]")!.textContent).toBe("Not saved yet. Trying again…");
+    expect(s.foot.querySelector("[aria-live]")!.textContent).toBe("Not saved yet. Trying again.");
+    // The state seen is not the one read out: no "Saving… Saved" at every pause.
+    expect(s.foot.querySelector(".note-state")!.hasAttribute("aria-live")).toBe(false);
     expect(s.foot.hasAttribute("aria-live")).toBe(false);
   });
 

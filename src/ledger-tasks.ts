@@ -12,7 +12,7 @@ const stillPlease = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce
 /// What Ledger's task list and detail panel ask the page to do.
 export type LedgerActions = {
   /** Quick-add text, shortcuts and all. */
-  add(text: string): void;
+  add(text: string): void | Promise<void>;
   /** What the field's text reads as, for under it. */
   preview(text: string): Promise<string>;
   done(id: string, done: boolean): void;
@@ -76,7 +76,8 @@ export function dayText(day: string): string {
 
 function row(t: Task, session: RunningSession, act: LedgerActions, selected: string | null = null): HTMLElement {
   const done = t.doneMs !== null;
-  const tick = h("input", { type: "checkbox", "aria-label": done ? "Reopen" : "Mark done" }) as HTMLInputElement;
+  // Named for its task, so a screen reader moving down the list knows which one it would tick.
+  const tick = h("input", { type: "checkbox", "aria-label": done ? `Reopen “${t.title}”` : `Mark “${t.title}” done` }) as HTMLInputElement;
   tick.checked = done;
   const open = t.id === selected;
   const el = h("div", { class: `task-row task-card${done ? " done" : ""}${t.group === "overdue" ? " ribbon" : ""}${open ? " open" : ""}`, "data-task": t.id }, tick);
@@ -86,7 +87,8 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     el.classList.add("inking");
     window.setTimeout(() => act.done(t.id, true), INK_MS);
   });
-  if (t.priority >= 1) {
+  // Medium is every task's to begin with, so it wears no mark: High a filled dot, Low a faint ring.
+  if (t.priority !== 1) {
     const name = PRIORITY[Math.min(t.priority, 2)];
     el.append(h("span", { class: `prio-dot prio-${name.toLowerCase()}`, role: "img", title: `${name} priority`, "aria-label": `${name} priority` }));
   }
@@ -115,10 +117,11 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
   if (t.dueDay && t.group !== "today") chips.append(h("span", { class: `task-day chip${t.group === "overdue" ? " late" : ""}` }, dayText(t.dueDay)));
   if (t.remindMs !== null) {
     const at = new Date(t.remindMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}`, "aria-label": `Reminder at ${at}` }, glyph("bell"), at));
+    // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
+    chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }
-  if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note", "aria-label": "Has a note" }, glyph("note")));
-  if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, fmtDur(t.focusedMs)));
+  if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
+  if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
   el.append(chips);
   if (!done) {
     // While a session runs, Start would end it, so only the running task's card says anything.
@@ -218,14 +221,25 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
     // Only the latest answer, should an earlier one arrive after it.
     if (mine === asked) preview.textContent = shown;
   });
-  add.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
+  // One add at a time, so a second Enter before the first is kept can't add it twice.
+  let adding = false;
+  add.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter" || adding) return;
     const text = add.value.trim();
-    // Emptied at once, so a second Enter before the redraw can't add it twice.
-    add.value = "";
-    preview.textContent = HINT;
+    if (!text) return;
+    adding = true;
     asked++;
-    if (text) act.add(text);
+    try {
+      await act.add(text);
+      // Kept: the field empties, unless something new was typed meanwhile.
+      if (add.value.trim() === text) add.value = "";
+      preview.textContent = HINT;
+    } catch {
+      // Not kept: what was typed stays, to try again.
+      preview.textContent = "Couldn't add this. Press Enter to try again.";
+    } finally {
+      adding = false;
+    }
   });
   fields.set(root, { add, preview });
   return { add, preview };
@@ -242,7 +256,7 @@ function clock(ms: number): string {
 function dayName(iso: string): string {
   const d = parseDate(iso);
   const year = d.getFullYear() === new Date().getFullYear() ? undefined : "numeric";
-  return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short", year });
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year });
 }
 
 /// A button that shows a day and opens Kairo's calendar under it, in place of a native date field.

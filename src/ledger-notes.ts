@@ -3,6 +3,7 @@ import { renameBubble, renameField } from "./ledger-tasks";
 import { logo } from "./logos";
 import { openNoteSession, type NoteSession } from "./note-session";
 import { h } from "./ui";
+import { mountUndo } from "./undo";
 
 export { wordCount } from "./note-session";
 
@@ -29,6 +30,10 @@ export type NotesView = {
   refresh(): Promise<void>;
   /** Saves what's typed now, as before closing. */
   flush(): Promise<void>;
+  /** Starts a new note and opens it, ready to type. */
+  create(): Promise<void>;
+  /** Makes a delete waiting on its Undo final, as when Notes is left. */
+  finishDelete(): void;
 };
 
 const MAX_CHARS = 100_000;
@@ -76,11 +81,15 @@ export function editedText(ms: number, now: number): string {
 export function mountNotes(root: HTMLElement, act: NotesActions, now: () => number = Date.now): NotesView {
   const search = h("input", { class: "filter notes-search", type: "search", placeholder: "Search", "aria-label": "Search notes", autocomplete: "off" }) as HTMLInputElement;
   const create = h("button", { class: "btn notes-new" }, "+ New note");
-  const popList = h("button", { class: "link-btn notes-pop-out", title: "All your notes in a small window, beside your work" }, "Pop out");
+  const popList = h("button", { class: "link-btn notes-pop-out", title: "All your notes in a small window, beside your work" }, "Pop out list");
+  // "Deleted “Plan” · Undo", above the list while a delete can be taken back.
+  const undoLine = h("p", { class: "task-undo notes-undo", role: "status", hidden: "" });
+  const noteUndo = mountUndo(undoLine);
+  let deletingNote: string | null = null;
   popList.addEventListener("click", () => act.popOut());
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
-  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, h("div", { class: "notes-side-actions" }, create, popList), list), pane);
+  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, h("div", { class: "notes-side-actions" }, create, popList), undoLine, list), pane);
   root.replaceChildren(shell);
 
   let notes: Note[] = [];
@@ -145,12 +154,19 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     const mine = ++asked;
     const found = await act.search(search.value.trim());
     // Only the latest answer, should an earlier search finish after it.
-    if (mine === asked) notes = found;
+    // A note waiting on its Undo stays out of sight.
+    if (mine === asked) notes = found.filter((x) => x.id !== deletingNote);
   };
 
   /// Saves what's typed: whether it's kept. A note that isn't stays open, its footer saying so,
   /// rather than being put away with the typing lost.
   const save = async (): Promise<boolean> => (session ? session.save() : true);
+  /// Saves before the note is put away; one that can't be says why it's staying open.
+  const keep = async (): Promise<boolean> => {
+    const kept = await save();
+    if (!kept) session?.blocked();
+    return kept;
+  };
 
   const closeNote = () => {
     session?.close();
@@ -162,14 +178,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   /// With no note open, the pane offers the notes edited last, and a new one.
   const drawWelcome = () => {
-    const newNote = h("button", { class: "btn primary notes-recent-new" }, "+ New note");
-    newNote.addEventListener("click", () => void createNote());
-    const tip = h("p", { class: "muted notes-recent-tip" }, "Pop out a note to keep it beside your work · Ctrl+B bold, Ctrl+I italic · - [ ] makes a checkbox");
+    // "+ New note" is the list's, beside it: one, not two.
+    const tip = h("p", { class: "muted notes-recent-tip" }, "Ctrl+N starts a note · Ctrl+B bold, Ctrl+I italic · type “- [ ]” for a checkbox · Pop out list keeps your notes beside your work");
     const recent = [...notes].sort((a, b) => b.editedMs - a.editedMs).slice(0, 3);
     if (!recent.length) {
       const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
       art.innerHTML = logo("ledger", 88);
-      pane.replaceChildren(h("div", { class: "notes-recent notes-recent-none" }, art, newNote, tip));
+      pane.replaceChildren(h("div", { class: "notes-recent notes-recent-none" }, art, tip));
       return;
     }
     const cards = recent.map((n) => {
@@ -186,7 +201,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       return card;
     });
     pane.replaceChildren(
-      h("div", { class: "notes-recent" }, h("h2", {}, "Pick up where you left off"), h("div", { class: "notes-recent-cards" }, ...cards), h("div", { class: "notes-recent-foot" }, newNote, tip)),
+      h("div", { class: "notes-recent" }, h("h2", {}, "Pick up where you left off"), h("div", { class: "notes-recent-cards" }, ...cards), h("div", { class: "notes-recent-foot" }, tip)),
     );
   };
 
@@ -199,7 +214,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     // On a narrow window the list and the note take turns; this goes back to the list.
     const back = h("button", { class: "link-btn note-back" }, "← Notes");
     back.addEventListener("click", async () => {
-      if (await save()) closeNote();
+      if (await keep()) closeNote();
     });
     const parts: Node[] = [back];
     if (n.tasks.length) {
@@ -227,44 +242,31 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     const popOut = h("button", { class: "link-btn note-pop-out", title: "Keep it in view in a small window of its own" }, "Pop out");
     popOut.addEventListener("click", async () => {
       // Saved first, so the window opens on what's typed.
-      if (await save()) act.popOut(n.id);
+      if (await keep()) act.popOut(n.id);
     });
+    // Deleted at once, as a task is: Undo (or Ctrl+Z) brings it back until the next delete, or
+    // Notes is left. Its tasks keep their link until then.
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
-    del.addEventListener("click", () => {
-      // Asked already: pressing again points at the question rather than asking twice.
-      const asking = pane.querySelector<HTMLElement>(".note-confirm");
-      if (asking) {
-        asking.querySelector<HTMLButtonElement>(".btn")?.focus();
-        return;
-      }
-      const yes = h("button", { class: "btn danger" }, "Delete");
-      const keep = h("button", { class: "link-btn note-keep" }, "Keep");
-      const confirm = h("div", { class: "note-confirm", role: "alert" }, h("span", {}, `Delete “${n.title}”? Tasks attached to it lose the link.`), yes, keep);
-      // Kept: the question goes, and the keyboard goes back to Delete where it was.
-      const dismiss = () => {
-        confirm.remove();
-        del.focus();
-      };
-      keep.addEventListener("click", dismiss);
-      confirm.addEventListener("keydown", (e) => {
-        if (e.key !== "Escape") return;
-        // The question's own Esc: it doesn't also close what's behind it.
-        e.stopPropagation();
-        dismiss();
+    del.addEventListener("click", async () => {
+      // What's typed is kept first, so Undo brings back all of it.
+      await save();
+      const at = notes.findIndex((x) => x.id === n.id);
+      const neighbour = notes[at + 1] ?? notes[at - 1];
+      noteUndo.offer({
+        what: n.title,
+        finish: () => {
+          deletingNote = null;
+          void act.remove(n.id).then(() => load().then(drawList));
+        },
+        undo: () => {
+          deletingNote = null;
+          void load().then(() => view.open(n.id));
+        },
+        focusAfter: () => (neighbour && [...list.querySelectorAll<HTMLElement>("[data-note]")].find((r) => r.dataset.note === neighbour.id)) || search,
       });
-      yes.addEventListener("click", async () => {
-        if (yes.hasAttribute("disabled")) return;
-        yes.setAttribute("disabled", "");
-        // Nothing typed is saved into a note being deleted.
-        session?.close();
-        await act.remove(n.id);
-        closeNote();
-        await load();
-        drawList();
-      });
-      top.after(confirm);
-      // The keyboard goes to the question, on its safe answer.
-      keep.focus();
+      deletingNote = n.id;
+      notes = notes.filter((x) => x.id !== n.id);
+      closeNote();
     });
     const tools = session ? [session.tools(), session.paper] : [];
     // Writing tools, then the note's own: Pop out and Pin, and apart from them Delete.
@@ -275,7 +277,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   const view: NotesView = {
     open: async (id) => {
-      if (!(await save())) return;
+      if (!(await keep())) return;
       let n = notes.find((x) => x.id === id);
       if (!n) {
         search.value = "";
@@ -320,6 +322,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     flush: async () => {
       await save();
     },
+    create: () => createNote(),
+    finishDelete: () => noteUndo.finish(),
   };
 
   search.addEventListener("input", async () => {

@@ -302,6 +302,22 @@ On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's 
    "groceries"); Ledger stays closed. The ring's New note does the same. In the palette, `notes`
    leads with "All notes in a small window"; on a note's row, Ctrl+Enter (⌘+Enter) pops it out.
 
+## Ledger, safer and keyboard-first
+
+On Windows, a Mac and Linux. No focus session involved.
+
+1. **Undo.** Delete a task from its panel. *Expect:* it's gone, "Deleted “…” · Undo" above the list
+   with the keyboard on Undo; Ctrl+Z (⌘Z) brings it back. Delete two in a row: the first is deleted
+   for good. Delete a note: no question, the same Undo line above the notes list. Leaving the view
+   makes a waiting delete final; the keyboard lands on the next task or the search, never nowhere.
+2. **Panel.** Scroll down a long list and open a task. *Expect:* the panel opens beside it, the card
+   lit, the keyboard in its title; Esc puts it back on the task.
+3. **Keys.** Ctrl+1/2/3 switch views; ↑/↓ move along the tabs; Ctrl+N focuses Add a task (in Notes,
+   starts a note); / jumps to the add field or the notes' search.
+4. **Priority.** Ordinary tasks have no mark, High a filled amber dot, Low a faint ring.
+5. **A failing save** (hard to cause by hand; skip unless the database is busy): the footer turns
+   orange, Copy text appears, and opening another note says why it's staying.
+
 ## Ledger notes, looking finished
 
 1. **None open.** In Notes with no note open. *Expect:* "Pick up where you left off" with the three
