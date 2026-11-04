@@ -79,6 +79,19 @@
           <div id="ring-items"></div>
         </section>
 
+        <section class="block" id="virustotal-settings">
+          <h2>VirusTotal</h2>
+          <p class="muted">Check files, links and hashes from the palette: type <kbd>scan</kbd> or <kbd>vt</kbd>. A file is looked up by its fingerprint; it's uploaded only if you choose to.</p>
+          <div class="row-buttons">
+            <label class="field">
+              API key
+              <input type="password" class="filter" id="vt-key" autocomplete="off" spellcheck="false" placeholder="Paste your key" />
+            </label>
+            <button class="btn" id="vt-test">Test key</button>
+          </div>
+          <p class="muted" id="vt-note" aria-live="polite">Kept on this computer only, never synced. Free from virustotal.com → your profile → API key.</p>
+        </section>
+
         <section class="block">
           <h2 id="autostart-title">Start with Windows</h2>
           <label class="toggle">

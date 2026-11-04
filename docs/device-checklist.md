@@ -319,6 +319,25 @@ On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's 
    again opens the week in Chrono. Arrow to another row. *Expect:* the chart goes.
 2. Type `yesterday` and `focus 25`. *Expect:* their cards show as the row is selected, as before.
 
+## VirusTotal
+
+On Windows, a Mac and Linux. Needs a free key from virustotal.com → profile → API key.
+
+1. **Key.** Settings → VirusTotal: paste the key and press Test key. *Expect:* "✓ Works…". The field
+   then shows "Saved…", never the key. A wrong key says VirusTotal didn't accept it.
+2. **No key.** Remove it (clear the field), then type `scan` in the palette. *Expect:* the window says
+   to add a key, with a button to Kairo's settings.
+3. **A known file.** With the key back, drop any installer from Downloads on the scan window.
+   *Expect:* "Checking…", then "● N of M engines flag it" and Full report ↗ opening virustotal.com.
+4. **A hash.** In the palette, `vt 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f`
+   (the harmless EICAR test file). *Expect:* the window opens on it, red, with detection names.
+5. **A link.** Paste `https://example.com` and Check. *Expect:* green, "0 of N".
+6. **An unseen file.** Make a text file with a few random words and drop it. *Expect:* "VirusTotal
+   hasn't seen this file…" with Upload and scan / Not now; nothing is sent until Upload. Upload it.
+   *Expect:* "Scanning…", then a verdict within a minute or two.
+7. **The limit.** Check five things quickly. *Expect:* "VirusTotal's free limit: try again in a
+   minute" rather than a failure.
+
 ## Palette: web search
 
 On Windows, a Mac and Linux. Open the palette.

@@ -24,6 +24,8 @@ const api = vi.hoisted(() => ({
 }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
 vi.mock("./api", () => ({ api }));
+const vt = vi.hoisted(() => ({ hasKey: vi.fn(async () => false), setKey: vi.fn(async () => {}), testKey: vi.fn(async () => {}) }));
+vi.mock("./virustotal-api", () => ({ vt }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async (name: string, fn: (e: { payload: unknown }) => void) => {
     events.set(name, [...(events.get(name) ?? []), fn]);
@@ -125,6 +127,23 @@ describe("the Theme dropdown", () => {
     select.dispatchEvent(new Event("change"));
     expect(api.setAppearance).toHaveBeenCalledWith("light");
     expect(document.documentElement.dataset.theme).toBe("light");
+  });
+});
+
+describe("the VirusTotal key", () => {
+  it("is saved as it's pasted, never shown again, and can be tested", async () => {
+    const key = $<HTMLInputElement>("#vt-key");
+    await vi.waitFor(() => expect(key.placeholder).toBe("Paste your key"));
+    key.value = "  abc123  ";
+    key.dispatchEvent(new Event("change"));
+    await vi.waitFor(() => expect(vt.setKey).toHaveBeenCalledWith("  abc123  "));
+    await vi.waitFor(() => expect(key.value).toBe(""));
+    expect(key.placeholder).toBe("Saved. Paste a new one to change it");
+    $<HTMLButtonElement>("#vt-test").click();
+    await vi.waitFor(() => expect($("#vt-note").textContent).toBe("✓ Works. The free key allows 4 lookups a minute and 500 a day."));
+    vt.testKey.mockRejectedValueOnce("VirusTotal didn't accept the key. Check it in Kairo's settings.");
+    $<HTMLButtonElement>("#vt-test").click();
+    await vi.waitFor(() => expect($("#vt-note").textContent).toBe("VirusTotal didn't accept the key. Check it in Kairo's settings."));
   });
 });
 

@@ -17,6 +17,8 @@ mod goals;
 mod ledger;
 mod lists;
 mod note_window;
+mod scan_window;
+mod small_window;
 mod notebook;
 mod notes;
 mod nudge;
@@ -33,6 +35,7 @@ mod startup;
 mod sync;
 mod tasks;
 mod updater;
+mod virustotal;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -320,7 +323,7 @@ pub fn run() {
             palette::web::on_window_event(window, event);
             #[cfg(not(windows))]
             ring::web::on_window_event(window, event);
-            if matches!(event, tauri::WindowEvent::Destroyed) && (window.label() == WINDOW || window.label() == note_window::LABEL) {
+            if matches!(event, tauri::WindowEvent::Destroyed) && [WINDOW, note_window::LABEL, scan_window::LABEL].contains(&window.label()) {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
                 let windows = app.webview_windows();
@@ -445,6 +448,17 @@ pub fn run() {
             commands::popped_note,
             commands::note_on_top,
             commands::set_note_on_top,
+            scan_window::open_scan,
+            scan_window::scan_take,
+            virustotal::vt_has_key,
+            virustotal::set_vt_key,
+            virustotal::test_vt_key,
+            virustotal::vt_check_file,
+            virustotal::vt_check,
+            virustotal::vt_upload,
+            virustotal::vt_follow,
+            virustotal::vt_pick_file,
+            virustotal::vt_open_report,
             commands::ring_settings,
             commands::set_ring_shortcut,
             commands::set_ring_items,
@@ -602,7 +616,7 @@ fn shows(current: &tauri::Url, page: Page) -> bool {
 
 /// Whether Kairo belongs in the Dock: while its window or a popped-out note is open.
 fn keep_in_dock(open: &[&str]) -> bool {
-    open.contains(&WINDOW) || open.contains(&note_window::LABEL)
+    [WINDOW, note_window::LABEL, scan_window::LABEL].iter().any(|w| open.contains(w))
 }
 
 /// Brings up Chrono in Kairo's window.
@@ -762,5 +776,6 @@ mod tests {
         assert!(!keep_in_dock(&[]));
         assert!(keep_in_dock(&["note"]));
         assert!(keep_in_dock(&["note", "palette"]));
+        assert!(keep_in_dock(&["scan"]));
     }
 }

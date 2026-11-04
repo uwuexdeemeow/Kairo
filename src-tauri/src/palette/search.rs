@@ -299,6 +299,8 @@ pub enum Action {
     NewNote(String),
     /// Opens a note in the pop-out window, by id; none for the list of notes.
     PopOutNote(Option<String>),
+    /// Opens the VirusTotal scan window, looking up this link or hash when there is one.
+    Scan(Option<String>),
     /// Ticks a task off, by id.
     FinishTask(String),
     /// Opens a web address in the default browser.
@@ -682,6 +684,18 @@ fn note_rows(ctx: &Context, rest: &str) -> Vec<Item> {
         .collect()
 }
 
+/// `vt`, `scan` or `virustotal` and a link or hash: that, looked up as the scan window opens.
+/// Anything else after them is an ordinary search.
+fn scan_item(query: &str) -> Option<Item> {
+    let q = query.trim();
+    let rest = ["virustotal ", "vt ", "scan "].iter().find_map(|p| after(q, p)).map(str::trim)?;
+    crate::virustotal::classify(rest)?;
+    let mut item = Item::new(format!("Check “{rest}” on VirusTotal"), Icon::Glyph(Glyph::Search, Tone::Accent), "Actions", Action::Scan(Some(rest.to_string())));
+    item.sub = Some("In the scan window".into());
+    item.score = 1000.0;
+    Some(item)
+}
+
 /// Ledger's notes shown for any query, at most this many.
 const MAX_NOTES: usize = 3;
 
@@ -894,6 +908,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     }
     items.extend(task_items(ctx, query));
     items.extend(note_items(ctx, query));
+    items.extend(scan_item(query));
     items.extend(window_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
     match split_period(query) {
@@ -956,7 +971,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 9] = [
+    let actions: [(&str, String, Glyph, Action, bool); 10] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
@@ -966,6 +981,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
         ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
+        ("virustotal vt virus malware", "Scan with VirusTotal".into(), Glyph::Search, Action::Scan(None), true),
     ];
     for (words, title, glyph, action, offered) in actions {
         if !offered {
@@ -1374,6 +1390,21 @@ mod tests {
         assert_eq!(row.sub.as_deref(), Some("In a small window"));
         assert_eq!(search(&c, "new note x")[0].action, Action::NewNote("x".into()));
         assert_eq!(search(&c, "create note x")[0].action, Action::NewNote("x".into()));
+    }
+
+    #[test]
+    fn virustotal_opens_the_scan_window() {
+        let c = ctx();
+        for q in ["virustotal", "vt", "scan"] {
+            assert!(search(&c, q).iter().any(|i| i.action == Action::Scan(None)), "{q}");
+        }
+        // A link or hash after it is looked up as the window opens.
+        let row = &search(&c, "scan https://example.com")[0];
+        assert_eq!((row.title.as_str(), &row.action), ("Check “https://example.com” on VirusTotal", &Action::Scan(Some("https://example.com".into()))));
+        let hash = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
+        assert_eq!(search(&c, &format!("vt {hash}"))[0].action, Action::Scan(Some(hash.into())));
+        // Anything else after "scan" is an ordinary search.
+        assert!(!search(&c, "scan document").iter().any(|i| matches!(i.action, Action::Scan(Some(_)))));
     }
 
     #[test]

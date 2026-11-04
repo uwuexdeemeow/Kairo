@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type Linking, type SyncState } from "./api";
 import { mountRingEditor } from "./ring-editor";
+import { vt } from "./virustotal-api";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
@@ -219,7 +220,33 @@ async function codeAction(run: () => Promise<Linking>) {
 }
 
 /// Attaches every handler once.
+/// The VirusTotal key: saved as it's pasted, and tried on request.
+function wireVirusTotal() {
+  const key = $<HTMLInputElement>("#vt-key");
+  const note = $("#vt-note");
+  key.addEventListener("change", async () => {
+    try {
+      await vt.setKey(key.value);
+      note.textContent = key.value.trim() ? "Saved. Test key checks that VirusTotal accepts it." : "Key removed.";
+      key.placeholder = key.value.trim() ? "Saved. Paste a new one to change it" : "Paste your key";
+      key.value = "";
+    } catch (err) {
+      note.textContent = String(err);
+    }
+  });
+  $("#vt-test").addEventListener("click", async () => {
+    note.textContent = "Testing…";
+    try {
+      await vt.testKey();
+      note.textContent = "✓ Works. The free key allows 4 lookups a minute and 500 a day.";
+    } catch (err) {
+      note.textContent = String(err);
+    }
+  });
+}
+
 export function wireKairoSettings(): void {
+  wireVirusTotal();
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
     $("#autostart-title").textContent = "Open at login";
@@ -373,6 +400,8 @@ export async function loadKairoSettings(): Promise<void> {
   $<HTMLSelectElement>("#appearance").value = await api.appearance();
   const palette = await api.paletteSettings();
   showShortcut(PALETTE, palette.shortcut);
+  // The key itself never comes back to the page: only whether one is saved.
+  $<HTMLInputElement>("#vt-key").placeholder = (await vt.hasKey().catch(() => false)) ? "Saved. Paste a new one to change it" : "Paste your key";
   const ring = await api.ringSettings();
   showShortcut(RING, ring.shortcut);
   mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });

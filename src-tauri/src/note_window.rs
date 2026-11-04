@@ -1,12 +1,11 @@
 //! A Ledger note popped out into a small window of its own, to keep in view beside other apps,
 //! or the list of notes to pick one from. One note at a time: popping out another switches the
-//! window to it. Like Kairo's window, it
-//! isn't kept while closed, since its web view is most of what it costs.
+//! window to it. Made and shown as Kairo's other small windows are (`small_window`).
 
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::AppState;
 
@@ -53,79 +52,18 @@ pub(crate) fn set_on_top(app: &AppHandle, on: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// What popping out a note does, given whether the window is already open.
-#[derive(Debug, PartialEq)]
-enum Pop {
-    /// Tell the open window's page to switch to the note.
-    Switch,
-    /// Make the window; its page asks which note once loaded.
-    Open,
-}
-
-fn pop_for(window_open: bool) -> Pop {
-    if window_open {
-        Pop::Switch
-    } else {
-        Pop::Open
-    }
-}
-
 /// Shows the note `id` in the pop-out window, or the list of notes for none, making the window if
 /// it's closed.
 pub(crate) fn pop_out(app: &AppHandle, id: Option<&str>) {
     *POPPED.lock().unwrap_or_else(|e| e.into_inner()) = id.map(str::to_string);
-    crate::in_dock(app, true);
-    match pop_for(app.get_webview_window(LABEL).is_some()) {
-        Pop::Switch => {
-            let _ = app.emit_to(LABEL, "kairo:note-open", id);
-            if let Some(window) = app.get_webview_window(LABEL) {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }
-        Pop::Open => {
-            // As with Kairo's window: made on a thread of its own, since making a web view from
-            // inside one of Windows' callbacks can hang.
-            if !crate::begin_opening(LABEL) {
-                return;
-            }
-            let app = app.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = open(&app) {
-                    eprintln!("cannot pop out the note: {e}");
-                }
-                crate::end_opening(LABEL);
-            });
-        }
-    }
-}
-
-fn open(app: &AppHandle) -> tauri::Result<()> {
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("note.html".into()))
-        .title("Note")
-        .inner_size(360.0, 480.0)
-        .min_inner_size(260.0, 200.0)
-        .always_on_top(on_top(app))
-        .disable_drag_drop_handler()
-        .visible(false)
-        .build()?;
-    let mode = app
-        .try_state::<AppState>()
-        .and_then(|state| state.db.lock().ok().and_then(|conn| crate::appearance::get(&conn).ok()))
-        .unwrap_or_default();
-    crate::appearance::apply_to(&window, &mode);
-    window.show()?;
-    window.set_focus()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_open_window_switches_a_closed_one_opens() {
-        assert_eq!(pop_for(true), Pop::Switch);
-        assert_eq!(pop_for(false), Pop::Open);
-    }
+    let spec = crate::small_window::Spec {
+        label: LABEL,
+        file: "note.html",
+        title: "Note",
+        size: (360.0, 480.0),
+        min: (260.0, 200.0),
+        on_top: on_top(app),
+        takes_files: false,
+    };
+    crate::small_window::show(app, spec, "kairo:note-open", id);
 }
