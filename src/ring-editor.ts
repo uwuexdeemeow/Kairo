@@ -134,7 +134,15 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
     drawRing(preview, new Ring(on, 0), { names: on.map(nameOf), lines: on.map(() => ""), focusRunning: false });
   };
 
-  reset.addEventListener("click", () => void save([...DEFAULT]));
+  // Reset puts back Kairo's own order, and offers yours back for a moment.
+  reset.addEventListener("click", async () => {
+    const yours = [...settings.items];
+    await save([...DEFAULT]);
+    if (yours.join() === DEFAULT.join()) return;
+    const undo = h("button", { class: "link-btn ring-undo" }, "Undo");
+    undo.addEventListener("click", () => void save(yours));
+    limit.replaceChildren("Reset to Kairo's order · ", undo);
+  });
   draw();
   return {
     update: (s) => {

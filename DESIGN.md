@@ -205,7 +205,7 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 - **Each app's ink** (Chrono's lake blue, Ledger's leather amber, the palette's violet, Kairo's pewter): set as `--app` by the window it belongs to, and used for primary buttons, links, focus outlines, selection, the active tab, the lit calendar day and the palette's bubble. Light mode uses the deeper of each pair so it holds its contrast on paper.
 
 ### Secondary
-- **Ribbon Gold** (`ribbon-gold`): Ledger's ribbon, a pinned note, medium priority, and the lit stretch of Kairo's own ring mark. Decoration and marks only, never text.
+- **Ribbon Gold** (`ribbon-gold`): Ledger's ribbon, a pinned note, and the lit stretch of Kairo's own ring mark. Decoration and marks only, never text. (Medium priority, every task's to begin with, wears no mark: High is a filled dot in Ledger's ink, Low a faint ring.)
 
 ### Neutral
 - **Deep Ink / Ink Sheet** (`ink-deep`, `ink-sheet`): the dark ground and its raised sheets.
@@ -250,7 +250,7 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 
 ## Layout
 
-App windows are a 200px sidebar (wordmark, sections, Settings at the foot) beside a scrolling page of at most 1040px, padded 28px on top and 40px at the sides. Windows open at 1120 by 780 and never go below 720 by 520, so every view must fit at that size without sideways scrolling. Ledger's task details slide in as a sheet over the right of the list. The palette and the ring are small floating windows of their own (640 to 680px and 300 by 210px).
+App windows are a 200px sidebar (wordmark, sections, Settings at the foot) beside a scrolling page of at most 1040px; Kairo's dashboard is the one without a sidebar, its Home and Settings tabs in the page head, since it is Kairo's way into the apps rather than an app itself. Pages are padded 28px on top and 40px at the sides. Windows open at 1120 by 780 and never go below 720 by 520, so every view must fit at that size without sideways scrolling. Ledger's task details slide in as a sheet over the right of the list. The palette and the ring are small floating windows of their own (640 to 680px and 300 by 210px).
 
 ## Elevation & Depth
 

@@ -4,7 +4,7 @@
 use std::thread;
 use std::time::Duration;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_updater::UpdaterExt;
 
@@ -61,7 +61,10 @@ async fn install_latest(app: &AppHandle) -> tauri_plugin_updater::Result<()> {
     app.restart()
 }
 
+/// Says it as a notification, and to Kairo's settings, whose Updates section shows it beside
+/// "Check for updates" so the answer lands where it was asked.
 fn notify(app: &AppHandle, title: &str, body: &str) {
+    let _ = app.emit("kairo:update", format!("{title}. {body}"));
     if let Err(e) = app.notification().builder().title(title).body(body).show() {
         eprintln!("updater: cannot notify: {e}");
     }

@@ -98,6 +98,10 @@ describe("arranging the ring", () => {
     root.querySelector<HTMLButtonElement>(".ring-reset")!.click();
     await vi.waitFor(() => expect(act.save).toHaveBeenLastCalledWith([...DEFAULT]));
     expect(onRing()).toEqual([...DEFAULT]);
+    // Your own order can come back.
+    await vi.waitFor(() => expect(root.querySelector(".ring-limit")!.textContent).toBe("Reset to Kairo's order · Undo"));
+    root.querySelector<HTMLButtonElement>(".ring-undo")!.click();
+    await vi.waitFor(() => expect(act.save).toHaveBeenLastCalledWith(["week", "notes", "pause"]));
   });
 
   it("sets Focus's length beside its row", async () => {

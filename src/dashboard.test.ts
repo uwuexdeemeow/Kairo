@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   openLedger: vi.fn(),
   openRing: vi.fn(),
   resumeTracking: vi.fn(async () => {}),
+  setTaskDone: vi.fn(async () => []),
   ringSettings: vi.fn(),
   tasks: vi.fn(),
   appearance: vi.fn(),
@@ -74,8 +75,10 @@ describe("Home", () => {
     expect(document.querySelector("[aria-live]#app-tiles, #app-tiles [aria-live]")).toBeNull();
   });
 
-  it("starts the keyboard on the first tile", async () => {
+  it("starts the keyboard on the first tile when nothing is due", async () => {
+    api.tasks.mockResolvedValue([]);
     await open();
+    await vi.waitFor(() => expect($("#today-list").textContent).toContain("Nothing due today"));
     expect(document.activeElement).toBe($('[data-app="chrono"] .app-open'));
   });
 
@@ -182,6 +185,32 @@ describe("Today", () => {
     expect(api.tasks).toHaveBeenCalledTimes(1);
   });
 
+  it("ticks a task off from Home, and says where the task opens", async () => {
+    api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "today", remindMs: null }]);
+    await open();
+    await vi.waitFor(() => expect(titles()).toEqual(["Essay"]));
+    // Opened on Home, the keyboard starts on today's first task, before the tiles.
+    expect(document.activeElement).toBe($("#today-list .today-task"));
+    expect($("#today-list .today-task").getAttribute("aria-label")).toBe("Open “Essay” in Ledger");
+    api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "done", remindMs: null }]);
+    $<HTMLButtonElement>("#today-list .today-tick").click();
+    await vi.waitFor(() => expect(api.setTaskDone).toHaveBeenCalledWith("a", true));
+    await vi.waitFor(() => expect($("#today-list").textContent).toBe("Nothing due today. Add a task"));
+  });
+
+  it("lets the greeting say how the day stands", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 5, 18, 0));
+    try {
+      api.tasks.mockResolvedValue([{ id: "b", title: "Bank", group: "overdue", remindMs: null }]);
+      await open();
+      // Not "nearly done." at six with something overdue.
+      await vi.waitFor(() => expect($("#dash-title em").textContent).toBe("1 overdue."));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says when nothing is due, with a way to add something", async () => {
     api.tasks.mockResolvedValue([]);
     await open();
@@ -217,24 +246,20 @@ describe("the app ring's tile", () => {
 describe("App settings", () => {
   const rows = () => [...document.querySelectorAll("#app-settings li")].map((li) => [li.querySelector("strong")!.textContent, li.querySelector("button")!.textContent]);
 
-  it("lists every app with settings: Open for its own screen, Show for a section here", async () => {
+  it("lists the apps whose settings are on their own screen; the palette's and ring's are on this page", async () => {
     await open();
     expect(rows()).toEqual([
       ["Chrono", "Open in Chrono"],
       ["Ledger", "Open in Ledger"],
-      ["Command palette", "Go to it"],
-      ["App ring", "Go to it"],
     ]);
   });
 
-  it("opens Ledger on its settings, and shows the ring's section", async () => {
+  it("opens each app on its settings", async () => {
     await open();
     $<HTMLButtonElement>('[data-settings="ledger"]').click();
     expect(api.openLedger).toHaveBeenCalledWith("settings");
     $<HTMLButtonElement>('[data-settings="chrono"]').click();
     expect(api.openChrono).toHaveBeenCalledWith("settings");
-    $<HTMLButtonElement>('[data-settings="ring"]').click();
-    expect(document.activeElement?.id).toBe("ring-record");
   });
 });
 

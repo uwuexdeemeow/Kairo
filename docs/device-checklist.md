@@ -341,6 +341,33 @@ On Windows, a Mac and Linux, in both themes. No focus session involved: don't pr
     2: "Between 5 and 240 minutes" beside the field, the old value back.
 11. **Checkboxes** (ring editor, switches) show an outline in the app's colour under the keyboard.
 
+## Ledger and dashboard, fourth critique round
+
+On Windows, a Mac and Linux, in both themes. Steps 1 and 2 start a focus session that blocks apps:
+do them only on a test copy, never on Kairo you're working in.
+
+1. **Stop by keyboard** (test copy). Start a focus from a task, then with the keyboard: Tab to the
+   list, → on the running task. *Expect:* Stop has the keyboard; Enter stops it. With strict mode
+   on, Stop says "Strict mode: Stop works again in 30 s", counting down, then "press Stop again".
+2. **The panel** (test copy). Open a task. *Expect:* "Mark done" and "▶ Focus 25 min" under the
+   title, "Blocks distracting apps" under them; while it runs, "Stop focusing". No × beside "No due
+   day". The panel opens level with its card.
+3. **Start's words.** Hover ▶ 25m. *Expect:* "Focus 25 min: blocks distracting apps".
+4. **Ledger's top.** Find a task sits beside the Tasks title (Tasks only). The hint under Add a
+   task shows only while adding; "Shorthand and keys" is under the list.
+5. **Notes.** Delete on a note in the list deletes it (Undo brings it back). The buttons read "All
+   notes in a window" and "This note in a window".
+6. **Home.** With a task due: the keyboard starts on it; a round tick beside it ticks it off. At
+   18:00 with something overdue, the greeting says "Good evening, 1 overdue." The palette tile
+   never suggests "focus 25".
+7. **Settings.** Your apps lists Chrono and Ledger only. Type "theme" in Find and press Enter: the
+   theme dropdown gets the keyboard. Sections sit closer together.
+8. **Ring.** Reorder it, press Reset. *Expect:* "Reset to Kairo's order · Undo"; Undo puts yours
+   back. While the ring editor has the keyboard, changing a setting from the palette doesn't take
+   the keyboard out of it.
+9. **Updates.** Press Check for updates. *Expect:* "Checking…", then the answer beside the button
+   as well as in a notification.
+
 ## Ledger and dashboard, third critique round
 
 On Windows, a Mac and Linux, in both themes. No focus session involved: don't press Start.

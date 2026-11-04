@@ -14,6 +14,17 @@ type Recorder = { keys: string; button: string; note: string; saved: string; sav
 
 const PALETTE: Recorder = { keys: "#palette-keys", button: "#palette-record", note: "#palette-note", saved: "", save: (s) => api.setPaletteShortcut(s), opens: "the palette" };
 const RING: Recorder = { keys: "#ring-keys", button: "#ring-record", note: "#ring-note", saved: "", save: (s) => api.setRingShortcut(s), opens: "the app ring" };
+/// An error as the page says it: Kairo's own messages are sentences and show as they are; a
+/// system's raw one says what didn't work first, its detail after.
+export function plain(err: unknown, what: string): string {
+  const text = String(err).trim();
+  const own = /^[A-Z].*[.!?]$/s.test(text) && !/os error|error:|panicked|\{/i.test(text);
+  return own ? text : `Couldn't ${what}. Try again in a moment. (${text})`;
+}
+
+/// The ring's editor, once made.
+let ringEditor: ReturnType<typeof mountRingEditor> | null = null;
+
 /// The row recording now, if one is: only one at a time.
 let recording: Recorder | null = null;
 
@@ -139,7 +150,7 @@ async function recordKeys(e: KeyboardEvent) {
     row.saved = shortcut;
     stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens ${row.opens} from anywhere.`);
   } catch (err) {
-    stopRecording(String(err));
+    stopRecording(plain(err, "save that shortcut"));
   }
 }
 
@@ -150,7 +161,7 @@ async function dataAction(run: () => Promise<string | null>) {
     const said = await run();
     if (said) out.textContent = said;
   } catch (err) {
-    out.textContent = String(err);
+    out.textContent = plain(err, "do that");
   }
 }
 
@@ -259,7 +270,7 @@ async function codeAction(run: () => Promise<Linking>) {
   try {
     showCode(await run());
   } catch (err) {
-    $("#sync-status").textContent = String(err);
+    $("#sync-status").textContent = plain(err, "reach the relay");
   }
 }
 
@@ -275,7 +286,7 @@ function wireVirusTotal() {
       key.placeholder = key.value.trim() ? "Saved. Paste a new one to change it" : "Paste your key";
       key.value = "";
     } catch (err) {
-      note.textContent = String(err);
+      note.textContent = plain(err, "keep the key");
     }
   });
   $("#vt-test").addEventListener("click", async () => {
@@ -284,13 +295,17 @@ function wireVirusTotal() {
       await vt.testKey();
       note.replaceChildren(glyph("check"), "Works. The free key allows 4 lookups a minute and 500 a day.");
     } catch (err) {
-      note.textContent = String(err);
+      note.textContent = plain(err, "test the key");
     }
   });
 }
 
 /// "Find a setting": sections whose words have what's typed stay, the rest and any group left
 /// empty go, and a line says when nothing matches. Esc clears it.
+/// What a setting can be found by: its words, and the names on its controls.
+const wordsOf = (el: HTMLElement) =>
+  `${el.textContent} ${[...el.querySelectorAll("[aria-label], [placeholder]")].map((c) => `${c.getAttribute("aria-label") ?? ""} ${c.getAttribute("placeholder") ?? ""}`).join(" ")}`.toLowerCase();
+
 function wireFind() {
   const find = $<HTMLInputElement>("#settings-find");
   const filter = () => {
@@ -299,9 +314,14 @@ function wireFind() {
     for (const group of document.querySelectorAll<HTMLElement>(".settings-group")) {
       let shown = 0;
       for (const block of group.querySelectorAll<HTMLElement>(".block")) {
-        // A section's words: its text, and the names on its controls.
-        const words = `${block.textContent} ${[...block.querySelectorAll("[aria-label], [placeholder]")].map((c) => `${c.getAttribute("aria-label") ?? ""} ${c.getAttribute("placeholder") ?? ""}`).join(" ")}`.toLowerCase();
-        const match = !q || words.includes(q);
+        // A list of rows (each app's settings) is matched row by row, so "reminder" shows Ledger's
+        // row alone; any other section as a whole.
+        const rows = [...block.querySelectorAll<HTMLElement>(".app-settings > li")];
+        let match: boolean;
+        if (rows.length) {
+          for (const row of rows) row.hidden = !!q && !wordsOf(row).includes(q);
+          match = rows.some((row) => !row.hidden);
+        } else match = !q || wordsOf(block).includes(q);
         block.hidden = !match;
         if (match) shown++;
       }
@@ -312,6 +332,18 @@ function wireFind() {
   };
   find.addEventListener("input", filter);
   find.addEventListener("keydown", (e) => {
+    // Enter goes to the first match: its first control, brought into view.
+    if (e.key === "Enter" && find.value.trim()) {
+      const first = [...document.querySelectorAll<HTMLElement>(".settings-group:not([hidden]) .block:not([hidden])")]
+        .map((b) => [...b.querySelectorAll<HTMLElement>("input, select, button")].find((c) => !b.contains(c.closest("[hidden]")) && !(c as HTMLButtonElement).disabled))
+        .find(Boolean);
+      if (first) {
+        e.preventDefault();
+        first.scrollIntoView?.({ block: "center" });
+        first.focus();
+      }
+      return;
+    }
     if (e.key !== "Escape" || !find.value) return;
     // The field's own Esc: it clears, rather than also closing what's behind it.
     e.stopPropagation();
@@ -364,11 +396,13 @@ export function wireKairoSettings(): void {
     const out = $("#update-status");
     try {
       await api.checkForUpdates();
-      out.textContent = "Checking… the result shows as a notification.";
+      out.textContent = "Checking…";
     } catch (err) {
       out.textContent = `Couldn't check: ${err}`;
     }
   });
+  // The answer comes back here, as well as in a notification.
+  listen<string>("kairo:update", (e) => ($("#update-status").textContent = e.payload));
 
   saves("#autostart-enabled", (on) => api.setAutostart(on), (err) => ($("#autostart-note").textContent = `Couldn't change it: ${err}`));
 
@@ -401,7 +435,7 @@ export function wireKairoSettings(): void {
       out.textContent =
         sync.computers.length > 1 ? "Combined. Other computers' time now shows in Today and Week." : "Set. Choose the same folder on your other computers.";
     } catch (err) {
-      out.textContent = String(err);
+      out.textContent = plain(err, "use that folder");
     }
   });
   $("#sync-link").addEventListener("click", () => codeAction(api.pairStart));
@@ -428,7 +462,7 @@ export function wireKairoSettings(): void {
       renderSync(joined.sync);
       out.textContent = `Linked with ${joined.from}.`;
     } catch (err) {
-      out.textContent = String(err);
+      out.textContent = plain(err, "link with that code");
     }
   });
   // What reaches the other computers asks first, in words, with the safe answer beside it.
@@ -538,7 +572,9 @@ export async function loadKairoSettings(): Promise<void> {
     fill("#ring-keys", async () => {
       const ring = await api.ringSettings();
       showShortcut(RING, ring.shortcut);
-      mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });
+      // Made once, then updated: rebuilt on every reload, it would drop the keyboard from it.
+      if (ringEditor) ringEditor.update(ring);
+      else ringEditor = mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });
     }),
     fill("#autostart-enabled", async () => {
       const auto = await api.autostart();

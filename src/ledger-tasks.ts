@@ -139,7 +139,13 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     } else if (!session) {
       const minutes = act.focusMinutes?.() ?? 25;
       // Its length on it, as well as in words: the session it starts blocks apps for that long.
-      const start = h("button", { class: "task-start", tabindex: "-1", title: `Start a ${minutes}-minute focus`, "aria-label": `Start a ${minutes}-minute focus on ${t.title}` }, glyph("play"), h("span", { class: "task-start-len" }, `${minutes}m`));
+      // Said in full where it can be: it blocks distracting apps, not just a timer.
+      const start = h(
+        "button",
+        { class: "task-start", tabindex: "-1", title: `Focus ${minutes} min: blocks distracting apps`, "aria-label": `Focus ${minutes} minutes on ${t.title}, blocking distracting apps` },
+        glyph("play"),
+        h("span", { class: "task-start-len" }, `${minutes}m`),
+      );
       start.addEventListener("click", () => act.start(t.id));
       el.append(start);
     }
@@ -189,7 +195,7 @@ export function renameField(name: string, className: string, save: (text: string
 const drawn = new WeakMap<HTMLElement, string>();
 
 /// The controls on a card the keyboard can be on, by what they are.
-const CONTROLS = ["input[type=checkbox]", ".task-title", ".task-start"];
+const CONTROLS = ["input[type=checkbox]", ".task-title", ".task-start", ".task-stop"];
 
 /// Where the keyboard is in the list: which task, which of its controls, and the open tasks after
 /// it in order, to go to one of if this one has gone.
@@ -231,7 +237,7 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
   // The same field, put back: what's typed in it, and the caret, stay through a redraw.
   const typing = document.activeElement === add;
   const doneOpen = root.querySelector<HTMLDetailsElement>("details.task-done")?.open ?? false;
-  const parts: Node[] = [add, preview, spoken, help];
+  const parts: Node[] = [add, preview, spoken];
   if (!tasks.length && query) parts.push(h("p", { class: "muted ledger-empty", role: "status" }, `No tasks match “${query}”. Esc clears the search.`));
   else if (!tasks.length) {
     const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
@@ -251,7 +257,8 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
     parts.push(folded);
   }
   const caret = typing ? [add.selectionStart, add.selectionEnd] : null;
-  parts.push(h("p", { id: "task-keys", class: "sr-only" }, "Up and down arrows move between tasks. Space ticks, Enter opens, F2 renames, Delete deletes, right arrow reaches Start."));
+  // The shorthand and keys, folded, after the list: help for when it is wanted, not in the way.
+  parts.push(help, h("p", { id: "task-keys", class: "sr-only" }, "Up and down arrows move between tasks. Space ticks, Enter opens, F2 renames, Delete deletes, right arrow reaches Start or Stop."));
   root.replaceChildren(...parts);
   // The list is one Tab stop: the task the keyboard was last on, or the first.
   const titles = [...root.querySelectorAll<HTMLElement>("[data-task] .task-title")];
@@ -292,8 +299,10 @@ function listKeys(root: HTMLElement, act: LedgerActions) {
     else if (e.key === " " && el.classList.contains("task-title")) card.querySelector<HTMLInputElement>("input[type=checkbox]")?.click();
     else if (e.key === "F2") renamers.get(card)?.();
     else if (e.key === "Delete") act.remove(id);
-    else if (e.key === "ArrowRight") card.querySelector<HTMLElement>(".task-start")?.focus();
-    else if (e.key === "ArrowLeft" && el.classList.contains("task-start")) card.querySelector<HTMLElement>(".task-title")?.focus();
+    // Right reaches Start, or Stop on the running task: a session started from here can always be
+    // ended from here, by keyboard too.
+    else if (e.key === "ArrowRight") card.querySelector<HTMLElement>(".task-start, .task-stop")?.focus();
+    else if (e.key === "ArrowLeft" && el.matches(".task-start, .task-stop")) card.querySelector<HTMLElement>(".task-title")?.focus();
     else return;
     e.preventDefault();
   });
@@ -362,7 +371,7 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
       h("dt", {}, "↑ ↓  Space  Enter"),
       h("dd", {}, "Move between tasks, tick one, open it"),
       h("dt", {}, "F2  Delete  →"),
-      h("dd", {}, "Rename, delete (Ctrl+Z brings it back), reach Start"),
+      h("dd", {}, "Rename, delete (Ctrl+Z brings it back), reach Start or Stop"),
       h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3"),
       h("dd", {}, "New task, find, switch views"),
     ),
@@ -442,7 +451,7 @@ function noteRow(t: Task, act: LedgerActions, notes: NoteName[]): HTMLElement {
 
 /// Draws the detail panel for `t`: title, due day, priority, exact reminder, note, focus time,
 /// Delete. `notes` names the notes it can be attached to.
-export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = []): void {
+export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = [], session: RunningSession = null): void {
   const title = h("input", { class: "filter detail-title", maxlength: "80", "aria-label": "Title" }) as HTMLInputElement;
   title.value = t.title;
   const saveTitle = () => {
@@ -455,9 +464,31 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   });
   title.addEventListener("blur", saveTitle);
 
+  // What a task is for, done from its panel too: tick it, or focus on it (or stop focusing).
+  const done = t.group === "done";
+  const tick = h("button", { class: "btn detail-done" }, glyph("check"), done ? "Reopen" : "Mark done");
+  tick.addEventListener("click", () => act.done(t.id, !done));
+  const actions: Node[] = [tick];
+  if (!done && session && session.task === t.id) {
+    const left = session.endsMs ? ` · ${minutesLeft(session.endsMs, Date.now())}m left` : "";
+    const stop = h("button", { class: "btn detail-stop" }, "Stop focusing");
+    stop.addEventListener("click", () => act.stop?.());
+    actions.push(stop, h("span", { class: "muted detail-now" }, `Focusing now${left}`));
+  } else if (!done && !session) {
+    const minutes = act.focusMinutes?.() ?? 25;
+    const start = h("button", { class: "btn detail-start", title: "Blocks distracting apps while it runs" }, glyph("play"), `Focus ${minutes} min`);
+    start.addEventListener("click", () => act.start(t.id));
+    actions.push(start, h("span", { class: "muted detail-now" }, "Blocks distracting apps"));
+  }
+
   const due = dayButton("Due day", t.dueDay, "No due day", (iso) => act.plan(t.id, iso, t.priority, t.remindMs));
-  const clearDue = h("button", { class: "link-btn clear-due", "aria-label": "Clear due day", title: "Clear due day" }, glyph("close"));
-  clearDue.addEventListener("click", () => act.plan(t.id, null, t.priority, t.remindMs));
+  // Clearing is offered only when there's a day to clear.
+  const dueParts: Node[] = [due];
+  if (t.dueDay) {
+    const clearDue = h("button", { class: "link-btn clear-due", "aria-label": "Clear due day", title: "Clear due day" }, glyph("close"));
+    clearDue.addEventListener("click", () => act.plan(t.id, null, t.priority, t.remindMs));
+    dueParts.push(clearDue);
+  }
 
   const priorities = h("div", { class: "range", role: "group", "aria-label": "Priority" });
   for (const p of [2, 1, 0]) {
@@ -507,7 +538,8 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   const at = controls().indexOf(document.activeElement as HTMLElement);
   root.replaceChildren(
     h("div", { class: "detail-head" }, title, close),
-    h("div", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
+    h("div", { class: "detail-actions" }, ...actions),
+    h("div", { class: "detail-field" }, h("span", {}, "Due"), ...dueParts),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
     h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
     noteRow(t, act, notes),

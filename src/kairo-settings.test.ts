@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   autostart: vi.fn(),
   setAutostart: vi.fn(),
   setPaletteSuggestions: vi.fn(),
+  checkForUpdates: vi.fn(async () => {}),
 }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
 vi.mock("./api", () => ({ api }));
@@ -308,6 +309,23 @@ describe("combining computers", () => {
   });
 });
 
+describe("errors in plain words", () => {
+  it("shows Kairo's own messages as they are, and says what failed before a raw one", () => {
+    expect(settings.plain("That code has expired. Make a new one.", "link")).toBe("That code has expired. Make a new one.");
+    expect(settings.plain("Access is denied. (os error 5)", "use that folder")).toBe("Couldn't use that folder. Try again in a moment. (Access is denied. (os error 5))");
+    expect(settings.plain("network unreachable", "reach the relay")).toBe("Couldn't reach the relay. Try again in a moment. (network unreachable)");
+  });
+});
+
+describe("checking for updates", () => {
+  it("shows the answer beside the button, not only as a notification", async () => {
+    $("#update-check").click();
+    await vi.waitFor(() => expect($("#update-status").textContent).toBe("Checking…"));
+    for (const fn of events.get("kairo:update") ?? []) fn({ payload: "Kairo is up to date. You have the latest version, 1.31.13." });
+    expect($("#update-status").textContent).toBe("Kairo is up to date. You have the latest version, 1.31.13.");
+  });
+});
+
 describe("finding a setting", () => {
   const find = (q: string) => {
     const field = $<HTMLInputElement>("#settings-find");
@@ -333,6 +351,19 @@ describe("finding a setting", () => {
     expect(field.value).toBe("");
     expect($("#settings-none").hidden).toBe(true);
     expect(visibleSections().length).toBe(9);
+  });
+
+  it("goes to the first match's control on Enter", () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    find("theme");
+    $<HTMLInputElement>("#settings-find").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe($("#appearance"));
+  });
+
+  it("matches each app's row on its own", () => {
+    $("#app-settings").innerHTML = `<li><strong>Chrono</strong> Goals</li><li><strong>Ledger</strong> Reminders</li>`;
+    find("reminder");
+    expect([...document.querySelectorAll<HTMLElement>("#app-settings li")].map((li) => li.hidden)).toEqual([true, false]);
   });
 });
 

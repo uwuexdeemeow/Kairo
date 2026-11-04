@@ -8,6 +8,7 @@ import { useDropdowns } from "./dropdown";
 import { ledgerLine } from "./ledger-tasks";
 import { shown } from "./ring-model";
 import { dialSvg, greeting, logo } from "./logos";
+import { glyph } from "./glyphs";
 import { $, fmtDur, followTheme, h, pct } from "./ui";
 
 // Kairo's dashboard: a tile for each app on Home, and the settings that belong to all of Kairo.
@@ -109,13 +110,16 @@ const APPS: KairoApp[] = [
 ];
 
 /// Things to type in the palette, one shown a day on its tile.
-const TRIES = ["focus 25", "yesterday", "speed test", "scan", "12*7", "this week", "yt lofi beats", "windows"];
+const TRIES = ["yesterday", "speed test", "scan", "12*7", "this week", "yt lofi beats", "windows"];
 
 /// "Try “focus 25”": the palette's tile line for a day, the same all day.
 export function tryToday(d: Date): string {
   const day = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 86_400_000);
   return `Try “${TRIES[((day % TRIES.length) + TRIES.length) % TRIES.length]}”`;
 }
+
+/// Where the keyboard was put on opening Home, until Today has drawn.
+let startedOn: HTMLElement | null = null;
 
 /// Today's tasks, read once per refresh for both Ledger's tile and the Today list.
 let tasksRead: Promise<Task[]> | null = null;
@@ -137,11 +141,43 @@ async function drawToday() {
   const shown = due.slice(0, 5);
   list.replaceChildren(
     ...shown.map((t) => {
-      const open = h("button", { class: "today-task" }, h("span", { class: "today-task-title" }, t.title), t.group === "overdue" ? h("span", { class: "today-late" }, "Overdue") : "");
+      // Ticked off right here, the cheapest thing Home can do; or opened in Ledger.
+      const tick = h("button", { class: "today-tick", "aria-label": `Mark “${t.title}” done`, title: "Mark done" }, glyph("check")) as HTMLButtonElement;
+      tick.addEventListener("click", async () => {
+        tick.disabled = true;
+        try {
+          await api.setTaskDone(t.id, true);
+        } catch {
+          tick.disabled = false;
+          return;
+        }
+        // The keyboard moves on to the next task, or the tiles when none is left.
+        const at = shown.indexOf(t);
+        await refreshLines();
+        const ticks = [...list.querySelectorAll<HTMLElement>(".today-tick")];
+        (ticks[Math.min(at, ticks.length - 1)] ?? document.querySelector<HTMLElement>(".app-open"))?.focus();
+      });
+      const open = h(
+        "button",
+        { class: "today-task", "aria-label": `Open “${t.title}” in Ledger${t.group === "overdue" ? ", overdue" : ""}` },
+        h("span", { class: "today-task-title" }, t.title),
+        t.group === "overdue" ? h("span", { class: "today-late" }, "Overdue") : "",
+      );
       open.addEventListener("click", () => api.openLedger(`task:${t.id}`));
-      return h("li", {}, open);
+      return h("li", { class: "today-item" }, tick, open);
     }),
   );
+  // The greeting's aside says how the day stands, once there's something to say.
+  const overdue = tasks.filter((t) => t.group === "overdue").length;
+  const aside = document.querySelector("#dash-title em");
+  // Late at night it stays "Go easy."
+  const hour = new Date().getHours();
+  if (aside && current === "home" && hour >= 5 && hour < 22) {
+    aside.textContent = overdue ? `${overdue} overdue.` : !due.length ? "all clear." : greeting(hour).aside;
+  }
+  // Opened on Home with the keyboard on the first tile: today's first task comes before it.
+  if (startedOn && document.activeElement === startedOn && shown.length) list.querySelector<HTMLElement>(".today-task")?.focus();
+  startedOn = null;
   if (due.length > shown.length) {
     const more = h("button", { class: "link-btn today-more" }, `${due.length - shown.length} more in Ledger`);
     more.addEventListener("click", () => api.openLedger());
@@ -229,14 +265,13 @@ function drawTiles() {
 
 function drawAppSettings() {
   $("#app-settings").replaceChildren(
-    ...APPS.filter((app) => app.settings).map((app) => {
+    // Only apps whose settings are on their own screen: the palette's and the ring's are sections
+    // of this page, under Palette and ring, and a row only pointing down the page repeats them.
+    ...APPS.filter((app) => app.settings && "open" in app.settings).map((app) => {
       const s = app.settings!;
-      // On its own screen, Open; a section of this page, Show.
-      const here = "show" in s;
-      // Said as where it takes you: into the app, or down this page.
-      const go = h("button", { class: "link-btn", "data-settings": app.id }, here ? "Go to it" : `Open in ${app.name}`);
-      go.setAttribute("aria-label", here ? `Go to ${app.name}'s settings below` : `Open ${app.name}'s settings`);
-      go.addEventListener("click", () => ("show" in s ? jumpTo(s.show) : s.open()));
+      // Said as where it takes you: into the app.
+      const go = h("button", { class: "link-btn", "data-settings": app.id, "aria-label": `Open ${app.name}'s settings` }, `Open in ${app.name}`);
+      go.addEventListener("click", () => "open" in s && s.open());
       return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, s.covers)), go);
     }),
   );
@@ -280,7 +315,11 @@ async function showTab(tab: Tab): Promise<void> {
   else $("#dash-title").textContent = "Settings";
   // The keyboard starts on the tab's first control, not nowhere.
   const into = tab === "home" ? document.querySelector<HTMLElement>(".app-open") : document.querySelector<HTMLElement>("#settings-find");
-  if (into && (!document.activeElement || document.activeElement === document.body)) into.focus({ preventScroll: true });
+  if (into && (!document.activeElement || document.activeElement === document.body)) {
+    into.focus({ preventScroll: true });
+    // Today's first task takes it once drawn, if the keyboard is still here.
+    if (tab === "home") startedOn = into;
+  }
   if (tab === "home") {
     cancelShortcutRecording();
     refreshLines();

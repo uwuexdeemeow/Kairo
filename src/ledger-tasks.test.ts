@@ -105,6 +105,20 @@ describe("the task list's keys", () => {
     expect(document.activeElement).toBe(start);
     key(start, "ArrowLeft");
     expect(document.activeElement).toBe(titleOf("a"));
+    // Start says what it does: it blocks apps, not just a timer.
+    expect(start.getAttribute("aria-label")).toContain("blocking distracting apps");
+  });
+
+  it("reaches Stop on the running task, so a session can be ended by keyboard", () => {
+    renderTaskList(root, [task("a", "Essay")], { task: "a" }, act);
+    titleOf("a").focus();
+    key(titleOf("a"), "ArrowRight");
+    const stop = root.querySelector<HTMLButtonElement>('[data-task="a"] .task-stop')!;
+    expect(document.activeElement).toBe(stop);
+    stop.click();
+    expect(act.stop).toHaveBeenCalled();
+    key(stop, "ArrowLeft");
+    expect(document.activeElement).toBe(titleOf("a"));
   });
 });
 
@@ -404,8 +418,8 @@ describe("the Tasks screen as cards", () => {
     renderTaskList(root, [task("a", "Essay")], null, act);
     const play = root.querySelector<HTMLButtonElement>('[data-task="a"] .task-start')!;
     expect(play.querySelector("svg.glyph-play")).not.toBeNull();
-    expect(play.getAttribute("aria-label")).toBe("Start a 25-minute focus on Essay");
-    expect(play.title).toBe("Start a 25-minute focus");
+    expect(play.getAttribute("aria-label")).toBe("Focus 25 minutes on Essay, blocking distracting apps");
+    expect(play.title).toBe("Focus 25 min: blocks distracting apps");
     play.click();
     expect(act.start).toHaveBeenCalledWith("a");
   });
@@ -454,6 +468,20 @@ describe("the detail panel", () => {
     renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06", remindMs: 5 }), act);
     expect(panel().querySelector(".clear-due")!.getAttribute("aria-label")).toBe("Clear due day");
     expect(panel().querySelector(".clear-remind")!.getAttribute("aria-label")).toBe("Clear reminder");
+  });
+
+  it("ticks the task, and starts or stops its focus, from the panel", () => {
+    renderDetail(panel(), task("a", "Essay"), act);
+    panel().querySelector<HTMLButtonElement>(".detail-done")!.click();
+    expect(act.done).toHaveBeenCalledWith("a", true);
+    expect(panel().querySelector(".detail-now")!.textContent).toBe("Blocks distracting apps");
+    panel().querySelector<HTMLButtonElement>(".detail-start")!.click();
+    expect(act.start).toHaveBeenCalledWith("a");
+    renderDetail(panel(), task("a", "Essay"), act, [], { task: "a" });
+    panel().querySelector<HTMLButtonElement>(".detail-stop")!.click();
+    expect(act.stop).toHaveBeenCalled();
+    // A day to clear is offered only when there is one.
+    expect(panel().querySelector(".clear-due")).toBeNull();
   });
 
   it("offers a reminder rather than showing a time that looks set", () => {

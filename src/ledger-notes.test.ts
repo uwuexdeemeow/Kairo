@@ -263,6 +263,19 @@ describe("renaming a note", () => {
     opener("b").dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true, cancelable: true }));
     expect(root.querySelector<HTMLInputElement>('[data-note="b"] .note-rename')!.value).toBe("Shopping");
   });
+
+  it("deletes the note the keyboard is on with Delete, the keyboard moving to the next", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
+    const a = root.querySelector<HTMLButtonElement>('[data-note="a"] .note-row-open')!;
+    a.focus();
+    a.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
+    expect(root.querySelector(".notes-undo")!.textContent).toBe("Deleted “Plan” · Undo");
+    expect(document.activeElement).toBe(root.querySelector('[data-note="b"] .note-row-open'));
+    expect(act.remove).not.toHaveBeenCalled();
+  });
 });
 
 describe("an open note", () => {

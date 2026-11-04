@@ -3152,10 +3152,11 @@ select,
   max-width: 640px;
 }
 
+/* As Ledger's group names: the small sans label. */
 .today-title {
   margin: 0 0 8px;
-  font: 600 11px var(--mono);
-  letter-spacing: 0.08em;
+  font: 600 11px var(--sans);
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -3167,6 +3168,37 @@ select,
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* A Today task: a tick to finish it here, then its name to open it in Ledger. */
+.today-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.today-tick {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1.5px solid var(--edge);
+  border-radius: 50%;
+  background: none;
+  color: transparent;
+  cursor: pointer;
+  transition: color 140ms var(--ease), border-color 140ms var(--ease);
+}
+
+.today-tick .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.today-tick:hover,
+.today-tick:focus-visible {
+  border-color: var(--ledger);
+  color: var(--ledger);
 }
 
 .today-task {
@@ -3684,8 +3716,6 @@ select,
   transition: opacity 140ms var(--ease), transform 140ms var(--ease);
 }
 
-.task-row:hover .rename-bubble,
-.task-row:focus-within .rename-bubble,
 .note-row:hover .rename-bubble,
 .note-row:focus-within .rename-bubble {
   opacity: 1;
@@ -3834,7 +3864,7 @@ select,
 }
 
 .note-top .link-btn {
-  min-height: 28px;
+  min-height: 32px;
 }
 
 /* The writing tools, then the note's own buttons at the far end, Delete set well apart. */
@@ -5294,7 +5324,7 @@ select,
 
 /* "Shorthand and keys": folded under the add field, a small two-column sheet when open. */
 .task-help {
-  margin: 0 0 12px;
+  margin: 24px 0 0;
   font-size: 12px;
   color: var(--muted);
 }
@@ -5452,13 +5482,60 @@ select,
   color: var(--app);
 }
 
-/* Find a task, over the list, as Notes has its search. */
+/* Find a task, in the page head beside the title: there when wanted, not above the list. */
 .task-find {
   display: block;
-  max-width: 320px;
-  margin: 0 0 12px;
+  width: min(260px, 40%);
+  align-self: flex-end;
 }
 
 .task-find .filter {
   width: 100%;
+}
+
+/* The hint under Add a task shows only while adding: an empty, unfocused field needs none. */
+.task-add:placeholder-shown:not(:focus) ~ .task-preview {
+  display: none;
+}
+
+/* The panel's own actions under its title: tick it, focus on it or stop. */
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detail-actions .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.detail-start {
+  color: var(--ledger);
+}
+
+.detail-stop {
+  color: var(--distracting-ink);
+}
+
+.detail-now {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
+/* Settings' sections sit closer than Chrono's: a long page to scan, not a report to read. */
+.settings-group .block {
+  margin-top: 36px;
+}
+
+/* The first section under a group's name sits right under it. */
+.settings-group-title + .block {
+  margin-top: 16px;
 }

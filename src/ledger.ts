@@ -40,9 +40,12 @@ let noteNames: NoteName[] = [];
 /// the list, and the keyboard in its title.
 function openedPanel(id: string) {
   const panel = $("#task-detail");
+  const view = $("#view-tasks");
   const card = document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"]`);
-  const room = $("#view-tasks").clientHeight - panel.offsetHeight;
-  panel.style.top = card ? `${Math.max(0, Math.min(card.offsetTop - 8, room))}px` : "0px";
+  const room = view.clientHeight - panel.offsetHeight;
+  // Measured against the view the panel is placed in, not the list (which sits lower in it).
+  const at = card ? card.getBoundingClientRect().top - view.getBoundingClientRect().top - view.clientTop : 0;
+  panel.style.top = `${Math.max(0, Math.min(at - 8, room))}px`;
   panel.querySelector<HTMLInputElement>(".detail-title")?.focus();
 }
 
@@ -79,6 +82,7 @@ function say(text: string) {
 /// Runs a task action, saying so if it fails rather than leaving it looking done.
 async function tried(what: string, run: () => Promise<void>) {
   // Cleared first, so what the action itself says (strict mode's wait) stays.
+  window.clearInterval(strictCount);
   say("");
   try {
     await run();
@@ -95,13 +99,35 @@ function draw(list?: Task[]) {
   const panel = $("#task-detail");
   const t = visible.find((x) => x.id === selected);
   // Typing in the panel isn't undone by a redraw from elsewhere.
-  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames);
+  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames, session);
   panel.hidden = !t;
   // The panel slides over the list, which keeps its width.
   $("#view-tasks").classList.toggle("detail-open", !!t);
   if (!t) selected = null;
   $("#count-tasks").textContent = String(visible.filter((x) => x.doneMs === null).length || "");
   if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(visible);
+}
+
+/// Draws the open panel again though it has the keyboard: for what was just done from it.
+function redrawPanel() {
+  const t = shownTasks().find((x) => x.id === selected);
+  if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+}
+
+/// Strict mode's wait before Stop works again, counted down on the status line.
+let strictCount = 0;
+function sayStrictWait(until: number) {
+  window.clearInterval(strictCount);
+  const tick = () => {
+    const left = Math.ceil((until - Date.now()) / 1000);
+    if (left <= 0) {
+      window.clearInterval(strictCount);
+      return say("Strict mode: press Stop again now to end it.");
+    }
+    say(`Strict mode: Stop works again in ${left} s.`);
+  };
+  tick();
+  strictCount = window.setInterval(tick, 1000);
 }
 
 async function refresh() {
@@ -121,11 +147,16 @@ const actions: LedgerActions = {
     say("");
   },
   preview: async (text) => (await api.parseTask(text)).shown,
-  done: (id, done) => tried(done ? "tick it off" : "reopen it", async () => draw(await api.setTaskDone(id, done))),
+  done: (id, done) =>
+    tried(done ? "tick it off" : "reopen it", async () => {
+      draw(await api.setTaskDone(id, done));
+      redrawPanel();
+    }),
   start: (id) =>
     tried("start the focus session", async () => {
       await api.startFocus(sessionMinutes(), undefined, id);
       await refresh();
+      redrawPanel();
     }),
   select: (id) => {
     if (selected === id) return closePanel();
@@ -141,7 +172,7 @@ const actions: LedgerActions = {
       selected = id;
       tasks = list;
       const t = list.find((x) => x.id === id);
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
       draw();
     }),
   remove: (id) => {
@@ -180,9 +211,11 @@ const actions: LedgerActions = {
   stop: () =>
     tried("end the session", async () => {
       const r = await api.controlFocus("stop");
-      // Strict mode holds an early end back a moment; it says when to ask again.
-      if (r.waitUntil) say("Strict mode asks you to wait a moment, then press Stop again to end it.");
+      // Strict mode holds an early end back a little while; how long is counted down.
+      if (r.waitUntil) sayStrictWait(r.waitUntil);
+      else window.clearInterval(strictCount);
       await refresh();
+      redrawPanel();
     }),
   openNote: (id) => void openNote(id),
   attach: (task, note) =>
@@ -191,7 +224,7 @@ const actions: LedgerActions = {
       selected = task;
       tasks = list;
       const t = list.find((x) => x.id === task);
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
       draw();
     }),
   newNoteFor: async (task, title) => {
@@ -269,6 +302,7 @@ function show(view: View) {
   $("#view-tasks").hidden = view !== "tasks";
   $("#view-notes").hidden = view !== "notes";
   $("#view-settings").hidden = view !== "settings";
+  $("#task-find").hidden = view !== "tasks";
   $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", settings: "Settings" }[view];
   $("#ledger-summary").textContent = view === "tasks" ? taskSummary(tasks) : "";
   // A note typed in is kept before another view takes the window.

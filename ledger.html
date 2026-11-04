@@ -40,13 +40,14 @@
             <h1 id="ledger-title">Tasks</h1>
             <p class="ledger-summary muted" id="ledger-summary"></p>
           </div>
+          <!-- Beside the title, out of the list's way; Tasks only. -->
+          <label class="task-find" id="task-find">
+            <span class="sr-only">Find a task</span>
+            <input type="search" class="filter" id="task-search" placeholder="Find a task (/)" autocomplete="off" />
+          </label>
         </section>
 
         <section id="view-tasks" class="view ledger-tasks" role="tabpanel" aria-labelledby="tab-tasks">
-          <label class="task-find">
-            <span class="sr-only">Find a task</span>
-            <input type="search" class="filter" id="task-search" placeholder="Find a task  /" autocomplete="off" />
-          </label>
           <p id="task-undo" class="task-undo" role="status" hidden></p>
           <p id="task-status" class="task-status" role="status"></p>
           <div id="task-list" class="ledger-list"></div>
