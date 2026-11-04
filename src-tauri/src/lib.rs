@@ -611,10 +611,12 @@ fn page_url(current: &tauri::Url, page: Page) -> Option<tauri::Url> {
     current.join(page.file()).ok()
 }
 
-/// Whether the window's address is `page`'s; the bare origin counts as the dashboard.
+/// Whether the window's address is `page`'s. The bare origin is Chrono's index.html: Tauri leaves
+/// "index.html" out of the address of a window made on it, as when Chrono opens Kairo's window.
 fn shows(current: &tauri::Url, page: Page) -> bool {
     let path = current.path().trim_start_matches('/');
-    path == page.file() || (page == Page::Dashboard && path.is_empty())
+    let path = if path.is_empty() { "index.html" } else { path };
+    path == page.file()
 }
 
 /// Whether Kairo belongs in the Dock: while its window or a popped-out note is open.
@@ -768,7 +770,11 @@ mod tests {
         assert_eq!(page_url(&url("tauri://localhost/index.html"), Page::Dashboard).unwrap().as_str(), "tauri://localhost/dashboard.html");
         assert!(shows(&url("http://tauri.localhost/ledger.html"), Page::Ledger));
         assert!(!shows(&url("http://tauri.localhost/ledger.html"), Page::Chrono));
-        assert!(shows(&url("http://tauri.localhost/"), Page::Dashboard));
+        // A window made on index.html (Chrono) gets the bare origin: Tauri drops "index.html" from
+        // the address. It's Chrono, so going to the dashboard from it does navigate.
+        assert!(shows(&url("http://tauri.localhost/"), Page::Chrono));
+        assert!(!shows(&url("http://tauri.localhost/"), Page::Dashboard));
+        assert!(!shows(&url("http://tauri.localhost/"), Page::Ledger));
     }
 
     #[test]
