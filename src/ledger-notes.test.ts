@@ -66,6 +66,30 @@ describe("the notes list", () => {
     expect(root.querySelector(".notes-empty-art .logo-ledger")).not.toBeNull();
   });
 
+  it("says when pinning or starting a note didn't work", async () => {
+    const view = mountNotes(root, act, () => NOW);
+    await settle();
+    await view.open("a");
+    act.pin.mockRejectedValueOnce("database is locked");
+    root.querySelector<HTMLButtonElement>(".note-pin")!.click();
+    await vi.waitFor(() => expect(root.querySelector(".notes-status")!.textContent).toBe("Couldn't unpin it. Try again in a moment."));
+    act.create.mockRejectedValueOnce("database is locked");
+    await view.create();
+    expect(root.querySelector(".notes-status")!.textContent).toBe("Couldn't start a note. Try again in a moment.");
+  });
+
+  it("makes each note a button, with Rename beside it rather than inside", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    const item = root.querySelector('[data-note="a"]')!;
+    expect(item.getAttribute("role")).toBe("listitem");
+    expect(item.hasAttribute("tabindex")).toBe(false);
+    const opener = item.querySelector("button.note-row-open")!;
+    expect(opener.getAttribute("aria-label")).toBe("Plan");
+    expect(opener.querySelector("button")).toBeNull();
+  });
+
   it("searches as you type", async () => {
     mountNotes(root, act, () => NOW);
     await settle();

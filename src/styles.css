@@ -187,7 +187,8 @@ button {
 }
 
 button:focus-visible,
-select:focus-visible {
+select:focus-visible,
+input[type="checkbox"]:focus-visible {
   outline: 2px solid var(--app);
   outline-offset: 2px;
   border-radius: 4px;
@@ -2956,14 +2957,24 @@ select,
   }
 }
 
-/* Each app as what it is, side by side: Chrono's dial, Ledger's notebook, the palette's key. As
-   many to a row as fit, one when the window is narrow. */
+/* Each app as what it is, side by side: Chrono's dial, Ledger's notebook, the palette's key, the
+   ring's arc. All four in a row; two by two in a narrow window, never three and one left over. */
 .app-tiles {
   margin-top: 36px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
-  gap: 28px 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 28px 16px;
   align-items: start;
+}
+
+@media (max-width: 900px) {
+  .app-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.app-tile:nth-child(4) {
+  animation-delay: 180ms;
 }
 
 .app-tile {
@@ -3060,6 +3071,10 @@ select,
 
 .app-tile[data-app="palette"] h2 {
   color: var(--palette);
+}
+
+.app-tile[data-app="ring"] h2 {
+  color: var(--kairo);
 }
 
 .app-tile-what {
@@ -3244,7 +3259,7 @@ select,
 /* A task: tick, dot, title, its chips, then ▶; each its own small card. */
 .task-card {
   display: grid;
-  grid-template-columns: 18px 8px minmax(40%, 1fr) auto 30px;
+  grid-template-columns: 18px 8px minmax(40%, 1fr) auto auto;
   align-items: center;
   column-gap: 10px;
   margin-bottom: 6px;
@@ -3318,16 +3333,16 @@ select,
   white-space: nowrap;
 }
 
-.chip.late {
-  background: color-mix(in srgb, var(--distracting) 16%, transparent);
-  color: var(--distracting-ink);
-}
-
 /* Start focus: a small ▶ that shows under the pointer or the keyboard. */
 .task-start {
   grid-column: 5;
-  width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 30px;
   height: 30px;
+  padding: 0 7px;
   border: 1px solid var(--edge);
   border-radius: 10px;
   background: none;
@@ -3454,11 +3469,6 @@ select,
 .prio-low {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--faint);
-}
-
-.prio-medium {
-  background: transparent;
-  box-shadow: inset 0 0 0 2px var(--ribbon);
 }
 
 .task-day,
@@ -3767,21 +3777,6 @@ select,
   }
 }
 
-.note-confirm {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  /* Inside the sheet, under its toolbar: kept off the sheet's edges. */
-  margin: 10px 12px 0;
-  padding: 8px 12px;
-  border: 1px solid var(--distracting);
-  border-radius: 8px;
-}
-
-.note-confirm > span {
-  flex: 1;
-}
-
 .note-pick {
   display: flex;
   flex-direction: column;
@@ -3989,8 +3984,8 @@ select,
   }
 }
 
-/* Overdue: a small red ribbon hanging from the card's top edge, beside its chips, as a pinned
-   note's gold one hangs from its row. */
+/* Overdue: a small red ribbon hanging from the card's top edge over its tick, where the eye
+   starts the row; the group's heading says it in words, so the date chip stays plain. */
 .task-row.ribbon {
   position: relative;
 }
@@ -3998,10 +3993,10 @@ select,
 .task-row.ribbon::before {
   content: "";
   position: absolute;
-  right: 14px;
+  left: 17px;
   top: -1px;
   width: 8px;
-  height: 18px;
+  height: 12px;
   background: var(--distracting);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
 }
@@ -4926,13 +4921,11 @@ select,
 }
 
 /* Where the keyboard is in Notes: a row, and the sheet being written on. */
-.note-row:focus-visible {
-  outline: 2px solid var(--app);
-  outline-offset: 2px;
-}
+
 
 .note-pane .note-body:focus-within {
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--app) 60%, transparent);
+  /* Full ink: at 60% it fell under 3:1 on the light sheet. */
+  box-shadow: inset 0 0 0 2px var(--app);
 }
 
 /* A save that hasn't been kept says so in the warning ink, not like the others. */
@@ -4956,16 +4949,24 @@ select,
   background: color-mix(in srgb, var(--app) 7%, var(--raised));
 }
 
-/* "Deleted “Essay” · Undo", above the list for a moment after a delete. */
+/* "Deleted “Essay” · Undo", floating at the window's foot for a moment after a delete, so the
+   list under it never jumps as it comes and goes. */
 .task-undo {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 15;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 0 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--rule);
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  padding: 4px 8px 4px 14px;
+  border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
   font-size: 13px;
 }
 
@@ -5042,6 +5043,187 @@ select,
   display: none;
 }
 
-.notes-undo {
-  margin: 4px 0 0;
+/* A note's row: the button that opens it fills the card, its title, preview and chips stacked. */
+.note-row-open {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The keyboard on a note: the whole card ringed in the app's ink; where :has() isn't known, the
+   button's own ring shows instead. */
+.note-row-open:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+}
+
+.note-row:has(.note-row-open:focus-visible) {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+}
+
+.note-row:has(.note-row-open:focus-visible) .note-row-open {
+  outline: none;
+}
+
+/* ---------- Kairo's settings: four groups, and a way to find one ---------- */
+.settings-find {
+  display: block;
+  margin: 8px 0 4px;
+}
+
+.settings-find input {
+  width: min(100%, 360px);
+}
+
+.settings-none {
+  margin: 16px 0;
+}
+
+.settings-group {
+  margin-top: 40px;
+}
+
+/* A group's name in the display face, a step above the sections' small capitals under it. */
+.settings-group-title {
+  margin: 0 0 4px;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+}
+
+/* The sections inside a group keep the small capitals their headings had. */
+.settings-group h3 {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.settings-group .block:first-of-type {
+  margin-top: 16px;
+}
+
+/* "What's on it", a heading within the App ring section, keeps its own size. */
+.settings-group h3.ring-items-title {
+  margin: 18px 0 8px;
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Start says how long it runs: "▶ 25m", the length in the figures face. */
+.task-start-len {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Stop sits inside the running line, a word among the words. */
+.task-stop {
+  min-height: 0;
+  padding: 0;
+  font-size: inherit;
+  color: var(--distracting-ink);
+}
+
+/* "Shorthand and keys": folded under the add field, a small two-column sheet when open. */
+.task-help {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.task-help > summary {
+  width: fit-content;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.task-help > summary:hover {
+  color: var(--ink);
+}
+
+.task-help > summary:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.task-help dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--raised);
+}
+
+.task-help dt {
+  font-family: var(--mono);
+  color: var(--ink);
+  white-space: pre;
+}
+
+.task-help dd {
+  margin: 0;
+}
+
+/* Restore replaces this computer's data: said in the warning ink, still a link. */
+.link-btn.danger-link {
+  color: var(--distracting-ink);
+}
+
+/* Keys named in running text, as small caps of keys. */
+.block p kbd {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--raised);
+}
+
+/* "Saved", beside a switch's words for a moment after it's flipped. */
+.saved-mark {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.saved-mark.failed {
+  color: var(--distracting-ink);
+}
+
+.saved-mark:empty {
+  display: none;
+}
+
+/* A Focus length that can't be used: said right after the field. */
+.ring-minutes-wrong {
+  margin-left: 8px;
+  color: var(--distracting-ink);
+  font-size: 12px;
+}
+
+.ring-minutes-wrong:empty {
+  display: none;
 }

@@ -29,6 +29,7 @@ beforeEach(() => {
     preview: vi.fn(async () => "High · Fri 6 Nov"),
     done: vi.fn(),
     start: vi.fn(),
+    stop: vi.fn(),
     select: vi.fn(),
     rename: vi.fn(),
     plan: vi.fn(),
@@ -41,6 +42,97 @@ beforeEach(() => {
 
 const headings = () => [...root.querySelectorAll(".ledger-group > h2")].map((e) => e.textContent);
 const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+
+describe("the add field's help", () => {
+  it("folds the shorthand and keys away, and the preview isn't read out at every key", () => {
+    renderTaskList(root, [], null, act);
+    const help = root.querySelector<HTMLDetailsElement>("details.task-help")!;
+    expect(help.open).toBe(false);
+    expect(help.querySelector("summary")!.textContent).toBe("Shorthand and keys");
+    expect(help.textContent).toContain("!h  !m  !l");
+    expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3");
+    expect(root.querySelector(".task-preview")!.hasAttribute("aria-live")).toBe(false);
+    expect(root.querySelector(".task-spoken")!.getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("a focus session on a task", () => {
+  it("says its length on Start, and time left with a Stop while it runs", () => {
+    renderTaskList(root, [task("a", "Essay")], null, { ...act, focusMinutes: () => 50 });
+    expect(root.querySelector('[data-task="a"] .task-start-len')!.textContent).toBe("50m");
+    const ends = Date.now() + 18 * 60_000 - 1000;
+    renderTaskList(root, [task("a", "Essay")], { task: "a", endsMs: ends }, act);
+    expect(root.querySelector('[data-task="a"] .task-now')!.textContent).toBe("Focusing now · 18m left · Stop");
+    root.querySelector<HTMLButtonElement>('[data-task="a"] .task-stop')!.click();
+    expect(act.stop).toHaveBeenCalled();
+  });
+});
+
+describe("the task list's keys", () => {
+  const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+  const titleOf = (id: string) => root.querySelector<HTMLElement>(`[data-task="${id}"] .task-title`)!;
+
+  it("is one Tab stop: the first task's title", () => {
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act);
+    const stops = [...root.querySelectorAll<HTMLElement>("[data-task] [tabindex='0'], [data-task] button:not([tabindex]), [data-task] input:not([tabindex])")];
+    expect(stops).toEqual([titleOf("a")]);
+  });
+
+  it("moves with the arrows, ticks with Space, renames with F2 and deletes with Delete", () => {
+    vi.useFakeTimers();
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act);
+    titleOf("a").focus();
+    key(titleOf("a"), "ArrowDown");
+    expect(document.activeElement).toBe(titleOf("b"));
+    expect(titleOf("b").tabIndex).toBe(0);
+    expect(titleOf("a").tabIndex).toBe(-1);
+    key(titleOf("b"), " ");
+    vi.advanceTimersByTime(300);
+    expect(act.done).toHaveBeenCalledWith("b", true);
+    key(titleOf("b"), "Delete");
+    expect(act.remove).toHaveBeenCalledWith("b");
+    key(titleOf("a"), "F2");
+    expect(root.querySelector('[data-task="a"] .task-rename')).not.toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("reaches Start with the right arrow and comes back with the left", () => {
+    renderTaskList(root, [task("a", "Essay")], null, act);
+    titleOf("a").focus();
+    key(titleOf("a"), "ArrowRight");
+    const start = root.querySelector<HTMLElement>('[data-task="a"] .task-start')!;
+    expect(document.activeElement).toBe(start);
+    key(start, "ArrowLeft");
+    expect(document.activeElement).toBe(titleOf("a"));
+  });
+});
+
+describe("the keyboard through a redraw", () => {
+  it("isn't disturbed by a refresh that changes nothing", () => {
+    const list = [task("a", "Essay"), task("b", "Milk")];
+    renderTaskList(root, list, null, act);
+    const tick = root.querySelector<HTMLInputElement>('[data-task="b"] input')!;
+    tick.focus();
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act);
+    // The same element, still in the keyboard: nothing was redrawn.
+    expect(root.querySelector('[data-task="b"] input')).toBe(tick);
+    expect(document.activeElement).toBe(tick);
+  });
+
+  it("goes back to the same control on the same task when something changed", () => {
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act);
+    root.querySelector<HTMLElement>('[data-task="b"] .task-title')!.focus();
+    renderTaskList(root, [task("a", "Essay draft"), task("b", "Milk")], null, act);
+    expect(document.activeElement).toBe(root.querySelector('[data-task="b"] .task-title'));
+  });
+
+  it("moves to the next open task once one is ticked off into Done", () => {
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk"), task("c", "Bank")], null, act);
+    root.querySelector<HTMLElement>('[data-task="b"] input')!.focus();
+    renderTaskList(root, [task("a", "Essay"), task("b", "Milk", { group: "done", doneMs: 1 }), task("c", "Bank")], null, act);
+    expect(document.activeElement).toBe(root.querySelector('[data-task="c"] input'));
+  });
+});
 
 describe("a done task", () => {
   it("isn't offered for renaming", () => {
@@ -71,7 +163,7 @@ describe("the task list", () => {
     renderTaskList(root, [task("a", "Essay", { group: "upcoming", dueDay: "2026-11-06", priority: 2, remindMs: 5 })], null, act);
     const row = root.querySelector('[data-task="a"]')!;
     expect(row.querySelector(".prio-high")).not.toBeNull();
-    expect(row.querySelector(".task-day")!.textContent).toBe("Fri 6 Nov");
+    expect(row.querySelector(".task-day")!.textContent).toBe("Due Fri 6 Nov");
     expect(row.querySelector(".task-bell")).not.toBeNull();
   });
 
@@ -137,9 +229,16 @@ describe("the task list", () => {
     expect(root.querySelector(".ledger-empty-art .logo-ledger")).not.toBeNull();
   });
 
+  it("says when everything is done", () => {
+    renderTaskList(root, [task("a", "Essay", { group: "done" })], null, act);
+    expect(root.querySelector(".ledger-all-done")!.textContent).toBe("All done. Nothing left open.");
+    renderTaskList(root, [task("a", "Essay", { group: "done" }), task("b", "Other")], null, act);
+    expect(root.querySelector(".ledger-all-done")).toBeNull();
+  });
+
   it("says Focusing now for the running task", () => {
     renderTaskList(root, [task("a", "Essay"), task("b", "Other")], { task: "a" }, act);
-    expect(root.querySelector('[data-task="a"] .task-now')!.textContent).toBe("Focusing now");
+    expect(root.querySelector('[data-task="a"] .task-now')!.textContent).toBe("Focusing now · Stop");
     expect(root.querySelector(".task-start")).toBeNull();
   });
 
@@ -330,6 +429,13 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-06", 2, 99);
     panel().querySelector<HTMLButtonElement>(".clear-due")!.click();
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, 99);
+  });
+
+  it("keeps the keyboard on the priority just chosen when it's redrawn", () => {
+    renderDetail(panel(), task("a", "Essay", { priority: 1 }), act);
+    panel().querySelector<HTMLButtonElement>('[data-priority="2"]')!.focus();
+    renderDetail(panel(), task("a", "Essay", { priority: 2 }), act);
+    expect(document.activeElement).toBe(panel().querySelector('[data-priority="2"]'));
   });
 
   it("names its × buttons by what they do", () => {

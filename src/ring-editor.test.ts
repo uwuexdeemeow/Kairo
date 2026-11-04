@@ -70,6 +70,18 @@ describe("arranging the ring", () => {
     expect(row("week").querySelector(".ring-up")).toBeNull();
   });
 
+  it("keeps the keyboard on the item being moved, through each save", async () => {
+    mountRingEditor(root, settings(["chrono", "ledger", "notes"]), act);
+    row("notes").querySelector<HTMLButtonElement>(".ring-up")!.focus();
+    row("notes").querySelector<HTMLButtonElement>(".ring-up")!.click();
+    await vi.waitFor(() => expect(act.save).toHaveBeenLastCalledWith(["chrono", "notes", "ledger"]));
+    expect(document.activeElement).toBe(row("notes").querySelector(".ring-up"));
+    // Moved to the top, ↑ is disabled: the keyboard goes to ↓ instead of nowhere.
+    row("notes").querySelector<HTMLButtonElement>(".ring-up")!.click();
+    await vi.waitFor(() => expect(act.save).toHaveBeenLastCalledWith(["notes", "chrono", "ledger"]));
+    expect(document.activeElement).toBe(row("notes").querySelector(".ring-down"));
+  });
+
   it("keeps between three and ten, and says why", () => {
     mountRingEditor(root, settings(["chrono", "ledger", "notes"]), act);
     expect(box("chrono").disabled).toBe(true);
@@ -96,6 +108,17 @@ describe("arranging the ring", () => {
     minutes.dispatchEvent(new Event("change"));
     await vi.waitFor(() => expect(act.setFocusMinutes).toHaveBeenCalledWith(45));
     await vi.waitFor(() => expect(row("focus").textContent).toContain("Focus 45"));
+  });
+
+  it("says beside the field when a length can't be used", async () => {
+    mountRingEditor(root, settings([...DEFAULT]), act);
+    const minutes = row("focus").querySelector<HTMLInputElement>(".ring-minutes")!;
+    minutes.value = "2";
+    minutes.dispatchEvent(new Event("change"));
+    expect(act.setFocusMinutes).not.toHaveBeenCalled();
+    expect(minutes.value).toBe("25");
+    expect(minutes.getAttribute("aria-invalid")).toBe("true");
+    expect(row("focus").querySelector(".ring-minutes-wrong")!.textContent).toBe("Between 5 and 240 minutes");
   });
 
   it("draws a preview of the ring, redrawn as it changes", async () => {

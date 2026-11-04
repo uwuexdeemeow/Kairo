@@ -84,12 +84,15 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   const popList = h("button", { class: "link-btn notes-pop-out", title: "All your notes in a small window, beside your work" }, "Pop out list");
   // "Deleted “Plan” · Undo", above the list while a delete can be taken back.
   const undoLine = h("p", { class: "task-undo notes-undo", role: "status", hidden: "" });
+  // What didn't work, until the next thing does.
+  const status = h("p", { class: "task-status notes-status", role: "status" });
+  const say = (text: string) => (status.textContent = text);
   const noteUndo = mountUndo(undoLine);
   let deletingNote: string | null = null;
   popList.addEventListener("click", () => act.popOut());
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
-  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, h("div", { class: "notes-side-actions" }, create, popList), undoLine, list), pane);
+  const shell = h("div", { class: "notes" }, h("div", { class: "notes-side" }, search, h("div", { class: "notes-side-actions" }, create, popList), undoLine, status, list), pane);
   root.replaceChildren(shell);
 
   let notes: Note[] = [];
@@ -112,29 +115,34 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         const chips = [n.tasks.length ? `${n.tasks.length} task${n.tasks.length === 1 ? "" : "s"}` : "", editedText(n.editedMs, now())].filter(Boolean);
         const preview = notePreview(n.body);
         const title = h("span", { class: "note-row-title" }, n.title);
+        // The note itself is a button, named by its title; the rename bubble sits beside it, not
+        // inside, so neither is a control within a control.
+        const opener = h(
+          "button",
+          { class: "note-row-open", "aria-label": n.title },
+          title,
+          ...(preview ? [h("span", { class: "note-row-preview muted" }, preview)] : []),
+          h("span", { class: "note-row-meta" }, ...chips.map((c) => h("span", { class: "chip" }, c))),
+        );
         // Hovering the row shows a bubble to rename the note where it is: its first line changes.
         const bubble = renameBubble(n.title, () => {
           const field = renameField(n.title, "note-rename", (text) => void rename(n, text), () => {
-            field.replaceWith(title);
+            field.replaceWith(opener);
             bubble.hidden = false;
           });
-          title.replaceWith(field);
+          opener.replaceWith(field);
           bubble.hidden = true;
           field.focus();
           field.select();
         });
         const row = h(
           "div",
-          { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem", tabindex: "0" },
-          title,
-          ...(preview ? [h("span", { class: "note-row-preview muted" }, preview)] : []),
-          h("span", { class: "note-row-meta" }, ...chips.map((c) => h("span", { class: "chip" }, c))),
+          { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem" },
+          opener,
           bubble,
         );
+        // Anywhere on the card opens it; Enter or Space on the button comes here as a click.
         row.addEventListener("click", () => void view.open(n.id));
-        row.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" && e.target === row) void view.open(n.id);
-        });
         return row;
       }),
     );
@@ -152,7 +160,14 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
 
   const load = async () => {
     const mine = ++asked;
-    const found = await act.search(search.value.trim());
+    let found: Note[];
+    try {
+      found = await act.search(search.value.trim());
+    } catch {
+      // What's shown stays, rather than an empty list that looks like no notes.
+      if (mine === asked) say("Couldn't read your notes. Try again in a moment.");
+      return;
+    }
     // Only the latest answer, should an earlier search finish after it.
     // A note waiting on its Undo stays out of sight.
     if (mine === asked) notes = found.filter((x) => x.id !== deletingNote);
@@ -233,7 +248,12 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     }
     const pin = h("button", { class: "link-btn note-pin" }, n.pinned ? "Unpin" : "Pin");
     pin.addEventListener("click", async () => {
-      await act.pin(n.id, !n.pinned);
+      try {
+        await act.pin(n.id, !n.pinned);
+        say("");
+      } catch {
+        return say(`Couldn't ${n.pinned ? "unpin" : "pin"} it. Try again in a moment.`);
+      }
       if (open?.id === n.id) open = { ...n, pinned: !n.pinned };
       drawTop();
       await load();
@@ -256,7 +276,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         what: n.title,
         finish: () => {
           deletingNote = null;
-          void act.remove(n.id).then(() => load().then(drawList));
+          void act.remove(n.id).then(
+            () => load().then(drawList),
+            () => {
+              say("Couldn't delete it, so it's back in the list.");
+              void load().then(drawList);
+            },
+          );
         },
         undo: () => {
           deletingNote = null;
@@ -331,7 +357,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     drawList();
   });
   async function createNote() {
-    const n = await act.create();
+    let n: Note;
+    try {
+      n = await act.create();
+      say("");
+    } catch {
+      return void say("Couldn't start a note. Try again in a moment.");
+    }
     search.value = "";
     await load();
     if (!notes.some((x) => x.id === n.id)) notes = [n, ...notes];

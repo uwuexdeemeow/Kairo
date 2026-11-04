@@ -76,10 +76,10 @@ const APPS: KairoApp[] = [
     name: "Command palette",
     what: "Apps, days and commands, from anywhere",
     line: async () => {
-      const shortcut = (await api.paletteSettings()).shortcut;
-      // The keycap shows the keys; the line says where they work.
-      document.querySelector('[data-app="palette"] .keycap')?.replaceChildren(...shortcutKeys(shortcut));
-      return "Press it anywhere";
+      const s = await api.paletteSettings();
+      // The keycap shows the keys; the line says how it's set up.
+      document.querySelector('[data-app="palette"] .keycap')?.replaceChildren(...shortcutKeys(s.shortcut));
+      return [s.suggestions ? "Suggestions on" : "Suggestions off", s.overFullscreen ? "over full-screen apps" : ""].filter(Boolean).join(" · ");
     },
     object: () => h("span", { class: "keycap" }),
     open: () => api.openPalette(),
@@ -155,7 +155,8 @@ function drawTiles() {
         object,
         h("h2", {}, app.name),
         h("p", { class: "muted app-tile-what" }, app.what),
-        h("p", { class: "app-tile-line", "data-line": app.id, "aria-live": "polite" }),
+        // Not a live region: refreshed every 30 seconds, it would talk over whatever is read.
+        h("p", { class: "app-tile-line", "data-line": app.id }),
       );
     }),
   );
@@ -167,8 +168,9 @@ function drawAppSettings() {
       const s = app.settings!;
       // On its own screen, Open; a section of this page, Show.
       const here = "show" in s;
-      const go = h("button", { class: "link-btn", "data-settings": app.id }, here ? "Show" : "Open");
-      go.setAttribute("aria-label", `${here ? "Show" : "Open"} ${app.name}'s settings`);
+      // Said as where it takes you: into the app, or down this page.
+      const go = h("button", { class: "link-btn", "data-settings": app.id }, here ? "Go to it" : `Open in ${app.name}`);
+      go.setAttribute("aria-label", here ? `Go to ${app.name}'s settings below` : `Open ${app.name}'s settings`);
       go.addEventListener("click", () => ("show" in s ? jumpTo(s.show) : s.open()));
       return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, s.covers)), go);
     }),
@@ -182,10 +184,13 @@ async function refreshLines() {
       const el = $(`[data-line="${app.id}"]`);
       try {
         const line = await app.line();
-        if (typeof line === "string") el.replaceChildren(line);
-        else el.replaceChildren(h("span", { class: "shortcut-keys" }, ...line));
+        const next = typeof line === "string" ? [document.createTextNode(line)] : [h("span", { class: "shortcut-keys" }, ...line)];
+        // Only a line that changed is redrawn.
+        if (el.innerHTML !== next.map((n) => (n instanceof Element ? n.outerHTML : n.textContent)).join("")) el.replaceChildren(...next);
       } catch {
-        // Left as it was; the next refresh tries again.
+        // A line already shown is left as it was, the next refresh trying again; a tile with
+        // none yet says so rather than stay blank.
+        if (!el.textContent) el.textContent = `Couldn't read ${app.name} just now`;
       }
     }),
   );
@@ -202,6 +207,9 @@ async function showTab(tab: Tab): Promise<void> {
   $("#settings-version").hidden = tab !== "settings";
   if (tab === "home") drawGreeting();
   else $("#dash-title").textContent = "Settings";
+  // The keyboard starts on the tab's first control, not nowhere.
+  const into = tab === "home" ? document.querySelector<HTMLElement>(".app-object") : document.querySelector<HTMLElement>("#settings-find");
+  if (into && (!document.activeElement || document.activeElement === document.body)) into.focus({ preventScroll: true });
   if (tab === "home") {
     cancelShortcutRecording();
     refreshLines();

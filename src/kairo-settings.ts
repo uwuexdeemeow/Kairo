@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type Linking, type SyncState } from "./api";
+import { confirmTwice } from "./confirm";
 import { mountRingEditor } from "./ring-editor";
 import { vt } from "./virustotal-api";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
@@ -70,6 +71,33 @@ export function cancelShortcutRecording(): void {
   if (recording) stopRecording("Kept as it was.");
 }
 
+/// A switch that saves as it's flipped, then says so beside its words for a moment; one that
+/// can't be saved flips back.
+function saves(sel: string, save: (on: boolean) => Promise<unknown>, failed?: (err: unknown) => void) {
+  const box = $<HTMLInputElement>(sel);
+  let clear = 0;
+  box.addEventListener("change", async () => {
+    const label = box.closest("label") ?? box.parentElement!;
+    let mark = label.querySelector<HTMLElement>(".saved-mark");
+    if (!mark) {
+      mark = h("span", { class: "saved-mark", role: "status" });
+      label.append(mark);
+    }
+    window.clearTimeout(clear);
+    try {
+      await save(box.checked);
+      mark.classList.remove("failed");
+      mark.textContent = "Saved";
+    } catch (err) {
+      box.checked = !box.checked;
+      mark.classList.add("failed");
+      mark.textContent = "Couldn't save";
+      failed?.(err);
+    }
+    clear = window.setTimeout(() => (mark!.textContent = ""), 2500);
+  });
+}
+
 /// While recording, the next key press with a modifier becomes the shortcut.
 async function recordKeys(e: KeyboardEvent) {
   const row = recording;
@@ -83,7 +111,13 @@ async function recordKeys(e: KeyboardEvent) {
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
   const key = shortcutKey(e);
   $(row.keys).replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
-  if (!key) return;
+  if (!key) {
+    // Only modifiers so far: wait for the rest. Any other key is one a shortcut can't use.
+    if (!["Control", "Alt", "Shift", "Meta", "AltGraph", "OS"].includes(e.key)) {
+      $(row.note).textContent = `${e.key || "That key"} can't be used in a shortcut. Try a letter, a number, F1 to F12 or Space, with a modifier.`;
+    }
+    return;
+  }
   if (!mods.length) {
     const hold = IS_MAC ? "Control, Option, Shift or Command" : IS_LINUX ? "Ctrl, Alt, Shift or Super" : "Ctrl, Alt, Shift or the Windows key";
     $(row.note).textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
@@ -245,7 +279,39 @@ function wireVirusTotal() {
   });
 }
 
+/// "Find a setting": sections whose words have what's typed stay, the rest and any group left
+/// empty go, and a line says when nothing matches. Esc clears it.
+function wireFind() {
+  const find = $<HTMLInputElement>("#settings-find");
+  const filter = () => {
+    const q = find.value.trim().toLowerCase();
+    let any = false;
+    for (const group of document.querySelectorAll<HTMLElement>(".settings-group")) {
+      let shown = 0;
+      for (const block of group.querySelectorAll<HTMLElement>(".block")) {
+        // A section's words: its text, and the names on its controls.
+        const words = `${block.textContent} ${[...block.querySelectorAll("[aria-label], [placeholder]")].map((c) => `${c.getAttribute("aria-label") ?? ""} ${c.getAttribute("placeholder") ?? ""}`).join(" ")}`.toLowerCase();
+        const match = !q || words.includes(q);
+        block.hidden = !match;
+        if (match) shown++;
+      }
+      group.hidden = shown === 0;
+      any ||= shown > 0;
+    }
+    $("#settings-none").hidden = any;
+  };
+  find.addEventListener("input", filter);
+  find.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !find.value) return;
+    // The field's own Esc: it clears, rather than also closing what's behind it.
+    e.stopPropagation();
+    find.value = "";
+    filter();
+  });
+}
+
 export function wireKairoSettings(): void {
+  wireFind();
   wireVirusTotal();
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
@@ -268,12 +334,9 @@ export function wireKairoSettings(): void {
     });
   }
 
-  $<HTMLInputElement>("#palette-suggestions").addEventListener("change", (e) => api.setPaletteSuggestions((e.target as HTMLInputElement).checked));
-  $<HTMLInputElement>("#palette-over-fullscreen").addEventListener("change", (e) =>
-    api.setPaletteOverFullscreen((e.target as HTMLInputElement).checked),
-  );
-
-  $<HTMLInputElement>("#palette-search-files").addEventListener("change", (e) => api.setPaletteSearchFiles((e.target as HTMLInputElement).checked));
+  saves("#palette-suggestions", (on) => api.setPaletteSuggestions(on));
+  saves("#palette-over-fullscreen", (on) => api.setPaletteOverFullscreen(on));
+  saves("#palette-search-files", (on) => api.setPaletteSearchFiles(on));
 
   $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
     const mode = (e.target as HTMLSelectElement).value as Appearance;
@@ -295,15 +358,7 @@ export function wireKairoSettings(): void {
     }
   });
 
-  $<HTMLInputElement>("#autostart-enabled").addEventListener("change", async (e) => {
-    const box = e.target as HTMLInputElement;
-    try {
-      await api.setAutostart(box.checked);
-    } catch (err) {
-      box.checked = !box.checked;
-      $("#autostart-note").textContent = `Couldn't change it: ${err}`;
-    }
-  });
+  saves("#autostart-enabled", (on) => api.setAutostart(on), (err) => ($("#autostart-note").textContent = `Couldn't change it: ${err}`));
 
   $("#export-time").addEventListener("click", () =>
     dataAction(async () => {
@@ -377,7 +432,8 @@ export function wireKairoSettings(): void {
   // A sync round finished: the computers and when they last synced.
   listen("kairo:sync", () => refreshSync());
 
-  $("#sync-stop").addEventListener("click", async () => {
+  // It reaches the other computers too, so it takes a second press.
+  confirmTwice($<HTMLButtonElement>("#sync-stop"), () => "Stop for all of them? Press again", async () => {
     const out = $("#sync-status");
     out.textContent = "";
     hideCode();
@@ -391,26 +447,65 @@ export function wireKairoSettings(): void {
 }
 
 /// Fills the controls from what's saved.
+/// Fills one section from what's saved. One that can't be read says so and its controls wait,
+/// rather than showing unchecked boxes and empty keys that look like the real settings.
+async function fill(anchor: string, read: () => Promise<void>): Promise<void> {
+  const block = $(anchor).closest<HTMLElement>(".block");
+  block?.querySelector(".load-failed")?.remove();
+  try {
+    await read();
+    for (const c of block?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("[data-waiting]") ?? []) {
+      c.disabled = false;
+      delete c.dataset.waiting;
+    }
+  } catch {
+    if (!block) return;
+    for (const c of block.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("input, select, button")) {
+      if (c.disabled) continue;
+      c.disabled = true;
+      c.dataset.waiting = "";
+    }
+    block.querySelector("h2, h3")?.after(h("p", { class: "muted load-failed", role: "status" }, "Couldn't read this. Try again in a moment."));
+  }
+}
+
+/// Fills the controls from what's saved, each section on its own.
 export async function loadKairoSettings(): Promise<void> {
-  $("#settings-version").textContent = `Kairo ${await api.version()}`;
-  renderSync(await api.sync());
-  // A code still waiting from before the window was last open.
-  const linking = await api.pairStatus();
-  if (linking?.state === "waiting" && !codeTimer) showCode(linking);
-  $<HTMLSelectElement>("#appearance").value = await api.appearance();
-  const palette = await api.paletteSettings();
-  showShortcut(PALETTE, palette.shortcut);
-  // The key itself never comes back to the page: only whether one is saved.
-  $<HTMLInputElement>("#vt-key").placeholder = (await vt.hasKey().catch(() => false)) ? "Saved. Paste a new one to change it" : "Paste your key";
-  const ring = await api.ringSettings();
-  showShortcut(RING, ring.shortcut);
-  mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });
-  $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
-  $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
-  $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
-  const auto = await api.autostart();
-  const box = $<HTMLInputElement>("#autostart-enabled");
-  box.checked = auto.enabled;
-  box.disabled = !auto.available;
-  if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
+  await Promise.all([
+    fill("#settings-version", async () => {
+      $("#settings-version").textContent = `Kairo ${await api.version()}`;
+    }),
+    fill("#sync-status", async () => {
+      renderSync(await api.sync());
+      // A code still waiting from before the window was last open.
+      const linking = await api.pairStatus();
+      if (linking?.state === "waiting" && !codeTimer) showCode(linking);
+    }),
+    fill("#appearance", async () => {
+      $<HTMLSelectElement>("#appearance").value = await api.appearance();
+    }),
+    fill("#palette-keys", async () => {
+      const palette = await api.paletteSettings();
+      showShortcut(PALETTE, palette.shortcut);
+      $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
+      $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
+      $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
+    }),
+    fill("#vt-key", async () => {
+      // The key itself never comes back to the page: only whether one is saved.
+      $<HTMLInputElement>("#vt-key").placeholder = (await vt.hasKey()) ? "Saved. Paste a new one to change it" : "Paste your key";
+    }),
+    fill("#ring-keys", async () => {
+      const ring = await api.ringSettings();
+      showShortcut(RING, ring.shortcut);
+      mountRingEditor($("#ring-items"), ring, { save: (items) => api.setRingItems(items), setFocusMinutes: (m) => api.setRingFocusMinutes(m) });
+    }),
+    fill("#autostart-enabled", async () => {
+      const auto = await api.autostart();
+      const box = $<HTMLInputElement>("#autostart-enabled");
+      box.checked = auto.enabled;
+      box.disabled = !auto.available;
+      if (!auto.available) $("#autostart-note").textContent = "Only available in the installed app, not in development builds.";
+    }),
+  ]);
 }

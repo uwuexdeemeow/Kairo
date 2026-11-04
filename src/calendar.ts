@@ -151,6 +151,7 @@ export function calendar(opts: CalendarOptions): { toggle(): void; close(): void
 
   function open() {
     pop.hidden = false;
+    opts.trigger.setAttribute("aria-expanded", "true");
     pop.classList.remove("up");
     document.addEventListener("pointerdown", onOutside, true);
     go(opts.selected() ?? todayIso());
@@ -172,6 +173,7 @@ export function calendar(opts: CalendarOptions): { toggle(): void; close(): void
   function close(refocus = true) {
     if (pop.hidden) return;
     pop.hidden = true;
+    opts.trigger.setAttribute("aria-expanded", "false");
     document.removeEventListener("pointerdown", onOutside, true);
     if (refocus) opts.trigger.focus();
   }

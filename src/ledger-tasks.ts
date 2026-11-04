@@ -23,6 +23,8 @@ export type LedgerActions = {
   remove(id: string): void;
   /** How long Start's focus session is, to say on it. */
   focusMinutes?(): number;
+  /** Ends the running focus session. */
+  stop?(): void;
   openNote(id: string): void;
   /** Attaches a note to a task, or (null) detaches it. */
   attach(task: string, note: string | null): void;
@@ -34,7 +36,12 @@ export type LedgerActions = {
 export type NoteName = { id: string; title: string };
 
 /// The running focus session's task, by id (null for a session on no task), or null with none.
-export type RunningSession = { task: string | null } | null;
+export type RunningSession = { task: string | null; endsMs?: number } | null;
+
+/// Whole minutes left in a session ending at `endsMs`, at least one while it runs.
+export function minutesLeft(endsMs: number, now: number): number {
+  return Math.max(1, Math.ceil((endsMs - now) / 60_000));
+}
 
 const GROUPS: [TaskGroup, string][] = [
   ["overdue", "Overdue"],
@@ -77,7 +84,8 @@ export function dayText(day: string): string {
 function row(t: Task, session: RunningSession, act: LedgerActions, selected: string | null = null): HTMLElement {
   const done = t.doneMs !== null;
   // Named for its task, so a screen reader moving down the list knows which one it would tick.
-  const tick = h("input", { type: "checkbox", "aria-label": done ? `Reopen “${t.title}”` : `Mark “${t.title}” done` }) as HTMLInputElement;
+  // Reached with the list's keys (Space), not Tab: the list is one Tab stop.
+  const tick = h("input", { type: "checkbox", tabindex: "-1", "aria-label": done ? `Reopen “${t.title}”` : `Mark “${t.title}” done` }) as HTMLInputElement;
   tick.checked = done;
   const open = t.id === selected;
   const el = h("div", { class: `task-row task-card${done ? " done" : ""}${t.group === "overdue" ? " ribbon" : ""}${open ? " open" : ""}`, "data-task": t.id }, tick);
@@ -92,7 +100,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     const name = PRIORITY[Math.min(t.priority, 2)];
     el.append(h("span", { class: `prio-dot prio-${name.toLowerCase()}`, role: "img", title: `${name} priority`, "aria-label": `${name} priority` }));
   }
-  const title = h("button", { class: "task-title", title: "Details", "aria-expanded": String(open), "aria-controls": "task-detail" }, t.title);
+  const title = h("button", { class: "task-title", tabindex: "-1", title: "Details", "aria-expanded": String(open), "aria-controls": "task-detail", "aria-describedby": "task-keys" }, t.title);
   title.addEventListener("click", () => act.select(t.id));
   // Hovering the title shows a bubble that turns it into a field, to rename it where it is; a done
   // task isn't renamed.
@@ -108,13 +116,14 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
       field.focus();
       field.select();
     });
+    bubble.tabIndex = -1;
     main.append(bubble);
   }
   el.append(main);
   // Its details as chips: when it's due (today's group says that already), its reminder, its
   // note, the time spent on it.
   const chips = h("div", { class: "task-chips" });
-  if (t.dueDay && t.group !== "today") chips.append(h("span", { class: `task-day chip${t.group === "overdue" ? " late" : ""}` }, dayText(t.dueDay)));
+  if (t.dueDay && t.group !== "today") chips.append(h("span", { class: `task-day chip${t.group === "overdue" ? " late" : ""}` }, h("span", { class: "sr-only" }, "Due "), dayText(t.dueDay)));
   if (t.remindMs !== null) {
     const at = new Date(t.remindMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
@@ -125,10 +134,16 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
   el.append(chips);
   if (!done) {
     // While a session runs, Start would end it, so only the running task's card says anything.
-    if (session && t.id === session.task) el.append(h("span", { class: "task-now" }, "Focusing now"));
-    else if (!session) {
+    if (session && t.id === session.task) {
+      // The session acts on real apps: how long it has left, and a way to end it, where it shows.
+      const left = session.endsMs ? ` · ${minutesLeft(session.endsMs, Date.now())}m left` : "";
+      const stop = h("button", { class: "link-btn task-stop", tabindex: "-1", "aria-label": `Stop focusing on ${t.title}` }, "Stop");
+      stop.addEventListener("click", () => act.stop?.());
+      el.append(h("span", { class: "task-now" }, `Focusing now${left} · `, stop));
+    } else if (!session) {
       const minutes = act.focusMinutes?.() ?? 25;
-      const start = h("button", { class: "task-start", title: `Start a ${minutes}-minute focus`, "aria-label": `Start a ${minutes}-minute focus on ${t.title}` }, glyph("play"));
+      // Its length on it, as well as in words: the session it starts blocks apps for that long.
+      const start = h("button", { class: "task-start", tabindex: "-1", title: `Start a ${minutes}-minute focus`, "aria-label": `Start a ${minutes}-minute focus on ${t.title}` }, glyph("play"), h("span", { class: "task-start-len" }, `${minutes}m`));
       start.addEventListener("click", () => act.start(t.id));
       el.append(start);
     }
@@ -173,14 +188,53 @@ export function renameField(name: string, className: string, save: (text: string
   return field;
 }
 
+/// What each list last drew, so a refresh that changes nothing leaves it be (and the keyboard where
+/// it is): Ledger asks again every few seconds.
+const drawn = new WeakMap<HTMLElement, string>();
+
+/// The controls on a card the keyboard can be on, by what they are.
+const CONTROLS = ["input[type=checkbox]", ".task-title", ".rename-bubble", ".task-start"];
+
+/// Where the keyboard is in the list: which task, which of its controls, and the open tasks after
+/// it in order, to go to one of if this one has gone.
+function focusIn(root: HTMLElement): { id: string; control: string; after: string[] } | null {
+  const el = document.activeElement;
+  const card = el instanceof HTMLElement && root.contains(el) ? el.closest<HTMLElement>("[data-task]") : null;
+  if (!card) return null;
+  const control = CONTROLS.find((c) => el!.matches(c)) ?? ".task-title";
+  const open = [...root.querySelectorAll<HTMLElement>(".ledger-group [data-task]")].map((c) => c.dataset.task!);
+  return { id: card.dataset.task!, control, after: open.slice(open.indexOf(card.dataset.task!) + 1) };
+}
+
+const cardOf = (root: HTMLElement, id: string) => [...root.querySelectorAll<HTMLElement>("[data-task]")].find((c) => c.dataset.task === id);
+
+/// Puts the keyboard back where it was: the same control on the same task, if it's still to be
+/// seen; else the next open task's tick, as after ticking one off.
+function refocus(root: HTMLElement, was: { id: string; control: string; after: string[] }) {
+  const card = cardOf(root, was.id);
+  const seen = card && !card.closest("details:not([open])");
+  if (seen) return (card.querySelector<HTMLElement>(was.control) ?? card.querySelector<HTMLElement>(".task-title"))?.focus();
+  for (const id of was.after) {
+    const next = cardOf(root, id);
+    if (next && !next.closest("details:not([open])")) return next.querySelector<HTMLElement>("input[type=checkbox]")?.focus();
+  }
+  root.querySelector<HTMLElement>(".task-add")?.focus();
+}
+
 export function renderTaskList(root: HTMLElement, tasks: Task[], session: RunningSession, act: LedgerActions, selected: string | null = null): void {
   // A task being renamed in the list keeps its field: the next redraw brings the changes.
   if (document.activeElement?.classList.contains("task-rename") && root.contains(document.activeElement)) return;
-  const { add, preview } = addField(root, act);
+  // The minutes a running session has left are part of what's drawn, so it's redrawn as they change.
+  const left = session?.endsMs ? minutesLeft(session.endsMs, Date.now()) : null;
+  const shape = JSON.stringify([tasks, session, left, selected, act.focusMinutes?.() ?? 25]);
+  if (drawn.get(root) === shape && root.childElementCount) return;
+  drawn.set(root, shape);
+  const was = focusIn(root);
+  const { add, preview, help, spoken } = addField(root, act);
   // The same field, put back: what's typed in it, and the caret, stay through a redraw.
   const typing = document.activeElement === add;
   const doneOpen = root.querySelector<HTMLDetailsElement>("details.task-done")?.open ?? false;
-  const parts: Node[] = [add, preview];
+  const parts: Node[] = [add, preview, spoken, help];
   if (!tasks.length) {
     const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
     art.innerHTML = logo("ledger", 64);
@@ -191,35 +245,87 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
     if (these.length) parts.push(h("section", { class: `ledger-group ${group}` }, h("h2", {}, name), ...these.map((t) => row(t, session, act, selected))));
   }
   const done = tasks.filter((t) => t.group === "done");
+  // Everything ticked: said, rather than a list with only its Done fold.
+  if (done.length && done.length === tasks.length) parts.push(h("p", { class: "muted ledger-empty ledger-all-done" }, "All done. Nothing left open."));
   if (done.length) {
     const folded = h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act, selected))) as HTMLDetailsElement;
     folded.open = doneOpen;
     parts.push(folded);
   }
   const caret = typing ? [add.selectionStart, add.selectionEnd] : null;
+  parts.push(h("p", { id: "task-keys", class: "sr-only" }, "Up and down arrows move between tasks. Space ticks, Enter opens, F2 renames, Delete deletes, right arrow reaches Start."));
   root.replaceChildren(...parts);
+  // The list is one Tab stop: the task the keyboard was last on, or the first.
+  const titles = [...root.querySelectorAll<HTMLElement>("[data-task] .task-title")];
+  const current = (was && titles.find((b) => b.closest<HTMLElement>("[data-task]")!.dataset.task === was.id && !b.closest("details:not([open])"))) || titles.find((b) => !b.closest("details:not([open])"));
+  if (current) current.tabIndex = 0;
   if (caret) {
     add.focus();
     add.setSelectionRange(caret[0], caret[1]);
-  }
+  } else if (was) refocus(root, was);
+  listKeys(root, act);
+}
+
+const keyed = new WeakSet<HTMLElement>();
+
+/// The task list's keys, on the task the keyboard is on: up and down move, Space ticks, Enter
+/// opens (the title is a button), F2 renames, Delete deletes, right reaches Start and left comes
+/// back. Wired once per list.
+function listKeys(root: HTMLElement, act: LedgerActions) {
+  if (keyed.has(root)) return;
+  keyed.add(root);
+  root.addEventListener("keydown", (e) => {
+    const el = e.target as HTMLElement;
+    const card = el.closest<HTMLElement>("[data-task]");
+    if (!card || el.classList.contains("task-rename")) return;
+    const titles = [...root.querySelectorAll<HTMLElement>("[data-task] .task-title")].filter((b) => !b.closest("details:not([open])"));
+    const at = titles.indexOf(card.querySelector<HTMLElement>(".task-title")!);
+    const go = (to: HTMLElement | undefined) => {
+      if (!to) return;
+      for (const b of titles) b.tabIndex = -1;
+      to.tabIndex = 0;
+      to.focus();
+    };
+    const id = card.dataset.task!;
+    if (e.key === "ArrowDown") go(titles[at + 1]);
+    else if (e.key === "ArrowUp") go(titles[at - 1]);
+    else if (e.key === "Home") go(titles[0]);
+    else if (e.key === "End") go(titles[titles.length - 1]);
+    else if (e.key === " " && el.classList.contains("task-title")) card.querySelector<HTMLInputElement>("input[type=checkbox]")?.click();
+    else if (e.key === "F2") card.querySelector<HTMLElement>(".rename-bubble")?.click();
+    else if (e.key === "Delete") act.remove(id);
+    else if (e.key === "ArrowRight") card.querySelector<HTMLElement>(".task-start")?.focus();
+    else if (e.key === "ArrowLeft" && el.classList.contains("task-start")) card.querySelector<HTMLElement>(".task-title")?.focus();
+    else return;
+    e.preventDefault();
+  });
 }
 
 /// The list's "Add a task" field and the line under it saying what it reads, made once per list
 /// and kept: Ledger redraws the list every few seconds, and a new field would drop what's typed.
-const fields = new WeakMap<HTMLElement, { add: HTMLInputElement; preview: HTMLElement }>();
+const fields = new WeakMap<HTMLElement, { add: HTMLInputElement; preview: HTMLElement; help: HTMLElement; spoken: HTMLElement }>();
 
-function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElement; preview: HTMLElement } {
+function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElement; preview: HTMLElement; help: HTMLElement; spoken: HTMLElement } {
   const kept = fields.get(root);
   if (kept) return kept;
   const add = h("input", { class: "filter task-add", maxlength: "120", placeholder: "Add a task", "aria-label": "Add a task", autocomplete: "off" }) as HTMLInputElement;
-  const preview = h("p", { class: "task-preview muted", "aria-live": "polite" }, HINT);
+  const preview = h("p", { class: "task-preview muted" }, HINT);
+  // What it reads is said aloud once typing pauses, not at every key; trouble is said at once.
+  const spoken = h("p", { class: "sr-only task-spoken", "aria-live": "polite" });
   let asked = 0;
+  let pause = 0;
+  const show = (text: string, now = false) => {
+    preview.textContent = text;
+    window.clearTimeout(pause);
+    if (now) spoken.textContent = text;
+    else pause = window.setTimeout(() => (spoken.textContent = text), 1200);
+  };
   add.addEventListener("input", async () => {
     const text = add.value;
     const mine = ++asked;
     const shown = text.trim() ? await act.preview(text).catch(() => "") : HINT;
     // Only the latest answer, should an earlier one arrive after it.
-    if (mine === asked) preview.textContent = shown;
+    if (mine === asked) show(shown);
   });
   // One add at a time, so a second Enter before the first is kept can't add it twice.
   let adding = false;
@@ -233,16 +339,38 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
       await act.add(text);
       // Kept: the field empties, unless something new was typed meanwhile.
       if (add.value.trim() === text) add.value = "";
-      preview.textContent = HINT;
+      show(HINT);
     } catch {
       // Not kept: what was typed stays, to try again.
-      preview.textContent = "Couldn't add this. Press Enter to try again.";
+      show("Couldn't add this. Press Enter to try again.", true);
     } finally {
       adding = false;
     }
   });
-  fields.set(root, { add, preview });
-  return { add, preview };
+  // What the field understands, and the list's keys, folded away until wanted.
+  const help = h(
+    "details",
+    { class: "task-help" },
+    h("summary", {}, "Shorthand and keys"),
+    h(
+      "dl",
+      {},
+      h("dt", {}, "!h  !m  !l"),
+      h("dd", {}, "High, Medium or Low priority (or !high, !med, !low)"),
+      h("dt", {}, "today  tomorrow  fri"),
+      h("dd", {}, "Due that day; a weekday is the next one"),
+      h("dt", {}, "7 nov  11/7"),
+      h("dd", {}, "Due on a date"),
+      h("dt", {}, "↑ ↓  Space  Enter"),
+      h("dd", {}, "Move between tasks, tick one, open it"),
+      h("dt", {}, "F2  Delete  →"),
+      h("dd", {}, "Rename, delete (Ctrl+Z brings it back), reach Start"),
+      h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3"),
+      h("dd", {}, "New task, find, switch views"),
+    ),
+  );
+  fields.set(root, { add, preview, help, spoken });
+  return { add, preview, help, spoken };
 }
 
 /// "15:00" for a moment, in this computer's zone, as a time field takes it.
@@ -361,6 +489,10 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
 
   const close = h("button", { class: "detail-close", "aria-label": "Close", title: "Close (Esc)" }, glyph("close"));
   close.addEventListener("click", () => act.select(t.id));
+  // Redrawn with the new plan, the keyboard stays on the control it was on: the same priority,
+  // the same day button.
+  const controls = () => [...root.querySelectorAll<HTMLElement>("button, input, select")];
+  const at = controls().indexOf(document.activeElement as HTMLElement);
   root.replaceChildren(
     h("div", { class: "detail-head" }, title, close),
     h("div", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
@@ -370,4 +502,5 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
     remove,
   );
+  if (at >= 0) controls()[Math.min(at, controls().length - 1)]?.focus();
 }

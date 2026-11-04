@@ -1,3 +1,4 @@
+import { confirmTwice } from "./confirm";
 import "./fonts";
 import { dayParts, watchSvg } from "./chrono-look";
 import { dialSvg, logo } from "./logos";
@@ -1038,32 +1039,6 @@ function renderGoalSettings(s: GoalSettings) {
 const PRIVACY_MODES: PrivacyMode[] = ["track", "hide_title", "ignore"];
 const RECORDING: Record<PrivacyMode, string> = { track: "Record", hide_title: "Hide titles", ignore: "Don't record" };
 const RETENTION_LABELS: Record<string, string> = { "0": "forever", "365": "1 year", "90": "90 days", "30": "30 days" };
-const ARMED_FOR_MS = 5000;
-
-/// Destructive buttons take a second click within a few seconds instead of a confirm dialog.
-function confirmTwice(btn: HTMLButtonElement, armedText: () => string, action: () => Promise<void>) {
-  let resting = "";
-  let timer = 0;
-  const disarm = () => {
-    if (!btn.classList.contains("armed")) return;
-    clearTimeout(timer);
-    btn.classList.remove("armed");
-    btn.textContent = resting;
-  };
-  btn.addEventListener("click", async () => {
-    if (!btn.classList.contains("armed")) {
-      resting = btn.textContent ?? "";
-      btn.classList.add("armed");
-      btn.textContent = armedText();
-      timer = window.setTimeout(disarm, ARMED_FOR_MS);
-      return;
-    }
-    disarm();
-    await action();
-  });
-  return disarm;
-}
-
 let noticeKey = "";
 
 function showPrivacyNotice(e: CategoryEntry, mode: PrivacyMode) {

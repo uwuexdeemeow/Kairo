@@ -21,6 +21,8 @@ const api = vi.hoisted(() => ({
   setPaletteSearchFiles: vi.fn(),
   setPaletteShortcut: vi.fn(),
   autostart: vi.fn(),
+  setAutostart: vi.fn(),
+  setPaletteSuggestions: vi.fn(),
 }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
 vi.mock("./api", () => ({ api }));
@@ -181,6 +183,25 @@ describe("the app ring's shortcut", () => {
   });
 });
 
+describe("switches", () => {
+  it("say Saved beside their words once saved", async () => {
+    api.setPaletteSuggestions.mockResolvedValue(undefined);
+    const box = $<HTMLInputElement>("#palette-suggestions");
+    box.click();
+    await vi.waitFor(() => expect(box.closest("label")!.querySelector(".saved-mark")!.textContent).toBe("Saved"));
+    expect(api.setPaletteSuggestions).toHaveBeenCalledWith(false);
+  });
+
+  it("flip back and say so when they can't be saved", async () => {
+    api.setAutostart.mockRejectedValue("not allowed");
+    const box = $<HTMLInputElement>("#autostart-enabled");
+    box.click();
+    await vi.waitFor(() => expect(box.checked).toBe(false));
+    expect(box.closest("label")!.querySelector(".saved-mark")!.textContent).toBe("Couldn't save");
+    expect($("#autostart-note").textContent).toBe("Couldn't change it: not allowed");
+  });
+});
+
 describe("recording the palette shortcut", () => {
   beforeEach(() => $("#palette-record").click());
 
@@ -197,6 +218,14 @@ describe("recording the palette shortcut", () => {
     press("k", "KeyK");
     expect(api.setPaletteShortcut).not.toHaveBeenCalled();
     expect($("#palette-note").textContent).toContain("Hold Ctrl, Alt, Shift or the Windows key");
+  });
+
+  it("says when a key can't be used, and waits while only modifiers are held", () => {
+    press("Control", "ControlLeft", { ctrlKey: true });
+    expect($("#palette-note").textContent).not.toContain("can't be used");
+    press("Tab", "Tab", { ctrlKey: true });
+    expect(api.setPaletteShortcut).not.toHaveBeenCalled();
+    expect($("#palette-note").textContent).toBe("Tab can't be used in a shortcut. Try a letter, a number, F1 to F12 or Space, with a modifier.");
   });
 
   it("keeps the shortcut on Esc", () => {
@@ -239,8 +268,12 @@ describe("combining computers", () => {
     expect($("#sync-status").textContent).toBe("");
   });
 
-  it("stops combining", async () => {
+  it("stops combining, on a second press", async () => {
     api.stopSync.mockResolvedValue(OFF);
+    $("#sync-stop").click();
+    // The first press asks; nothing has stopped yet.
+    expect($("#sync-stop").textContent).toBe("Stop for all of them? Press again");
+    expect(api.stopSync).not.toHaveBeenCalled();
     $("#sync-stop").click();
     await vi.waitFor(() => expect($("#sync-status").textContent).toContain("Stopped."));
     expect($("#sync-stop").hidden).toBe(true);
@@ -248,6 +281,7 @@ describe("combining computers", () => {
 
   it("says when stopping fails", async () => {
     api.stopSync.mockRejectedValue("the folder can't be reached");
+    $("#sync-stop").click();
     $("#sync-stop").click();
     await vi.waitFor(() => expect($("#sync-status").textContent).toBe("Couldn't stop: the folder can't be reached"));
   });
@@ -264,6 +298,51 @@ describe("combining computers", () => {
     $("#sync-choose").click();
     await vi.waitFor(() => expect($("#sync-choose").textContent).toBe("Use another folder"));
     expect(shown("#sync-link") || shown("#sync-enter") || shown("#sync-over")).toBe(false);
+  });
+});
+
+describe("finding a setting", () => {
+  const find = (q: string) => {
+    const field = $<HTMLInputElement>("#settings-find");
+    field.value = q;
+    field.dispatchEvent(new Event("input"));
+  };
+  const visibleSections = () => [...document.querySelectorAll<HTMLElement>(".settings-group:not([hidden]) .block:not([hidden]) > h3:not(.ring-items-title)")].map((h) => h.textContent);
+
+  it("keeps the sections that mention it, and their groups", () => {
+    find("theme");
+    expect(visibleSections()).toEqual(["Appearance"]);
+    expect($("#group-shortcuts").hidden).toBe(true);
+    expect($("#settings-none").hidden).toBe(true);
+    find("backup");
+    expect(visibleSections()).toEqual(["Your data"]);
+  });
+
+  it("says when nothing matches, and Esc brings everything back", () => {
+    find("zzz");
+    expect($("#settings-none").hidden).toBe(false);
+    const field = $<HTMLInputElement>("#settings-find");
+    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(field.value).toBe("");
+    expect($("#settings-none").hidden).toBe(true);
+    expect(visibleSections().length).toBe(9);
+  });
+});
+
+describe("a section that can't be read", () => {
+  it("says so and holds its controls, while the others fill in as normal", async () => {
+    api.paletteSettings.mockRejectedValue("database is locked");
+    await settings.loadKairoSettings();
+    const palette = $("#palette-settings");
+    expect(palette.querySelector(".load-failed")!.textContent).toBe("Couldn't read this. Try again in a moment.");
+    expect($<HTMLInputElement>("#palette-suggestions").disabled).toBe(true);
+    // The ring's section, read after it, is filled regardless.
+    expect([...document.querySelectorAll("#ring-keys kbd")].map((k) => k.textContent)).toEqual(["Alt", "Q"]);
+    // Read again once it can be: the line goes and the controls come back.
+    api.paletteSettings.mockResolvedValue({ shortcut: "Alt+Space", suggestions: true, overFullscreen: false, searchFiles: true });
+    await settings.loadKairoSettings();
+    expect(palette.querySelector(".load-failed")).toBeNull();
+    expect($<HTMLInputElement>("#palette-suggestions").disabled).toBe(false);
   });
 });
 

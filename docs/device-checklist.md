@@ -306,9 +306,9 @@ On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's 
 
 On Windows, a Mac and Linux. No focus session involved.
 
-1. **Undo.** Delete a task from its panel. *Expect:* it's gone, "Deleted “…” · Undo" above the list
-   with the keyboard on Undo; Ctrl+Z (⌘Z) brings it back. Delete two in a row: the first is deleted
-   for good. Delete a note: no question, the same Undo line above the notes list. Leaving the view
+1. **Undo.** Delete a task from its panel. *Expect:* it's gone, "Deleted “…” · Undo" floating at the
+   window's foot (the list doesn't jump) with the keyboard on Undo; Ctrl+Z (⌘Z) brings it back. Delete two in a row: the first is deleted
+   for good. Delete a note: no question, the same Undo line. Leaving the view
    makes a waiting delete final; the keyboard lands on the next task or the search, never nowhere.
 2. **Panel.** Scroll down a long list and open a task. *Expect:* the panel opens beside it, the card
    lit, the keyboard in its title; Esc puts it back on the task.
@@ -318,6 +318,29 @@ On Windows, a Mac and Linux. No focus session involved.
 5. **A failing save** (hard to cause by hand; skip unless the database is busy): the footer turns
    orange, Copy text appears, and opening another note says why it's staying.
 
+## Ledger and dashboard, second critique round
+
+On Windows, a Mac and Linux, in both themes. No focus session involved: don't press Start.
+
+1. **Ticking keeps your place.** Tick a task with Space, wait for the 30-second refresh. *Expect:*
+   the keyboard stays on the same row, never jumping to the top.
+2. **Overdue.** A task due yesterday: a short red ribbon over its tick, the "Overdue" heading in
+   red, its date chip plain grey.
+3. **Start.** Hover a task. *Expect:* "▶ 25m" (your ring's length), not just ▶.
+4. **Shorthand and keys.** Under Add a task, open "Shorthand and keys". *Expect:* a small two-column
+   sheet. Type `Essay tomorrow !h`: the preview isn't read aloud at every key.
+5. **All done.** Tick every task. *Expect:* "All done. Nothing left open." above the Done fold.
+6. **Esc.** Open a task, open its due-day calendar, press Esc. *Expect:* only the calendar closes;
+   Esc again closes the panel.
+7. **Light theme notes.** Click into a note's sheet. *Expect:* its outline clearly visible.
+8. **Dashboard opens with the keyboard on Chrono's tile.** Tab moves along the tiles.
+9. **Palette tile** reads "Suggestions on" (or off), with "· over full-screen apps" when set.
+10. **Settings.** Grouped under Your apps, Kairo, Shortcuts, Data and computers; type in Find a
+    setting to filter. Flip Suggestions: "Saved" appears beside it for a moment. Change the
+    palette shortcut and press Ctrl+Tab: it says Tab can't be used. Set the ring's Focus length to
+    2: "Between 5 and 240 minutes" beside the field, the old value back.
+11. **Checkboxes** (ring editor, switches) show an outline in the app's colour under the keyboard.
+
 ## Ledger notes, looking finished
 
 1. **None open.** In Notes with no note open. *Expect:* "Pick up where you left off" with the three
@@ -325,7 +348,7 @@ On Windows, a Mac and Linux. No focus session involved.
 2. **Empty note.** Press + New note. *Expect:* a faint prompt ("# A title…") that goes as you type.
 3. **Ruled lines.** Write a dozen lines and scroll. *Expect:* a faint rule under every line of text,
    staying under it as you scroll, at both window sizes and in both themes.
-4. **Delete.** Press Delete. *Expect:* the question sits inside the sheet, clear of its edges.
+4. **Delete.** Press Delete. *Expect:* no question; the note goes, with Undo at the window's foot.
 
 ## Palette: time charts on Enter
 

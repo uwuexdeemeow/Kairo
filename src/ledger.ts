@@ -71,9 +71,10 @@ function say(text: string) {
 
 /// Runs a task action, saying so if it fails rather than leaving it looking done.
 async function tried(what: string, run: () => Promise<void>) {
+  // Cleared first, so what the action itself says (strict mode's wait) stays.
+  say("");
   try {
     await run();
-    say("");
   } catch {
     say(`Couldn't ${what}. Try again in a moment.`);
     void refresh();
@@ -98,7 +99,7 @@ function draw(list?: Task[]) {
 
 async function refresh() {
   const [list, running, notes] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null)]);
-  session = running ? { task: running.task } : null;
+  session = running ? { task: running.task, endsMs: running.startMs + running.plannedMs + running.pausedMs } : null;
   if (notes) {
     noteNames = notes.map((n) => ({ id: n.id, title: n.title }));
     $("#count-notes").textContent = String(notes.length || "");
@@ -165,6 +166,13 @@ const actions: LedgerActions = {
     draw();
   },
   focusMinutes: () => sessionMinutes(),
+  stop: () =>
+    tried("end the session", async () => {
+      const r = await api.controlFocus("stop");
+      // Strict mode holds an early end back a moment; it says when to ask again.
+      if (r.waitUntil) say("Strict mode asks you to wait a moment, then press Stop again to end it.");
+      await refresh();
+    }),
   openNote: (id) => void openNote(id),
   attach: (task, note) =>
     tried(note ? "attach the note" : "detach the note", async () => {
@@ -310,7 +318,8 @@ $(".tabs").addEventListener("keydown", (e) => {
 const typingIn = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest("input, textarea, select, [contenteditable]");
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && selected) return closePanel();
+  // Esc closes a calendar or a dropdown open in the panel first, the panel only after.
+  if (e.key === "Escape" && selected && !e.defaultPrevented && !document.querySelector('[aria-haspopup][aria-expanded="true"]')) return closePanel();
   const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
   // Ctrl+1 to 3: the views.
   if (ctrl && ["1", "2", "3"].includes(e.key)) {

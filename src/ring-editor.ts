@@ -47,11 +47,32 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
     }
   };
 
+  /// Which item's control has the keyboard, so a redraw can give it back.
+  const focused = (): { item: string; control: string } | null => {
+    const el = document.activeElement;
+    const row = el instanceof HTMLElement && list.contains(el) ? el.closest<HTMLElement>("[data-item]") : null;
+    if (!row) return null;
+    const control = [".ring-up", ".ring-down", ".ring-minutes"].find((c) => el!.matches(c)) ?? "input[type=checkbox]";
+    return { item: row.dataset.item!, control };
+  };
+
+  /// The same item's control again; one now disabled (↑ at the top) hands over to the other
+  /// arrow, then the tick box.
+  const refocus = (was: { item: string; control: string }) => {
+    const row = [...list.querySelectorAll<HTMLElement>("[data-item]")].find((r) => r.dataset.item === was.item);
+    if (!row) return;
+    for (const c of [was.control, ".ring-up", ".ring-down", "input[type=checkbox]"]) {
+      const el = row.querySelector<HTMLInputElement | HTMLButtonElement>(c);
+      if (el && !el.disabled) return el.focus();
+    }
+  };
+
   const draw = () => {
     const on = settings.items;
     const off = ALL.filter((k) => !on.includes(k));
     const full = on.length >= MAX_ITEMS;
     const fewest = on.length <= MIN_ITEMS;
+    const was = focused();
     list.replaceChildren(
       ...[...on, ...off].map((key) => {
         const at = on.indexOf(key);
@@ -66,16 +87,28 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
         if (key === "focus") {
           const minutes = h("input", { class: "filter ring-minutes", type: "number", min: "5", max: "240", step: "5", "aria-label": "Focus length in minutes" }) as HTMLInputElement;
           minutes.value = String(settings.focusMinutes);
+          // What's wrong with a length is said beside the field, not under the list.
+          const wrong = h("span", { class: "ring-minutes-wrong", id: "ring-minutes-wrong", role: "status" });
+          minutes.setAttribute("aria-describedby", "ring-minutes-wrong");
+          const refuse = (why: string) => {
+            minutes.value = String(settings.focusMinutes);
+            minutes.setAttribute("aria-invalid", "true");
+            wrong.textContent = why;
+          };
           minutes.addEventListener("change", async () => {
+            const n = Number(minutes.value);
+            if (!minutes.value.trim() || !Number.isInteger(n) || n < 5 || n > 240) {
+              refuse("Between 5 and 240 minutes");
+              return;
+            }
             try {
-              settings = { ...(await act.setFocusMinutes(Number(minutes.value))), items: settings.items };
+              settings = { ...(await act.setFocusMinutes(n)), items: settings.items };
               draw();
             } catch (err) {
-              minutes.value = String(settings.focusMinutes);
-              limit.textContent = String(err);
+              refuse(String(err));
             }
           });
-          parts.push(h("span", { class: "ring-minutes-field" }, minutes, h("span", { class: "muted" }, "min")));
+          parts.push(h("span", { class: "ring-minutes-field" }, minutes, h("span", { class: "muted" }, "min"), wrong));
         }
         if (ticked) {
           const move = (by: number, cls: string, text: string, label: string) => {
@@ -94,6 +127,7 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
         return h("li", { class: `ring-choice${ticked ? " on" : ""}`, "data-item": key }, ...parts);
       }),
     );
+    if (was) refocus(was);
     limit.textContent = full ? `The ring holds ${WORDS[MAX_ITEMS]}. Take one off to add another.` : fewest ? `At least ${WORDS[MIN_ITEMS]} stay on the ring.` : "";
     // The ring as it opens on the first item; lines are the ring's own business when it opens.
     drawRing(preview, new Ring(on, 0), { names: on.map(nameOf), lines: on.map(() => ""), focusRunning: false });

@@ -65,8 +65,26 @@ describe("Home", () => {
     await open();
     expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Chrono", "Ledger", "Command palette", "App ring"]);
     await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
-    expect(line("palette")).toBe("Press it anywhere");
+    expect(line("palette")).toBe("Suggestions on");
     expect(line("ledger")).toBe("1 due today · 1 overdue");
+    // Lines refresh every 30 seconds, so they aren't read out each time.
+    expect(document.querySelector("[aria-live]#app-tiles, #app-tiles [aria-live]")).toBeNull();
+  });
+
+  it("starts the keyboard on the first tile", async () => {
+    await open();
+    expect(document.activeElement).toBe($('[data-app="chrono"] .app-object'));
+  });
+
+  it("leaves a line that hasn't changed as it is", async () => {
+    await open();
+    await vi.waitFor(() => expect(line("ledger")).toBe("1 due today · 1 overdue"));
+    const shown = $('[data-line="ledger"]').firstChild;
+    $<HTMLButtonElement>('[data-tab="settings"]').click();
+    $<HTMLButtonElement>('[data-tab="home"]').click();
+    await vi.waitFor(() => expect(api.tasks).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect($('[data-line="ledger"]').firstChild).toBe(shown);
   });
 
   it("reads only today's totals for Chrono's line, not the whole day", async () => {
@@ -91,6 +109,12 @@ describe("Home", () => {
     api.status.mockResolvedValue({ tracking: false });
     await open();
     await vi.waitFor(() => expect(line("chrono")).toBe("Paused"));
+  });
+
+  it("says so when a tile's first line can't be read", async () => {
+    api.dayTotals.mockRejectedValue("database busy");
+    await open();
+    await vi.waitFor(() => expect(line("chrono")).toBe("Couldn't read Chrono just now"));
   });
 
   it("keeps a line it can't refresh", async () => {
@@ -141,10 +165,10 @@ describe("App settings", () => {
   it("lists every app with settings: Open for its own screen, Show for a section here", async () => {
     await open();
     expect(rows()).toEqual([
-      ["Chrono", "Open"],
-      ["Ledger", "Open"],
-      ["Command palette", "Show"],
-      ["App ring", "Show"],
+      ["Chrono", "Open in Chrono"],
+      ["Ledger", "Open in Ledger"],
+      ["Command palette", "Go to it"],
+      ["App ring", "Go to it"],
     ]);
   });
 
