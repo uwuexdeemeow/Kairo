@@ -485,6 +485,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::scan_window::open(app, query.as_deref());
             Ok(())
         }
+        Action::SpeedTest => {
+            crate::speedtest::open(app);
+            Ok(())
+        }
         Action::OpenUrl(url) if crate::platform::open_path(url) => Ok(()),
         Action::OpenUrl(_) => Err("Couldn't open your browser.".into()),
         // A window gone since the palette opened is no error: there's just nothing to do.

@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Permissions for Kairo's windows: Kairo's own (the dashboard, Chrono and Ledger), a popped-out note, the focus-session blocked window, and the command palette and app ring on macOS and Linux",
-  "windows": ["kairo", "note", "scan", "blocked", "palette", "ring"],
+  "windows": ["kairo", "note", "scan", "speed", "blocked", "palette", "ring"],
   "permissions": ["core:default", "core:window:allow-set-size"]
 }

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en" data-app="kairo">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Speed test</title>
+    <!-- The theme used last time, before anything draws, so a light setup never flashes dark. -->
+    <script>
+      try {
+        const t = localStorage.getItem("kairo.theme");
+        if (t) document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    <script type="module" src="/src/speed-window.ts" defer></script>
+  </head>
+  <body class="speed-page">
+    <main id="speed"></main>
+  </body>
+</html>

@@ -4838,3 +4838,83 @@ select,
     transition: none;
   }
 }
+
+/* ---------- The speed test window ---------- */
+.speed-page {
+  min-height: 100vh;
+  margin: 0;
+}
+
+.speed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 16px;
+}
+
+.speed-dials {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.speed-dial {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+  transition: border-color 140ms var(--ease);
+}
+
+/* The direction being measured now. */
+.speed-dial.live {
+  border-color: var(--chrono);
+}
+
+.speed-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.speed-figure {
+  font-family: var(--display);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-unit {
+  font-size: 12px;
+}
+
+.speed p {
+  margin: 0;
+}
+
+.speed-ping {
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-status {
+  margin-top: 6px !important;
+  color: var(--muted);
+}
+
+.speed-status.error {
+  color: var(--distracting-ink);
+}
+
+.speed .row-buttons {
+  margin-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speed-dial {
+    transition: none;
+  }
+}

@@ -19,6 +19,7 @@ mod lists;
 mod note_window;
 mod scan_window;
 mod small_window;
+mod speedtest;
 mod notebook;
 mod notes;
 mod nudge;
@@ -323,7 +324,7 @@ pub fn run() {
             palette::web::on_window_event(window, event);
             #[cfg(not(windows))]
             ring::web::on_window_event(window, event);
-            if matches!(event, tauri::WindowEvent::Destroyed) && [WINDOW, note_window::LABEL, scan_window::LABEL].contains(&window.label()) {
+            if matches!(event, tauri::WindowEvent::Destroyed) && [WINDOW, note_window::LABEL, scan_window::LABEL, speedtest::LABEL].contains(&window.label()) {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
                 let windows = app.webview_windows();
@@ -459,6 +460,8 @@ pub fn run() {
             virustotal::vt_follow,
             virustotal::vt_pick_file,
             virustotal::vt_open_report,
+            speedtest::speed_run,
+            speedtest::open_speed,
             commands::ring_settings,
             commands::set_ring_shortcut,
             commands::set_ring_items,
@@ -616,7 +619,7 @@ fn shows(current: &tauri::Url, page: Page) -> bool {
 
 /// Whether Kairo belongs in the Dock: while its window or a popped-out note is open.
 fn keep_in_dock(open: &[&str]) -> bool {
-    [WINDOW, note_window::LABEL, scan_window::LABEL].iter().any(|w| open.contains(w))
+    [WINDOW, note_window::LABEL, scan_window::LABEL, speedtest::LABEL].iter().any(|w| open.contains(w))
 }
 
 /// Brings up Chrono in Kairo's window.
@@ -777,5 +780,6 @@ mod tests {
         assert!(keep_in_dock(&["note"]));
         assert!(keep_in_dock(&["note", "palette"]));
         assert!(keep_in_dock(&["scan"]));
+        assert!(keep_in_dock(&["speed"]));
     }
 }

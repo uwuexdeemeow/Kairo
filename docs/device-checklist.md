@@ -338,6 +338,19 @@ On Windows, a Mac and Linux. Needs a free key from virustotal.com → profile �
 7. **The limit.** Check five things quickly. *Expect:* "VirusTotal's free limit: try again in a
    minute" rather than a failure.
 
+## Speed test
+
+On Windows, a Mac and Linux. Uses up to about 100 MB of data.
+
+1. **Run.** Type `speed test` in the palette. *Expect:* a Speed test window that starts at once:
+   "Measuring ping…", then "Testing download…" with Download filling in and its box outlined,
+   then upload, then "Done", ping and jitter in ms, "Cloudflare · " and a place code, and "Used
+   about N MB" (at most 100).
+2. **Again.** Run again is greyed while a test runs; once done it clears the figures and runs
+   another. Typing `speed test` again while one runs doesn't start a second.
+3. **Offline.** Turn off Wi-Fi and Run again. *Expect:* "Couldn't reach the speed test. Check your
+   connection." Closing the window mid-test stops it.
+
 ## Palette: web search
 
 On Windows, a Mac and Linux. Open the palette.

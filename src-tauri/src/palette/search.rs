@@ -301,6 +301,8 @@ pub enum Action {
     PopOutNote(Option<String>),
     /// Opens the VirusTotal scan window, looking up this link or hash when there is one.
     Scan(Option<String>),
+    /// Opens the speed test window, which starts a test.
+    SpeedTest,
     /// Ticks a task off, by id.
     FinishTask(String),
     /// Opens a web address in the default browser.
@@ -971,7 +973,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 10] = [
+    let actions: [(&str, String, Glyph, Action, bool); 11] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
@@ -982,6 +984,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
         ("virustotal vt virus malware", "Scan with VirusTotal".into(), Glyph::Search, Action::Scan(None), true),
+        ("speed test speedtest internet speed bandwidth wifi", "Test internet speed".into(), Glyph::Chart, Action::SpeedTest, true),
     ];
     for (words, title, glyph, action, offered) in actions {
         if !offered {
@@ -1390,6 +1393,14 @@ mod tests {
         assert_eq!(row.sub.as_deref(), Some("In a small window"));
         assert_eq!(search(&c, "new note x")[0].action, Action::NewNote("x".into()));
         assert_eq!(search(&c, "create note x")[0].action, Action::NewNote("x".into()));
+    }
+
+    #[test]
+    fn speed_test_opens_its_window() {
+        let c = ctx();
+        for q in ["speed test", "speedtest", "internet speed"] {
+            assert_eq!(search(&c, q)[0].action, Action::SpeedTest, "{q}");
+        }
     }
 
     #[test]
