@@ -1,5 +1,6 @@
 import { ALL, DEFAULT, MAX_ITEMS, MIN_ITEMS, Ring, type Segment } from "./ring-model";
 import { drawRing, mark } from "./ring-view";
+import { glyph } from "./glyphs";
 import { h } from "./ui";
 
 /// "What's on it" in the App ring's settings: every item with a tick box (on the ring or not),
@@ -111,8 +112,8 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
           parts.push(h("span", { class: "ring-minutes-field" }, minutes, h("span", { class: "muted" }, "min"), wrong));
         }
         if (ticked) {
-          const move = (by: number, cls: string, text: string, label: string) => {
-            const b = h("button", { class: `note-tool ${cls}`, title: label, "aria-label": `${label}: ${nameOf(key)}` }, text) as HTMLButtonElement;
+          const move = (by: number, cls: string, icon: "up" | "down", label: string) => {
+            const b = h("button", { class: `note-tool ${cls}`, title: label, "aria-label": `${label}: ${nameOf(key)}` }, glyph(icon)) as HTMLButtonElement;
             const to = at + by;
             b.disabled = to < 0 || to >= on.length;
             b.addEventListener("click", () => {
@@ -122,7 +123,7 @@ export function mountRingEditor(root: HTMLElement, first: RingSettings, act: Rin
             });
             return b;
           };
-          parts.push(h("span", { class: "ring-moves" }, move(-1, "ring-up", "↑", "Move up"), move(1, "ring-down", "↓", "Move down")));
+          parts.push(h("span", { class: "ring-moves" }, move(-1, "ring-up", "up", "Move up"), move(1, "ring-down", "down", "Move down")));
         }
         return h("li", { class: `ring-choice${ticked ? " on" : ""}`, "data-item": key }, ...parts);
       }),

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { mountUndo } from "./undo";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SHOWN_FOR_MS, mountUndo } from "./undo";
 
 let line: HTMLElement;
 let fallback: HTMLButtonElement;
@@ -10,54 +10,80 @@ beforeEach(() => {
   fallback = document.getElementById("fallback") as HTMLButtonElement;
 });
 
+afterEach(() => vi.useRealTimers());
+
 const offer = (u: ReturnType<typeof mountUndo>, what = "Essay") => {
   const p = { what, finish: vi.fn(), undo: vi.fn(), focusAfter: () => fallback };
   u.offer(p);
   return p;
 };
 
-describe("a delete that can be taken back", () => {
-  it("says what went, with Undo in the keyboard, and stays until the next one", () => {
+const ctrlZ = (target: EventTarget = document) => target.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+
+describe("deletes that can be taken back", () => {
+  it("says what went, leaving the keyboard where it was", () => {
     const u = mountUndo(line);
-    const first = offer(u);
+    fallback.focus();
+    offer(u);
     expect(line.hidden).toBe(false);
     expect(line.textContent).toBe("Deleted “Essay” · Undo");
-    expect(document.activeElement).toBe(line.querySelector("button"));
-    // A second delete makes the first final.
-    const second = offer(u, "Milk");
-    expect(first.finish).toHaveBeenCalledTimes(1);
-    expect(second.finish).not.toHaveBeenCalled();
-    expect(line.textContent).toBe("Deleted “Milk” · Undo");
+    expect(document.activeElement).toBe(fallback);
   });
 
-  it("takes it back with Undo or Ctrl+Z", () => {
+  it("keeps several, and takes them back latest first", () => {
+    const u = mountUndo(line);
+    const first = offer(u);
+    const second = offer(u, "Milk");
+    expect(first.finish).not.toHaveBeenCalled();
+    expect(line.textContent).toBe("Deleted “Milk” and 1 more · Undo");
+    ctrlZ();
+    expect(second.undo).toHaveBeenCalledTimes(1);
+    expect(first.undo).not.toHaveBeenCalled();
+    expect(line.textContent).toBe("Deleted “Essay” · Undo");
+    line.querySelector("button")!.click();
+    expect(first.undo).toHaveBeenCalledTimes(1);
+    expect(line.hidden).toBe(true);
+  });
+
+  it("fades after a few seconds, Ctrl+Z still working", () => {
+    vi.useFakeTimers();
     const u = mountUndo(line);
     const p = offer(u);
-    line.querySelector("button")!.click();
-    expect(p.undo).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(SHOWN_FOR_MS);
     expect(line.hidden).toBe(true);
-    const q = offer(u, "Milk");
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
-    expect(q.undo).toHaveBeenCalledTimes(1);
-    expect(q.finish).not.toHaveBeenCalled();
+    expect(p.finish).not.toHaveBeenCalled();
+    ctrlZ();
+    expect(p.undo).toHaveBeenCalledTimes(1);
+  });
+
+  it("doesn't fade from under the keyboard", () => {
+    vi.useFakeTimers();
+    const u = mountUndo(line);
+    offer(u);
+    line.querySelector<HTMLButtonElement>("button")!.focus();
+    vi.advanceTimersByTime(SHOWN_FOR_MS * 2);
+    expect(line.hidden).toBe(false);
   });
 
   it("leaves Ctrl+Z to a field being typed in", () => {
     const u = mountUndo(line);
     const p = offer(u);
-    document.getElementById("typing")!.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    ctrlZ(document.getElementById("typing")!);
     expect(p.undo).not.toHaveBeenCalled();
   });
 
-  it("made final, moves the keyboard somewhere sensible rather than losing it", () => {
+  it("made final, finishes them all and moves the keyboard off Undo", () => {
     const u = mountUndo(line);
-    const p = offer(u);
+    const a = offer(u);
+    const b = offer(u, "Milk");
+    line.querySelector<HTMLButtonElement>("button")!.focus();
     u.finish();
-    expect(p.finish).toHaveBeenCalledTimes(1);
+    expect(a.finish).toHaveBeenCalledTimes(1);
+    expect(b.finish).toHaveBeenCalledTimes(1);
     expect(line.hidden).toBe(true);
     expect(document.activeElement).toBe(fallback);
     // Nothing waiting: finishing again does nothing.
     u.finish();
-    expect(p.finish).toHaveBeenCalledTimes(1);
+    expect(a.finish).toHaveBeenCalledTimes(1);
   });
 });

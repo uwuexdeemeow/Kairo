@@ -12,6 +12,10 @@ const PATHS = {
   list: '<path d="M5 7h14M5 12h14M5 17h14" />',
   pin: '<path d="M9 4h6l-1 5 3 3H7l3-3z" /><path d="M12 12v8" />',
   open: '<path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />',
+  out: '<path d="M9 6h9v9M18 6L6 18" />',
+  up: '<path d="M12 19V5M6 11l6-6 6 6" />',
+  down: '<path d="M12 5v14M6 13l6 6 6-6" />',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5" />',
 } as const;
 
 export type Glyph = keyof typeof PATHS;

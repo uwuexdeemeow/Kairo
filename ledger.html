@@ -43,6 +43,10 @@
         </section>
 
         <section id="view-tasks" class="view ledger-tasks" role="tabpanel" aria-labelledby="tab-tasks">
+          <label class="task-find">
+            <span class="sr-only">Find a task</span>
+            <input type="search" class="filter" id="task-search" placeholder="Find a task  /" autocomplete="off" />
+          </label>
           <p id="task-undo" class="task-undo" role="status" hidden></p>
           <p id="task-status" class="task-status" role="status"></p>
           <div id="task-list" class="ledger-list"></div>
@@ -58,7 +62,7 @@
               <input type="checkbox" id="ledger-reminders" />
               Remind me of tasks
             </label>
-            <p class="muted">On a task's due day, once more the morning after if it's still open, and at its own reminder time. Only while you're at the computer, and on one of your combined computers.</p>
+            <p class="muted">On a task's due day, once more the morning after if it's still open, and at its own reminder time. Only while you're at the computer; with computers combined, just one of them reminds you.</p>
             <div class="row-buttons">
               <label class="field">
                 Morning reminder at

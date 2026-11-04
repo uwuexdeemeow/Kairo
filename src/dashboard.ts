@@ -2,7 +2,7 @@ import { jumpTo } from "./jump";
 import "./fonts";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api } from "./api";
+import { api, type Task } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { ledgerLine } from "./ledger-tasks";
@@ -20,7 +20,7 @@ interface KairoApp {
   id: string;
   name: string;
   what: string;
-  /// Today's line on its tile: words, or keys to show as keys.
+  /// Today's line on its tile: words, or what to draw (keys as keys, a Resume button).
   line: () => Promise<string | Node[]>;
   /** The app drawn as what it is; Chrono's dial redraws with its line. */
   object: () => HTMLElement;
@@ -44,7 +44,15 @@ const APPS: KairoApp[] = [
     line: async () => {
       const [status, [day]] = await Promise.all([api.status(), api.dayTotals(today(), today())]);
       drawDial(day);
-      if (!status.tracking) return "Paused";
+      if (!status.tracking) {
+        // Paused says how to stop being paused, right there.
+        const resume = h("button", { class: "link-btn tile-resume" }, "Resume");
+        resume.addEventListener("click", async () => {
+          await api.resumeTracking().catch(() => {});
+          void refreshLines();
+        });
+        return [document.createTextNode("Paused · "), resume];
+      }
       if (!day?.activeMs) return "Nothing tracked yet today";
       return `${fmtDur(day.activeMs)} on screen · ${pct(day.productiveMs, day.activeMs)}% productive`;
     },
@@ -59,7 +67,7 @@ const APPS: KairoApp[] = [
     id: "ledger",
     name: "Ledger",
     what: "Tasks and notes",
-    line: async () => ledgerLine(await api.tasks()),
+    line: async () => ledgerLine(await tasksNow()),
     object: () => {
       const book = h("span", { class: "app-book" });
       book.innerHTML = logo("ledger", 112);
@@ -77,9 +85,9 @@ const APPS: KairoApp[] = [
     what: "Apps, days and commands, from anywhere",
     line: async () => {
       const s = await api.paletteSettings();
-      // The keycap shows the keys; the line says how it's set up.
+      // The keycap shows the keys; the line, one thing to try in it, a different one each day.
       document.querySelector('[data-app="palette"] .keycap')?.replaceChildren(...shortcutKeys(s.shortcut));
-      return [s.suggestions ? "Suggestions on" : "Suggestions off", s.overFullscreen ? "over full-screen apps" : ""].filter(Boolean).join(" · ");
+      return tryToday(new Date());
     },
     object: () => h("span", { class: "keycap" }),
     open: () => api.openPalette(),
@@ -92,13 +100,67 @@ const APPS: KairoApp[] = [
     line: async () => {
       const ring = await api.ringSettings();
       document.querySelector('[data-app="ring"] .app-arc')?.replaceChildren(ringArc(ring.items.length));
-      return [...shortcutKeys(ring.shortcut), document.createTextNode(` · ${ring.items.length} items`)];
+      return [h("span", { class: "shortcut-keys" }, ...shortcutKeys(ring.shortcut)), document.createTextNode(` · ${ring.items.length} items`)];
     },
     object: () => h("span", { class: "app-arc" }, ringArc(7)),
     open: () => api.openRing(),
     settings: { covers: "Shortcut, and what's on it", show: "ring-record" },
   },
 ];
+
+/// Things to type in the palette, one shown a day on its tile.
+const TRIES = ["focus 25", "yesterday", "speed test", "scan", "12*7", "this week", "yt lofi beats", "windows"];
+
+/// "Try “focus 25”": the palette's tile line for a day, the same all day.
+export function tryToday(d: Date): string {
+  const day = Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 86_400_000);
+  return `Try “${TRIES[((day % TRIES.length) + TRIES.length) % TRIES.length]}”`;
+}
+
+/// Today's tasks, read once per refresh for both Ledger's tile and the Today list.
+let tasksRead: Promise<Task[]> | null = null;
+const tasksNow = () => (tasksRead ??= api.tasks());
+
+/// Home's Today: the open tasks due today or overdue, each opening in Ledger, and the next
+/// reminder still to come today.
+async function drawToday() {
+  const list = $("#today-list");
+  const next = $("#today-next");
+  let tasks: Task[];
+  try {
+    tasks = await tasksNow();
+  } catch {
+    // What's shown stays; the next refresh tries again.
+    return;
+  }
+  const due = tasks.filter((t) => t.group === "overdue" || t.group === "today");
+  const shown = due.slice(0, 5);
+  list.replaceChildren(
+    ...shown.map((t) => {
+      const open = h("button", { class: "today-task" }, h("span", { class: "today-task-title" }, t.title), t.group === "overdue" ? h("span", { class: "today-late" }, "Overdue") : "");
+      open.addEventListener("click", () => api.openLedger(`task:${t.id}`));
+      return h("li", {}, open);
+    }),
+  );
+  if (due.length > shown.length) {
+    const more = h("button", { class: "link-btn today-more" }, `${due.length - shown.length} more in Ledger`);
+    more.addEventListener("click", () => api.openLedger());
+    list.append(h("li", {}, more));
+  }
+  if (!due.length) {
+    const add = h("button", { class: "link-btn" }, "Add a task");
+    add.addEventListener("click", () => api.openLedger("add"));
+    list.replaceChildren(h("li", { class: "today-none muted" }, "Nothing due today. ", add));
+  }
+  // The next reminder still to come today, if any.
+  const now = Date.now();
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+  const reminder = tasks
+    .filter((t) => t.group !== "done" && t.remindMs !== null && t.remindMs > now && t.remindMs <= end.getTime())
+    .sort((a, b) => a.remindMs! - b.remindMs!)[0];
+  next.textContent = reminder ? `Next reminder at ${new Date(reminder.remindMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${reminder.title}` : "";
+}
 
 /// The ring as its tile's picture: an arc of segments, the middle one lit.
 function ringArc(count: number): HTMLElement {
@@ -147,13 +209,16 @@ let settingsWired = false;
 function drawTiles() {
   $("#app-tiles").replaceChildren(
     ...APPS.map((app) => {
-      const object = h("button", { class: "app-object", "aria-label": `Open ${app.name}` }, app.object());
-      object.addEventListener("click", app.open);
+      // The whole tile opens the app: its name is the button, stretched over the tile, so the
+      // drawing, the name and the line are one target, and the name is read once.
+      const object = h("span", { class: "app-object", "aria-hidden": "true" }, app.object());
+      const open = h("button", { class: "app-open" }, h("span", { class: "sr-only" }, "Open "), app.name);
+      open.addEventListener("click", app.open);
       return h(
         "article",
-        { class: "app-tile", "data-app": app.id, "aria-label": app.name },
+        { class: "app-tile", "data-app": app.id },
         object,
-        h("h2", {}, app.name),
+        h("h2", {}, open),
         h("p", { class: "muted app-tile-what" }, app.what),
         // Not a live region: refreshed every 30 seconds, it would talk over whatever is read.
         h("p", { class: "app-tile-line", "data-line": app.id }),
@@ -179,12 +244,14 @@ function drawAppSettings() {
 
 /// Asks each app for today's line; one that can't answer keeps what it showed.
 async function refreshLines() {
-  await Promise.all(
-    APPS.map(async (app) => {
+  tasksRead = null;
+  await Promise.all([
+    drawToday(),
+    ...APPS.map(async (app) => {
       const el = $(`[data-line="${app.id}"]`);
       try {
         const line = await app.line();
-        const next = typeof line === "string" ? [document.createTextNode(line)] : [h("span", { class: "shortcut-keys" }, ...line)];
+        const next = typeof line === "string" ? [document.createTextNode(line)] : line;
         // Only a line that changed is redrawn.
         if (el.innerHTML !== next.map((n) => (n instanceof Element ? n.outerHTML : n.textContent)).join("")) el.replaceChildren(...next);
       } catch {
@@ -193,14 +260,18 @@ async function refreshLines() {
         if (!el.textContent) el.textContent = `Couldn't read ${app.name} just now`;
       }
     }),
-  );
+  ]);
 }
 
 /// Resolves once the tab has what it shows.
 async function showTab(tab: Tab): Promise<void> {
   if (tab === current) return;
   current = tab;
-  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) b.setAttribute("aria-pressed", String(b.dataset.tab === tab));
+  // Tabs: the one shown is selected and the Tab stop; the arrows reach the other.
+  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) {
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.tabIndex = b.dataset.tab === tab ? 0 : -1;
+  }
   $("#tab-home").hidden = tab !== "home";
   $("#tab-settings").hidden = tab !== "settings";
   $("#dash-date").hidden = tab !== "home";
@@ -208,7 +279,7 @@ async function showTab(tab: Tab): Promise<void> {
   if (tab === "home") drawGreeting();
   else $("#dash-title").textContent = "Settings";
   // The keyboard starts on the tab's first control, not nowhere.
-  const into = tab === "home" ? document.querySelector<HTMLElement>(".app-object") : document.querySelector<HTMLElement>("#settings-find");
+  const into = tab === "home" ? document.querySelector<HTMLElement>(".app-open") : document.querySelector<HTMLElement>("#settings-find");
   if (into && (!document.activeElement || document.activeElement === document.body)) into.focus({ preventScroll: true });
   if (tab === "home") {
     cancelShortcutRecording();
@@ -243,6 +314,25 @@ $("#dash-date").textContent = new Date().toLocaleDateString([], { weekday: "long
 drawTiles();
 drawAppSettings();
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) b.addEventListener("click", () => showTab(b.dataset.tab as Tab));
+/// Shows a tab from the keyboard, the keyboard on its tab.
+const goTab = (tab: Tab) => {
+  void showTab(tab);
+  document.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus();
+};
+// The tabs: the arrows move along them, as tabs do.
+$(".dash-tabs").addEventListener("keydown", (e) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+  e.preventDefault();
+  goTab(e.key === "ArrowLeft" || e.key === "Home" ? "home" : "settings");
+});
+// Ctrl+1 Home, Ctrl+2 or Ctrl+, Settings, as Ledger's views and most apps' settings.
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+  const tab = ({ "1": "home", "2": "settings", ",": "settings" } as Record<string, Tab>)[e.key];
+  if (!tab) return;
+  e.preventDefault();
+  goTab(tab);
+});
 followTab();
 listen("kairo:dashboard", () => followTab());
 

@@ -579,6 +579,8 @@ export const api = {
   /** For "day", `date` is a local `YYYY-MM-DD`; omit it for today. */
   deleteHistory: (range: DeleteRange, date?: string) => invoke<number>("delete_history", { range, date }),
   status: () => invoke<Status>("get_status"),
+  /** Resumes tracking if it's paused; never pauses it. */
+  resumeTracking: () => invoke<void>("resume_tracking"),
   headsUp: () => invoke<HeadsUp | null>("get_heads_up"),
   dismissHeadsUp: () => invoke<void>("dismiss_heads_up"),
   nudgesEnabled: () => invoke<boolean>("get_nudges_enabled"),

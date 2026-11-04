@@ -21,17 +21,22 @@
           <p class="eyebrow" id="settings-version" hidden></p>
           <h1 id="dash-title">Your apps</h1>
         </div>
-        <div class="range" role="group" aria-label="Show">
-          <button data-tab="home" aria-pressed="true">Home</button>
-          <button data-tab="settings" aria-pressed="false">Settings</button>
+        <div class="range dash-tabs" role="tablist" aria-label="Show">
+          <button role="tab" data-tab="home" id="show-home" aria-selected="true" aria-controls="tab-home" title="Home (Ctrl+1)">Home</button>
+          <button role="tab" data-tab="settings" id="show-settings" aria-selected="false" aria-controls="tab-settings" tabindex="-1" title="Settings (Ctrl+2 or Ctrl+,)">Settings</button>
         </div>
       </section>
 
-      <section id="tab-home" class="view" aria-label="Apps">
+      <section id="tab-home" class="view" role="tabpanel" aria-labelledby="show-home">
+        <section class="today" id="today" aria-labelledby="today-title">
+          <h2 class="today-title" id="today-title">Today</h2>
+          <ul class="today-list" id="today-list"></ul>
+          <p class="muted today-next" id="today-next"></p>
+        </section>
         <div class="app-tiles" id="app-tiles"></div>
       </section>
 
-      <section id="tab-settings" class="view" aria-label="Kairo's settings" hidden>
+      <section id="tab-settings" class="view" role="tabpanel" aria-labelledby="show-settings" hidden>
         <label class="settings-find">
           <span class="sr-only">Find a setting</span>
           <input type="search" class="filter" id="settings-find" placeholder="Find a setting" autocomplete="off" />
@@ -40,8 +45,7 @@
 
         <div class="settings-group" id="group-apps">
           <h2 class="settings-group-title">Your apps</h2>
-        <section class="block settings-first">
-          <h3>App settings</h3>
+        <section class="block settings-first" aria-label="Each app's settings">
           <ul class="app-settings" id="app-settings"></ul>
         </section>
         </div>
@@ -80,7 +84,7 @@
         </div>
 
         <div class="settings-group" id="group-shortcuts">
-          <h2 class="settings-group-title">Shortcuts</h2>
+          <h2 class="settings-group-title">Palette and ring</h2>
         <section class="block" id="palette-settings">
           <h3>Command palette</h3>
           <div class="row-buttons">
@@ -124,7 +128,11 @@
             <span class="shortcut-keys" id="ring-keys" aria-live="polite"></span>
             <button class="btn" id="ring-record">Change</button>
           </div>
-          <p class="muted" id="ring-note" aria-live="polite">A dial of Kairo's apps at the pointer. Keep holding the first key and press the last one again to turn it, then let go to open; or tap the shortcut and turn it with the arrows, the wheel or by dragging.</p>
+          <p class="muted" id="ring-note" aria-live="polite">A dial of Kairo's apps at the pointer.</p>
+          <details class="settings-more">
+            <summary>How to turn it</summary>
+            <p class="muted">Keep holding the first key and press the last one again to turn it, then let go to open. Or tap the shortcut and turn it with the arrows, the wheel or by dragging.</p>
+          </details>
           <h3 class="ring-items-title">What's on it</h3>
           <div id="ring-items"></div>
         </section>
@@ -134,7 +142,7 @@
           <h2 class="settings-group-title">Data and computers</h2>
         <section class="block">
           <h3>Your data</h3>
-          <p class="muted">Take your tracked time into a spreadsheet, or keep everything in one backup file. A backup restores on any computer, Windows, Mac or Linux, so it's also how you move Kairo to a new one.</p>
+          <p class="muted">Your time as a spreadsheet, or everything in one backup file. A backup is also how you move Kairo to a new computer, Windows, Mac or Linux.</p>
           <div class="row-buttons">
             <button class="link-btn" id="export-time">Export time as CSV</button>
             <button class="link-btn" id="backup-save">Back up everything</button>
@@ -145,7 +153,17 @@
 
         <section class="block">
           <h3>Combine computers</h3>
-          <p class="muted">See the time from all your computers together. Link them with a short code: your time travels through Kairo's relay, encrypted end to end, so the relay can't read it. Or pick a folder your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing) on each computer, and your time, including window titles, goes to that drive instead. Categories, limits, goals and blocking rules you change are shared too, the latest change winning everywhere.</p>
+          <p class="muted">See your time from all your computers together, one of two ways:</p>
+          <dl class="sync-ways">
+            <dt>Link with a code</dt>
+            <dd>Through Kairo's relay, encrypted end to end: the relay can't read it.</dd>
+            <dt>A synced folder</dt>
+            <dd>One your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing), picked on each computer.</dd>
+          </dl>
+          <details class="settings-more">
+            <summary>What's shared</summary>
+            <p class="muted">Your tracked time, window titles included, and the categories, limits, goals and blocking rules you change. The latest change wins everywhere.</p>
+          </details>
           <p id="sync-where" aria-live="polite"></p>
           <ul class="sync-computers" id="sync-computers"></ul>
           <div class="sync-code" id="sync-code" hidden>
@@ -161,11 +179,11 @@
             <button class="link-btn" type="submit">Link</button>
             <button class="link-btn" type="button" id="sync-join-cancel">Cancel</button>
           </form>
-          <div class="sync-confirm" id="sync-confirm" hidden>
-            <p>Start over? Every computer linked now stops combining with this one, including one that's lost or sold. Link the ones you still use again with a new code.</p>
+          <div class="sync-confirm" id="sync-confirm" role="group" aria-labelledby="sync-confirm-text" hidden>
+            <p id="sync-confirm-text"></p>
             <div class="row-buttons">
-              <button class="link-btn" id="sync-confirm-yes">Start over</button>
-              <button class="link-btn" id="sync-confirm-no">Keep them linked</button>
+              <button class="link-btn danger-link" id="sync-confirm-yes"></button>
+              <button class="link-btn" id="sync-confirm-no"></button>
             </div>
           </div>
           <div class="row-buttons">

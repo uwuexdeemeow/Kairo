@@ -341,6 +341,33 @@ On Windows, a Mac and Linux, in both themes. No focus session involved: don't pr
     2: "Between 5 and 240 minutes" beside the field, the old value back.
 11. **Checkboxes** (ring editor, switches) show an outline in the app's colour under the keyboard.
 
+## Ledger and dashboard, third critique round
+
+On Windows, a Mac and Linux, in both themes. No focus session involved: don't press Start.
+
+1. **Several deletes.** In Tasks, press Delete on three tasks in a row with the keyboard. *Expect:*
+   the keyboard stays on the list each time, the line says "Deleted “…” and 2 more · Undo" and
+   fades after about 8 seconds; Ctrl+Z (⌘Z) brings them back one at a time, latest first.
+2. **Start shows.** Every open task shows "▶ 25m" in grey, Ledger's colour under the pointer. No
+   Rename bubble on task cards; F2 renames.
+3. **Reminders.** A task with none shows "+ Add a reminder"; pressing it sets 09:00 on its due
+   day (or the next 9 o'clock), with the day, time and × to clear.
+4. **Find a task.** Press / in Tasks: the keyboard lands in Find a task; typing narrows the list,
+   "No tasks match…" when nothing does, Esc clears it.
+5. **Notes.** The list is one Tab stop: ↑/↓ move, F2 renames. The note's toolbar: writing tools,
+   then Pop out, Pin and, set apart, Delete. The welcome tips are three short lines.
+6. **Ledger Settings.** Flip "Remind me of tasks": "Saved" shows for a moment.
+7. **Home's Today.** Tasks due today or overdue, each opening that task in Ledger; "Nothing due
+   today. Add a task" with none; the next reminder still to come today under them.
+8. **Tiles.** Clicking anywhere on a tile opens its app. Pause tracking from the tray: Chrono's tile
+   says "Paused · Resume", and Resume resumes it. The palette tile suggests one thing to try.
+9. **Tabs.** Ctrl+1 Home, Ctrl+2 or Ctrl+, Settings; ← → on the tabs.
+10. **Settings.** Combine computers shows its two ways and a folded "What's shared". Stop combining
+    asks in words, with "Keep combining" focused. Groups: Your apps, Kairo, Palette and ring, Data
+    and computers. Changing the theme says "Saved".
+11. **Restore** (on a test copy only, with a backup of real data first): the warning names Ledger's
+    tasks and notes, and the notes come back from the backup.
+
 ## Ledger notes, looking finished
 
 1. **None open.** In Notes with no note open. *Expect:* "Pick up where you left off" with the three

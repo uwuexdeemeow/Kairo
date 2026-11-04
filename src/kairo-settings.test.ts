@@ -142,7 +142,8 @@ describe("the VirusTotal key", () => {
     await vi.waitFor(() => expect(key.value).toBe(""));
     expect(key.placeholder).toBe("Saved. Paste a new one to change it");
     $<HTMLButtonElement>("#vt-test").click();
-    await vi.waitFor(() => expect($("#vt-note").textContent).toBe("✓ Works. The free key allows 4 lookups a minute and 500 a day."));
+    await vi.waitFor(() => expect($("#vt-note").textContent).toBe("Works. The free key allows 4 lookups a minute and 500 a day."));
+    expect($("#vt-note .glyph-check")).not.toBeNull();
     vt.testKey.mockRejectedValueOnce("VirusTotal didn't accept the key. Check it in Kairo's settings.");
     $<HTMLButtonElement>("#vt-test").click();
     await vi.waitFor(() => expect($("#vt-note").textContent).toBe("VirusTotal didn't accept the key. Check it in Kairo's settings."));
@@ -268,13 +269,19 @@ describe("combining computers", () => {
     expect($("#sync-status").textContent).toBe("");
   });
 
-  it("stops combining, on a second press", async () => {
+  it("stops combining once asked, the safe answer first", async () => {
     api.stopSync.mockResolvedValue(OFF);
     $("#sync-stop").click();
-    // The first press asks; nothing has stopped yet.
-    expect($("#sync-stop").textContent).toBe("Stop for all of them? Press again");
+    // It asks, saying what happens; nothing has stopped yet.
+    expect(shown("#sync-confirm")).toBe(true);
+    expect($("#sync-confirm-text").textContent).toContain("the other computers drop this one's too");
+    expect(document.activeElement).toBe($("#sync-confirm-no"));
+    expect(api.stopSync).not.toHaveBeenCalled();
+    $("#sync-confirm-no").click();
+    expect(shown("#sync-confirm")).toBe(false);
     expect(api.stopSync).not.toHaveBeenCalled();
     $("#sync-stop").click();
+    $("#sync-confirm-yes").click();
     await vi.waitFor(() => expect($("#sync-status").textContent).toContain("Stopped."));
     expect($("#sync-stop").hidden).toBe(true);
   });
@@ -282,7 +289,7 @@ describe("combining computers", () => {
   it("says when stopping fails", async () => {
     api.stopSync.mockRejectedValue("the folder can't be reached");
     $("#sync-stop").click();
-    $("#sync-stop").click();
+    $("#sync-confirm-yes").click();
     await vi.waitFor(() => expect($("#sync-status").textContent).toBe("Couldn't stop: the folder can't be reached"));
   });
 
@@ -307,7 +314,7 @@ describe("finding a setting", () => {
     field.value = q;
     field.dispatchEvent(new Event("input"));
   };
-  const visibleSections = () => [...document.querySelectorAll<HTMLElement>(".settings-group:not([hidden]) .block:not([hidden]) > h3:not(.ring-items-title)")].map((h) => h.textContent);
+  const visibleSections = () => [...document.querySelectorAll<HTMLElement>(".settings-group:not([hidden]) .block:not([hidden])")].map((b) => b.querySelector("h3")?.textContent ?? b.getAttribute("aria-label"));
 
   it("keeps the sections that mention it, and their groups", () => {
     find("theme");

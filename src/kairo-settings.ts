@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type Linking, type SyncState } from "./api";
-import { confirmTwice } from "./confirm";
+import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
 import { vt } from "./virustotal-api";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
@@ -75,27 +75,37 @@ export function cancelShortcutRecording(): void {
 /// can't be saved flips back.
 function saves(sel: string, save: (on: boolean) => Promise<unknown>, failed?: (err: unknown) => void) {
   const box = $<HTMLInputElement>(sel);
-  let clear = 0;
   box.addEventListener("change", async () => {
-    const label = box.closest("label") ?? box.parentElement!;
-    let mark = label.querySelector<HTMLElement>(".saved-mark");
-    if (!mark) {
-      mark = h("span", { class: "saved-mark", role: "status" });
-      label.append(mark);
-    }
-    window.clearTimeout(clear);
-    try {
-      await save(box.checked);
-      mark.classList.remove("failed");
-      mark.textContent = "Saved";
-    } catch (err) {
-      box.checked = !box.checked;
-      mark.classList.add("failed");
-      mark.textContent = "Couldn't save";
-      failed?.(err);
-    }
-    clear = window.setTimeout(() => (mark!.textContent = ""), 2500);
+    const kept = await mark(box.closest("label") ?? box.parentElement!, () => save(box.checked), failed);
+    if (!kept) box.checked = !box.checked;
   });
+}
+
+const fades = new WeakMap<HTMLElement, number>();
+
+/// Saves, then says "Saved" (or "Couldn't save") beside `label`'s words for a moment. Whether it
+/// was kept.
+async function mark(label: HTMLElement, save: () => Promise<unknown>, failed?: (err: unknown) => void): Promise<boolean> {
+  let said = label.querySelector<HTMLElement>(".saved-mark");
+  if (!said) {
+    said = h("span", { class: "saved-mark", role: "status" });
+    label.append(said);
+  }
+  window.clearTimeout(fades.get(label));
+  let kept = true;
+  try {
+    await save();
+    said.classList.remove("failed");
+    said.textContent = "Saved";
+  } catch (err) {
+    kept = false;
+    said.classList.add("failed");
+    said.textContent = "Couldn't save";
+    failed?.(err);
+  }
+  const shown = said;
+  fades.set(label, window.setTimeout(() => (shown.textContent = ""), 2500));
+  return kept;
 }
 
 /// While recording, the next key press with a modifier becomes the shortcut.
@@ -272,7 +282,7 @@ function wireVirusTotal() {
     note.textContent = "Testing…";
     try {
       await vt.testKey();
-      note.textContent = "✓ Works. The free key allows 4 lookups a minute and 500 a day.";
+      note.replaceChildren(glyph("check"), "Works. The free key allows 4 lookups a minute and 500 a day.");
     } catch (err) {
       note.textContent = String(err);
     }
@@ -338,10 +348,12 @@ export function wireKairoSettings(): void {
   saves("#palette-over-fullscreen", (on) => api.setPaletteOverFullscreen(on));
   saves("#palette-search-files", (on) => api.setPaletteSearchFiles(on));
 
+  // The theme shows at once; whether it was kept is said beside it, as the switches do.
   $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
-    const mode = (e.target as HTMLSelectElement).value as Appearance;
+    const select = e.target as HTMLSelectElement;
+    const mode = select.value as Appearance;
     applyTheme(mode);
-    await api.setAppearance(mode);
+    await mark(select.closest("label")!, () => api.setAppearance(mode));
   });
   // Chrono's window or the palette can change it too.
   listen<Appearance>("kairo:appearance", (e) => ($<HTMLSelectElement>("#appearance").value = e.payload));
@@ -419,31 +431,59 @@ export function wireKairoSettings(): void {
       out.textContent = String(err);
     }
   });
-  $("#sync-over").addEventListener("click", () => {
+  // What reaches the other computers asks first, in words, with the safe answer beside it.
+  let confirmed: (() => Promise<void>) | null = null;
+  const ask = (question: string, yes: string, no: string, run: () => Promise<void>) => {
     hideCode();
+    $("#sync-confirm-text").textContent = question;
+    $("#sync-confirm-yes").textContent = yes;
+    $("#sync-confirm-no").textContent = no;
+    confirmed = run;
     $("#sync-confirm").hidden = false;
+    $("#sync-confirm-no").focus();
+  };
+  $("#sync-confirm-no").addEventListener("click", () => {
+    $("#sync-confirm").hidden = true;
+    confirmed = null;
   });
-  $("#sync-confirm-no").addEventListener("click", () => ($("#sync-confirm").hidden = true));
   $("#sync-confirm-yes").addEventListener("click", async () => {
     $("#sync-confirm").hidden = true;
-    await codeAction(api.startOver);
-    await refreshSync();
+    const run = confirmed;
+    confirmed = null;
+    await run?.();
   });
+  $("#sync-over").addEventListener("click", () =>
+    ask(
+      "Start over? Every computer linked now stops combining with this one, including one that's lost or sold. Link the ones you still use again with a new code.",
+      "Start over",
+      "Keep them linked",
+      async () => {
+        await codeAction(api.startOver);
+        await refreshSync();
+      },
+    ),
+  );
   // A sync round finished: the computers and when they last synced.
   listen("kairo:sync", () => refreshSync());
 
-  // It reaches the other computers too, so it takes a second press.
-  confirmTwice($<HTMLButtonElement>("#sync-stop"), () => "Stop for all of them? Press again", async () => {
-    const out = $("#sync-status");
-    out.textContent = "";
-    hideCode();
-    try {
-      renderSync(await api.stopSync());
-      out.textContent = "Stopped. Only this computer's time shows here, and the others drop it too.";
-    } catch (err) {
-      out.textContent = `Couldn't stop: ${err}`;
-    }
-  });
+  // It reaches the other computers too, so it asks first, saying so.
+  $("#sync-stop").addEventListener("click", () =>
+    ask(
+      "Stop combining? Only this computer's time will show here, and the other computers drop this one's too.",
+      "Stop combining",
+      "Keep combining",
+      async () => {
+        const out = $("#sync-status");
+        out.textContent = "";
+        try {
+          renderSync(await api.stopSync());
+          out.textContent = "Stopped. Only this computer's time shows here now.";
+        } catch (err) {
+          out.textContent = `Couldn't stop: ${err}`;
+        }
+      },
+    ),
+  );
 }
 
 /// Fills the controls from what's saved.

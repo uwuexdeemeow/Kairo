@@ -248,6 +248,21 @@ describe("renaming a note", () => {
     open.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")!.value).toBe("# Outline\nintro"));
   });
+
+  it("is one Tab stop: the arrows move along it, F2 renames", async () => {
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
+    const opener = (id: string) => root.querySelector<HTMLButtonElement>(`[data-note="${id}"] .note-row-open`)!;
+    const stops = [...root.querySelectorAll<HTMLElement>(".notes-list button")].filter((b) => b.tabIndex === 0);
+    expect(stops).toEqual([opener("a")]);
+    opener("a").focus();
+    opener("a").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(opener("b"));
+    expect(opener("a").tabIndex).toBe(-1);
+    opener("b").dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true, cancelable: true }));
+    expect(root.querySelector<HTMLInputElement>('[data-note="b"] .note-rename')!.value).toBe("Shopping");
+  });
 });
 
 describe("an open note", () => {
@@ -262,7 +277,7 @@ describe("an open note", () => {
     const { area } = await opened();
     expect(area.value).toBe("# Plan\nintro");
     const links = [...root.querySelectorAll<HTMLButtonElement>(".note-tasks button")];
-    expect(links.map((l) => l.textContent)).toEqual(["Essay ↗", "Talk ↗"]);
+    expect(links.map((l) => l.textContent)).toEqual(["Essay", "Talk"]);
     links[1].click();
     expect(act.openTask).toHaveBeenCalledWith("t2");
   });
@@ -334,13 +349,14 @@ describe("an open note", () => {
     expect(root.querySelector(".note-confirm")).toBeNull();
     expect(rows()).toEqual(["Shopping"]);
     expect(act.remove).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(root.querySelector(".notes-undo button"));
+    // The keyboard is on the note beside it, ready for the next; the line says what went.
+    expect(document.activeElement).toBe(root.querySelector('[data-note="b"] .note-row-open'));
     root.querySelector<HTMLButtonElement>(".notes-undo button")!.click();
     await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("# Plan\nintro"));
     expect(act.remove).not.toHaveBeenCalled();
   });
 
-  it("deletes for good at the next delete, or on leaving Notes", async () => {
+  it("keeps several deletes waiting, and deletes them for good on leaving Notes", async () => {
     const view = mountNotes(root, act, () => NOW);
     await settle();
     await view.open("a");
@@ -348,10 +364,10 @@ describe("an open note", () => {
     await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
     await view.open("b");
     root.querySelector<HTMLButtonElement>(".note-delete")!.click();
-    // The second delete makes the first final.
-    await vi.waitFor(() => expect(act.remove).toHaveBeenCalledWith("a"));
-    expect(act.remove).not.toHaveBeenCalledWith("b");
+    await vi.waitFor(() => expect(root.querySelector(".notes-undo")!.textContent).toContain("and 1 more"));
+    expect(act.remove).not.toHaveBeenCalled();
     view.finishDelete();
+    expect(act.remove).toHaveBeenCalledWith("a");
     expect(act.remove).toHaveBeenCalledWith("b");
   });
 

@@ -1,4 +1,5 @@
 import type { Note, Paper } from "./api";
+import { glyph } from "./glyphs";
 import { renameBubble, renameField } from "./ledger-tasks";
 import { logo } from "./logos";
 import { openNoteSession, type NoteSession } from "./note-session";
@@ -88,7 +89,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   const status = h("p", { class: "task-status notes-status", role: "status" });
   const say = (text: string) => (status.textContent = text);
   const noteUndo = mountUndo(undoLine);
-  let deletingNote: string | null = null;
+  /// Notes deleted but still waiting on their Undo.
+  const deletingNotes = new Set<string>();
   popList.addEventListener("click", () => act.popOut());
   const list = h("div", { class: "notes-list", role: "list" });
   const pane = h("section", { class: "note-pane", "aria-label": "Note" });
@@ -101,7 +103,13 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   let session: NoteSession | null = null;
   let asked = 0;
 
+  /// Which note's row the keyboard was on, kept through redraws; and how each row renames, for F2.
+  let focusedNote: string | null = null;
+  let hadListFocus = false;
+  const renamers = new WeakMap<HTMLElement, () => void>();
+
   const drawList = () => {
+    hadListFocus = list.contains(document.activeElement);
     if (!open) drawWelcome();
     if (!notes.length) {
       const searching = !!search.value.trim();
@@ -125,16 +133,22 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
           h("span", { class: "note-row-meta" }, ...chips.map((c) => h("span", { class: "chip" }, c))),
         );
         // Hovering the row shows a bubble to rename the note where it is: its first line changes.
+        // The keyboard renames with F2 instead, so the bubble is no Tab stop of its own.
+        opener.tabIndex = -1;
+        opener.setAttribute("aria-describedby", "note-keys");
         const bubble = renameBubble(n.title, () => {
           const field = renameField(n.title, "note-rename", (text) => void rename(n, text), () => {
             field.replaceWith(opener);
             bubble.hidden = false;
+            opener.focus();
           });
           opener.replaceWith(field);
           bubble.hidden = true;
           field.focus();
           field.select();
         });
+        bubble.tabIndex = -1;
+        renamers.set(opener, () => bubble.click());
         const row = h(
           "div",
           { class: `note-row${n.pinned ? " pinned" : ""}${open?.id === n.id ? " open" : ""}`, "data-note": n.id, role: "listitem" },
@@ -145,8 +159,36 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
         row.addEventListener("click", () => void view.open(n.id));
         return row;
       }),
+      h("p", { id: "note-keys", class: "sr-only" }, "Up and down arrows move between notes. Enter opens, F2 renames."),
     );
+    // The list is one Tab stop: the open note, or the one the keyboard was on, or the first.
+    const openers = [...list.querySelectorAll<HTMLElement>(".note-row-open")];
+    const current = openers.find((b) => b.closest<HTMLElement>("[data-note]")!.dataset.note === (focusedNote ?? open?.id)) ?? openers[0];
+    if (current) current.tabIndex = 0;
+    if (focusedNote && current && hadListFocus) current.focus();
   };
+
+  list.addEventListener("focusin", (e) => {
+    const row = (e.target as HTMLElement).closest<HTMLElement>("[data-note]");
+    if (row) focusedNote = row.dataset.note ?? null;
+  });
+  // The list's keys: up and down move, Home and End go to the ends, F2 renames.
+  list.addEventListener("keydown", (e) => {
+    const from = e.target as HTMLElement;
+    if (!from.classList.contains("note-row-open")) return;
+    if (e.key === "F2") {
+      e.preventDefault();
+      return renamers.get(from)?.();
+    }
+    const openers = [...list.querySelectorAll<HTMLElement>(".note-row-open")];
+    const at = openers.indexOf(from);
+    const to = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: openers.length - 1 } as Record<string, number>)[e.key];
+    if (to === undefined || !openers[to]) return;
+    e.preventDefault();
+    from.tabIndex = -1;
+    openers[to].tabIndex = 0;
+    openers[to].focus();
+  });
 
   /// Renames a note from the list: its text with the new first line, kept; an open one's editor
   /// shows it too.
@@ -170,7 +212,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     }
     // Only the latest answer, should an earlier search finish after it.
     // A note waiting on its Undo stays out of sight.
-    if (mine === asked) notes = found.filter((x) => x.id !== deletingNote);
+    if (mine === asked) notes = found.filter((x) => !deletingNotes.has(x.id));
   };
 
   /// Saves what's typed: whether it's kept. A note that isn't stays open, its footer saying so,
@@ -194,7 +236,14 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
   /// With no note open, the pane offers the notes edited last, and a new one.
   const drawWelcome = () => {
     // "+ New note" is the list's, beside it: one, not two.
-    const tip = h("p", { class: "muted notes-recent-tip" }, "Ctrl+N starts a note · Ctrl+B bold, Ctrl+I italic · type “- [ ]” for a checkbox · Pop out list keeps your notes beside your work");
+    // A few tips, one to a line, rather than one run-on line.
+    const tip = h(
+      "ul",
+      { class: "muted notes-recent-tip" },
+      h("li", {}, h("kbd", {}, "Ctrl+N"), " starts a note"),
+      h("li", {}, h("kbd", {}, "Ctrl+B"), " bold, ", h("kbd", {}, "Ctrl+I"), " italic, “- [ ]” a checkbox"),
+      h("li", {}, "Pop out list keeps your notes beside your work"),
+    );
     const recent = [...notes].sort((a, b) => b.editedMs - a.editedMs).slice(0, 3);
     if (!recent.length) {
       const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
@@ -239,7 +288,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
           { class: "note-tasks muted" },
           "Attached to: ",
           ...n.tasks.flatMap(([id, title], i) => {
-            const link = h("button", { class: "link-btn" }, `${title} ↗`);
+            const link = h("button", { class: "link-btn link-out" }, title, glyph("out"));
             link.addEventListener("click", () => act.openTask(id));
             return i ? [", ", link] : [link];
           }),
@@ -264,18 +313,21 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       // Saved first, so the window opens on what's typed.
       if (await keep()) act.popOut(n.id);
     });
-    // Deleted at once, as a task is: Undo (or Ctrl+Z) brings it back until the next delete, or
-    // Notes is left. Its tasks keep their link until then.
+    // Deleted at once, as a task is: Undo (or Ctrl+Z) brings it back until Notes is left. Its tasks keep their link until then.
     const del = h("button", { class: "link-btn note-delete" }, "Delete");
     del.addEventListener("click", async () => {
       // What's typed is kept first, so Undo brings back all of it.
       await save();
       const at = notes.findIndex((x) => x.id === n.id);
       const neighbour = notes[at + 1] ?? notes[at - 1];
+      const rowAfter = () => {
+        const row = neighbour && [...list.querySelectorAll<HTMLElement>("[data-note]")].find((r) => r.dataset.note === neighbour.id);
+        return row?.querySelector<HTMLElement>(".note-row-open") ?? row ?? search;
+      };
       noteUndo.offer({
         what: n.title,
         finish: () => {
-          deletingNote = null;
+          deletingNotes.delete(n.id);
           void act.remove(n.id).then(
             () => load().then(drawList),
             () => {
@@ -285,18 +337,25 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
           );
         },
         undo: () => {
-          deletingNote = null;
+          deletingNotes.delete(n.id);
           void load().then(() => view.open(n.id));
         },
-        focusAfter: () => (neighbour && [...list.querySelectorAll<HTMLElement>("[data-note]")].find((r) => r.dataset.note === neighbour.id)) || search,
+        focusAfter: rowAfter,
       });
-      deletingNote = n.id;
+      deletingNotes.add(n.id);
       notes = notes.filter((x) => x.id !== n.id);
       closeNote();
+      // The keyboard goes to the note beside it, ready for the next; the Undo line says what went.
+      rowAfter()?.focus();
     });
     const tools = session ? [session.tools(), session.paper] : [];
-    // Writing tools, then the note's own: Pop out and Pin, and apart from them Delete.
-    top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, ...tools, popOut, pin, h("span", { class: "note-top-sep", "aria-hidden": "true" }), del));
+    // Two groups: the writing tools, then the note's own, Pop out and Pin with Delete well apart
+    // at the far end.
+    top.replaceChildren(
+      ...parts,
+      h("span", { class: "note-top-write", role: "group", "aria-label": "Writing" }, ...tools),
+      h("span", { class: "note-top-buttons", role: "group", "aria-label": "This note" }, popOut, pin, h("span", { class: "note-top-sep", "aria-hidden": "true" }), del),
+    );
   };
 
   const showLimit = () => (limit.textContent = session && session.editor.value().length >= MAX_CHARS ? "This note is at its limit." : "");

@@ -81,6 +81,9 @@ export function dayText(day: string): string {
   return `${weekday} ${d} ${month}`;
 }
 
+/// How each open task's card turns its title into a field, for F2.
+const renamers = new WeakMap<HTMLElement, () => void>();
+
 function row(t: Task, session: RunningSession, act: LedgerActions, selected: string | null = null): HTMLElement {
   const done = t.doneMs !== null;
   // Named for its task, so a screen reader moving down the list knows which one it would tick.
@@ -102,23 +105,16 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
   }
   const title = h("button", { class: "task-title", tabindex: "-1", title: "Details", "aria-expanded": String(open), "aria-controls": "task-detail", "aria-describedby": "task-keys" }, t.title);
   title.addEventListener("click", () => act.select(t.id));
-  // Hovering the title shows a bubble that turns it into a field, to rename it where it is; a done
-  // task isn't renamed.
+  // F2 turns the title into a field, to rename it where it is (the panel's title renames it too);
+  // no bubble on the card, where it only added a control to find. A done task isn't renamed.
   const main = h("div", { class: "task-main" }, title);
-  if (!done) {
-    const bubble = renameBubble(t.title, () => {
-      const field = renameField(t.title, "task-rename", (text) => act.rename(t.id, text), () => {
-        field.replaceWith(title);
-        bubble.hidden = false;
-      });
+  if (!done)
+    renamers.set(el, () => {
+      const field = renameField(t.title, "task-rename", (text) => act.rename(t.id, text), () => field.replaceWith(title));
       title.replaceWith(field);
-      bubble.hidden = true;
       field.focus();
       field.select();
     });
-    bubble.tabIndex = -1;
-    main.append(bubble);
-  }
   el.append(main);
   // Its details as chips: when it's due (today's group says that already), its reminder, its
   // note, the time spent on it.
@@ -193,7 +189,7 @@ export function renameField(name: string, className: string, save: (text: string
 const drawn = new WeakMap<HTMLElement, string>();
 
 /// The controls on a card the keyboard can be on, by what they are.
-const CONTROLS = ["input[type=checkbox]", ".task-title", ".rename-bubble", ".task-start"];
+const CONTROLS = ["input[type=checkbox]", ".task-title", ".task-start"];
 
 /// Where the keyboard is in the list: which task, which of its controls, and the open tasks after
 /// it in order, to go to one of if this one has gone.
@@ -221,12 +217,13 @@ function refocus(root: HTMLElement, was: { id: string; control: string; after: s
   root.querySelector<HTMLElement>(".task-add")?.focus();
 }
 
-export function renderTaskList(root: HTMLElement, tasks: Task[], session: RunningSession, act: LedgerActions, selected: string | null = null): void {
+/// Draws the list; `query` is what Find a task holds, `tasks` already narrowed to it.
+export function renderTaskList(root: HTMLElement, tasks: Task[], session: RunningSession, act: LedgerActions, selected: string | null = null, query = ""): void {
   // A task being renamed in the list keeps its field: the next redraw brings the changes.
   if (document.activeElement?.classList.contains("task-rename") && root.contains(document.activeElement)) return;
   // The minutes a running session has left are part of what's drawn, so it's redrawn as they change.
   const left = session?.endsMs ? minutesLeft(session.endsMs, Date.now()) : null;
-  const shape = JSON.stringify([tasks, session, left, selected, act.focusMinutes?.() ?? 25]);
+  const shape = JSON.stringify([tasks, session, left, selected, act.focusMinutes?.() ?? 25, query]);
   if (drawn.get(root) === shape && root.childElementCount) return;
   drawn.set(root, shape);
   const was = focusIn(root);
@@ -235,7 +232,8 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
   const typing = document.activeElement === add;
   const doneOpen = root.querySelector<HTMLDetailsElement>("details.task-done")?.open ?? false;
   const parts: Node[] = [add, preview, spoken, help];
-  if (!tasks.length) {
+  if (!tasks.length && query) parts.push(h("p", { class: "muted ledger-empty", role: "status" }, `No tasks match “${query}”. Esc clears the search.`));
+  else if (!tasks.length) {
     const art = h("div", { class: "ledger-empty-art", "aria-hidden": "true" });
     art.innerHTML = logo("ledger", 64);
     parts.push(art, h("p", { class: "muted ledger-empty" }, "Nothing to do yet. What are you working on?"));
@@ -246,7 +244,7 @@ export function renderTaskList(root: HTMLElement, tasks: Task[], session: Runnin
   }
   const done = tasks.filter((t) => t.group === "done");
   // Everything ticked: said, rather than a list with only its Done fold.
-  if (done.length && done.length === tasks.length) parts.push(h("p", { class: "muted ledger-empty ledger-all-done" }, "All done. Nothing left open."));
+  if (!query && done.length && done.length === tasks.length) parts.push(h("p", { class: "muted ledger-empty ledger-all-done" }, "All done. Nothing left open."));
   if (done.length) {
     const folded = h("details", { class: "task-done" }, h("summary", {}, `Done (${done.length})`), ...done.map((t) => row(t, session, act, selected))) as HTMLDetailsElement;
     folded.open = doneOpen;
@@ -292,7 +290,7 @@ function listKeys(root: HTMLElement, act: LedgerActions) {
     else if (e.key === "Home") go(titles[0]);
     else if (e.key === "End") go(titles[titles.length - 1]);
     else if (e.key === " " && el.classList.contains("task-title")) card.querySelector<HTMLInputElement>("input[type=checkbox]")?.click();
-    else if (e.key === "F2") card.querySelector<HTMLElement>(".rename-bubble")?.click();
+    else if (e.key === "F2") renamers.get(card)?.();
     else if (e.key === "Delete") act.remove(id);
     else if (e.key === "ArrowRight") card.querySelector<HTMLElement>(".task-start")?.focus();
     else if (e.key === "ArrowLeft" && el.classList.contains("task-start")) card.querySelector<HTMLElement>(".task-title")?.focus();
@@ -408,7 +406,7 @@ function noteRow(t: Task, act: LedgerActions, notes: NoteName[]): HTMLElement {
   const row = h("div", { class: "detail-field detail-note" }, h("span", {}, "Note"));
   const attached = t.note ? notes.find((n) => n.id === t.note) : undefined;
   if (attached) {
-    const open = h("button", { class: "link-btn open-note" }, `${attached.title} ↗`);
+    const open = h("button", { class: "link-btn open-note link-out" }, attached.title, glyph("out"));
     open.addEventListener("click", () => act.openNote(attached.id));
     const detach = h("button", { class: "link-btn detach-note", "aria-label": "Detach the note", title: "Detach the note" }, glyph("close"));
     detach.addEventListener("click", () => act.attach(t.id, null));
@@ -468,23 +466,37 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     priorities.append(b);
   }
 
-  // A reminder is a day from the calendar and a time beside it; either one sets it.
-  const remindDay = t.remindMs !== null ? isoDate(new Date(t.remindMs)) : null;
+  // A reminder, once there is one, is a day from the calendar and a time beside it, each moving
+  // it. Until then a single "+ Add a reminder" says so, rather than a time that looks set.
   const remindAt = (day: string, time: string) => {
     const at = new Date(`${day}T${time}`).getTime();
     if (!Number.isNaN(at)) act.plan(t.id, t.dueDay, t.priority, at);
   };
-  const time = timeSelect(t.remindMs !== null ? clock(t.remindMs) : "09:00", "Reminder time");
-  time.classList.add("remind-time");
-  time.addEventListener("change", () => {
-    if (time.value) remindAt(remindDay ?? t.dueDay ?? todayIso(), time.value);
-  });
-  const remindPick = dayButton("Reminder day", remindDay, "No reminder", (iso) => remindAt(iso, time.value || "09:00"));
-  const remind = h("div", { class: "remind-when" }, remindPick, time);
-  const clearRemind = h("button", { class: "link-btn clear-remind", "aria-label": "Clear reminder", title: "Clear reminder" }, glyph("close"));
-  clearRemind.addEventListener("click", () => act.plan(t.id, t.dueDay, t.priority, null));
+  let remind: Node[];
+  if (t.remindMs === null) {
+    const add = h("button", { class: "link-btn add-remind" }, "+ Add a reminder");
+    // At 9 on the due day, or the next 9 o'clock: shown at once, to move from there.
+    add.addEventListener("click", () => {
+      const nine = new Date(`${t.dueDay ?? todayIso()}T09:00`);
+      if (!t.dueDay && nine.getTime() <= Date.now()) nine.setDate(nine.getDate() + 1);
+      act.plan(t.id, t.dueDay, t.priority, nine.getTime());
+    });
+    remind = [add];
+  } else {
+    const remindDay = isoDate(new Date(t.remindMs));
+    const time = timeSelect(clock(t.remindMs), "Reminder time");
+    time.classList.add("remind-time");
+    time.addEventListener("change", () => {
+      if (time.value) remindAt(remindDay, time.value);
+    });
+    const remindPick = dayButton("Reminder day", remindDay, "No reminder", (iso) => remindAt(iso, time.value || "09:00"));
+    const clearRemind = h("button", { class: "link-btn clear-remind", "aria-label": "Clear reminder", title: "Clear reminder" }, glyph("close"));
+    clearRemind.addEventListener("click", () => act.plan(t.id, t.dueDay, t.priority, null));
+    remind = [h("div", { class: "remind-when" }, remindPick, time), clearRemind];
+  }
 
-  const remove = h("button", { class: "btn detail-delete" }, "Delete");
+  // Delete in the warning ink, as a note's is.
+  const remove = h("button", { class: "link-btn danger-link detail-delete" }, "Delete");
   remove.addEventListener("click", () => act.remove(t.id));
 
   const close = h("button", { class: "detail-close", "aria-label": "Close", title: "Close (Esc)" }, glyph("close"));
@@ -497,7 +509,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     h("div", { class: "detail-head" }, title, close),
     h("div", { class: "detail-field" }, h("span", {}, "Due"), due, clearDue),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
-    h("div", { class: "detail-field" }, h("span", {}, "Remind me"), remind, clearRemind),
+    h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
     noteRow(t, act, notes),
     h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
     remove,

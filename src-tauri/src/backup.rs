@@ -11,7 +11,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::analysis;
 
 /// What a restore brings back. Where programs live (`app_paths`) stays as it is on this computer.
-const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "week_notes", "tasks"];
+const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "week_notes", "tasks", "notebook"];
 /// Settings that belong to this computer rather than to you: the palette's keys differ between a
 /// Mac and the rest, and each computer combining its time with others has its own id.
 const LOCAL_SETTINGS: &[&str] = &[
@@ -163,6 +163,7 @@ mod tests {
         let live = db::open(&live_file).unwrap();
         add(&live, "code", 1_000_000);
         let essay = crate::tasks::add(&live, "Essay", 1).unwrap().unwrap();
+        let plan = crate::notebook::create(&live, "# Plan", 1).unwrap();
         db::set_setting(&live, "palette_shortcut", "Ctrl+Space").unwrap();
         db::set_setting(&live, "palette_suggestions", "1").unwrap();
         backup(&live, &saved).unwrap();
@@ -171,6 +172,8 @@ mod tests {
         add(&live, "discord", 2_000_000);
         crate::tasks::remove(&live, &essay.id).unwrap();
         crate::tasks::add(&live, "Local", 2).unwrap();
+        crate::notebook::remove(&live, &plan.id, 3).unwrap();
+        crate::notebook::create(&live, "# Local", 4).unwrap();
         db::set_setting(&live, "palette_shortcut", "Alt+Space").unwrap();
         db::set_setting(&live, "palette_suggestions", "0").unwrap();
         restore(&live, &saved, &before).unwrap();
@@ -179,6 +182,9 @@ mod tests {
         assert_eq!(apps, ["code"]);
         let tasks: Vec<String> = crate::tasks::list(&live, 0, "").unwrap().into_iter().map(|t| t.id).collect();
         assert_eq!(tasks, [essay.id]);
+        // Ledger's notes come back with its tasks.
+        let notes: Vec<String> = crate::notebook::list(&live, "").unwrap().into_iter().map(|n| n.id).collect();
+        assert_eq!(notes, [plan.id]);
         assert_eq!(db::get_setting(&live, "palette_suggestions").unwrap().as_deref(), Some("1"));
         assert_eq!(db::get_setting(&live, "palette_shortcut").unwrap().as_deref(), Some("Alt+Space"));
         // What was here is kept, so the restore can be undone.

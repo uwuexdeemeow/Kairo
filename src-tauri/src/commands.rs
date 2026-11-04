@@ -1050,6 +1050,14 @@ pub struct Status {
     since_ms: Option<i64>,
 }
 
+/// Resumes tracking if it's paused, as the tray's Resume tracking does; never pauses it.
+#[tauri::command]
+pub fn resume_tracking(app: AppHandle) {
+    if crate::is_paused(&app) {
+        crate::toggle_paused(&app);
+    }
+}
+
 #[tauri::command]
 pub fn get_status(state: State<AppState>) -> CmdResult<Status> {
     let tracking = !state.paused.load(Ordering::Relaxed);
@@ -1536,7 +1544,7 @@ pub fn restore_dialog(app: &AppHandle) -> CmdResult<bool> {
     };
     let sure = app
         .dialog()
-        .message("Kairo's history, categories, limits and settings become the backup's, and Kairo restarts. What's here now is kept as kairo-before-restore.kairo in Kairo's data folder.")
+        .message("Kairo's history, categories, limits and settings, and Ledger's tasks and notes, become the backup's, and Kairo restarts. What's here now is kept as kairo-before-restore.kairo in Kairo's data folder.")
         .title("Restore this backup?")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom("Restore".into(), "Cancel".into()))

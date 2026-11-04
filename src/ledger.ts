@@ -57,10 +57,17 @@ function closePanel() {
 /// A task deleted a moment ago: gone from the list at once, deleted for good when the next
 /// delete comes, the view is left or the window closes. Until then Undo (or Ctrl+Z) brings it back.
 const taskUndo = mountUndo($("#task-undo"));
-let deletingTask: string | null = null;
+/// Tasks deleted but still waiting on their Undo.
+const deletingTasks = new Set<string>();
 
 /// The tasks as shown: one waiting on its Undo is left out.
-const shownTasks = () => tasks.filter((t) => t.id !== deletingTask);
+const shownTasks = () => {
+  const q = taskQuery();
+  return tasks.filter((t) => !deletingTasks.has(t.id) && (!q || t.title.toLowerCase().includes(q)));
+};
+
+/// What's typed in Find a task, as it's matched.
+const taskQuery = () => $<HTMLInputElement>("#task-search").value.trim().toLowerCase();
 
 const titleOf = (id: string) => document.querySelector<HTMLElement>(`#task-list [data-task="${CSS.escape(id)}"] .task-title`);
 
@@ -84,7 +91,7 @@ async function tried(what: string, run: () => Promise<void>) {
 function draw(list?: Task[]) {
   if (list) tasks = list;
   const visible = shownTasks();
-  renderTaskList($("#task-list"), visible, session, actions, selected);
+  renderTaskList($("#task-list"), visible, session, actions, selected, taskQuery());
   const panel = $("#task-detail");
   const t = visible.find((x) => x.id === selected);
   // Typing in the panel isn't undone by a redraw from elsewhere.
@@ -146,7 +153,7 @@ const actions: LedgerActions = {
     taskUndo.offer({
       what: visible[at]?.title ?? "the task",
       finish: () => {
-        deletingTask = null;
+        deletingTasks.delete(id);
         void api.removeTask(id).then(
           (list) => draw(list),
           () => {
@@ -156,14 +163,18 @@ const actions: LedgerActions = {
         );
       },
       undo: () => {
-        deletingTask = null;
+        deletingTasks.delete(id);
         draw();
         titleOf(id)?.focus();
       },
       focusAfter: () => (neighbour && titleOf(neighbour.id)) || document.querySelector<HTMLElement>(".task-add"),
     });
-    deletingTask = id;
+    deletingTasks.add(id);
+    // Was the keyboard on the task, or its panel? It moves to the one beside it, ready for the
+    // next Delete; the Undo line says what went.
+    const hadFocus = !!document.activeElement?.closest(`[data-task="${CSS.escape(id)}"], #task-detail`);
     draw();
+    if (hadFocus) ((neighbour && titleOf(neighbour.id)) || document.querySelector<HTMLElement>(".task-add"))?.focus();
   },
   focusMinutes: () => sessionMinutes(),
   stop: () =>
@@ -278,14 +289,19 @@ function morningFollowsReminders() {
   $<HTMLInputElement>("#ledger-morning").disabled = !$<HTMLInputElement>("#ledger-reminders").checked;
 }
 
+let savedFade = 0;
+
+/// Saves Ledger's settings, saying "Saved" for a moment as the dashboard's switches do.
 async function saveSettings() {
   const note = $("#ledger-settings-note");
+  window.clearTimeout(savedFade);
   try {
     const s = await api.setLedgerSettings($<HTMLInputElement>("#ledger-reminders").checked, $<HTMLInputElement>("#ledger-morning").value);
     $<HTMLInputElement>("#ledger-morning").value = s.morning;
-    note.textContent = "";
-  } catch (e) {
-    note.textContent = `Couldn't save this: ${e}`;
+    note.textContent = "Saved";
+    savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
+  } catch {
+    note.textContent = "Couldn't save this. Try again in a moment.";
   }
 }
 
@@ -303,6 +319,16 @@ $("#ledger-reminders").addEventListener("change", () => {
 });
 $("#ledger-morning").addEventListener("change", saveSettings);
 markTabs();
+// Find a task: the list narrows as it's typed; Esc clears it, then leaves it.
+$("#task-search").addEventListener("input", () => draw());
+$("#task-search").addEventListener("keydown", (e) => {
+  const field = e.target as HTMLInputElement;
+  if (e.key !== "Escape" || !field.value) return;
+  e.preventDefault();
+  e.stopPropagation();
+  field.value = "";
+  draw();
+});
 // The tabs: the arrows move along them, as tabs do; Home and End go to the ends.
 $(".tabs").addEventListener("keydown", (e) => {
   const at = VIEWS.indexOf(shown);
@@ -333,11 +359,11 @@ document.addEventListener("keydown", (e) => {
     show("tasks");
     return document.querySelector<HTMLInputElement>(".task-add")?.focus();
   }
-  // "/": the notes' search in Notes, the add field in Tasks.
+  // "/": the view's search, the notes' or the tasks'.
   if (e.key === "/" && !ctrl && !typingIn(e.target)) {
     e.preventDefault();
     if (shown === "notes") document.querySelector<HTMLInputElement>(".notes-search")?.focus();
-    else if (shown === "tasks") document.querySelector<HTMLInputElement>(".task-add")?.focus();
+    else if (shown === "tasks") $<HTMLInputElement>("#task-search").focus();
   }
 });
 void refresh().then(followOpen);

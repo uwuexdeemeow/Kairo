@@ -2292,10 +2292,27 @@ html.palette-root {
   color: var(--ink);
 }
 
-.range button[aria-pressed="true"] {
+.range button[aria-pressed="true"],
+.range button[aria-selected="true"] {
   color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 6px;
+}
+
+/* The dashboard's Home and Settings: its main way around, so words in the text face, the shown
+   one underlined in Kairo's ink. */
+.dash-tabs {
+  gap: 4px;
+  font: 600 14px var(--sans);
+}
+
+.dash-tabs button {
+  color: var(--muted);
+}
+
+.dash-tabs button[aria-selected="true"] {
+  text-decoration-color: var(--app);
+  text-decoration-thickness: 2px;
 }
 
 .insights {
@@ -2737,7 +2754,7 @@ select,
   border: 1px solid var(--edge);
   border-radius: 10px;
   padding: 8px 12px;
-  box-shadow: inset 0 1px 2px color-mix(in srgb, #000 12%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--shadow) 25%, transparent);
   transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
 }
 
@@ -2764,7 +2781,8 @@ select,
   align-self: flex-start;
   margin: 0 0 6px 6px;
   padding: 5px 12px;
-  border: 1px solid var(--rule);
+  /* A pressable edge: --edge, at 3:1, as every control's. */
+  border: 1px solid var(--edge);
   border-radius: 999px;
   background: none;
   color: var(--muted);
@@ -2993,30 +3011,64 @@ select,
   animation-delay: 120ms;
 }
 
-/* The object is the way in: it lifts under the pointer. */
+/* The whole tile is the way in: the name's button stretches over it, and the object lifts under
+   the pointer or the keyboard. */
+.app-tile {
+  position: relative;
+}
+
 .app-object {
   display: flex;
   align-items: flex-end;
   justify-content: center;
   height: 132px;
   margin-bottom: 14px;
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
   transition: transform 200ms var(--ease), filter 200ms var(--ease);
 }
 
-.app-object:hover,
-.app-object:focus-visible {
+.app-tile:hover .app-object,
+.app-tile:focus-within .app-object {
   transform: translateY(-3px);
   filter: drop-shadow(0 10px 14px var(--shadow));
 }
 
-.app-object:focus-visible {
+.app-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.app-open::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 16px;
+}
+
+.app-open:focus-visible {
+  outline: none;
+}
+
+.app-open:focus-visible::after {
   outline: 2px solid var(--app);
-  outline-offset: 6px;
-  border-radius: 12px;
+}
+
+/* A control in a tile's line sits above the stretched button. */
+.tile-resume {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  font-size: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-object {
+    transition: none;
+  }
 }
 
 .app-dial,
@@ -3092,6 +3144,79 @@ select,
 /* Keys in a line sit on the page's colour so they still read as keys. */
 .app-tile .shortcut-keys kbd {
   background: var(--raised);
+}
+
+/* Home's Today: what's due, each a way into Ledger, and the next reminder. */
+.today {
+  margin-top: 28px;
+  max-width: 640px;
+}
+
+.today-title {
+  margin: 0 0 8px;
+  font: 600 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.today-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.today-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 280px;
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink);
+  font: 500 13px var(--sans);
+  cursor: pointer;
+  transition: border-color 140ms var(--ease);
+}
+
+.today-task:hover {
+  border-color: var(--ledger);
+}
+
+.today-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-late {
+  color: var(--distracting-ink);
+  font-size: 11px;
+}
+
+.today-none {
+  font-size: 13px;
+}
+
+.today-none .link-btn,
+.today-more {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.today-next {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.today-next:empty {
+  display: none;
 }
 
 @keyframes settle {
@@ -3333,7 +3458,8 @@ select,
   white-space: nowrap;
 }
 
-/* Start focus: a small ▶ that shows under the pointer or the keyboard. */
+/* Start focus: "▶ 25m", always there but quiet, full strength under the pointer or the keyboard;
+   it is what ties a task to a focus session, so it can't hide until hovered. */
 .task-start {
   grid-column: 5;
   display: inline-flex;
@@ -3346,17 +3472,16 @@ select,
   border: 1px solid var(--edge);
   border-radius: 10px;
   background: none;
-  color: var(--ledger);
+  color: var(--muted);
   font-size: 11px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 140ms var(--ease), background 140ms var(--ease);
+  transition: color 140ms var(--ease), background 140ms var(--ease);
 }
 
 .task-card:hover .task-start,
 .task-card:focus-within .task-start,
 .task-start:focus-visible {
-  opacity: 1;
+  color: var(--ledger);
 }
 
 .task-start:hover {
@@ -3366,10 +3491,6 @@ select,
 .task-now {
   grid-column: 4 / -1;
   justify-self: end;
-}
-
-.task-card .rename-bubble {
-  flex: none;
 }
 
 /* Narrower: chips shrink to their marks. */
@@ -3716,11 +3837,26 @@ select,
   min-height: 28px;
 }
 
+/* The writing tools, then the note's own buttons at the far end, Delete set well apart. */
+.note-top-write {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-top-write:empty {
+  display: none;
+}
+
 .note-top-buttons {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-left: auto;
+}
+
+.note-top-buttons .note-delete {
+  margin-left: 8px;
 }
 
 .note-tools {
@@ -4390,8 +4526,22 @@ select,
 }
 
 .notes-recent-tip {
+  display: grid;
+  gap: 4px;
   margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 12px;
+}
+
+.notes-recent-tip kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--raised);
 }
 
 .notes-recent-none {
@@ -4966,7 +5116,7 @@ select,
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--raised);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.22);
+  box-shadow: 0 8px 24px var(--shadow);
   font-size: 13px;
 }
 
@@ -5226,4 +5376,89 @@ select,
 
 .ring-minutes-wrong:empty {
   display: none;
+}
+
+/* Combine computers' two ways, each named, then a line on what it means. */
+.sync-ways {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 4px 0 10px;
+  font-size: 13px;
+}
+
+.sync-ways dt {
+  font-weight: 600;
+}
+
+.sync-ways dd {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* The finer print of a setting, folded until wanted. */
+.settings-more {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.settings-more > summary {
+  width: fit-content;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-more > summary:hover {
+  color: var(--ink);
+}
+
+.settings-more > summary:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.settings-more > p {
+  margin: 6px 0 0;
+}
+
+@media (max-width: 560px) {
+  .sync-ways {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A link that leaves for another view: its words, then a small drawn arrow. */
+.link-out .icon {
+  width: 12px;
+  height: 12px;
+  margin-left: 3px;
+  vertical-align: -1px;
+}
+
+/* The ring editor's moves, drawn. */
+.ring-up .icon,
+.ring-down .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* "Works." after a key test, a drawn tick in front. */
+#vt-note .icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -2px;
+  color: var(--app);
+}
+
+/* Find a task, over the list, as Notes has its search. */
+.task-find {
+  display: block;
+  max-width: 320px;
+  margin: 0 0 12px;
+}
+
+.task-find .filter {
+  width: 100%;
 }

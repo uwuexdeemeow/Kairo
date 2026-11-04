@@ -340,6 +340,7 @@ pub fn run() {
             commands::get_categories,
             commands::set_category,
             commands::get_status,
+            commands::resume_tracking,
             commands::get_heads_up,
             commands::dismiss_heads_up,
             commands::get_nudges_enabled,

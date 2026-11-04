@@ -43,6 +43,9 @@ beforeEach(() => {
 const headings = () => [...root.querySelectorAll(".ledger-group > h2")].map((e) => e.textContent);
 const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
 
+const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+const titleOf = (id: string) => root.querySelector<HTMLElement>(`[data-task="${id}"] .task-title`)!;
+
 describe("the add field's help", () => {
   it("folds the shorthand and keys away, and the preview isn't read out at every key", () => {
     renderTaskList(root, [], null, act);
@@ -69,8 +72,6 @@ describe("a focus session on a task", () => {
 });
 
 describe("the task list's keys", () => {
-  const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
-  const titleOf = (id: string) => root.querySelector<HTMLElement>(`[data-task="${id}"] .task-title`)!;
 
   it("is one Tab stop: the first task's title", () => {
     renderTaskList(root, [task("a", "Essay"), task("b", "Milk")], null, act);
@@ -137,8 +138,10 @@ describe("the keyboard through a redraw", () => {
 describe("a done task", () => {
   it("isn't offered for renaming", () => {
     renderTaskList(root, [task("a", "Essay", { group: "done", doneMs: 1 }), task("b", "Milk")], null, act);
-    expect(root.querySelector('[data-task="a"] .rename-bubble')).toBeNull();
-    expect(root.querySelector('[data-task="b"] .rename-bubble')).not.toBeNull();
+    key(titleOf("a"), "F2");
+    expect(root.querySelector('[data-task="a"] .task-rename')).toBeNull();
+    key(titleOf("b"), "F2");
+    expect(root.querySelector('[data-task="b"] .task-rename')).not.toBeNull();
   });
 });
 
@@ -229,6 +232,15 @@ describe("the task list", () => {
     expect(root.querySelector(".ledger-empty-art .logo-ledger")).not.toBeNull();
   });
 
+  it("says when a search finds nothing, rather than that there's nothing to do", () => {
+    renderTaskList(root, [], null, act, null, "bank");
+    expect(root.querySelector(".ledger-empty")!.textContent).toBe("No tasks match “bank”. Esc clears the search.");
+    expect(root.querySelector(".ledger-empty-art")).toBeNull();
+    // A search finding only done tasks isn't "all done".
+    renderTaskList(root, [task("a", "Bank", { group: "done" })], null, act, null, "bank");
+    expect(root.querySelector(".ledger-all-done")).toBeNull();
+  });
+
   it("says when everything is done", () => {
     renderTaskList(root, [task("a", "Essay", { group: "done" })], null, act);
     expect(root.querySelector(".ledger-all-done")!.textContent).toBe("All done. Nothing left open.");
@@ -247,11 +259,10 @@ describe("the task list", () => {
     expect(root.querySelector("details.task-done summary")!.textContent).toBe("Done (1)");
   });
 
-  it("renames a task in the list from its bubble", () => {
+  it("renames a task in the list with F2, with no bubble on the card", () => {
     renderTaskList(root, [task("a", "Essay")], null, act);
-    const bubble = root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!;
-    expect(bubble.getAttribute("aria-label")).toBe("Rename Essay");
-    bubble.click();
+    expect(root.querySelector('[data-task="a"] .rename-bubble')).toBeNull();
+    key(titleOf("a"), "F2");
     const field = root.querySelector<HTMLInputElement>('[data-task="a"] .task-rename')!;
     expect(field.value).toBe("Essay");
     expect(document.activeElement).toBe(field);
@@ -265,13 +276,13 @@ describe("the task list", () => {
 
   it("puts the title back on Esc, or when emptied", () => {
     renderTaskList(root, [task("a", "Essay")], null, act);
-    root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!.click();
+    key(titleOf("a"), "F2");
     let field = root.querySelector<HTMLInputElement>(".task-rename")!;
     field.value = "Other";
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(root.querySelector(".task-rename")).toBeNull();
     expect(root.querySelector('[data-task="a"] .task-title')!.textContent).toBe("Essay");
-    root.querySelector<HTMLButtonElement>('[data-task="a"] .rename-bubble')!.click();
+    key(titleOf("a"), "F2");
     field = root.querySelector<HTMLInputElement>(".task-rename")!;
     field.value = "  ";
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -333,7 +344,8 @@ describe("a task's note", () => {
   it("opens or detaches the attached note", () => {
     renderDetail(root, task("a", "Essay", { note: "n1" }), act, notes);
     const open = root.querySelector<HTMLButtonElement>(".detail-note .open-note")!;
-    expect(open.textContent).toBe("Plan ↗");
+    expect(open.textContent).toBe("Plan");
+    expect(open.querySelector(".glyph-out")).not.toBeNull();
     open.click();
     expect(act.openNote).toHaveBeenCalledWith("n1");
     root.querySelector<HTMLButtonElement>(".detail-note .detach-note")!.click();
@@ -444,18 +456,26 @@ describe("the detail panel", () => {
     expect(panel().querySelector(".clear-remind")!.getAttribute("aria-label")).toBe("Clear reminder");
   });
 
-  it("sets a day from Kairo's calendar and a reminder from a day and a time, with no native date field", () => {
+  it("offers a reminder rather than showing a time that looks set", () => {
     renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06" }), act);
+    expect(panel().querySelector("select.remind-time")).toBeNull();
+    panel().querySelector<HTMLButtonElement>(".add-remind")!.click();
+    expect(act.plan).toHaveBeenCalledWith("a", "2026-11-06", 1, new Date(2026, 10, 6, 9, 0).getTime());
+  });
+
+  it("sets a day from Kairo's calendar and a reminder from a day and a time, with no native date field", () => {
+    const nine = new Date(2026, 10, 6, 9, 0).getTime();
+    renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06", remindMs: nine }), act);
     expect(panel().querySelector('input[type="date"], input[type="datetime-local"]')).toBeNull();
     const [due, remindDay] = panel().querySelectorAll<HTMLButtonElement>(".day-field");
     expect(due.textContent).toMatch(/6/);
-    expect(remindDay.textContent).toBe("No reminder");
+    expect(remindDay.textContent).toMatch(/6/);
 
     due.click();
     const cal = panel().querySelector<HTMLElement>(".calendar:not([hidden])")!;
     expect(cal.querySelector('[data-date="2026-11-06"]')!.classList.contains("selected")).toBe(true);
     cal.querySelector<HTMLButtonElement>('[data-date="2026-11-09"]')!.click();
-    expect(act.plan).toHaveBeenCalledWith("a", "2026-11-09", 1, null);
+    expect(act.plan).toHaveBeenCalledWith("a", "2026-11-09", 1, nine);
     expect(cal.hidden).toBe(true);
 
     const time = panel().querySelector<HTMLSelectElement>("select.remind-time")!;
