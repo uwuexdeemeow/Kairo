@@ -1,4 +1,4 @@
-import type { Note } from "./api";
+import type { Note, Paper } from "./api";
 import { notePreview } from "./ledger-notes";
 import { noteTool, openNoteSession, type NoteSession } from "./note-session";
 import { h } from "./ui";
@@ -17,6 +17,7 @@ export type PopoutActions = {
   create(): Promise<Note>;
   /** null when the note was deleted elsewhere. */
   save(id: string, body: string): Promise<Note | null>;
+  setPaper(id: string, paper: Paper): Promise<void>;
   setTitle(title: string): void;
   onTop(): Promise<boolean>;
   setOnTop(on: boolean): Promise<void>;
@@ -91,7 +92,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
       await s.save();
       act.openInLedger(s.note().id);
     });
-    shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, pin, ledger)), box, s.foot);
+    shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, s.paper, pin, ledger)), box, s.foot);
     s.editor.focus();
   };
 

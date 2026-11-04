@@ -187,6 +187,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("tasks", "reminded", "TEXT NOT NULL DEFAULT ''"),
         // The note a task is attached to, by its id (notebook.rs).
         ("tasks", "note", "TEXT"),
+        // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
+        ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
     ] {

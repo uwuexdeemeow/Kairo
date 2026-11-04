@@ -9,6 +9,18 @@ use serde::{Deserialize, Serialize};
 pub const MAX_CHARS: usize = 100_000;
 const TITLE_CHARS: usize = 80;
 pub const UNTITLED: &str = "New note";
+/// The paper a note is written on; the first is every note's to begin with.
+pub const PAPERS: [&str; 4] = ["lined", "blank", "dotted", "grid"];
+
+/// A paper Kairo knows, or the first one: a newer computer's choice this one hasn't heard of
+/// shows as lined.
+fn paper_of(paper: &str) -> &'static str {
+    PAPERS.iter().find(|p| **p == paper).unwrap_or(&PAPERS[0])
+}
+
+fn first_paper() -> String {
+    PAPERS[0].to_string()
+}
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +31,8 @@ pub struct Note {
     pub created_ms: i64,
     pub edited_ms: i64,
     pub pinned: bool,
+    /// Lined, blank, dotted or grid.
+    pub paper: String,
     /// The open tasks it's attached to: (id, title).
     pub tasks: Vec<(String, String)>,
 }
@@ -58,6 +72,15 @@ pub fn save(conn: &Connection, id: &str, body: &str, now: i64) -> Result<Option<
     get(conn, id)
 }
 
+/// The paper it's written on; a change to share, but not an edit.
+pub fn set_paper(conn: &Connection, id: &str, paper: &str, now: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE notebook SET paper = ?2, changed_ms = MAX(changed_ms + 1, ?3) WHERE id = ?1 AND deleted = 0 AND paper != ?2",
+        params![id, paper_of(paper), now],
+    )?;
+    Ok(())
+}
+
 pub fn set_pinned(conn: &Connection, id: &str, pinned: bool, now: i64) -> Result<()> {
     conn.execute(
         "UPDATE notebook SET pinned = ?2, changed_ms = MAX(changed_ms + 1, ?3) WHERE id = ?1 AND deleted = 0 AND pinned != ?2",
@@ -90,17 +113,17 @@ fn attached(conn: &Connection, id: &str) -> Result<Vec<(String, String)>> {
 fn from_row(conn: &Connection, r: &rusqlite::Row) -> Result<Note> {
     let id: String = r.get(0)?;
     let body: String = r.get(1)?;
-    Ok(Note { tasks: attached(conn, &id)?, title: title_of(&body), id, body, created_ms: r.get(2)?, edited_ms: r.get(3)?, pinned: r.get(4)? })
+    Ok(Note { tasks: attached(conn, &id)?, title: title_of(&body), id, body, created_ms: r.get(2)?, edited_ms: r.get(3)?, pinned: r.get(4)?, paper: paper_of(&r.get::<_, String>(5)?).to_string() })
 }
 
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Note>> {
-    conn.query_row("SELECT id, body, created_ms, edited_ms, pinned FROM notebook WHERE id = ?1 AND deleted = 0", [id], |r| from_row(conn, r)).optional()
+    conn.query_row("SELECT id, body, created_ms, edited_ms, pinned, paper FROM notebook WHERE id = ?1 AND deleted = 0", [id], |r| from_row(conn, r)).optional()
 }
 
 /// The notes, pinned first then newest edited; with `query`, those whose title or text has it.
 pub fn list(conn: &Connection, query: &str) -> Result<Vec<Note>> {
     let q = query.trim().to_lowercase();
-    let mut stmt = conn.prepare("SELECT id, body, created_ms, edited_ms, pinned FROM notebook WHERE deleted = 0 ORDER BY pinned DESC, edited_ms DESC, id")?;
+    let mut stmt = conn.prepare("SELECT id, body, created_ms, edited_ms, pinned, paper FROM notebook WHERE deleted = 0 ORDER BY pinned DESC, edited_ms DESC, id")?;
     let rows = stmt.query_map([], |r| from_row(conn, r))?;
     let mut notes = Vec::new();
     for note in rows {
@@ -133,6 +156,9 @@ struct NoteFile {
     changed: i64,
     pinned: bool,
     deleted: bool,
+    /// Missing from the files of computers from before notes had paper.
+    #[serde(default = "first_paper")]
+    paper: String,
 }
 
 fn file_name(id: &str) -> String {
@@ -145,8 +171,8 @@ fn id_of(file: &str) -> Option<&str> {
 
 /// This computer's copy of a note, deleted ones included, with when it was last shared.
 fn local(conn: &Connection, id: &str) -> Result<Option<(NoteFile, i64)>> {
-    conn.query_row("SELECT id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms FROM notebook WHERE id = ?1", [id], |r| {
-        Ok((NoteFile { id: r.get(0)?, body: r.get(1)?, created: r.get(2)?, edited: r.get(3)?, changed: r.get(4)?, pinned: r.get(5)?, deleted: r.get(6)? }, r.get(7)?))
+    conn.query_row("SELECT id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms, paper FROM notebook WHERE id = ?1", [id], |r| {
+        Ok((NoteFile { id: r.get(0)?, body: r.get(1)?, created: r.get(2)?, edited: r.get(3)?, changed: r.get(4)?, pinned: r.get(5)?, deleted: r.get(6)?, paper: r.get(8)? }, r.get(7)?))
     })
     .optional()
 }
@@ -198,9 +224,9 @@ pub fn sync(conn: &Connection, store: &dyn crate::sync::store::Store, listing: &
             }
         }
         conn.execute(
-            "INSERT INTO notebook (id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?5)
-             ON CONFLICT(id) DO UPDATE SET body = ?2, created_ms = ?3, edited_ms = ?4, changed_ms = ?5, pinned = ?6, deleted = ?7, synced_ms = ?5",
-            params![copy.id, copy.body, copy.created, copy.edited, copy.changed, copy.pinned, copy.deleted],
+            "INSERT INTO notebook (id, body, created_ms, edited_ms, changed_ms, pinned, deleted, synced_ms, paper) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?5, ?8)
+             ON CONFLICT(id) DO UPDATE SET body = ?2, created_ms = ?3, edited_ms = ?4, changed_ms = ?5, pinned = ?6, deleted = ?7, synced_ms = ?5, paper = ?8",
+            params![copy.id, copy.body, copy.created, copy.edited, copy.changed, copy.pinned, copy.deleted, copy.paper],
         )
         .map_err(err)?;
         if copy.deleted {
@@ -298,6 +324,27 @@ mod tests {
         set_pinned(&c, &a.id, false, 10).unwrap();
         create(&c, "B", 2).unwrap();
         assert_eq!(titles(&c, ""), ["B", "A"]);
+    }
+
+    #[test]
+    fn paper_is_shared_but_isnt_an_edit() {
+        let c = conn();
+        let a = create(&c, "A", 1).unwrap();
+        assert_eq!(a.paper, "lined");
+        set_paper(&c, &a.id, "grid", 9).unwrap();
+        let n = get(&c, &a.id).unwrap().unwrap();
+        assert_eq!((n.paper.as_str(), n.edited_ms), ("grid", 1));
+        let changed: i64 = c.query_row("SELECT changed_ms FROM notebook WHERE id = ?1", [&a.id], |r| r.get(0)).unwrap();
+        assert_eq!(changed, 9);
+        // One Kairo doesn't know is kept as lined.
+        set_paper(&c, &a.id, "parchment", 10).unwrap();
+        assert_eq!(get(&c, &a.id).unwrap().unwrap().paper, "lined");
+    }
+
+    #[test]
+    fn a_file_from_before_paper_reads_as_lined() {
+        let old = r#"{"id":"ab","body":"x","created":1,"edited":1,"changed":1,"pinned":false,"deleted":false}"#;
+        assert_eq!(serde_json::from_str::<NoteFile>(old).unwrap().paper, "lined");
     }
 
     #[test]

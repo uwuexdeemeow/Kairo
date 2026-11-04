@@ -436,6 +436,7 @@ pub fn run() {
             commands::new_note,
             commands::save_note,
             commands::pin_note,
+            commands::set_note_paper,
             commands::remove_note,
             commands::set_task_note,
             commands::sync_soon,

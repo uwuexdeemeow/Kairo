@@ -10,6 +10,7 @@ const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
   createdMs: NOW,
   editedMs: NOW,
   pinned: false,
+  paper: "lined",
   tasks: [],
   ...extra,
 });
@@ -28,6 +29,7 @@ beforeEach(() => {
     create: vi.fn(async () => note("new", "")),
     save: vi.fn(async (id: string, body: string) => note(id, body)),
     pin: vi.fn(async () => {}),
+    setPaper: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
     openTask: vi.fn(),
     popOut: vi.fn(),

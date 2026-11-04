@@ -3,12 +3,14 @@ import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api } from "./api";
+import { useDropdowns } from "./dropdown";
 import { mountPopout, type NoteChange } from "./note-popout";
 import { $, followTheme } from "./ui";
 
 // The window a Ledger note, or the list of notes, is popped out into.
 
 followTheme();
+useDropdowns();
 
 const win = getCurrentWindow();
 const pop = mountPopout($("#popout"), {
@@ -16,6 +18,7 @@ const pop = mountPopout($("#popout"), {
   search: (q) => api.notes(q),
   create: () => api.newNote(""),
   save: (id, body) => api.saveNote(id, body),
+  setPaper: (id, paper) => api.setNotePaper(id, paper),
   setTitle: (title) => void win.setTitle(title).catch(() => {}),
   onTop: () => api.noteOnTop(),
   setOnTop: (on) => api.setNoteOnTop(on),

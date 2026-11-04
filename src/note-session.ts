@@ -1,4 +1,4 @@
-import type { Note } from "./api";
+import type { Note, Paper } from "./api";
 import { mountEditor, type Editor } from "./note-editor";
 import { h } from "./ui";
 
@@ -12,6 +12,14 @@ export const SAVE_AFTER_MS = 500;
 /// A save that failed (the database busy, say) is tried again after this.
 export const RETRY_AFTER_MS = 3000;
 export const SYNC_AFTER_MS = 30_000;
+
+/// The papers a note can be written on, as the Paper dropdown lists them.
+export const PAPERS: [Paper, string][] = [
+  ["lined", "Lined"],
+  ["blank", "Blank"],
+  ["dotted", "Dotted"],
+  ["grid", "Grid"],
+];
 
 export function wordCount(body: string): number {
   return body.replace(/[#*_`>\[\]()-]/g, " ").split(/\s+/).filter((w) => /\w/.test(w)).length;
@@ -29,6 +37,7 @@ export function noteTool(name: string, label: string, text: string, run: () => v
 export type SessionActions = {
   /** null when the note was deleted elsewhere. */
   save(id: string, body: string): Promise<Note | null>;
+  setPaper(id: string, paper: Paper): Promise<void>;
   /** Typing stopped a while ago: time to let combined computers have it. */
   syncSoon(): void;
 };
@@ -61,6 +70,8 @@ export type NoteSession = {
   foot: HTMLElement;
   /** B, I and ☐, as a group. */
   tools(): HTMLElement;
+  /** The Paper dropdown: the same one each time, so it can be put back in a redrawn bar. */
+  paper: HTMLElement;
 };
 
 export function openNoteSession(box: HTMLElement, first: Note, act: SessionActions, hooks: SessionHooks): NoteSession {
@@ -103,7 +114,8 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
     if (closed) return;
     failed = false;
     if (!kept) return hooks.gone();
-    note = kept;
+    // The paper is what's chosen here: a save that set out before a new choice brings the old one.
+    note = { ...kept, paper: note.paper };
     hooks.kept(kept);
     drawFoot();
   };
@@ -124,6 +136,32 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
   );
   drawFoot();
 
+  // The paper is drawn by the stylesheet, on the box around the editor.
+  const paperPick = h("select", { class: "note-paper-pick", "aria-label": "Paper", title: "Paper" }) as HTMLSelectElement;
+  paperPick.replaceChildren(...PAPERS.map(([value, label]) => h("option", { value }, label)));
+  const showPaper = () => {
+    box.dataset.paper = note.paper;
+    paperPick.value = note.paper;
+  };
+  showPaper();
+  paperPick.addEventListener("change", async () => {
+    const paper = paperPick.value as Paper;
+    const before = note.paper;
+    if (closed || paper === before) return;
+    note = { ...note, paper };
+    showPaper();
+    hooks.kept(note);
+    try {
+      await act.setPaper(note.id, paper);
+    } catch {
+      // Not kept: back to the paper that is, rather than show one that will be lost.
+      if (closed || note.paper !== paper) return;
+      note = { ...note, paper: before };
+      showPaper();
+      hooks.kept(note);
+    }
+  });
+
   return {
     editor,
     note: () => note,
@@ -133,6 +171,7 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
       if (dirty || closed) return false;
       if (fresh.body !== editor.value()) editor.set(fresh.body);
       note = fresh;
+      showPaper();
       drawFoot();
       return true;
     },
@@ -154,5 +193,6 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
         noteTool("italic", "Italic (Ctrl+I)", "I", () => editor.wrap("*")),
         noteTool("box", "Checkbox", "☐", () => editor.box()),
       ),
+    paper: h("span", { class: "note-paper" }, paperPick),
   };
 }

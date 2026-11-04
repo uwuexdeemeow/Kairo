@@ -329,8 +329,12 @@ export interface Note {
   createdMs: number;
   editedMs: number;
   pinned: boolean;
+  /** What it's written on. */
+  paper: Paper;
   tasks: [string, string][];
 }
+
+export type Paper = "lined" | "blank" | "dotted" | "grid";
 
 /** Quick-add text as read: the title, its shortcuts, and "High · Fri 7 Nov". */
 export interface ParsedTask {
@@ -497,6 +501,7 @@ export const api = {
   /** null when the note was deleted elsewhere since it was opened. */
   saveNote: (id: string, body: string) => invoke<Note | null>("save_note", { id, body }),
   pinNote: (id: string, pinned: boolean) => invoke<void>("pin_note", { id, pinned }),
+  setNotePaper: (id: string, paper: Paper) => invoke<void>("set_note_paper", { id, paper }),
   removeNote: (id: string) => invoke<void>("remove_note", { id }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
   syncSoon: () => invoke<void>("sync_soon"),

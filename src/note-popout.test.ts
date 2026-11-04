@@ -9,6 +9,7 @@ const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
   createdMs: 0,
   editedMs: 0,
   pinned: false,
+  paper: "lined",
   tasks: [],
   ...extra,
 });
@@ -27,6 +28,7 @@ beforeEach(() => {
     search: vi.fn(async (q: string) => Object.values(kept).filter((n) => n.body.toLowerCase().includes(q.toLowerCase()))),
     create: vi.fn(async () => (kept.new = note("new", ""))),
     save: vi.fn(async (id: string, body: string) => (kept[id] ? (kept[id] = note(id, body)) : null)),
+    setPaper: vi.fn(async () => {}),
     setTitle: vi.fn(),
     onTop: vi.fn(async () => true),
     setOnTop: vi.fn(async () => {}),
@@ -224,5 +226,16 @@ describe("the list of notes in the pop-out", () => {
     kept.c = note("c", "Ideas");
     await pop.changed({ id: "c", from: "kairo", gone: false });
     await vi.waitFor(() => expect(rows()).toContain("Ideas"));
+  });
+
+  it("shows the note on its paper, with the Paper choice in its bar", async () => {
+    kept.a = { ...kept.a, paper: "grid" };
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    expect(root.querySelector<HTMLElement>(".popout-body")!.dataset.paper).toBe("grid");
+    const pick = root.querySelector<HTMLSelectElement>(".popout-bar .note-paper select")!;
+    pick.value = "blank";
+    pick.dispatchEvent(new Event("change"));
+    expect(act.setPaper).toHaveBeenCalledWith("a", "blank");
   });
 });

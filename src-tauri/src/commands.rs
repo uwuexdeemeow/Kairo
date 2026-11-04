@@ -452,6 +452,15 @@ pub fn pin_note(app: AppHandle, window: tauri::Window, state: State<AppState>, i
     Ok(())
 }
 
+#[tauri::command]
+pub fn set_note_paper(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String, paper: String) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::notebook::set_paper(&conn, &id, &paper, now_ms()).map_err(err)?;
+    drop(conn);
+    crate::note_window::changed(&app, &id, window.label(), false);
+    Ok(())
+}
+
 /// Deletes a note; the tasks it was attached to lose the link, here and on combined computers.
 #[tauri::command]
 pub fn remove_note(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String) -> CmdResult<()> {

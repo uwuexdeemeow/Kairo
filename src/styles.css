@@ -4425,16 +4425,67 @@ select,
   opacity: 1;
 }
 
-/* Ruled lines on the open note, one under each line of text (13px at 1.6), drawn on the layer
-   that scrolls with the text so they stay with it. */
-.note-pane .note-layer {
+/* ---------- A note's paper: lined, blank, dotted or grid ---------- */
+
+/* Drawn on the layer that scrolls with the text, so it stays with it, and measured from the
+   editor's line (13px at 1.6 in Ledger, 12px in the pop-out) so each rule sits under a line of
+   text. Gradients only: no images. */
+.note-editor {
+  --note-line: 20.8px;
+  --note-top: 16px;
+  --note-left: 16px;
+  --note-rule: color-mix(in srgb, var(--ledger) 12%, transparent);
+  --note-dot: color-mix(in srgb, var(--ledger) 40%, transparent);
+}
+
+.note-pane .note-editor {
+  --note-left: 52px;
+}
+
+.popout .note-editor {
+  --note-line: 19.2px;
+  --note-top: 12px;
+  --note-left: 14px;
+}
+
+.note-layer {
+  background-attachment: local;
+}
+
+[data-paper="lined"] .note-layer {
   background-image: repeating-linear-gradient(
     to bottom,
-    transparent 0 19.8px,
-    color-mix(in srgb, var(--ledger) 12%, transparent) 19.8px 20.8px
+    transparent 0 calc(var(--note-line) - 1px),
+    var(--note-rule) calc(var(--note-line) - 1px) var(--note-line)
   );
-  background-position: 0 16px;
-  background-attachment: local;
+  background-position: 0 var(--note-top);
+}
+
+/* A dot where each line of text ends, every line's width apart. */
+[data-paper="dotted"] .note-layer {
+  background-image: radial-gradient(circle, var(--note-dot) 1px, transparent 1.5px);
+  background-size: var(--note-line) var(--note-line);
+  background-position: calc(var(--note-left) - var(--note-line) / 2) calc(var(--note-top) + var(--note-line) / 2);
+}
+
+/* Squares a line of text tall. */
+[data-paper="grid"] .note-layer {
+  background-image:
+    linear-gradient(to bottom, transparent calc(var(--note-line) - 1px), var(--note-rule) 0),
+    linear-gradient(to right, var(--note-rule) 1px, transparent 0);
+  background-size: var(--note-line) var(--note-line);
+  background-position: var(--note-left) var(--note-top);
+}
+
+/* Blank paper has no margin rule either. */
+.note-pane [data-paper="blank"] .note-editor {
+  background-image: none;
+}
+
+/* The Paper choice, as small as the bar's other tools. */
+.note-paper .dropdown-button {
+  width: auto;
+  font-size: 12px;
 }
 
 /* The pop-out's list of notes: search and + New in its bar, the notes under it. */

@@ -959,6 +959,18 @@ mod tests {
     }
 
     #[test]
+    fn a_notes_paper_reaches_the_other_computer() {
+        let (desk, laptop, desk_store, laptop_store) = sharing("paper");
+        let now = 20_000 * DAY_MS;
+        let n = crate::notebook::create(&desk.conn, "Plan", now).unwrap();
+        crate::notebook::set_paper(&desk.conn, &n.id, "dotted", now + 1).unwrap();
+        run_with(&desk.conn, &desk_store, now + 1).unwrap();
+        run_with(&laptop.conn, &laptop_store, now + 1).unwrap();
+        let there = crate::notebook::get(&laptop.conn, &n.id).unwrap().unwrap();
+        assert_eq!((there.paper.as_str(), there.edited_ms), ("dotted", now));
+    }
+
+    #[test]
     fn an_unsynced_edit_meeting_a_newer_one_becomes_a_conflicted_copy() {
         let (desk, laptop, desk_store, laptop_store) = sharing("clash");
         let now = 20_000 * DAY_MS;

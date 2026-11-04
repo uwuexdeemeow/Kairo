@@ -114,6 +114,7 @@ function notes(): NotesView {
     create: () => api.newNote(""),
     save: (id, body) => api.saveNote(id, body),
     pin: (id, pinned) => api.pinNote(id, pinned),
+    setPaper: (id, paper) => api.setNotePaper(id, paper),
     remove: (id) => api.removeNote(id),
     openTask: (id) => openTask(id),
     popOut: (id) => void api.popOutNote(id),

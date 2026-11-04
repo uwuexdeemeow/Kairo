@@ -1,4 +1,4 @@
-import type { Note } from "./api";
+import type { Note, Paper } from "./api";
 import { renameBubble, renameField } from "./ledger-tasks";
 import { logo } from "./logos";
 import { openNoteSession, type NoteSession } from "./note-session";
@@ -14,6 +14,7 @@ export type NotesActions = {
   /** null when the note was deleted elsewhere. */
   save(id: string, body: string): Promise<Note | null>;
   pin(id: string, pinned: boolean): Promise<void>;
+  setPaper(id: string, paper: Paper): Promise<void>;
   remove(id: string): Promise<void>;
   openTask(id: string): void;
   /** Shows the note in a small window of its own; no note, the list of notes. */
@@ -254,7 +255,7 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       });
       top.after(confirm);
     });
-    const tools = session ? [session.tools()] : [];
+    const tools = session ? [session.tools(), session.paper] : [];
     top.replaceChildren(...parts, h("span", { class: "note-top-buttons" }, ...tools, popOut, pin, del));
   };
 
