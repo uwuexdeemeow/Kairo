@@ -193,7 +193,9 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       const tools: Node[] = [];
       if (e.ask) tools.push(button("scan-retry", "Try again", () => void run(e, e.ask!)));
       if (aboutKey(s.why)) tools.push(button("scan-settings-link", "Open Kairo's settings", () => act.openSettings()));
-      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(tools.length ? [h("p", { class: "scan-foot" }, ...tools)] : []));
+      // Separated as the verdict's own links are.
+      const foot = tools.flatMap((t, i) => (i ? [" · ", t] : [t]));
+      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(foot.length ? [h("p", { class: "scan-foot" }, ...foot)] : []));
     }
     if (s.kind === "skipped") return card(e, "", h("p", { class: "muted" }, "Not uploaded."));
     if (s.kind === "stopped") {

@@ -232,7 +232,8 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     }
     rows.replaceChildren(
       ...found.map((n) => {
-        const preview = notePreview(n.body);
+        // Under the title, its text; an empty note says so, so several aren't the same "New note".
+        const under = notePreview(n.body) || (n.body.trim() ? "" : "Nothing written yet");
         // A button inside each list item, so it's still said to be one that can be pressed.
         const row = h(
           "button",
@@ -240,7 +241,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
           h("strong", {}, n.title),
           // The ribbon is drawn; screen readers are told.
           ...(n.pinned ? [h("span", { class: "sr-only" }, ", pinned")] : []),
-          ...(preview ? [h("span", { class: "popout-row-preview muted" }, preview)] : []),
+          ...(under ? [h("span", { class: "popout-row-preview muted" }, under)] : []),
         );
         row.addEventListener("click", () => void view.show(n.id));
         return h("div", { role: "listitem" }, row);

@@ -310,6 +310,15 @@ describe("the list of notes in the pop-out", () => {
     expect(rows().length).toBe(2);
   });
 
+  it("says an empty note has nothing written yet", async () => {
+    kept.c = note("c", "");
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(3));
+    const empty = [...root.querySelectorAll(".popout-row")].find((r) => r.querySelector("strong")!.textContent === "New note")!;
+    expect(empty.querySelector(".popout-row-preview")!.textContent).toBe("Nothing written yet");
+  });
+
   it("tells screen readers which notes are pinned", async () => {
     kept.a = note("a", "# Plan", { pinned: true });
     const pop = mountPopout(root, act);

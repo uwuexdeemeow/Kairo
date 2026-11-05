@@ -4025,8 +4025,8 @@ select,
 }
 
 .note-tool:hover {
-  border-color: var(--ledger);
-  color: var(--ledger);
+  border-color: var(--app);
+  color: var(--app);
 }
 
 .note-foot {
@@ -4719,9 +4719,9 @@ select,
 }
 
 .note-tool[aria-pressed="true"] {
-  border-color: var(--ledger);
-  background: color-mix(in srgb, var(--ledger) 14%, transparent);
-  color: var(--ledger);
+  border-color: var(--app);
+  background: color-mix(in srgb, var(--app) 14%, transparent);
+  color: var(--app);
 }
 
 .popout-body {
@@ -4960,7 +4960,7 @@ select,
 
 .popout-row:hover,
 .popout-row:focus-visible {
-  border-color: var(--ledger);
+  border-color: var(--app);
 }
 
 .popout-row strong {
@@ -5013,13 +5013,13 @@ select,
 .note-tool[data-tool="list"] {
   margin-right: 2px;
   border-color: transparent;
-  background: color-mix(in srgb, var(--ledger) 18%, transparent);
-  color: var(--ledger);
+  background: color-mix(in srgb, var(--app) 18%, transparent);
+  color: var(--app);
   font-weight: 800;
 }
 
 .note-tool[data-tool="list"]:hover {
-  background: color-mix(in srgb, var(--ledger) 28%, transparent);
+  background: color-mix(in srgb, var(--app) 28%, transparent);
 }
 
 .popout-bar > .note-tools {
@@ -5339,6 +5339,11 @@ select,
 
 .scan-elapsed {
   font-variant-numeric: tabular-nums;
+}
+
+/* The foot's links keep a target well past 24px without a 40px line under every result. */
+.scan-foot .link-btn {
+  min-height: 28px;
 }
 
 .scan-result .row-buttons {
