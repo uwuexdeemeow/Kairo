@@ -1,7 +1,7 @@
 import type { Note, Paper } from "./api";
 import { mountEditor, type Editor } from "./note-editor";
 import { glyph } from "./glyphs";
-import { h } from "./ui";
+import { IS_MAC, h } from "./ui";
 
 /// One open note being written in: Ledger's editor, saved a moment after typing stops, the
 /// footer saying whether it's kept, and B / I / ☐. Ledger's Notes and the pop-out window both
@@ -28,8 +28,13 @@ export function wordCount(body: string): number {
 
 /// A toolbar button that acts on the note without taking the keyboard from it, so the
 /// selection stays.
-export function noteTool(name: string, label: string, content: string | Node, run: () => void): HTMLButtonElement {
-  const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label }, content) as HTMLButtonElement;
+/// `keys`, when it has a shortcut, as aria-keyshortcuts names them ("Control+B").
+/// The key shortcuts are pressed with, as shown and as aria-keyshortcuts names it.
+const MOD = IS_MAC ? "⌘" : "Ctrl";
+const MOD_KEY = IS_MAC ? "Meta" : "Control";
+
+export function noteTool(name: string, label: string, content: string | Node, run: () => void, keys?: string): HTMLButtonElement {
+  const b = h("button", { class: "note-tool", "data-tool": name, title: label, "aria-label": label, ...(keys ? { "aria-keyshortcuts": keys } : {}) }, content) as HTMLButtonElement;
   b.addEventListener("mousedown", (e) => e.preventDefault());
   b.addEventListener("click", run);
   return b;
@@ -229,8 +234,8 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
       h(
         "span",
         { class: "note-tools" },
-        noteTool("bold", "Bold (Ctrl+B)", "B", () => editor.wrap("**")),
-        noteTool("italic", "Italic (Ctrl+I)", "I", () => editor.wrap("*")),
+        noteTool("bold", `Bold (${MOD}+B)`, "B", () => editor.wrap("**"), `${MOD_KEY}+B`),
+        noteTool("italic", `Italic (${MOD}+I)`, "I", () => editor.wrap("*"), `${MOD_KEY}+I`),
         noteTool("box", "Checkbox", glyph("box"), () => editor.box()),
       ),
     paper: h("span", { class: "note-paper" }, paperPick),

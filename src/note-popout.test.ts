@@ -236,6 +236,63 @@ describe("the list of notes in the pop-out", () => {
     expect(document.activeElement).toBe(area());
   });
 
+  it("goes through the list from the keyboard: Enter opens the top match, the arrows move", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    const search = root.querySelector<HTMLInputElement>(".popout-search")!;
+    const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    press(search, "ArrowDown");
+    expect(document.activeElement).toBe(root.querySelectorAll(".popout-row")[0]);
+    press(document.activeElement!, "ArrowDown");
+    expect(document.activeElement).toBe(root.querySelectorAll(".popout-row")[1]);
+    press(document.activeElement!, "ArrowUp");
+    press(document.activeElement!, "ArrowUp");
+    expect(document.activeElement).toBe(search);
+    search.value = "shop";
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
+    press(search, "Enter");
+    await vi.waitFor(() => expect(area().value).toBe("Shopping"));
+    // Esc goes back to the list.
+    press(area(), "Escape");
+    await vi.waitFor(() => expect(root.querySelector(".popout-search")).not.toBeNull());
+  });
+
+  it("starts a note with Ctrl+N, titled with what was searched for", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    const search = root.querySelector<HTMLInputElement>(".popout-search")!;
+    search.value = "Groceries";
+    search.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ctrlKey: true, bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(act.create).toHaveBeenCalledWith("Groceries\n"));
+    await vi.waitFor(() => expect(root.querySelector("textarea")).not.toBeNull());
+  });
+
+  it("says when a note couldn't be started, read or opened, keeping the list", async () => {
+    const pop = mountPopout(root, act);
+    act.search.mockRejectedValueOnce(new Error("busy"));
+    await pop.list();
+    await vi.waitFor(() => expect(root.textContent).toContain("Couldn't read your notes."));
+    root.querySelector<HTMLButtonElement>(".popout-empty .link-btn")!.click();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    act.create.mockRejectedValueOnce(new Error("busy"));
+    root.querySelector<HTMLButtonElement>(".popout-new")!.click();
+    await vi.waitFor(() => expect(root.querySelector("[role=status]")!.textContent).toBe("Couldn't start a note. Try again."));
+    act.load.mockRejectedValueOnce(new Error("busy"));
+    root.querySelector<HTMLButtonElement>(".popout-row")!.click();
+    await vi.waitFor(() => expect(root.querySelector("[role=status]")!.textContent).toBe("Couldn't open that note. Try again."));
+    expect(rows().length).toBe(2);
+  });
+
+  it("tells screen readers which notes are pinned", async () => {
+    kept.a = note("a", "# Plan", { pinned: true });
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    expect(root.querySelector(".popout-row.pinned")!.textContent).toContain(", pinned");
+  });
+
   it("says what to do with no notes", async () => {
     kept = {};
     const pop = mountPopout(root, act);

@@ -16,7 +16,7 @@ const win = getCurrentWindow();
 const pop = mountPopout($("#popout"), {
   load: (id) => api.note(id),
   search: (q) => api.notes(q),
-  create: () => api.newNote(""),
+  create: (body) => api.newNote(body),
   save: (id, body) => api.saveNote(id, body),
   setPaper: (id, paper) => api.setNotePaper(id, paper),
   setTitle: (title) => void win.setTitle(title).catch(() => {}),

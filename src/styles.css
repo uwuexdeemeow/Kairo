@@ -4873,6 +4873,17 @@ select,
   text-align: center;
 }
 
+/* What went wrong last, under the bar; nothing while all is well. */
+.popout-status {
+  margin: 8px 12px 0;
+  color: var(--warm-ink);
+  font-size: 13px;
+}
+
+.popout-status:empty {
+  display: none;
+}
+
 /* ☰ goes somewhere, B / I / ☐ change the text: it's filled in Ledger's ink, set apart from them. */
 .note-tool[data-tool="list"] {
   margin-right: 2px;
