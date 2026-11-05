@@ -107,7 +107,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
 
   const search = h("input", { class: "filter popout-search", type: "search", placeholder: "Search notes", "aria-label": "Search notes", autocomplete: "off" }) as HTMLInputElement;
   const rows = h("div", { class: "popout-list", role: "list" });
-  const newNote = h("button", { class: "btn popout-new" }, "+ New");
+  const newNote = h("button", { class: "btn primary popout-new" }, "+ New");
   newNote.addEventListener("click", async () => {
     const n = await act.create();
     search.value = "";
