@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWi
 
 use crate::AppState;
 
-pub const LABEL: &str = "ring";
+use super::LABEL;
 /// Set while the ring's window is being made.
 static OPENING: AtomicBool = AtomicBool::new(false);
 

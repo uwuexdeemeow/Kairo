@@ -13,6 +13,9 @@ pub mod native;
 #[cfg(not(windows))]
 pub mod web;
 
+/// The web ring's window, on macOS and Linux.
+pub const LABEL: &str = "ring";
+
 /// Opens the ring at the pointer; if it's open, turns it one segment, so holding the modifier and
 /// pressing the key again goes round.
 pub fn toggle(app: &AppHandle) {

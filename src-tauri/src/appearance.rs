@@ -37,14 +37,18 @@ pub fn theme(mode: &str) -> Option<Theme> {
     }
 }
 
+/// Windows that are see-through around what they draw: the web palette around its panel and the
+/// app ring around the ring. A page color there would show as a solid box behind them.
+fn see_through(label: &str) -> bool {
+    [crate::palette::LABEL, crate::ring::LABEL].contains(&label)
+}
+
 pub fn apply_to(window: &WebviewWindow, mode: &str) {
     let chosen = theme(mode);
     if let Err(e) = window.set_theme(chosen) {
         eprintln!("appearance: cannot set the window theme: {e}");
     }
-    // The web palette's window is see-through around its panel; a page color there would show
-    // as a solid box behind it.
-    if window.label() == crate::palette::LABEL {
+    if see_through(window.label()) {
         let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
         return;
     }
@@ -55,5 +59,16 @@ pub fn apply_to(window: &WebviewWindow, mode: &str) {
 pub fn apply(app: &AppHandle, mode: &str) {
     for window in app.webview_windows().values() {
         apply_to(window, mode);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_palette_and_the_ring_stay_see_through() {
+        assert!(see_through("palette") && see_through("ring"));
+        assert!(!see_through("main") && !see_through("dashboard") && !see_through("blocked"));
     }
 }
