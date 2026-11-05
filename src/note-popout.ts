@@ -59,7 +59,16 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     drawPin();
     void act.setOnTop(onTop);
   });
-  const drawPin = () => pin.setAttribute("aria-pressed", String(onTop));
+  // The same switch, by name, in the menu that holds the window's tools when it's narrow.
+  const pinItem = h("button", { class: "popout-more-item", "aria-pressed": "true" }, glyph("pin"), "Keep above other windows");
+  pinItem.addEventListener("click", () => {
+    pin.click();
+    closeMore();
+  });
+  const drawPin = () => {
+    pin.setAttribute("aria-pressed", String(onTop));
+    pinItem.setAttribute("aria-pressed", String(onTop));
+  };
   drawPin();
   void act.onTop().then((on) => {
     onTop = on;
@@ -95,13 +104,53 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     });
     session = s;
     const back = noteTool("list", "All notes", glyph("list"), () => void view.list());
-    const ledger = noteTool("ledger", "Open in Ledger", glyph("open"), async () => {
+    const openLedger = async () => {
       if (await s.save()) act.openInLedger(s.note().id);
       else s.blocked();
+    };
+    const ledger = noteTool("ledger", "Open in Ledger", glyph("open"), () => void openLedger());
+    const ledgerItem = h("button", { class: "popout-more-item" }, glyph("open"), "Open in Ledger");
+    ledgerItem.addEventListener("click", () => {
+      closeMore();
+      void openLedger();
     });
-    shell.replaceChildren(h("div", { class: "popout-bar" }, back, s.tools(), h("span", { class: "popout-window-tools" }, s.paper, pin, ledger)), box, s.foot);
+    moreMenu.replaceChildren(pinItem, ledgerItem);
+    // The note's own tools together, paper with them; the window's apart at the end, folded into
+    // ⋯ when the window is narrow.
+    shell.replaceChildren(
+      h("div", { class: "popout-bar note-bar" }, back, s.tools(), s.paper, h("span", { class: "popout-window-tools" }, pin, ledger), h("span", { class: "popout-more" }, more, moreMenu)),
+      box,
+      s.foot,
+    );
     s.editor.focus();
   };
+
+  // ---------- ⋯, the window's tools when it's narrow ----------
+
+  const moreMenu = h("div", { class: "popout-more-menu", id: "popout-more-menu", hidden: "" });
+  const closeMore = (focus = false) => {
+    moreMenu.hidden = true;
+    more.setAttribute("aria-expanded", "false");
+    if (focus) more.focus();
+  };
+  const more = noteTool("more", "Window", glyph("more"), () => {
+    const open = moreMenu.hidden;
+    moreMenu.hidden = !open;
+    more.setAttribute("aria-expanded", String(open));
+    if (open) moreMenu.querySelector<HTMLButtonElement>("button")?.focus();
+  });
+  more.setAttribute("aria-expanded", "false");
+  more.setAttribute("aria-controls", "popout-more-menu");
+  moreMenu.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    // Esc closes the menu here, rather than going back to the list.
+    e.preventDefault();
+    e.stopPropagation();
+    closeMore(true);
+  });
+  document.addEventListener("pointerdown", (e) => {
+    if (!moreMenu.hidden && !(e.target as Element).closest?.(".popout-more")) closeMore();
+  });
 
   // ---------- the list ----------
 

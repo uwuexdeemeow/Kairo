@@ -4603,6 +4603,117 @@ select,
   margin-left: auto;
 }
 
+/* The window's tools are quieter than the note's: no edge until hovered, or pressed. */
+.popout-window-tools .note-tool:not([aria-pressed="true"]):not(:hover) {
+  border-color: transparent;
+}
+
+/* In a note, the paper goes with the note's own tools, wide enough to read. */
+.note-bar {
+  gap: 6px;
+}
+
+.note-bar .note-tools {
+  padding-right: 0;
+  border-right: 0;
+}
+
+.note-bar .note-paper {
+  flex: none;
+}
+
+.note-bar .note-paper .dropdown-button {
+  min-width: 76px;
+}
+
+/* ⋯ holds the window's tools when the window is too narrow for them beside the note's. */
+.popout-more {
+  position: relative;
+  display: none;
+  margin-left: auto;
+}
+
+@media (max-width: 359px) {
+  .note-bar {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+
+  .popout-bar.note-bar > .note-tools {
+    padding-left: 6px;
+  }
+
+  .note-bar .note-paper .dropdown-button {
+    min-width: 64px;
+  }
+
+  .note-bar .popout-window-tools {
+    display: none;
+  }
+
+  .note-bar .popout-more {
+    display: block;
+  }
+}
+
+.popout-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.popout-more-menu[hidden] {
+  display: none;
+}
+
+.popout-more-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 28px 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: 13px var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.popout-more-item:hover,
+.popout-more-item:focus-visible {
+  background: var(--line);
+}
+
+.popout-more-item .icon {
+  color: var(--muted);
+}
+
+/* Kept on top: ticked, as the dropdowns tick their choice. */
+.popout-more-item[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  background: var(--app);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5 9-10'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
 .note-tool[aria-pressed="true"] {
   border-color: var(--ledger);
   background: color-mix(in srgb, var(--ledger) 14%, transparent);
@@ -4825,6 +4936,7 @@ select,
 .popout-row {
   position: relative;
   display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
@@ -4856,7 +4968,11 @@ select,
   white-space: nowrap;
 }
 
-/* Pinned ones wear Ledger's ribbon, as in its list. */
+/* Pinned ones wear Ledger's ribbon, as in its list; the title stops short of it. */
+.popout-row.pinned strong {
+  padding-right: 18px;
+}
+
 .popout-row.pinned::after {
   content: "";
   position: absolute;

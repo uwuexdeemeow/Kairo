@@ -160,6 +160,31 @@ describe("the popped-out note", () => {
     await vi.waitFor(() => expect(act.setOnTop).toHaveBeenLastCalledWith(true));
   });
 
+  it("folds the window's tools into ⋯, which keeps on top, opens Ledger, and closes on Esc", async () => {
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    const more = root.querySelector<HTMLButtonElement>('[data-tool="more"]')!;
+    const menu = root.querySelector<HTMLElement>(".popout-more-menu")!;
+    expect(menu.hidden).toBe(true);
+    more.click();
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(menu.querySelector("button"));
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(true);
+    expect(document.activeElement).toBe(more);
+    // Esc closed the menu, not the note.
+    expect(root.querySelector("textarea")).not.toBeNull();
+    more.click();
+    const [keep, ledger] = menu.querySelectorAll<HTMLButtonElement>("button");
+    expect(keep.getAttribute("aria-pressed")).toBe("true");
+    keep.click();
+    expect(act.setOnTop).toHaveBeenLastCalledWith(false);
+    expect(root.querySelector('[data-tool="on-top"]')!.getAttribute("aria-pressed")).toBe("false");
+    more.click();
+    ledger.click();
+    await vi.waitFor(() => expect(act.openInLedger).toHaveBeenCalledWith("a"));
+  });
+
   it("opens the note in Ledger, saving first", async () => {
     const pop = mountPopout(root, act);
     await pop.show("a");
