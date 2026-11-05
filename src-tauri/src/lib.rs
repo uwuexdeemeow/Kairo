@@ -324,6 +324,10 @@ pub fn run() {
             palette::web::on_window_event(window, event);
             #[cfg(not(windows))]
             ring::web::on_window_event(window, event);
+            // A note deleted in a window that's gone has no Undo any more.
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                commands::finish_waiting_notes(window.app_handle(), Some(window.label()));
+            }
             if matches!(event, tauri::WindowEvent::Destroyed) && [WINDOW, note_window::LABEL, scan_window::LABEL, speedtest::LABEL].contains(&window.label()) {
                 // The window being destroyed may still be listed.
                 let app = window.app_handle();
@@ -445,6 +449,7 @@ pub fn run() {
             commands::pin_note,
             commands::set_note_paper,
             commands::remove_note,
+            commands::hide_note,
             commands::set_task_note,
             commands::sync_soon,
             commands::take_ledger_open,
@@ -491,12 +496,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Kairo")
-        .run(|_app, event| {
+        .run(|app, event| match event {
             // Closing Kairo's window lets it go, web view and all, and Kairo keeps tracking in the
             // tray; only "Quit" (which gives an exit code) ends it.
-            if let RunEvent::ExitRequested { code: None, api, .. } = event {
-                api.prevent_exit();
-            }
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            // Quitting makes every delete waiting on an Undo final.
+            RunEvent::Exit => commands::finish_waiting_notes(app, None),
+            _ => {}
         });
 }
 

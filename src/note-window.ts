@@ -19,6 +19,8 @@ const pop = mountPopout($("#popout"), {
   create: (body) => api.newNote(body),
   save: (id, body) => api.saveNote(id, body),
   setPaper: (id, paper) => api.setNotePaper(id, paper),
+  hide: (id, waiting) => api.hideNote(id, waiting),
+  remove: (id) => api.removeNote(id),
   setTitle: (title) => void win.setTitle(title).catch(() => {}),
   onTop: () => api.noteOnTop(),
   setOnTop: (on) => api.setNoteOnTop(on),
@@ -37,3 +39,5 @@ listen("kairo:sync", () => void pop.refresh());
 window.addEventListener("blur", () => void pop.flush());
 window.addEventListener("pagehide", () => void pop.flush());
 window.addEventListener("beforeunload", () => void pop.flush());
+// Closing the window makes a delete waiting on its Undo final (Kairo does too, should it not hear).
+window.addEventListener("pagehide", () => pop.finishDelete());

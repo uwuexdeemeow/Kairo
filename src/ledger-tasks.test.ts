@@ -388,7 +388,7 @@ describe("the Tasks screen as cards", () => {
       "2 due today · 1 overdue · 4 open",
     );
     expect(taskSummary([task("d", "D"), task("e", "E", { group: "done", doneMs: 1 })])).toBe("Nothing due · 1 open");
-    expect(taskSummary([])).toBe("Nothing to do yet");
+    expect(taskSummary([])).toBe("");
   });
 
   it("draws each task as a card with its chips", () => {

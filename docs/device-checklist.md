@@ -281,7 +281,7 @@ On Windows, a Mac and Linux. Open Ledger's Notes.
 
 On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's Notes.
 
-1. **Pop out.** Press Pop out. *Expect:* a small window (about 360 × 480) titled with the note's
+1. **Pop out.** Press Pop out. *Expect:* a small window (about 400 × 540) titled with the note's
    title, its text in Ledger's editor, B / I / ☐ on the left, 📌 (pressed) and ↗ on the right,
    "Saved · N words" under it. It stays above other apps you click into.
 2. **Both windows.** Type a line in the pop-out, then click into Ledger. *Expect:* the line is
@@ -293,11 +293,20 @@ On Windows, a Mac and Linux. No focus session involved. Open a note in Ledger's 
 5. **Remembered.** Move and resize the window, close it, pop out again. *Expect:* where you left it.
 6. **Apart from Kairo.** Close Kairo's window. *Expect:* the pop-out stays (on a Mac, Kairo stays in
    the Dock until it closes too). ↗ opens Ledger on the note.
-7. **Deleted.** With a note popped out, delete it in Ledger. *Expect:* the pop-out goes to its list.
-8. **All notes.** In Ledger's Notes, press Pop out beside + New note. *Expect:* the small window
-   titled "Notes": a search box, + New, your notes (pinned ones with the ribbon). Pick one; ☰
+7. **Deleted.** With a note popped out, delete it in Ledger. *Expect:* the pop-out goes to its list
+   at once, the note not in it (don't leave Notes first). Undo in Ledger. *Expect:* it's back in
+   the pop-out's list. With All notes popped out, delete a note in Ledger. *Expect:* gone from the
+   pop-out's list at once; `notes` in the palette doesn't find it either.
+8. **Deleting in the pop-out.** In a popped-out note, press the bin at the bar's right (in ⋯ when
+   the window is narrow). *Expect:* the list, "Deleted “…” · Undo" floating above its foot, the
+   note gone from Ledger's Notes too. Undo. *Expect:* the note again, all of it, in both. In the
+   list, hover a note and press its bin, or arrow to it and press Delete. Close the pop-out, then
+   look in Ledger. *Expect:* the deleted notes stay gone. Delete one, quit Kairo from the tray,
+   start it again. *Expect:* still gone.
+9. **All notes.** In Ledger's Notes, press Pop out beside + New note. *Expect:* the small window
+   titled "Notes": a search box, + New, your notes as cards with two lines of each under its title (pinned ones with the ribbon). Pick one; ☰
    goes back to the list. + New starts an empty note, ready to type, its prompt faint.
-9. **Without Ledger.** With Ledger closed, type `new note` in the palette, then `create note
+10. **Without Ledger.** With Ledger closed, type `new note` in the palette, then `create note
    groceries`. *Expect:* each opens a new note in the small window (the second starting
    "groceries"); Ledger stays closed. The ring's New note does the same. In the palette, `notes`
    leads with "All notes in a small window"; on a note's row, Ctrl+Enter (⌘+Enter) pops it out.

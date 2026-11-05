@@ -31,6 +31,7 @@ beforeEach(() => {
     pin: vi.fn(async () => {}),
     setPaper: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
+    hide: vi.fn(async () => {}),
     openTask: vi.fn(),
     popOut: vi.fn(),
     syncSoon: vi.fn(),
@@ -364,9 +365,20 @@ describe("an open note", () => {
     expect(act.remove).not.toHaveBeenCalled();
     // The keyboard is on the note beside it, ready for the next; the line says what went.
     expect(document.activeElement).toBe(root.querySelector('[data-note="b"] .note-row-open'));
+    // Out of the pop-out's sight at once too.
+    expect(act.hide).toHaveBeenCalledWith("a", true);
     root.querySelector<HTMLButtonElement>(".notes-undo button")!.click();
     await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("# Plan\nintro"));
+    expect(act.hide).toHaveBeenLastCalledWith("a", false);
     expect(act.remove).not.toHaveBeenCalled();
+  });
+
+  it("puts away a note deleted in the pop-out, whatever the search", async () => {
+    const { view } = await opened();
+    root.querySelector<HTMLInputElement>(".notes-search")!.value = "zzz";
+    notes.splice(0, 1);
+    await view.gone("a");
+    expect(root.querySelector(".note-pane textarea")).toBeNull();
   });
 
   it("keeps several deletes waiting, and deletes them for good on leaving Notes", async () => {

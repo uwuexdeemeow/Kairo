@@ -63,7 +63,8 @@ export function ledgerLine(tasks: Task[]): string {
 /// The line under the Tasks title: "3 due today · 1 overdue · 4 open".
 export function taskSummary(tasks: Task[]): string {
   const open = tasks.filter((t) => t.doneMs === null).length;
-  if (!tasks.length) return "Nothing to do yet";
+  // With none, the list's own empty state says so: the head doesn't say it twice.
+  if (!tasks.length) return "";
   const today = tasks.filter((t) => t.group === "today").length;
   const late = tasks.filter((t) => t.group === "overdue").length;
   const due = [today ? `${today} due today` : "", late ? `${late} overdue` : ""].filter(Boolean);

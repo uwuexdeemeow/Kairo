@@ -415,12 +415,18 @@ pub fn ring_close(app: AppHandle) {
 #[tauri::command]
 pub fn get_notes(state: State<AppState>, query: Option<String>) -> CmdResult<Vec<crate::notebook::Note>> {
     let conn = state.db.lock().map_err(err)?;
-    crate::notebook::list(&conn, query.as_deref().unwrap_or("")).map_err(err)
+    let mut found = crate::notebook::list(&conn, query.as_deref().unwrap_or("")).map_err(err)?;
+    // One deleted in any window, waiting on its Undo, is out of every window's list.
+    found.retain(|n| !crate::note_window::is_waiting(&n.id));
+    Ok(found)
 }
 
 #[tauri::command]
 pub fn get_note(state: State<AppState>, id: String) -> CmdResult<Option<crate::notebook::Note>> {
     let conn = state.db.lock().map_err(err)?;
+    if crate::note_window::is_waiting(&id) {
+        return Ok(None);
+    }
     crate::notebook::get(&conn, &id).map_err(err)
 }
 
@@ -463,15 +469,39 @@ pub fn set_note_paper(app: AppHandle, window: tauri::Window, state: State<AppSta
 
 /// Deletes a note; the tasks it was attached to lose the link, here and on combined computers.
 #[tauri::command]
-pub fn remove_note(app: AppHandle, window: tauri::Window, state: State<AppState>, id: String) -> CmdResult<()> {
+pub fn remove_note(app: AppHandle, window: tauri::Window, id: String) -> CmdResult<()> {
+    delete_note(&app, &id, window.label())
+}
+
+fn delete_note(app: &AppHandle, id: &str, from: &str) -> CmdResult<()> {
+    crate::note_window::set_waiting(id, from, false);
+    let state = app.state::<AppState>();
     let conn = state.db.lock().map_err(err)?;
-    for task in crate::notebook::remove(&conn, &id, now_ms()).map_err(err)? {
+    for task in crate::notebook::remove(&conn, id, now_ms()).map_err(err)? {
         sync::record(&conn, &format!("tasknote:{task}"), "")?;
     }
     drop(conn);
     let _ = app.emit("kairo:tasks", ());
-    crate::note_window::changed(&app, &id, window.label(), true);
+    crate::note_window::changed(app, id, from, true);
     Ok(())
+}
+
+/// A note deleted in this window, waiting on its Undo: out of sight in every window at once, so
+/// none shows it or lets it be typed in. `waiting` false is the Undo, bringing it back.
+#[tauri::command]
+pub fn hide_note(app: AppHandle, window: tauri::Window, id: String, waiting: bool) {
+    crate::note_window::set_waiting(&id, window.label(), waiting);
+    crate::note_window::changed(&app, &id, window.label(), waiting);
+}
+
+/// Deletes for good the notes waiting on window `from`'s Undo (everyone's for none), as when it
+/// closes or Kairo quits without its page saying so.
+pub(crate) fn finish_waiting_notes(app: &AppHandle, from: Option<&str>) {
+    for id in crate::note_window::take_waiting(from) {
+        if let Err(e) = delete_note(app, &id, from.unwrap_or("")) {
+            eprintln!("cannot delete note {id}: {e}");
+        }
+    }
 }
 
 #[tauri::command]

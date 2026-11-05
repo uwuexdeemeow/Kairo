@@ -3,6 +3,7 @@ import { notePreview } from "./ledger-notes";
 import { noteTool, openNoteSession, type NoteSession } from "./note-session";
 import { glyph } from "./glyphs";
 import { IS_MAC, h } from "./ui";
+import { mountUndo } from "./undo";
 
 /// A Ledger note popped out into a small window of its own, to keep in view beside other apps,
 /// or the list of notes to pick one from or start a new one. Writing goes through the same
@@ -20,6 +21,10 @@ export type PopoutActions = {
   /** null when the note was deleted elsewhere. */
   save(id: string, body: string): Promise<Note | null>;
   setPaper(id: string, paper: Paper): Promise<void>;
+  /** Puts a note deleted here out of every window's sight while its Undo waits; false brings it back. */
+  hide(id: string, waiting: boolean): Promise<void>;
+  /** Deletes a note for good. */
+  remove(id: string): Promise<void>;
   setTitle(title: string): void;
   onTop(): Promise<boolean>;
   setOnTop(on: boolean): Promise<void>;
@@ -42,6 +47,8 @@ export type Popout = {
   refresh(): Promise<void>;
   /** Saves what's typed now. */
   flush(): Promise<void>;
+  /** Makes a delete waiting on its Undo final, as when the window closes. */
+  finishDelete(): void;
 };
 
 /// This window's label, as changes made here are told back to it.
@@ -51,6 +58,8 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   let session: NoteSession | null = null;
   let listing = false;
   let asked = 0;
+  /// The notes the list shows.
+  let listed: Note[] = [];
 
   // Floating is the window's, whatever it shows.
   let onTop = true;
@@ -76,7 +85,50 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   });
 
   const shell = h("div", { class: "popout" });
-  root.replaceChildren(shell);
+  // "Deleted “Plan” · Undo", floating over whichever view is shown, while a delete can be taken back.
+  const undoLine = h("p", { class: "task-undo popout-undo", role: "status", hidden: "" });
+  const undo = mountUndo(undoLine);
+  root.replaceChildren(shell, undoLine);
+
+  /// Deletes a note: out of sight in every window at once, Undo (or Ctrl+Z) bringing it back until
+  /// this window closes. The note shown is saved first, so Undo brings back all of it.
+  const removeNote = async (n: Note) => {
+    const s = !listing && session?.note().id === n.id ? session : null;
+    const shown = !!s;
+    if (s) {
+      if (!(await s.save())) return s.blocked();
+      n = s.note();
+    }
+    // Where the keyboard goes: the note after it in the list, or the search.
+    const all = rowButtons();
+    const at = all.findIndex((b) => b.dataset.note === n.id);
+    const next = (all[at + 1] ?? all[at - 1])?.dataset.note;
+    try {
+      await act.hide(n.id, true);
+    } catch {
+      // It stays where it is, the note shown still being written in.
+      return void say("Couldn't delete it. Try again.");
+    }
+    if (s) {
+      s.close();
+      if (session === s) session = null;
+    }
+    const focusAfter = () => rowButtons().find((b) => b.dataset.note === next) ?? search;
+    undo.offer({
+      what: n.title,
+      finish: () => void act.remove(n.id).catch(() => say("Couldn't delete it, so it's back in the list.")).then(() => (listing ? loadList() : undefined)),
+      undo: () =>
+        void act
+          .hide(n.id, false)
+          .catch(() => {})
+          .then(() => (shown ? view.show(n.id) : listing ? loadList() : undefined)),
+      focusAfter,
+    });
+    say("");
+    if (shown) await view.list();
+    else await loadList();
+    focusAfter().focus();
+  };
 
   /// Puts the note shown away, keeping what's typed: a note whose typing isn't kept yet stays,
   /// its footer saying so. Whether it was put away.
@@ -114,11 +166,18 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
       closeMore();
       void openLedger();
     });
-    moreMenu.replaceChildren(pinItem, ledgerItem);
+    const del = noteTool("delete", "Delete note", glyph("trash"), () => void removeNote(s.note()));
+    const delItem = h("button", { class: "popout-more-item popout-more-delete" }, glyph("trash"), "Delete note");
+    delItem.addEventListener("click", () => {
+      closeMore();
+      void removeNote(s.note());
+    });
+    moreMenu.replaceChildren(pinItem, ledgerItem, delItem);
     // The note's own tools together, paper with them; the window's apart at the end, folded into
     // ⋯ when the window is narrow.
     shell.replaceChildren(
-      h("div", { class: "popout-bar note-bar" }, back, s.tools(), s.paper, h("span", { class: "popout-window-tools" }, pin, ledger), h("span", { class: "popout-more" }, more, moreMenu)),
+      h("div", { class: "popout-bar note-bar" }, back, s.tools(), s.paper, h("span", { class: "popout-window-tools" }, pin, ledger, h("span", { class: "popout-tool-sep", "aria-hidden": "true" }), del), h("span", { class: "popout-more" }, more, moreMenu)),
+      status,
       box,
       s.foot,
     );
@@ -193,6 +252,11 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     const all = rowButtons();
     const at = all.indexOf(document.activeElement as HTMLButtonElement);
     if (at < 0) return;
+    if (e.key === "Delete") {
+      e.preventDefault();
+      const n = listed.find((x) => x.id === all[at].dataset.note);
+      return void (n && removeNote(n));
+    }
     const to = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 }[e.key];
     if (to === undefined) return;
     e.preventDefault();
@@ -225,6 +289,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     }
     // Only the latest answer, should an earlier search finish after it; and only while listing.
     if (mine !== asked || !listing) return;
+    listed = found;
     if (!found.length) {
       const q = search.value.trim();
       rows.replaceChildren(h("p", { class: "muted popout-empty" }, q ? `No notes match. + New starts one called “${q}”.` : "No notes yet. + New starts one."));
@@ -243,8 +308,13 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
           ...(n.pinned ? [h("span", { class: "sr-only" }, ", pinned")] : []),
           ...(under ? [h("span", { class: "popout-row-preview muted" }, under)] : []),
         );
+        row.setAttribute("aria-keyshortcuts", "Delete");
         row.addEventListener("click", () => void view.show(n.id));
-        return h("div", { role: "listitem" }, row);
+        // Hovering shows a bin to delete it where it is; the keyboard uses Delete instead, so
+        // it's no Tab stop of its own.
+        const bin = h("button", { class: "popout-row-delete", title: `Delete “${n.title}”`, "aria-label": `Delete “${n.title}”`, tabindex: "-1" }, glyph("trash"));
+        bin.addEventListener("click", () => void removeNote(n));
+        return h("div", { role: "listitem", class: "popout-item" }, row, bin);
       }),
     );
   };
@@ -300,6 +370,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     flush: async () => {
       await session?.save();
     },
+    finishDelete: () => undo.finish(),
   };
   return view;
 }

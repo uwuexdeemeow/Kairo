@@ -8,7 +8,7 @@ Kairo stays light.
 
 ## The window
 
-- One window, label `note`, 360 × 480 at first (at least 260 × 200), its size and place
+- One window, label `note`, 400 × 540 at first (at least 260 × 200), its size and place
   remembered by the window-state plugin like Kairo's window. It is never kept while closed: a
   closed pop-out costs no memory.
 - Popping out a note opens the window on it; with the window already open on another note, the

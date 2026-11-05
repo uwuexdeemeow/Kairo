@@ -16,12 +16,14 @@ const note = (id: string, body: string, extra: Partial<Note> = {}): Note => ({
 
 let root: HTMLElement;
 let kept: Record<string, Note>;
+let hidden: Record<string, Note>;
 let act: { [K in keyof PopoutActions]: ReturnType<typeof vi.fn> };
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   document.body.innerHTML = `<div id="root"></div>`;
   root = document.getElementById("root")!;
+  hidden = {};
   kept = { a: note("a", "# Plan\n- [ ] intro"), b: note("b", "Shopping") };
   act = {
     load: vi.fn(async (id: string) => kept[id] ?? null),
@@ -29,6 +31,11 @@ beforeEach(() => {
     create: vi.fn(async () => (kept.new = note("new", ""))),
     save: vi.fn(async (id: string, body: string) => (kept[id] ? (kept[id] = note(id, body)) : null)),
     setPaper: vi.fn(async () => {}),
+    hide: vi.fn(async (id: string, waiting: boolean) => {
+      if (waiting && kept[id]) [hidden[id], kept[id]] = [kept[id], undefined!], delete kept[id];
+      else if (!waiting && hidden[id]) [kept[id]] = [hidden[id]], delete hidden[id];
+    }),
+    remove: vi.fn(async (id: string) => void delete hidden[id]),
     setTitle: vi.fn(),
     onTop: vi.fn(async () => true),
     setOnTop: vi.fn(async () => {}),
@@ -352,5 +359,48 @@ describe("the list of notes in the pop-out", () => {
     pick.value = "blank";
     pick.dispatchEvent(new Event("change"));
     expect(act.setPaper).toHaveBeenCalledWith("a", "blank");
+  });
+});
+
+describe("deleting in the pop-out", () => {
+  it("deletes the note shown, saving it first, out of sight everywhere until Undo brings it back", async () => {
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    type("# Plan\nmore");
+    root.querySelector<HTMLButtonElement>('[data-tool="delete"]')!.click();
+    await vi.waitFor(() => expect(rows()).toEqual(["Shopping"]));
+    expect(act.save).toHaveBeenCalledWith("a", "# Plan\nmore");
+    expect(act.hide).toHaveBeenCalledWith("a", true);
+    expect(act.remove).not.toHaveBeenCalled();
+    expect(root.querySelector(".popout-undo")!.textContent).toBe("Deleted “Plan” · Undo");
+    root.querySelector<HTMLButtonElement>(".popout-undo button")!.click();
+    await vi.waitFor(() => expect(root.querySelector("textarea")?.value).toBe("# Plan\nmore"));
+    expect(act.hide).toHaveBeenLastCalledWith("a", false);
+  });
+
+  it("deletes from the list with its bin or the Delete key, for good when the window closes", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan", "Shopping"]));
+    root.querySelector<HTMLButtonElement>('[data-note="b"] ~ .popout-row-delete')!.click();
+    await vi.waitFor(() => expect(rows()).toEqual(["Plan"]));
+    const row = root.querySelector<HTMLButtonElement>('.popout-row[data-note="a"]')!;
+    row.focus();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+    await vi.waitFor(() => expect(rows()).toEqual([]));
+    expect(root.querySelector(".popout-undo")!.textContent).toContain("and 1 more");
+    pop.finishDelete();
+    expect(act.remove).toHaveBeenCalledWith("a");
+    expect(act.remove).toHaveBeenCalledWith("b");
+  });
+
+  it("keeps the note when it can't be put out of sight", async () => {
+    act.hide.mockRejectedValueOnce(new Error("busy"));
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    root.querySelector<HTMLButtonElement>('[data-tool="delete"]')!.click();
+    await vi.waitFor(() => expect(root.querySelector("textarea")?.value).toBe("# Plan\n- [ ] intro"));
+    await vi.waitFor(() => expect(root.querySelector(".popout-status")!.textContent).toBe("Couldn't delete it. Try again."));
+    expect(root.querySelector(".popout-list")).toBeNull();
   });
 });

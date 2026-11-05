@@ -3464,9 +3464,21 @@ select,
   position: relative;
 }
 
+/* Ledger's head: the title with its count under it, Find on the right level with the count, and
+   room before the list so neither crowds Add a task. As wide as the list it sits over. */
+.ledger .page-head {
+  max-width: 880px;
+  margin-bottom: 24px;
+  gap: 12px 24px;
+}
+
 .ledger-summary {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   font-size: 13px;
+}
+
+.ledger-summary:empty {
+  display: none;
 }
 
 .ledger-list {
@@ -4637,7 +4649,7 @@ select,
   margin-left: auto;
 }
 
-@media (max-width: 359px) {
+@media (max-width: 379px) {
   .note-bar {
     gap: 4px;
     padding-inline: 6px;
@@ -4702,6 +4714,26 @@ select,
 
 .popout-more-item .icon {
   color: var(--muted);
+}
+
+/* Delete, apart from the window's other tools and in a warning ink, there and in ⋯. */
+.popout-tool-sep {
+  align-self: center;
+  width: 1px;
+  height: 18px;
+  margin-inline: 2px;
+  background: var(--rule);
+}
+
+.popout-window-tools .note-tool[data-tool="delete"],
+.popout-more-delete,
+.popout-more-delete .icon {
+  color: var(--distracting-ink);
+}
+
+/* "Deleted “Plan” · Undo" floats clear of the note's footer. */
+.popout-undo {
+  bottom: 40px;
 }
 
 /* Kept on top: ticked, as the dropdowns tick their choice. */
@@ -4936,19 +4968,26 @@ select,
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   min-height: 0;
   padding: 8px;
   overflow-y: auto;
+}
+
+/* Each note a card roomy enough to read: its title, and two lines of what's under it. */
+.popout-item {
+  position: relative;
 }
 
 .popout-row {
   position: relative;
   display: flex;
   width: 100%;
+  min-height: 68px;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 40px 12px 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--bg);
@@ -4965,21 +5004,65 @@ select,
 
 .popout-row strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .popout-row-preview {
+  display: -webkit-box;
   overflow: hidden;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+/* The bin, at the card's right while it's hovered; the keyboard deletes with Delete. */
+.popout-row-delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  margin-top: -13px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.popout-item:hover .popout-row-delete,
+.popout-row-delete:focus-visible {
+  opacity: 1;
+}
+
+.popout-row-delete:hover {
+  border-color: var(--distracting-ink);
+  color: var(--distracting-ink);
+}
+
+.popout-row-delete .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Touch screens have no hover: the bin is always there. */
+@media (hover: none) {
+  .popout-row-delete {
+    opacity: 1;
+  }
 }
 
 /* Pinned ones wear Ledger's ribbon, as in its list; the title stops short of it. */
 .popout-row.pinned strong {
-  padding-right: 18px;
+  padding-right: 6px;
 }
 
 .popout-row.pinned::after {

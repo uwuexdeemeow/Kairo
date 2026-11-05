@@ -388,6 +388,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         notes: crate::notebook::list(conn, "")
             .unwrap_or_default()
             .into_iter()
+            .filter(|n| !crate::note_window::is_waiting(&n.id))
             .map(|n| search::NoteEntry { id: n.id, title: n.title, text: n.body.chars().take(4000).collect::<String>().to_lowercase() })
             .collect(),
         windows,

@@ -30,6 +30,36 @@ pub(crate) fn changed(app: &AppHandle, id: &str, from: &str, gone: bool) {
     let _ = app.emit("kairo:note", NoteChange { id: id.to_string(), from: from.to_string(), gone });
 }
 
+/// Notes deleted in a window but waiting on its Undo, each with that window's label: out of every
+/// window's list until then, and deleted for good when that window goes or Kairo quits.
+static WAITING: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+fn waiting() -> std::sync::MutexGuard<'static, Vec<(String, String)>> {
+    WAITING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Puts a note out of sight, deleted in window `from` but waiting on its Undo; or brings it back.
+pub(crate) fn set_waiting(id: &str, from: &str, on: bool) {
+    let mut w = waiting();
+    w.retain(|(i, _)| i != id);
+    if on {
+        w.push((id.to_string(), from.to_string()));
+    }
+}
+
+/// Whether the note is deleted, waiting on an Undo somewhere.
+pub(crate) fn is_waiting(id: &str) -> bool {
+    waiting().iter().any(|(i, _)| i == id)
+}
+
+/// Takes out the notes waiting on window `from`'s Undo, or everyone's for none: theirs to delete.
+pub(crate) fn take_waiting(from: Option<&str>) -> Vec<String> {
+    let mut w = waiting();
+    let (taken, kept): (Vec<_>, Vec<_>) = w.drain(..).partition(|(_, l)| from.is_none_or(|f| f == l));
+    *w = kept;
+    taken.into_iter().map(|(i, _)| i).collect()
+}
+
 pub(crate) fn popped() -> Option<String> {
     POPPED.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
@@ -60,10 +90,30 @@ pub(crate) fn pop_out(app: &AppHandle, id: Option<&str>) {
         label: LABEL,
         file: "note.html",
         title: "Note",
-        size: (360.0, 480.0),
+        size: (400.0, 540.0),
         min: (260.0, 200.0),
         on_top: on_top(app),
         takes_files: false,
     };
     crate::small_window::show(app, spec, "kairo:note-open", id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_waiting_delete_is_hidden_until_its_window_takes_it() {
+        set_waiting("w1", "kairo", true);
+        set_waiting("w2", "note", true);
+        assert!(is_waiting("w1") && is_waiting("w2"));
+        // Undone: back in sight.
+        set_waiting("w1", "kairo", false);
+        assert!(!is_waiting("w1"));
+        set_waiting("w1", "kairo", true);
+        assert_eq!(take_waiting(Some("note")), vec!["w2".to_string()]);
+        assert!(is_waiting("w1") && !is_waiting("w2"));
+        assert!(take_waiting(None).contains(&"w1".to_string()));
+        assert!(!is_waiting("w1"));
+    }
 }

@@ -18,6 +18,8 @@ export type NotesActions = {
   pin(id: string, pinned: boolean): Promise<void>;
   setPaper(id: string, paper: Paper): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Puts a note deleted here out of every window's sight while its Undo waits; false brings it back. */
+  hide(id: string, waiting: boolean): Promise<void>;
   openTask(id: string): void;
   /** Shows the note in a small window of its own; no note, the list of notes. */
   popOut(id?: string): void;
@@ -35,6 +37,8 @@ export type NotesView = {
   create(): Promise<void>;
   /** Makes a delete waiting on its Undo final, as when Notes is left. */
   finishDelete(): void;
+  /** A note was deleted in another window: put away if it's open, and out of the list. */
+  gone(id: string): Promise<void>;
 };
 
 const MAX_CHARS = 100_000;
@@ -300,11 +304,17 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       },
       undo: () => {
         deletingNotes.delete(n.id);
-        void load().then(() => view.open(n.id));
+        void act
+          .hide(n.id, false)
+          .catch(() => {})
+          .then(load)
+          .then(() => view.open(n.id));
       },
       focusAfter: rowAfter,
     });
     deletingNotes.add(n.id);
+    // Out of the pop-out window's sight too, at once, not only once it's deleted for good.
+    void act.hide(n.id, true).catch(() => {});
     notes = notes.filter((x) => x.id !== n.id);
     focusedNote = neighbour?.id ?? null;
     if (open?.id === n.id) closeNote();
@@ -421,6 +431,11 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
     },
     create: () => createNote(),
     finishDelete: () => noteUndo.finish(),
+    gone: async (id) => {
+      if (open?.id === id) closeNote();
+      await load();
+      drawList();
+    },
   };
 
   search.addEventListener("input", async () => {

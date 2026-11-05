@@ -507,6 +507,8 @@ export const api = {
   pinNote: (id: string, pinned: boolean) => invoke<void>("pin_note", { id, pinned }),
   setNotePaper: (id: string, paper: Paper) => invoke<void>("set_note_paper", { id, paper }),
   removeNote: (id: string) => invoke<void>("remove_note", { id }),
+  /** A note deleted here but waiting on its Undo, out of every window's sight; false brings it back. */
+  hideNote: (id: string, waiting: boolean) => invoke<void>("hide_note", { id, waiting }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
   syncSoon: () => invoke<void>("sync_soon"),
   /** Pops a note out into its own small window, or switches the open one to it; no id pops out the list of notes. */

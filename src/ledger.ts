@@ -248,6 +248,7 @@ function notes(): NotesView {
     pin: (id, pinned) => api.pinNote(id, pinned),
     setPaper: (id, paper) => api.setNotePaper(id, paper),
     remove: (id) => api.removeNote(id),
+    hide: (id, waiting) => api.hideNote(id, waiting),
     openTask: (id) => openTask(id),
     popOut: (id) => void api.popOutNote(id),
     syncSoon: () => void api.syncSoon(),
@@ -414,7 +415,9 @@ listen<NoteChange>("kairo:note", (e) => {
   if (from === "kairo") return;
   // Notes are read again only while they show (opening the view reads them anyway), so the
   // pop-out's every save doesn't reload Ledger.
-  if (shown === "notes") void notesView?.refresh();
+  // One deleted there is put away here even when Notes isn't showing, so it can't be typed in.
+  if (gone) void notesView?.gone(id);
+  else if (shown === "notes") void notesView?.refresh();
   // The sidebar's count and the task panel's note names: only a note made or deleted elsewhere
   // changes them.
   if (gone || !noteNames.some((n) => n.id === id)) void refresh();

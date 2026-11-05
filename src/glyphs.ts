@@ -16,6 +16,7 @@ const PATHS = {
   up: '<path d="M12 19V5M6 11l6-6 6 6" />',
   down: '<path d="M12 5v14M6 13l6 6 6-6" />',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5" />',
+  trash: '<path d="M5 7h14M10 7V5h4v2" /><path d="M7 7l1 13h8l1-13M10.5 11v5M13.5 11v5" />',
   more: '<circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" />',
   // The scan window's verdicts, each a stamp: a ring with its mark inside.
   "seal-clean": '<circle cx="12" cy="12" r="9.5" /><path d="M8 12.4l2.7 2.7 5.3-6" />',
