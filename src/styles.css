@@ -5086,8 +5086,19 @@ select,
   font-size: 13px;
 }
 
+/* A heading for the card it names, sized as the card's text; long names end in an ellipsis
+   and keep their whole in the tooltip. */
 .scan-name {
-  overflow-wrap: anywhere;
+  margin: 0;
+  overflow: hidden;
+  font: inherit;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scan-head {
+  min-width: 0;
 }
 
 .scan-names span {
@@ -5120,6 +5131,15 @@ select,
 
 .scan-result.clean .scan-word {
   color: var(--good-ink);
+}
+
+/* An error isn't a verdict: said in the warm ink, its card's edge a little warmer too. */
+.scan-result.error {
+  border-color: color-mix(in srgb, var(--warm-ink) 45%, var(--rule));
+}
+
+.scan-result.error .scan-word {
+  color: var(--warm-ink);
 }
 
 /* A lone detection is said calmly, in plain ink. */

@@ -18,6 +18,7 @@ void (async () => {
     check: vt.check,
     upload: vt.upload,
     follow: vt.follow,
+    rescan: vt.rescan,
     pickFile: vt.pickFile,
     openReport: (link) => void vt.openReport(link),
     openSettings: () => void api.openDashboard("settings"),

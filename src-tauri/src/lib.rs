@@ -461,6 +461,7 @@ pub fn run() {
             virustotal::vt_check,
             virustotal::vt_upload,
             virustotal::vt_follow,
+            virustotal::vt_rescan,
             virustotal::vt_pick_file,
             virustotal::vt_open_report,
             speedtest::speed_run,

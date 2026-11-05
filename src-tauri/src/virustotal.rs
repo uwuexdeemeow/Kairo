@@ -109,6 +109,8 @@ pub struct Verdict {
     pub link: String,
     /// The file's best-known name, or the link.
     pub title: Option<String>,
+    /// What it is to VirusTotal, `file:<sha256>` or `url:<id>`, for scanning it again.
+    pub then: String,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -121,6 +123,8 @@ pub enum Answer {
     /// Being scanned; asked again with `then` (`file:<sha256>` or `url:<id>`) once done.
     #[serde(rename_all = "camelCase")]
     Scanning { analysis: String, then: String },
+    /// A hash VirusTotal has never seen: nothing to say about it, good or bad.
+    Unknown,
 }
 
 /// The verdict in a file or link object; None while it has never been scanned.
@@ -163,6 +167,7 @@ pub fn verdict_from(json: &Value) -> Option<Verdict> {
         last_ms: attrs["last_analysis_date"].as_i64().map(|s| s * 1000),
         link: format!("https://www.virustotal.com/gui/{kind}/{}", data["id"].as_str().unwrap_or_default()),
         title: attrs[if kind == "url" { "url" } else { "meaningful_name" }].as_str().map(str::to_string),
+        then: format!("{kind}:{}", data["id"].as_str().unwrap_or_default()),
     })
 }
 
@@ -284,7 +289,7 @@ pub async fn vt_check(state: State<'_, AppState>, text: String) -> Result<Answer
     match classify(&text).ok_or_else(|| "That's not a link or a hash.".to_string())? {
         Query::Hash(hash) => match get(&key, &format!("/files/{hash}")).await? {
             Some(json) => verdict_from(&json).map(Answer::Verdict).ok_or_else(|| "VirusTotal knows this hash but hasn't scanned it yet.".into()),
-            None => Err("VirusTotal hasn't seen anything with this hash.".into()),
+            None => Ok(Answer::Unknown),
         },
         Query::Url(url) => {
             let id = url_id(&url);
@@ -338,6 +343,21 @@ pub async fn vt_follow(state: State<'_, AppState>, analysis: String, then: Strin
         _ => return Err("Kairo lost track of this scan.".into()),
     };
     verdict_or_scanning(&key, &path, &analysis, &then).await
+}
+
+/// Asks VirusTotal to scan something it has seen again, as when its verdict is old; followed like
+/// any scan.
+#[tauri::command]
+pub async fn vt_rescan(state: State<'_, AppState>, then: String) -> Result<Answer, String> {
+    let key = key_of(&state)?;
+    let path = match then.split_once(':') {
+        Some(("file", sha)) if sha.chars().all(|c| c.is_ascii_hexdigit()) => format!("/files/{sha}/analyse"),
+        Some(("url", id)) if id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') => format!("/urls/{id}/analyse"),
+        _ => return Err("Kairo lost track of what to scan.".into()),
+    };
+    let sent = call(&key, client()?.post(format!("{API}{path}"))).await?.ok_or("VirusTotal didn't take it.")?;
+    let analysis = sent["data"]["id"].as_str().ok_or("VirusTotal didn't say how to follow the scan.")?;
+    Ok(Answer::Scanning { analysis: analysis.into(), then })
 }
 
 /// Opens a full report in the browser: only VirusTotal's own pages.
@@ -430,6 +450,7 @@ mod tests {
         assert_eq!(v.last_ms, Some(1_762_000_000_000));
         assert_eq!(v.link, "https://www.virustotal.com/gui/file/abc");
         assert_eq!(v.title.as_deref(), Some("setup.exe"));
+        assert_eq!(v.then, "file:abc", "what to ask for to scan it again");
     }
 
     #[test]
@@ -439,6 +460,7 @@ mod tests {
         let clean = json!({ "data": { "type": "url", "id": "u1", "attributes": { "url": "https://x.example", "last_analysis_stats": { "harmless": 70, "undetected": 24 } } } });
         let v = verdict_from(&clean).unwrap();
         assert_eq!((v.malicious, v.total, v.link.as_str(), v.title.as_deref()), (0, 94, "https://www.virustotal.com/gui/url/u1", Some("https://x.example")));
+        assert_eq!(v.then, "url:u1");
     }
 
     #[test]

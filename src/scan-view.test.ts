@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clock, mountScan, verdictOf, type ScanActions } from "./scan-view";
+import { clock, mountScan, nameOf, verdictOf, type ScanActions } from "./scan-view";
 import type { VtAnswer } from "./virustotal-api";
 
 const verdict = (malicious: number, suspicious = 0, extra: Partial<VtAnswer & { state: "verdict" }> = {}): VtAnswer => ({
@@ -12,6 +12,7 @@ const verdict = (malicious: number, suspicious = 0, extra: Partial<VtAnswer & { 
   lastMs: new Date(2026, 10, 4).getTime(),
   link: "https://www.virustotal.com/gui/file/abc",
   title: null,
+  then: "file:abc",
   ...extra,
 });
 
@@ -28,6 +29,7 @@ beforeEach(() => {
     check: vi.fn(async () => verdict(0)),
     upload: vi.fn(),
     follow: vi.fn(),
+    rescan: vi.fn(),
     pickFile: vi.fn(async () => "C:\\Users\\a\\Downloads\\setup.exe"),
     openReport: vi.fn(),
     openSettings: vi.fn(),
@@ -129,9 +131,9 @@ describe("the scan window", () => {
     scan.check("https://slow.example");
     await vi.waitFor(() => expect(first().textContent).toContain("Scanning on VirusTotal… 0:00"));
     await vi.advanceTimersByTimeAsync(41_000);
-    expect(first().querySelector(".scan-elapsed")!.textContent).toMatch(/^Scanning on VirusTotal… 0:4\d$/);
+    expect(first().querySelector(".scan-time")!.textContent).toMatch(/^Scanning on VirusTotal… 0:4\d$/);
     await vi.advanceTimersByTimeAsync(50_000);
-    expect(first().querySelector(".scan-elapsed")!.textContent).toMatch(/^Taking longer than usual\. Kairo keeps checking\. 1:3\d$/);
+    expect(first().querySelector(".scan-time")!.textContent).toMatch(/^Taking longer than usual\. Kairo keeps checking\. 1:3\d$/);
     const asked = act.follow.mock.calls.length;
     first().querySelector<HTMLButtonElement>(".scan-stop")!.click();
     expect(first().textContent).toContain("Stopped.");
@@ -143,10 +145,82 @@ describe("the scan window", () => {
   });
 
   it("keeps the last ten, newest first", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
     const scan = await mountScan(root, act);
     for (let i = 0; i < 12; i++) scan.check(`https://site${i}.example`);
+    // Four a minute: the rest wait their turn, kept on the list until they're done.
+    await vi.waitFor(() => expect(root.textContent).toContain("Waiting its turn under VirusTotal's free limit"));
+    expect(act.check).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(act.check).toHaveBeenCalledTimes(12);
     await vi.waitFor(() => expect(results().length).toBe(10));
     expect(first().querySelector(".scan-name")!.textContent).toBe("site11.example");
+  });
+
+  it("keeps the field focused when the window comes back and the key hasn't changed", async () => {
+    const scan = await mountScan(root, act);
+    field().focus();
+    await scan.refreshKey();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("moves something checked again to the top instead of adding it twice", async () => {
+    const scan = await mountScan(root, act);
+    scan.check("https://example.com/a");
+    scan.check("https://other.example");
+    await vi.waitFor(() => expect(results().length).toBe(2));
+    scan.check("https://example.com/a");
+    await vi.waitFor(() => expect(first().querySelector(".scan-name")!.textContent).toBe("example.com/a"));
+    expect(results().length).toBe(2);
+  });
+
+  it("says it couldn't check, with a way to try again and to settings for a key problem", async () => {
+    await mountScan(root, act);
+    act.check.mockRejectedValueOnce("VirusTotal didn't accept the key. Check it in Kairo's settings.");
+    checkTyped("https://example.com");
+    await vi.waitFor(() => expect(first().classList.contains("error")).toBe(true));
+    expect(first().textContent).toContain("Couldn't check");
+    first().querySelector<HTMLButtonElement>(".scan-settings-link")!.click();
+    expect(act.openSettings).toHaveBeenCalled();
+    first().querySelector<HTMLButtonElement>(".scan-retry")!.click();
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    expect(act.check).toHaveBeenCalledTimes(2);
+  });
+
+  it("calls a hash VirusTotal hasn't seen unknown, and names a known one as VirusTotal does", async () => {
+    const scan = await mountScan(root, act);
+    act.check.mockResolvedValueOnce({ state: "unknown" });
+    scan.check("a".repeat(64));
+    await vi.waitFor(() => expect(first().textContent).toContain("Unknown to VirusTotal"));
+    expect(first().classList.contains("error")).toBe(false);
+    act.check.mockResolvedValueOnce(verdict(0, 0, { title: "installer.msi" }));
+    scan.check("b".repeat(64));
+    await vi.waitFor(() => expect(first().querySelector(".scan-name")!.textContent).toBe("installer.msi"));
+  });
+
+  it("scans an answer again on asking", async () => {
+    act.rescan.mockResolvedValueOnce(verdict(0));
+    const scan = await mountScan(root, act);
+    scan.file("/x/setup.exe");
+    await vi.waitFor(() => expect(first().querySelector(".scan-rescan")).not.toBeNull());
+    first().querySelector<HTMLButtonElement>(".scan-rescan")!.click();
+    await vi.waitFor(() => expect(act.rescan).toHaveBeenCalledWith("file:abc"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+  });
+
+  it("says when there's nothing to check, and names its results for screen readers", async () => {
+    await mountScan(root, act);
+    checkTyped("   ");
+    expect(field().getAttribute("aria-invalid")).toBe("true");
+    expect(root.querySelector(".sr-only[aria-live]")!.textContent).toBe("Paste a link or a hash first.");
+    expect(act.check).not.toHaveBeenCalled();
+    expect(root.querySelector("h1")!.textContent).toBe("Check a file or link with VirusTotal");
+    checkTyped("https://example.com");
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    const name = first().querySelector(".scan-name")!;
+    expect(first().getAttribute("aria-labelledby")).toBe(name.id);
+    expect(first().querySelector(".scan-report [aria-hidden]")!.textContent).toBe(" ↗");
   });
 
   it("without a key, says where to add one", async () => {
@@ -182,5 +256,13 @@ describe("a verdict in words", () => {
   it("times a scan in minutes and seconds", () => {
     expect(clock(0)).toBe("0:00");
     expect(clock(91_500)).toBe("1:31");
+  });
+});
+
+describe("a result's name", () => {
+  it("keeps a link's path, so two pages on one site aren't the same", () => {
+    expect(nameOf("https://example.com/a", false)).toBe("example.com/a");
+    expect(nameOf("example.com/", false)).toBe("example.com");
+    expect(nameOf("C:\\Users\\a\\setup.exe", true)).toBe("setup.exe");
   });
 });

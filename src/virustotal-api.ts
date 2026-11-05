@@ -16,6 +16,8 @@ export interface VtVerdict {
   link: string;
   /** The file's best-known name, or the link. */
   title: string | null;
+  /** What it is to VirusTotal (`file:<sha256>` or `url:<id>`), for scanning it again. */
+  then: string;
 }
 
 export type VtAnswer =
@@ -23,7 +25,9 @@ export type VtAnswer =
   /** A file VirusTotal hasn't seen: uploading is up to the user. */
   | { state: "notSeen"; sha256: string; size: number; tooBig: boolean }
   /** Being scanned; followed with `then` once done. */
-  | { state: "scanning"; analysis: string; then: string };
+  | { state: "scanning"; analysis: string; then: string }
+  /** A hash VirusTotal has never seen: nothing to say either way. */
+  | { state: "unknown" };
 
 export const vt = {
   hasKey: () => invoke<boolean>("vt_has_key"),
@@ -33,6 +37,8 @@ export const vt = {
   check: (text: string) => invoke<VtAnswer>("vt_check", { text }),
   upload: (path: string) => invoke<VtAnswer>("vt_upload", { path }),
   follow: (analysis: string, then: string) => invoke<VtAnswer>("vt_follow", { analysis, then }),
+  /** Asks VirusTotal to scan something it has seen again, followed like any scan. */
+  rescan: (then: string) => invoke<VtAnswer>("vt_rescan", { then }),
   pickFile: () => invoke<string | null>("vt_pick_file"),
   openReport: (link: string) => invoke<void>("vt_open_report", { link }),
   /** What the scan window was opened to look up, once. */
