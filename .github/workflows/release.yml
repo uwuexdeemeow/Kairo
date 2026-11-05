@@ -1,5 +1,10 @@
 # Push a tag like v0.2.0 to build, sign and publish a release. Installed copies of Kairo pick it
 # up through latest.json, which tauri-action uploads alongside the installers.
+#
+# The release is a pre-release while it's built: the updater asks for the latest release's
+# latest.json, which only gets each platform's entry as its build finishes, and copies asking in
+# between were told there was none for them. GitHub's latest skips pre-releases, so they keep the
+# last whole one until `publish` makes this one the latest.
 name: Release
 
 on:
@@ -49,6 +54,7 @@ jobs:
           releaseName: Kairo ${{ github.ref_name }}
           releaseBody: Installed copies of Kairo update to this version on their own.
           releaseDraft: false
+          prerelease: true
 
   # After Windows, so the two jobs don't both create the release or overwrite each other's
   # entries in latest.json.
@@ -112,10 +118,11 @@ jobs:
           releaseName: Kairo ${{ github.ref_name }}
           releaseBody: Installed copies of Kairo update to this version on their own.
           releaseDraft: false
+          prerelease: true
           args: --target universal-apple-darwin --bundles app,dmg
 
   # Last, for the same reason; it still runs if the Mac build fails, since Windows made the
-  # release. Copies installed from the AppImage or the .deb (with a password prompt) update
+  # release, though the release then stays a pre-release. Copies installed from the AppImage or the .deb (with a password prompt) update
   # themselves.
   linux:
     needs: [windows, macos]
@@ -156,4 +163,15 @@ jobs:
           releaseName: Kairo ${{ github.ref_name }}
           releaseBody: Installed copies of Kairo update to this version on their own.
           releaseDraft: false
+          prerelease: true
           args: --bundles appimage,deb
+
+  # Once every platform is in latest.json, the release becomes the one installed copies see.
+  publish:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Make it the latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --prerelease=false --latest
