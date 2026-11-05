@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { api, type Appearance, type SyncState } from "./api";
+import { look, wear } from "./themes";
 
 /// Whether another computer's time is combined here, through a folder or the relay, so there's a
 /// choice of whose time to show.
@@ -48,6 +49,7 @@ export const esc = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.char
 // ---------- theme ----------
 
 const THEME_KEY = "kairo.theme";
+const GROUND_KEY = "kairo.ground";
 const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 let appearance: Appearance = "system";
 
@@ -55,10 +57,12 @@ let appearance: Appearance = "system";
 /// is kept for the next launch so the window opens in the right colors straight away.
 export function applyTheme(mode: Appearance) {
   appearance = mode;
-  const theme = mode === "system" ? (prefersLight.matches ? "light" : "dark") : mode;
-  document.documentElement.dataset.theme = theme;
+  const worn = look(mode, prefersLight.matches);
+  wear(document.documentElement, worn);
   try {
-    localStorage.setItem(THEME_KEY, theme);
+    localStorage.setItem(THEME_KEY, worn.theme);
+    if (worn.ground) localStorage.setItem(GROUND_KEY, worn.ground);
+    else localStorage.removeItem(GROUND_KEY);
   } catch {
     // The next launch may open in the other palette for a moment; that's all.
   }

@@ -36,6 +36,7 @@ pub const LABEL: &str = "palette";
 pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
+const LOOK_KEY: &str = "palette_look";
 const SEARCH_FILES_KEY: &str = "palette_search_files";
 const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
 /// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
@@ -275,6 +276,16 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
 }
 
+/// Whether the palette opens as only its search bar, its results dropping down as you type;
+/// the full look, with suggestions and the footer, unless chosen.
+pub fn compact(conn: &Connection) -> Result<bool> {
+    Ok(db::get_setting(conn, LOOK_KEY)?.as_deref() == Some("compact"))
+}
+
+pub fn set_compact(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, LOOK_KEY, if on { "compact" } else { "full" })
+}
+
 /// Whether typing in the palette also looks for files; on unless turned off.
 pub fn search_files(conn: &Connection) -> Result<bool> {
     Ok(db::get_setting(conn, SEARCH_FILES_KEY)?.as_deref() != Some("0"))
@@ -365,6 +376,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         today_apps: glance.top_apps,
         over_limits,
         suggestions: suggestions(conn).unwrap_or(true),
+        compact: compact(conn).unwrap_or(false),
         search_files: search_files(conn).unwrap_or(true),
         switches: settings::read(app, conn),
         subjects,
@@ -1138,6 +1150,7 @@ mod tests {
             today_apps: Vec::new(),
             over_limits: Vec::new(),
             suggestions: true,
+            compact: false,
             search_files: true,
             switches: Vec::new(),
             subjects: Vec::new(),

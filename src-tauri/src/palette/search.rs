@@ -436,6 +436,8 @@ pub struct Context {
     /// Limits passed today: (name, used, limit).
     pub over_limits: Vec<(String, i64, i64)>,
     pub suggestions: bool,
+    /// Whether the palette opens as only its search bar: nothing shows until something's typed.
+    pub compact: bool,
     /// Whether files are looked for too.
     pub search_files: bool,
     /// Which of the settings' switches are on.
@@ -1046,6 +1048,9 @@ pub struct Suggestions {
 }
 
 pub fn suggestions(ctx: &Context) -> Suggestions {
+    if ctx.compact {
+        return Suggestions { rows: Vec::new(), tiles: Vec::new(), chips: Vec::new() };
+    }
     let chips = PAGES
         .iter()
         .filter(|p| ["Today", "Yesterday", "This week", "Focus", "Chrono settings"].contains(&p.1))
@@ -1102,6 +1107,7 @@ mod tests {
             today_apps: vec![("Cursor".into(), 2 * HOUR_MS), ("THE FINALS".into(), HOUR_MS), ("Brave".into(), HOUR_MS / 2)],
             over_limits: vec![("THE FINALS".into(), 132 * 60_000, 120 * 60_000)],
             suggestions: true,
+            compact: false,
             search_files: true,
             switches: Vec::new(),
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
@@ -1212,6 +1218,8 @@ mod tests {
         assert_eq!(titles(&s.tiles), ["Cursor", "Brave"]);
         assert_eq!(titles(&s.chips), ["Today", "Yesterday", "This week", "Focus", "Chrono settings"]);
         let quiet = suggestions(&Context { suggestions: false, ..ctx() });
+        let bare = suggestions(&Context { compact: true, ..ctx() });
+        assert!(bare.rows.is_empty() && bare.tiles.is_empty() && bare.chips.is_empty(), "the compact palette opens empty");
         assert!(quiet.rows.is_empty() && quiet.tiles.is_empty() && quiet.chips.len() == 5);
     }
 

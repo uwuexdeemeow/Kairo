@@ -9,6 +9,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type Appearance, type PaletteCard, type PaletteFiles, type PaletteItem, type PaletteMode, type PaletteResults } from "./api";
+import { look, wear } from "./themes";
 
 const MIN_MS = 60_000;
 /// The window's width, and the room around the panel for its shadow (`.palette-page`).
@@ -247,6 +248,8 @@ function render(r: PaletteResults) {
   }
   if (!shown.length && typed && !mode) out.push(h("p", { class: "palette-empty" }, "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”."));
   $("#palette-results").replaceChildren(...out);
+  // Compact: only the search bar until something's typed or a mode is chosen.
+  $("#palette").classList.toggle("bare", compact && !typed && !mode);
   input.setAttribute("aria-activedescendant", shown.length ? `palette-item-${selected}` : "");
   renderHint();
   loadIcons();
@@ -492,8 +495,11 @@ document.body.addEventListener("mousedown", (e) => {
 const prefersLight = window.matchMedia("(prefers-color-scheme: light)");
 
 function applyTheme(mode: Appearance) {
-  document.documentElement.dataset.theme = mode === "system" ? (prefersLight.matches ? "light" : "dark") : mode;
+  wear(document.documentElement, look(mode, prefersLight.matches));
 }
+
+/// Whether the palette opens as only its search bar, as chosen in settings.
+let compact = false;
 
 /// Every opening starts fresh: an empty box, today's suggestions, the chosen theme.
 async function open() {
@@ -506,6 +512,7 @@ async function open() {
   try {
     const opening = await api.paletteOpen();
     applyTheme(opening.appearance);
+    compact = opening.compact;
     $("#palette-today").textContent = opening.footer;
   } catch {
     // The last theme and footer stay.

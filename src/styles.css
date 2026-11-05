@@ -1,5 +1,6 @@
 /* Kairo — "Objects": each app drawn as what it is, on paper. Deep blue ink by default;
-   `data-theme="light"` on the root swaps in cream paper. `data-app` names whose window it is, and
+   `data-theme="light"` on the root swaps in cream paper, and `data-ground` another paper on top of
+   either (the grounds in src-tauri/src/appearance.rs). `data-app` names whose window it is, and
    its ink becomes the accent (`--app`); the data colours keep their meaning whatever the app. */
 
 :root {
@@ -102,6 +103,105 @@
   --seq-4: #437fd9;
   --seq-5: #2a64c0;
   --seq-6: #1b4993;
+}
+
+/* The other grounds: a paper and its text inks over the dark or light set, whose app inks and
+   data colours they keep. Each matches its entry in src-tauri/src/appearance.rs. */
+
+/* Graphite: charcoal, without the ink's blue. */
+:root[data-ground="graphite"] {
+  --bg: #161718;
+  --raised: #1f2022;
+  --ink: #e6e6e6;
+  --ink-2: #c9c9c9;
+  --muted: #a0a0a0;
+  --faint: #8a8a8a;
+  --rule: #2a2b2e;
+  --line: #3c3e42;
+  --track: #2a2b2e;
+  --edge: #6e7075;
+  --shadow: rgb(0 0 0 / 0.5);
+  --on-app: #161718;
+}
+
+/* Walnut: warm brown, a leather desk. */
+:root[data-ground="walnut"] {
+  --bg: #1a1411;
+  --raised: #241c17;
+  --ink: #ede3d9;
+  --ink-2: #d3c6b8;
+  --muted: #a99a8a;
+  --faint: #928372;
+  --rule: #30251e;
+  --line: #47372b;
+  --track: #30251e;
+  --edge: #7a6656;
+  --shadow: rgb(0 0 0 / 0.55);
+  --on-app: #1a1411;
+}
+
+/* Baize: deep green, a desk blotter. */
+:root[data-ground="baize"] {
+  --bg: #0f1a15;
+  --raised: #15241d;
+  --ink: #e0ebe4;
+  --ink-2: #c1d1c7;
+  --muted: #92a89b;
+  --faint: #7d9386;
+  --rule: #1d3128;
+  --line: #2b4639;
+  --track: #1d3128;
+  --edge: #5b7869;
+  --shadow: rgb(0 0 0 / 0.55);
+  --on-app: #0f1a15;
+}
+
+/* Midnight: true black, for OLED screens. */
+:root[data-ground="midnight"] {
+  --bg: #000000;
+  --raised: #0d0f13;
+  --ink: #e3e7ee;
+  --ink-2: #c4cbd6;
+  --muted: #97a1b2;
+  --faint: #818c9e;
+  --rule: #1a1d23;
+  --line: #2a2f38;
+  --track: #1a1d23;
+  --edge: #5d6575;
+  --shadow: rgb(0 0 0 / 0.7);
+  --on-app: #000000;
+}
+
+/* Linen: cool near-white. */
+:root[data-ground="linen"] {
+  --bg: #f2f3f5;
+  --raised: #ffffff;
+  --ink: #23262b;
+  --ink-2: #41464e;
+  --muted: #565c66;
+  --faint: #6b717b;
+  --rule: #e1e4e8;
+  --line: #cdd2d9;
+  --track: #e1e4e8;
+  --edge: #858b95;
+  --shadow: rgb(30 40 60 / 0.14);
+  --on-app: #ffffff;
+}
+
+/* Sage: pale green-grey paper. */
+:root[data-ground="sage"] {
+  --bg: #eef1ea;
+  --raised: #f8faf5;
+  --ink: #252b24;
+  --ink-2: #424a40;
+  --muted: #566053;
+  --faint: #6a7466;
+  --rule: #dbe2d5;
+  --line: #c6d0bf;
+  --track: #dbe2d5;
+  --edge: #808b7b;
+  --shadow: rgb(40 60 40 / 0.15);
+  --on-app: #f8faf5;
 }
 
 /* Whose window it is. */
@@ -2601,6 +2701,15 @@ select,
   background: var(--line);
 }
 
+.dropdown-group {
+  padding: 8px 10px 4px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 /* The current choice carries a check, as the system's lists do, in the window's own ink: the
    shape is a mask, so its colour comes from --app. */
 .dropdown-option[aria-selected="true"]::after {
@@ -4247,6 +4356,15 @@ select,
 .palette-row.selected,
 .palette-tile.selected {
   background: color-mix(in srgb, var(--palette) 18%, transparent);
+}
+
+/* Compact, before anything's typed: the search bar alone. */
+.palette.bare > :not(.palette-search) {
+  display: none;
+}
+
+.palette.bare .palette-search {
+  margin-bottom: 10px;
 }
 
 /* See-through: the panel and its search key are tints over what's behind the window, frosted by

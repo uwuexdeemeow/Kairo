@@ -192,7 +192,7 @@ The look is defined by `src/styles.css` (tokens on `:root`, dark first, `[data-t
 
 **Key Characteristics:**
 - Real objects as app marks, drawn inline in each app's ink; no image files.
-- Two grounds: deep blue ink (default) and cream paper, each with a fine grain.
+- Two grounds at heart: deep blue ink (default) and cream paper, each with a fine grain. The other themes are grounds over one of them, swapping only the paper and its text inks: Graphite, Walnut, Baize and Midnight over ink; Linen and Sage over paper. App inks and data colours stay those of the set beneath (`data-ground` in `src/styles.css`, `GROUNDS` in `src-tauri/src/appearance.rs`).
 - Fraunces 800 for titles and figures, with an italic 400 aside in the app's ink.
 - Section labels in small capitals with wide letter-spacing.
 - Kairo's own controls everywhere the system's would ignore the theme: dropdowns, the calendar, time lists.

@@ -42,6 +42,24 @@ beforeEach(async () => {
 
 afterEach(() => vi.useRealTimers());
 
+describe("option groups", () => {
+  it("head their options in the list, which still choose by their own place", async () => {
+    document.body.innerHTML = `
+      <select id="theme" aria-label="Theme">
+        <option value="system">Match the system</option>
+        <optgroup label="Dark"><option value="dark">Ink</option><option value="walnut">Walnut</option></optgroup>
+        <optgroup label="Light"><option value="light">Paper</option></optgroup>
+      </select>`;
+    await settle();
+    const theme = document.querySelector<HTMLSelectElement>("#theme")!;
+    document.querySelector<HTMLButtonElement>(".dropdown-button")!.click();
+    const shown = [...list()!.children].map((el) => `${el.className.includes("group") ? "#" : ""}${el.textContent}`);
+    expect(shown).toEqual(["Match the system", "#Dark", "Ink", "Walnut", "#Light", "Paper"]);
+    list()!.querySelectorAll(".dropdown-option")[2].dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(theme.value).toBe("walnut");
+  });
+});
+
 describe("a themed dropdown", () => {
   it("hides the select behind a button that shows the choice", () => {
     expect(button).not.toBeNull();

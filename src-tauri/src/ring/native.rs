@@ -599,7 +599,7 @@ impl Popup {
         let now = chrono::Utc::now().timestamp_millis();
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.scene.theme = theme_for(&mode);
-        self.scene.inks = if self.scene.theme.bg == theme_for("light").bg { LIGHT_INKS } else { DARK_INKS };
+        self.scene.inks = if self.scene.theme.light { LIGHT_INKS } else { DARK_INKS };
         self.scene.ring = super::ring(&self.conn);
         (self.scene.names, self.scene.lines) = super::faces(&self.conn, now, &self.scene.ring.items, crate::is_paused(&self.app)).into_iter().unzip();
         self.scene.focus_running = super::focus_refusal(&self.conn).is_some();
@@ -830,7 +830,7 @@ pub fn render_png(path: &Path, lit: &str, mode: &str) -> std::result::Result<(),
         paused: false,
         shift: 0.0,
         theme,
-        inks: if mode == "light" { LIGHT_INKS } else { DARK_INKS },
+        inks: if theme.light { LIGHT_INKS } else { DARK_INKS },
     };
     let pixels = unsafe {
         let painter = Painter::new().map_err(|e| e.to_string())?;

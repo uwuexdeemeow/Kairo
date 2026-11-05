@@ -123,8 +123,20 @@ function show(select: HTMLSelectElement) {
 function renderList() {
   if (!open) return;
   const { select, list } = open;
+  let group: Element | null = null;
   list.replaceChildren(
-    ...[...select.options].map((o, i) => {
+    ...[...select.options].flatMap((o, i) => {
+      // An optgroup's label heads its options, as in the system's lists.
+      const heading: HTMLElement[] = [];
+      const parent = o.parentElement instanceof HTMLOptGroupElement ? o.parentElement : null;
+      if (parent && parent !== group) {
+        const label = document.createElement("div");
+        label.className = "dropdown-group";
+        label.setAttribute("role", "presentation");
+        label.textContent = parent.label;
+        heading.push(label);
+      }
+      group = parent;
       const item = document.createElement("div");
       item.className = `dropdown-option${i === open!.active ? " active" : ""}`;
       item.id = `${list.id}-${i}`;
@@ -138,7 +150,7 @@ function renderList() {
         e.preventDefault();
         choose(i);
       });
-      return item;
+      return [...heading, item];
     }),
   );
   enhanced.get(select)?.button.setAttribute("aria-activedescendant", `${list.id}-${open.active}`);
@@ -164,7 +176,7 @@ function setActive(i: number) {
   open.active = i;
   open.list.querySelectorAll(".dropdown-option").forEach((el, j) => el.classList.toggle("active", j === i));
   enhanced.get(open.select)?.button.setAttribute("aria-activedescendant", `${open.list.id}-${i}`);
-  open.list.children[i]?.scrollIntoView({ block: "nearest" });
+  open.list.querySelectorAll(".dropdown-option")[i]?.scrollIntoView({ block: "nearest" });
 }
 
 function choose(i: number) {

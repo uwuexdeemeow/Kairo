@@ -43,7 +43,8 @@ and turns it into insights only when there's enough data behind them.
 
 - Windows: dashboard (`kairo`), Chrono (`index.html`), Ledger, palette, app ring, blocked page.
 - Minimum window size 720 × 520; default 1120 × 780.
-- Light and dark appearance, following the system or chosen in Kairo's settings.
+- Eight themes, five dark and three light, or following the system (Ink or Paper), chosen in Kairo's settings.
+- The command palette opens full (suggestions, today so far) or compact (the search bar alone until you type).
 - No editor or UI framework: plain TypeScript and one stylesheet (`src/styles.css`).
 - The Windows palette and ring are native and must keep matching their web twins.
 

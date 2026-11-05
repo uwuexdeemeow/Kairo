@@ -239,7 +239,11 @@ export type PaletteCard =
     };
 
 /** "system" follows Windows' light or dark setting. */
-export type Appearance = "system" | "light" | "dark";
+/** The palette as it opens: everything, or only its search bar. */
+export type PaletteLook = "full" | "compact";
+
+/** "system", or a ground's id (src/themes.ts). */
+export type Appearance = string;
 
 export interface GoalProgress {
   key: string;
@@ -602,7 +606,8 @@ export const api = {
    *  (local `YYYY-MM-DD`) is for Today or Week. */
   takeNavigation: () => invoke<{ view: string; date: string | null; target: string | null } | null>("take_navigation"),
   /** The web palette (macOS and Linux) opening afresh: today's footer line and the theme. */
-  paletteOpen: () => invoke<{ footer: string; appearance: Appearance }>("palette_open"),
+  /** `compact`: it opens as only its search bar, results dropping down as you type. */
+  paletteOpen: () => invoke<{ footer: string; appearance: Appearance; compact: boolean }>("palette_open"),
   /** What a query finds; with nothing typed, the suggestions. */
   paletteQuery: (query: string, mode: string | null = null) => invoke<PaletteResults>("palette_query", { query, mode }),
   /** Icons for listed apps, as data URLs by path. */
@@ -619,7 +624,8 @@ export const api = {
   /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
    *  frosted glass there. */
   paletteGlass: (room: { left: number; top: number; right: number; bottom: number }) => invoke<void>("palette_glass", room),
-  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean }>("get_palette_settings"),
+  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean; look: PaletteLook }>("get_palette_settings"),
+  setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),

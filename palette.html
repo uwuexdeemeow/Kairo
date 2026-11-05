@@ -8,6 +8,8 @@
       try {
         const t = localStorage.getItem("kairo.theme");
         if (t) document.documentElement.dataset.theme = t;
+        const g = localStorage.getItem("kairo.ground");
+        if (g) document.documentElement.dataset.ground = g;
       } catch {}
     </script>
     <script type="module" src="/src/palette.ts" defer></script>

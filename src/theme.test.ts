@@ -90,3 +90,47 @@ describe("the two papers", () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)/);
   });
 });
+
+describe("the grounds", () => {
+  const hex = (b: string, token: string) => b.match(new RegExp(`--${token}: #([0-9a-f]{6});`))?.[1];
+  const luminance = (h: string) => {
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+  const dark = block(":root");
+  const light = block(':root[data-theme="light"]');
+  const grounds: [string, string, string][] = [
+    ["ink", dark, dark],
+    ["paper", light, light],
+    ...["graphite", "walnut", "baize", "midnight"].map((g): [string, string, string] => [g, block(`:root[data-ground="${g}"]`), dark]),
+    ...["linen", "sage"].map((g): [string, string, string] => [g, block(`:root[data-ground="${g}"]`), light]),
+  ];
+
+  it.each(grounds)("%s keeps its text, edges and inks readable on its page and sheets", (_, own, set) => {
+    // A token may name another (`--ribbon-ink: var(--ribbon)`), the ground's own before the set's.
+    const token = (t: string): string => {
+      for (const b of [own, set]) {
+        const found = hex(b, t) ?? b.match(new RegExp(`--${t}: var\\(--([a-z0-9-]+)\\);`))?.[1];
+        if (found) return /^[0-9a-f]{6}$/.test(found) ? found : token(found);
+      }
+      throw new Error(`no --${t}`);
+    };
+    for (const paper of [token("bg"), token("raised")]) {
+      expect(contrast(token("ink"), paper)).toBeGreaterThanOrEqual(7);
+      for (const t of ["ink-2", "muted"]) expect(contrast(token(t), paper), t).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(token("edge"), paper), "edge").toBeGreaterThanOrEqual(3);
+      // The same floor as Paper's, whose pewter sits at 4.28 on its page.
+      for (const t of ["chrono", "ledger", "palette", "kairo", "distracting-ink", "rec-ink", "ribbon-ink"]) expect(contrast(token(t), paper), t).toBeGreaterThanOrEqual(4.2);
+    }
+    expect(contrast(token("faint"), token("raised")), "faint on a sheet").toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(Object.entries(files).filter(([f]) => f.endsWith(".html")))("%s opens in the last ground before anything loads", (_, page) => {
+    expect(page).toContain('const g = localStorage.getItem("kairo.ground");');
+    expect(page).toContain("if (g) document.documentElement.dataset.ground = g;");
+  });
+});

@@ -9,6 +9,8 @@
       try {
         const t = localStorage.getItem("kairo.theme");
         if (t) document.documentElement.dataset.theme = t;
+        const g = localStorage.getItem("kairo.ground");
+        if (g) document.documentElement.dataset.ground = g;
       } catch {}
     </script>
     <script type="module" src="/src/dashboard.ts" defer></script>
@@ -58,8 +60,18 @@
             Theme
             <select id="appearance">
               <option value="system" id="appearance-system">Match Windows</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
+              <optgroup label="Dark">
+                <option value="dark">Ink</option>
+                <option value="graphite">Graphite</option>
+                <option value="walnut">Walnut</option>
+                <option value="baize">Baize</option>
+                <option value="midnight">Midnight</option>
+              </optgroup>
+              <optgroup label="Light">
+                <option value="light">Paper</option>
+                <option value="linen">Linen</option>
+                <option value="sage">Sage</option>
+              </optgroup>
             </select>
           </label>
         </section>
@@ -93,6 +105,13 @@
             <button class="btn" id="palette-record">Change</button>
           </div>
           <p class="muted" id="palette-note" aria-live="polite">Works everywhere, even with Kairo's windows closed. Press it again, or Esc, to put it away.</p>
+          <label class="field">
+            Look
+            <select id="palette-look">
+              <option value="full">Full: suggestions and today so far</option>
+              <option value="compact">Compact: only the search bar until you type</option>
+            </select>
+          </label>
           <label class="toggle">
             <input type="checkbox" id="palette-suggestions" />
             Show suggestions when it opens (focus sessions, limits passed, recent apps)

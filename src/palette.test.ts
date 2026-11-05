@@ -66,7 +66,7 @@ beforeEach(() => {
   vi.resetModules();
   events.clear();
   for (const fn of Object.values(api)) fn.mockReset();
-  api.paletteOpen.mockResolvedValue({ appearance: "dark", footer: "" });
+  api.paletteOpen.mockResolvedValue({ appearance: "dark", footer: "", compact: false });
   api.paletteIcons.mockResolvedValue({});
   api.paletteCard.mockResolvedValue(null);
   api.paletteRun.mockResolvedValue(null);
@@ -74,7 +74,35 @@ beforeEach(() => {
   document.body.innerHTML = markup;
 });
 
+describe("the compact look", () => {
+  it("opens as the search bar alone, and drops the results down once something's typed", async () => {
+    api.paletteOpen.mockResolvedValue({ appearance: "dark", footer: "", compact: true });
+    await open(results(1, []));
+    await vi.waitFor(() => expect($("#palette").classList.contains("bare")).toBe(true));
+    $<HTMLInputElement>("#palette-input").value = "chrono";
+    api.paletteQuery.mockResolvedValueOnce(results(2, [item("Open Chrono")]));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(titles()).toEqual(["Open Chrono"]));
+    expect($("#palette").classList.contains("bare")).toBe(false);
+    $<HTMLInputElement>("#palette-input").value = "";
+    api.paletteQuery.mockResolvedValueOnce(results(3, []));
+    $<HTMLInputElement>("#palette-input").dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect($("#palette").classList.contains("bare")).toBe(true));
+  });
+
+  it("isn't how the full look opens", async () => {
+    await open(results(1, [item("Open Chrono")]));
+    expect($("#palette").classList.contains("bare")).toBe(false);
+  });
+});
+
 describe("the glass", () => {
+  it("wears the chosen ground", async () => {
+    api.paletteOpen.mockResolvedValue({ appearance: "walnut", footer: "", compact: false });
+    await open(results(1, [item("Open Chrono")]));
+    await vi.waitFor(() => expect(document.documentElement.dataset).toMatchObject({ theme: "dark", ground: "walnut" }));
+  });
+
   it("is frosted on a Mac, placed under the panel each time the window fits it", async () => {
     await open(results(1, [item("Open Chrono")]), "Macintosh");
     expect(document.documentElement.dataset.glass).toBe("frosted");

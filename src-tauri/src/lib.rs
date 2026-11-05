@@ -422,6 +422,7 @@ pub fn run() {
             commands::set_palette_suggestions,
             commands::set_palette_search_files,
             commands::set_palette_over_fullscreen,
+            commands::set_palette_look,
             commands::get_appearance,
             commands::set_appearance,
             commands::get_app_icons,

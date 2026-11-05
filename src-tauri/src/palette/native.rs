@@ -109,9 +109,12 @@ pub(crate) const TEXT_FONT: &[u8] = include_bytes!("../../../node_modules/@fonts
 const MONO_FONT: &[u8] = include_bytes!("../../../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2");
 
 /// Kairo's two papers, deep blue ink and cream, the same values as the tokens in `src/styles.css`;
-/// `accent` is the palette's own ink.
+/// `accent` is the palette's own ink. The other grounds swap in their own paper and text inks
+/// (`theme_for`).
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) struct Theme {
+    /// Whether it's drawn on a light ground, which takes the deeper of each app ink.
+    pub(crate) light: bool,
     pub(crate) bg: u32,
     pub(crate) ink: u32,
     pub(crate) muted: u32,
@@ -129,6 +132,7 @@ pub(crate) struct Theme {
 }
 
 const DARK: Theme = Theme {
+    light: false,
     bg: 0x141a24,
     ink: 0xe3e7ee,
     muted: 0x97a1b2,
@@ -144,6 +148,7 @@ const DARK: Theme = Theme {
 };
 
 const LIGHT: Theme = Theme {
+    light: true,
     bg: 0xf4efe6,
     ink: 0x2b2622,
     muted: 0x5e544a,
@@ -177,12 +182,9 @@ fn v(x: f32, y: f32) -> Vector2 {
 
 /// "system" follows Windows' own app theme.
 pub(crate) fn theme_for(mode: &str) -> Theme {
-    match mode {
-        "light" => LIGHT,
-        "dark" => DARK,
-        _ if platform_prefers_light() => LIGHT,
-        _ => DARK,
-    }
+    let ground = crate::appearance::ground_of(mode).unwrap_or_else(|| crate::appearance::system_ground(platform_prefers_light()));
+    let base = if ground.light { LIGHT } else { DARK };
+    Theme { bg: ground.bg, raised: ground.raised, ink: ground.ink, muted: ground.muted, rule: ground.rule, line: ground.line, ..base }
 }
 
 fn platform_prefers_light() -> bool {
@@ -766,7 +768,15 @@ impl Palette {
     }
 
     fn height(&self) -> f32 {
+        if self.bare() {
+            return HEADER;
+        }
         self.results_top() + self.results_h() + FOOTER
+    }
+
+    /// Compact, with nothing typed and no mode: the search row alone.
+    fn bare(&self) -> bool {
+        self.ctx.as_ref().is_some_and(|c| c.compact) && self.mode.is_none() && self.query().trim().is_empty()
     }
 
     fn query(&self) -> String {
@@ -784,6 +794,10 @@ impl Palette {
         }
         let mode = crate::appearance::get(&self.conn).unwrap_or_default();
         self.set_theme(theme_for(&mode));
+        // The look as chosen now, not as it was when the rest was gathered last time.
+        if let Some(ctx) = &mut self.ctx {
+            ctx.compact = super::compact(&self.conn).unwrap_or(false);
+        }
         // Each opening starts out of any mode.
         self.set_mode(None);
         set_edit_text(self.edit, "");
@@ -856,7 +870,7 @@ impl Palette {
             let border = colorref(theme.line);
             let _ = DwmSetWindowAttribute(self.hwnd, DWMWA_BORDER_COLOR, (&border as *const COLORREF).cast(), 4);
             // The glass follows the window's light or dark look, not Windows' own.
-            let dark = windows::core::BOOL::from(theme == DARK);
+            let dark = windows::core::BOOL::from(!theme.light);
             let _ = DwmSetWindowAttribute(self.hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, (&dark as *const windows::core::BOOL).cast(), 4);
         }
     }
@@ -1555,6 +1569,9 @@ impl Palette {
             self.text(rt, mode.name(), &self.formats.chip, r.left + BUBBLE_PAD + BUBBLE_GLYPH + 6.0, HEADER / 2.0 - 8.0, width, t.accent, &[], false)?;
         }
         self.kbd(rt, "Esc", W - 18.0, HEADER / 2.0)?;
+        if self.bare() {
+            return Ok(());
+        }
         unsafe { rt.DrawLine(v(0.0, HEADER - 0.5), v(W, HEADER - 0.5), &rule, 1.0, None) };
 
         // Out while it's drawn, since drawing an icon may keep its bitmap.
@@ -1833,6 +1850,19 @@ mod tests {
     fn its_fonts_are_kairos_bundled_woff2_files() {
         for font in [TEXT_FONT, MONO_FONT] {
             assert_eq!(&font[..4], b"wOF2");
+        }
+    }
+
+    #[test]
+    fn every_ground_keeps_its_text_readable() {
+        for g in crate::appearance::GROUNDS {
+            let t = theme_for(g.id);
+            assert_eq!(t.light, g.light, "{}", g.id);
+            for paper in [t.bg, t.raised] {
+                assert!(contrast(t.ink, paper) >= 7.0, "{}: ink on {paper:06x}", g.id);
+                assert!(contrast(t.muted, paper) >= 4.5, "{}: muted on {paper:06x}", g.id);
+                assert!(contrast(t.accent, paper) >= 3.0, "{}: accent on {paper:06x}", g.id);
+            }
         }
     }
 

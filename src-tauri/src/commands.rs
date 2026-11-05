@@ -1252,8 +1252,10 @@ pub fn open_palette(app: AppHandle) {
 pub struct PaletteOpening {
     /// Today so far, for the footer.
     footer: String,
-    /// "system", "light" or "dark".
+    /// "system", or a ground's id.
     appearance: String,
+    /// Whether it opens as only its search bar.
+    compact: bool,
 }
 
 /// Starts a fresh palette from what's known now. Off the main thread, since listing windows can
@@ -1265,7 +1267,7 @@ pub fn palette_open(app: AppHandle, state: State<AppState>, index: State<palette
     let (ctx, footer) = palette::context(&app, &conn, &index, windows);
     session.open(ctx);
     worker.opened();
-    Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)? })
+    Ok(PaletteOpening { footer, appearance: appearance::get(&conn).map_err(err)?, compact: palette::compact(&conn).map_err(err)? })
 }
 
 /// What a query finds, typed in `mode` (a mode's key, or none); with nothing typed and no mode,
@@ -1402,6 +1404,8 @@ pub struct PaletteSettings {
     suggestions: bool,
     over_fullscreen: bool,
     search_files: bool,
+    /// "full" or "compact".
+    look: &'static str,
 }
 
 #[tauri::command]
@@ -1412,7 +1416,20 @@ pub fn get_palette_settings(state: State<AppState>) -> CmdResult<PaletteSettings
         suggestions: palette::suggestions(&conn).map_err(err)?,
         over_fullscreen: palette::over_fullscreen(&conn).map_err(err)?,
         search_files: palette::search_files(&conn).map_err(err)?,
+        look: if palette::compact(&conn).map_err(err)? { "compact" } else { "full" },
     })
+}
+
+/// "full" or "compact"; anything else is refused.
+#[tauri::command]
+pub fn set_palette_look(state: State<AppState>, look: String) -> CmdResult<()> {
+    let compact = match look.as_str() {
+        "full" => false,
+        "compact" => true,
+        _ => return Err("That isn't a look the palette has.".into()),
+    };
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_compact(&conn, compact).map_err(err)
 }
 
 #[tauri::command]
@@ -1440,7 +1457,7 @@ pub fn set_palette_suggestions(state: State<AppState>, on: bool) -> CmdResult<()
     palette::set_suggestions(&conn, on).map_err(err)
 }
 
-/// "system" (match Windows), "light" or "dark".
+/// "system" (match the system), or a ground's id.
 #[tauri::command]
 pub fn get_appearance(state: State<AppState>) -> CmdResult<String> {
     let conn = state.db.lock().map_err(err)?;

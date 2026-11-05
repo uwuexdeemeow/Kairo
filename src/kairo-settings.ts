@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { api, type Appearance, type Linking, type SyncState } from "./api";
+import { api, type Appearance, type Linking, type PaletteLook, type SyncState } from "./api";
 import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
 import { vt } from "./virustotal-api";
@@ -377,6 +377,13 @@ export function wireKairoSettings(): void {
   }
 
   saves("#palette-suggestions", (on) => api.setPaletteSuggestions(on));
+  // Compact opens with nothing to suggest, so the switch for suggestions rests meanwhile.
+  $<HTMLSelectElement>("#palette-look").addEventListener("change", async (e) => {
+    const select = e.target as HTMLSelectElement;
+    const look = select.value as PaletteLook;
+    $<HTMLInputElement>("#palette-suggestions").disabled = look === "compact";
+    await mark(select.closest("label")!, () => api.setPaletteLook(look));
+  });
   saves("#palette-over-fullscreen", (on) => api.setPaletteOverFullscreen(on));
   saves("#palette-search-files", (on) => api.setPaletteSearchFiles(on));
 
@@ -562,6 +569,8 @@ export async function loadKairoSettings(): Promise<void> {
       const palette = await api.paletteSettings();
       showShortcut(PALETTE, palette.shortcut);
       $<HTMLInputElement>("#palette-suggestions").checked = palette.suggestions;
+      $<HTMLInputElement>("#palette-suggestions").disabled = palette.look === "compact";
+      $<HTMLSelectElement>("#palette-look").value = palette.look;
       $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
       $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
     }),
