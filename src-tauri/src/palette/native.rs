@@ -20,6 +20,7 @@ use windows::Win32::Graphics::Direct2D::{
     D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
+    D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteTextFormat, IDWriteTextLayout, IDWriteTextLayout1, DWRITE_CONTAINER_TYPE_WOFF2,
@@ -27,7 +28,10 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_HIT_TEST_METRICS, DWRITE_LINE_METRICS, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS, DWRITE_TEXT_RANGE, DWRITE_TRIMMING,
     DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWM_WINDOW_CORNER_PREFERENCE};
+use windows::Win32::Graphics::Dwm::{
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_TRANSIENTWINDOW, DWMWA_BORDER_COLOR, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE,
+};
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     AddFontMemResourceEx, BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, EndPaint, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, SetBkColor,
@@ -39,7 +43,7 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     keybd_event, GetKeyState, SetFocus, KEYEVENTF_KEYUP, VK_BACK, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_MENU, VK_RETURN, VK_SHIFT, VK_TAB, VK_UP,
 };
-use windows::Win32::UI::Controls::EM_SETSEL;
+use windows::Win32::UI::Controls::{EM_SETSEL, MARGINS};
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowTextLengthW, GetWindowTextW,
@@ -87,6 +91,9 @@ const BUBBLE_PAD: f32 = 9.0;
 const DEFAULT_CUE: &str = "Open an app, jump to a day, or type a command";
 const FOOTER: f32 = 38.0;
 const MAX_H: f32 = 520.0;
+/// How much of the panel's paper covers the glass under the search row, and of the cards' on it.
+const GLASS: f32 = 0.55;
+const GLASS_CARD: f32 = 0.7;
 const ROW_H: f32 = 44.0;
 const TILE_H: f32 = 42.0;
 const CHIP_H: f32 = 32.0;
@@ -234,6 +241,10 @@ struct Palette {
     pixels: HashMap<String, Option<(u32, u32, Vec<u8>)>>,
     bitmaps: HashMap<String, ID2D1Bitmap>,
     theme: Theme,
+    /// Whether Windows frosts what's behind the panel, under the search row: there the panel's
+    /// paper is a tint. The search row stays solid, since Windows' edit box draws its text with
+    /// no see-through to it and over the glass the text itself would vanish.
+    glass: bool,
     /// The edit box's font, and the DPI it was made for.
     edit_font: Option<(HFONT, f32)>,
     /// The face the edit box uses: Geist when Windows took it, else Segoe UI.
@@ -446,6 +457,10 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
     // Windows 11 rounds the corners and draws the border; older versions ignore both.
     let round = DWMWCP_ROUND;
     let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, (&round as *const DWM_WINDOW_CORNER_PREFERENCE).cast(), 4);
+    // Windows 11 22H2 and later frost what's behind a popup like this one; earlier versions
+    // refuse the request, and the palette stays solid paper.
+    let backdrop = DWMSBT_TRANSIENTWINDOW;
+    let glass = DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, (&backdrop as *const DWM_SYSTEMBACKDROP_TYPE).cast(), 4).is_ok();
 
     // An empty label just before the box: Windows names a box after the label before it, so this
     // one carries the selected row for screen readers (Palette::announce). It has no size, so it
@@ -522,6 +537,7 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
             pixels: HashMap::new(),
             bitmaps: HashMap::new(),
             theme: DARK,
+            glass,
             edit_font: None,
             edit_face: if gdi_geist { "Instrument Sans" } else { "Segoe UI" },
             dpi: 96.0,
@@ -794,6 +810,7 @@ impl Palette {
             let y = work.top + ((work.bottom - work.top) as f32 * FROM_TOP) as i32;
             self.mouse = (cursor.x - x, cursor.y - y);
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_SHOWWINDOW);
+            self.extend_glass(h);
             self.place_edit();
             // Windows only hands over the keyboard to an app the user just acted in; pressing
             // Alt counts, so a refused request gets that nudge and another try.
@@ -838,6 +855,9 @@ impl Palette {
         unsafe {
             let border = colorref(theme.line);
             let _ = DwmSetWindowAttribute(self.hwnd, DWMWA_BORDER_COLOR, (&border as *const COLORREF).cast(), 4);
+            // The glass follows the window's light or dark look, not Windows' own.
+            let dark = windows::core::BOOL::from(theme == DARK);
+            let _ = DwmSetWindowAttribute(self.hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, (&dark as *const windows::core::BOOL).cast(), 4);
         }
     }
 
@@ -867,10 +887,24 @@ impl Palette {
         let (w, h) = ((W * s).round() as i32, (self.height() * s).round() as i32);
         unsafe {
             let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+            self.extend_glass(h);
             if let Some(t) = &self.target {
                 let _ = t.Resize(&D2D_SIZE_U { width: w as u32, height: h as u32 });
             }
             let _ = InvalidateRect(Some(self.hwnd), None, false);
+        }
+    }
+
+    /// Lets the glass through everywhere under the search row, the window being `height` pixels
+    /// tall: Windows only heeds what's see-through in the part given over to it, from the bottom.
+    fn extend_glass(&self, height: i32) {
+        if !self.glass {
+            return;
+        }
+        let header = (HEADER * self.scale()).round() as i32;
+        let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: (height - header).max(0) };
+        unsafe {
+            let _ = DwmExtendFrameIntoClientArea(self.hwnd, &margins);
         }
     }
 
@@ -1245,7 +1279,10 @@ impl Palette {
             // driver's memory out of Kairo.
             let props = D2D1_RENDER_TARGET_PROPERTIES {
                 r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-                pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_IGNORE },
+                pixelFormat: D2D1_PIXEL_FORMAT {
+                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    alphaMode: if self.glass { D2D1_ALPHA_MODE_PREMULTIPLIED } else { D2D1_ALPHA_MODE_IGNORE },
+                },
                 dpiX: self.dpi,
                 dpiY: self.dpi,
                 usage: D2D1_RENDER_TARGET_USAGE_NONE,
@@ -1257,6 +1294,10 @@ impl Palette {
                 presentOptions: D2D1_PRESENT_OPTIONS_NONE,
             };
             let t = self.d2d.CreateHwndRenderTarget(&props, &hwnd_props)?;
+            // ClearType needs solid paper behind the text; on the glass it would fringe.
+            if self.glass {
+                t.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            }
             self.target = Some(t.clone());
             Ok(t)
         }
@@ -1478,10 +1519,15 @@ impl Palette {
         let hwnd_target = self.target()?;
         let rt: ID2D1RenderTarget = hwnd_target.cast()?;
         let t = self.theme;
+        // On the glass, the search row's solid paper over the tint.
+        let header = if self.glass { Some(self.brush(&rt, t.raised, 1.0)?) } else { None };
         unsafe {
             rt.SetDpi(self.dpi, self.dpi);
             rt.BeginDraw();
-            rt.Clear(Some(&color(t.raised, 1.0)));
+            rt.Clear(Some(&color(t.raised, if header.is_some() { GLASS } else { 1.0 })));
+            if let Some(header) = &header {
+                rt.FillRectangle(&rect(0.0, 0.0, W, HEADER), header);
+            }
         }
         let drawn = self.draw(&rt);
         let ended = unsafe { rt.EndDraw(None, None) };
@@ -1580,7 +1626,8 @@ impl Palette {
     /// The card's ground, from under the search row to `height` below it.
     fn card(&self, rt: &ID2D1RenderTarget, height: f32) -> Result<()> {
         let card = D2D1_ROUNDED_RECT { rect: rect(10.0, HEADER + 10.0, W - 10.0, HEADER + height), radiusX: 10.0, radiusY: 10.0 };
-        unsafe { rt.FillRoundedRectangle(&card, &self.brush(rt, self.theme.bg, 1.0)?) };
+        let alpha = if self.glass { GLASS_CARD } else { 1.0 };
+        unsafe { rt.FillRoundedRectangle(&card, &self.brush(rt, self.theme.bg, alpha)?) };
         Ok(())
     }
 
