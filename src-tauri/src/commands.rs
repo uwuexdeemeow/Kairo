@@ -1376,6 +1376,18 @@ pub fn palette_hide(app: AppHandle) {
     palette_hide_window(&app, true);
 }
 
+/// Where the web palette's panel sits in its window, in points from each edge, so a Mac can put
+/// frosted glass behind it. Elsewhere there's no glass to place.
+#[tauri::command]
+pub fn palette_glass(app: AppHandle, left: f64, top: f64, right: f64, bottom: f64) {
+    #[cfg(target_os = "macos")]
+    if let Some(window) = app.get_webview_window(palette::LABEL) {
+        palette::web::panel::place_glass(&window, left, top, right, bottom);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, left, top, right, bottom);
+}
+
 fn palette_hide_window(app: &AppHandle, give_back: bool) {
     #[cfg(not(windows))]
     palette::web::hide(app, give_back);

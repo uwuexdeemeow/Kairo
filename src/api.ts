@@ -616,6 +616,9 @@ export const api = {
    *  `seq`, then puts the palette away; nothing for an item without one. */
   paletteRunSecond: (seq: number, at: number) => invoke<void>("palette_run_second", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),
+  /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
+   *  frosted glass there. */
+  paletteGlass: (room: { left: number; top: number; right: number; bottom: number }) => invoke<void>("palette_glass", room),
   paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean }>("get_palette_settings"),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),

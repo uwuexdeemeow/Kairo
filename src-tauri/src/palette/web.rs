@@ -112,10 +112,14 @@ pub(crate) mod panel {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc;
 
+    use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool, Sel};
-    use objc2::{define_class, msg_send, sel, ClassType, MainThreadOnly};
-    use objc2_app_kit::{NSPanel, NSResponder, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask};
-    use objc2_foundation::NSObject;
+    use objc2::{define_class, msg_send, sel, ClassType, MainThreadMarker, MainThreadOnly};
+    use objc2_app_kit::{
+        NSAutoresizingMaskOptions, NSPanel, NSResponder, NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
+        NSWindowCollectionBehavior, NSWindowOrderingMode, NSWindowStyleMask,
+    };
+    use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize};
     use tauri::WebviewWindow;
 
     define_class!(
@@ -142,6 +146,10 @@ pub(crate) mod panel {
     /// window, so that class is the one macOS made to tell it of changes, and closing the window
     /// needs it back: removing WebKit's observer from the panel throws, which ends Kairo.
     static WAS: AtomicUsize = AtomicUsize::new(0);
+    /// The frosted glass behind the panel, while the window has it; its window keeps it alive.
+    static GLASS: AtomicUsize = AtomicUsize::new(0);
+    /// The panel's corners, as `.palette` rounds them.
+    const GLASS_RADIUS: f64 = 14.0;
 
     /// Turns the palette's window into the panel, waiting until it's done so it's shown as one.
     pub fn convert(window: &WebviewWindow) {
@@ -154,6 +162,7 @@ pub(crate) mod panel {
     /// Gives the window back its own class, so it can be closed.
     pub fn revert(window: &WebviewWindow) {
         on_main(window, |ns_window| {
+            GLASS.store(0, Ordering::Release);
             let was = WAS.swap(0, Ordering::AcqRel) as *const AnyClass;
             if !was.is_null() {
                 // Safety: on the main thread; the class is the one this window had, which holds
@@ -199,6 +208,53 @@ pub(crate) mod panel {
         );
         panel.setFloatingPanel(true);
         panel.setHidesOnDeactivate(false);
+        add_glass(panel);
+    }
+
+    /// Frosted glass behind the page, hidden until the page says where its panel is: macOS
+    /// blurs what's behind the window through it, and the panel's tint goes over it.
+    unsafe fn add_glass(window: &NSWindow) {
+        let Some(content) = window.contentView() else { return };
+        let mtm = MainThreadMarker::new_unchecked();
+        let glass = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), NSRect::ZERO);
+        // Popover follows the window's light or dark look; Active keeps it frosted while Kairo
+        // isn't the app in front, which it never is under the palette.
+        glass.setMaterial(NSVisualEffectMaterial::Popover);
+        glass.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+        glass.setState(NSVisualEffectState::Active);
+        glass.setWantsLayer(true);
+        let layer: *mut AnyObject = msg_send![&*glass, layer];
+        if !layer.is_null() {
+            let _: () = msg_send![layer, setCornerRadius: GLASS_RADIUS];
+            let _: () = msg_send![layer, setMasksToBounds: Bool::YES];
+        }
+        // As the page fits the window to the panel, the glass keeps its margins and so its place.
+        glass.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+        glass.setHidden(true);
+        content.addSubview_positioned_relativeTo(&glass, NSWindowOrderingMode::Below, None);
+        GLASS.store(Retained::as_ptr(&glass) as usize, Ordering::Release);
+    }
+
+    /// Puts the glass under the panel, `left`, `top`, `right` and `bottom` points in from the
+    /// window's edges. Doesn't wait: the page asks each time it fits the window.
+    pub fn place_glass(window: &WebviewWindow, left: f64, top: f64, right: f64, bottom: f64) {
+        let _ = window.run_on_main_thread(move || {
+            let glass = GLASS.load(Ordering::Acquire) as *const NSVisualEffectView;
+            if glass.is_null() {
+                return;
+            }
+            // Safety: on the main thread, and the window that holds the glass is still open:
+            // `revert` forgets it before the window closes.
+            unsafe {
+                let glass = &*glass;
+                let Some(parent) = glass.superview() else { return };
+                let bounds = parent.bounds();
+                let (width, height) = ((bounds.size.width - left - right).max(0.0), (bounds.size.height - top - bottom).max(0.0));
+                let y = if parent.isFlipped() { top } else { bottom };
+                glass.setFrame(NSRect::new(NSPoint::new(left, y), NSSize::new(width, height)));
+                glass.setHidden(false);
+            }
+        });
     }
 }
 

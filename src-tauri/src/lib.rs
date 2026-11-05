@@ -416,6 +416,7 @@ pub fn run() {
             commands::palette_run,
             commands::palette_run_second,
             commands::palette_hide,
+            commands::palette_glass,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
             commands::set_palette_suggestions,

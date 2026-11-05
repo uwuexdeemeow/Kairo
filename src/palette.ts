@@ -84,6 +84,10 @@ function highlighted(text: string, at: number[]): Node[] {
 const isMac = () => navigator.userAgent.includes("Macintosh");
 const isLinux = () => navigator.userAgent.includes("Linux");
 
+// A Mac frosts what's behind the panel (palette_glass); on Linux, where nothing can, the panel
+// only lets a little of it through.
+document.documentElement.dataset.glass = isMac() ? "frosted" : "tinted";
+
 // ---------- icons ----------
 
 const icons = new Map<string, string | null>();
@@ -374,10 +378,14 @@ async function renderPreview() {
 /// would land on the palette rather than what's behind it, and some Linux desktops can't show
 /// see-through windows at all.
 function fit() {
-  const height = Math.ceil($("#palette").getBoundingClientRect().height) + ROOM_ABOVE + ROOM_BELOW;
+  const panel = $("#palette").getBoundingClientRect();
+  const height = Math.ceil(panel.height) + ROOM_ABOVE + ROOM_BELOW;
   getCurrentWindow()
     .setSize(new LogicalSize(WIDTH, height))
     .catch(() => {});
+  if (isMac()) {
+    api.paletteGlass({ left: panel.left, top: panel.top, right: WIDTH - panel.right, bottom: height - panel.bottom }).catch(() => {});
+  }
 }
 
 function showError(err: unknown) {

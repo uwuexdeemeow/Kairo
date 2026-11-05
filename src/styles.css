@@ -4249,6 +4249,29 @@ select,
   background: color-mix(in srgb, var(--palette) 18%, transparent);
 }
 
+/* See-through: the panel and its search key are tints over what's behind the window, frosted by
+   macOS on a Mac, as is on Linux, so the desktop shows through without fighting the text. */
+.palette-root[data-glass] .palette {
+  background-color: color-mix(in srgb, var(--raised) var(--glass), transparent);
+}
+
+.palette-root[data-glass] .palette-search {
+  background: color-mix(in srgb, var(--bg) calc(var(--glass) + 15%), transparent);
+}
+
+.palette-root[data-glass="frosted"] {
+  --glass: 55%;
+}
+
+.palette-root[data-glass="tinted"] {
+  --glass: 84%;
+}
+
+/* macOS draws the glass, which doesn't fade in with the page: the panel doesn't either. */
+.palette-root[data-glass="frosted"] .palette {
+  animation: none;
+}
+
 /* ---------- The blocked window: Chrono's watch with the minutes left ---------- */
 
 .blocked {

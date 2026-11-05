@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   paletteIcons: vi.fn(),
   paletteCard: vi.fn(),
   paletteHide: vi.fn(),
+  paletteGlass: vi.fn(),
 }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
 vi.mock("./api", () => ({ api }));
@@ -69,7 +70,22 @@ beforeEach(() => {
   api.paletteIcons.mockResolvedValue({});
   api.paletteCard.mockResolvedValue(null);
   api.paletteRun.mockResolvedValue(null);
+  api.paletteGlass.mockResolvedValue(undefined);
   document.body.innerHTML = markup;
+});
+
+describe("the glass", () => {
+  it("is frosted on a Mac, placed under the panel each time the window fits it", async () => {
+    await open(results(1, [item("Open Chrono")]), "Macintosh");
+    expect(document.documentElement.dataset.glass).toBe("frosted");
+    expect(api.paletteGlass).toHaveBeenCalledWith(expect.objectContaining({ left: expect.any(Number), top: expect.any(Number), right: expect.any(Number), bottom: expect.any(Number) }));
+  });
+
+  it("is only a tint on Linux, with nothing for macOS to place", async () => {
+    await open(results(1, [item("Open Chrono")]));
+    expect(document.documentElement.dataset.glass).toBe("tinted");
+    expect(api.paletteGlass).not.toHaveBeenCalled();
+  });
 });
 
 describe("files", () => {
