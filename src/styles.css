@@ -5101,20 +5101,39 @@ select,
 
 /* The verdict carries the colour, in an ink that reads as text: any engine calling it malicious,
    only suspicious ones, or none. */
-.scan-verdict {
+/* The verdict leads with its word, in the verdict's ink; the count behind it stays plain. */
+.scan-word {
   font-weight: 600;
 }
 
-.scan-result.bad .scan-verdict {
+.scan-count {
+  color: var(--ink-2);
+}
+
+.scan-result.bad .scan-word {
   color: var(--rec-ink);
 }
 
-.scan-result.odd .scan-verdict {
+.scan-result.odd .scan-word {
   color: var(--ribbon-ink);
 }
 
-.scan-result.clean .scan-verdict {
+.scan-result.clean .scan-word {
   color: var(--good-ink);
+}
+
+/* A lone detection is said calmly, in plain ink. */
+.scan-result.fine .scan-word,
+.scan-result.none .scan-word {
+  color: var(--ink);
+}
+
+.scan-advice {
+  color: var(--ink);
+}
+
+.scan-elapsed {
+  font-variant-numeric: tabular-nums;
 }
 
 .scan-result .row-buttons {

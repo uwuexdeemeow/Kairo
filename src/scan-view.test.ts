@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mountScan, type ScanActions } from "./scan-view";
+import { clock, mountScan, verdictOf, type ScanActions } from "./scan-view";
 import type { VtAnswer } from "./virustotal-api";
 
 const verdict = (malicious: number, suspicious = 0, extra: Partial<VtAnswer & { state: "verdict" }> = {}): VtAnswer => ({
@@ -48,9 +48,10 @@ describe("the scan window", () => {
     const scan = await mountScan(root, act);
     root.querySelector<HTMLButtonElement>(".scan-choose")!.click();
     await vi.waitFor(() => expect(act.checkFile).toHaveBeenCalledWith("C:\\Users\\a\\Downloads\\setup.exe"));
-    await vi.waitFor(() => expect(first().textContent).toContain("3 of 71 engines flag it"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Malicious 3 of 71 engines flag it."));
     expect(first().querySelector(".scan-name")!.textContent).toBe("setup.exe");
     expect(first().classList.contains("bad")).toBe(true);
+    expect(first().querySelector(".scan-advice")!.textContent).toContain("Don't open it.");
     expect(first().textContent).toContain("Trojan.Generic · Kaspersky");
     expect(first().textContent).toContain("+1 more");
     first().querySelector<HTMLButtonElement>(".scan-report")!.click();
@@ -61,7 +62,7 @@ describe("the scan window", () => {
   it("colours a clean answer green and a suspicious one amber", async () => {
     const scan = await mountScan(root, act);
     scan.check("https://example.com");
-    await vi.waitFor(() => expect(first().textContent).toContain("0 of 71 engines flag it"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean None of the 71 engines flags it."));
     expect(first().classList.contains("clean")).toBe(true);
     expect(first().querySelector(".scan-name")!.textContent).toBe("example.com");
     act.check.mockResolvedValueOnce(verdict(0, 2));
@@ -89,12 +90,12 @@ describe("the scan window", () => {
     expect(act.upload).not.toHaveBeenCalled();
     first().querySelector<HTMLButtonElement>(".scan-upload")!.click();
     await vi.waitFor(() => expect(act.upload).toHaveBeenCalledWith("/home/a/notes.docx"));
-    await vi.waitFor(() => expect(first().textContent).toContain("Scanning… usually under a minute"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Scanning on VirusTotal… 0:00"));
     // Asked again every 20 seconds until it's done.
     await vi.advanceTimersByTimeAsync(20_000);
     expect(act.follow).toHaveBeenCalledWith("an1", "file:fff");
     await vi.advanceTimersByTimeAsync(20_000);
-    await vi.waitFor(() => expect(first().textContent).toContain("0 of 71 engines flag it"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
   });
 
   it("leaves a file that isn't uploaded, and says when one is too big", async () => {
@@ -105,7 +106,7 @@ describe("the scan window", () => {
     first().querySelector<HTMLButtonElement>(".scan-not-now")!.click();
     expect(first().textContent).toContain("Not uploaded.");
     scan.file("/a/two.iso");
-    await vi.waitFor(() => expect(first().textContent).toContain("Too big to upload with a free key."));
+    await vi.waitFor(() => expect(first().textContent).toContain("bigger than the 32 MB a free key can upload"));
     expect(first().querySelector(".scan-upload")).toBeNull();
   });
 
@@ -114,9 +115,31 @@ describe("the scan window", () => {
     expect(root.querySelector(".scan-results")!.hasAttribute("aria-live")).toBe(false);
     const said = () => root.querySelector(".sr-only[aria-live]")!.textContent;
     scan.file("/x/setup.exe");
-    await vi.waitFor(() => expect(said()).toBe("setup.exe: 3 of 71 engines flag it"));
+    await vi.waitFor(() => expect(said()).toBe("setup.exe: Malicious. 3 of 71 engines flag it."));
     scan.check("https://example.com");
-    await vi.waitFor(() => expect(said()).toBe("example.com: 0 of 71 engines flag it"));
+    await vi.waitFor(() => expect(said()).toBe("example.com: Clean. None of the 71 engines flags it."));
+  });
+
+  it("says when a scan is taking a while, and can stop following it and pick it up again", async () => {
+    act.check.mockResolvedValueOnce({ state: "scanning", analysis: "an2", then: "url:x" });
+    act.follow.mockResolvedValue({ state: "scanning", analysis: "an2", then: "url:x" });
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
+    const scan = await mountScan(root, act);
+    scan.check("https://slow.example");
+    await vi.waitFor(() => expect(first().textContent).toContain("Scanning on VirusTotal… 0:00"));
+    await vi.advanceTimersByTimeAsync(41_000);
+    expect(first().querySelector(".scan-elapsed")!.textContent).toMatch(/^Scanning on VirusTotal… 0:4\d$/);
+    await vi.advanceTimersByTimeAsync(50_000);
+    expect(first().querySelector(".scan-elapsed")!.textContent).toMatch(/^Taking longer than usual\. Kairo keeps checking\. 1:3\d$/);
+    const asked = act.follow.mock.calls.length;
+    first().querySelector<HTMLButtonElement>(".scan-stop")!.click();
+    expect(first().textContent).toContain("Stopped.");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(act.follow.mock.calls.length).toBe(asked);
+    act.follow.mockResolvedValueOnce(verdict(1));
+    first().querySelector<HTMLButtonElement>(".scan-again")!.click();
+    await vi.waitFor(() => expect(first().textContent).toContain("Probably fine 1 of 71 engines flags it, often a false alarm."));
   });
 
   it("keeps the last ten, newest first", async () => {
@@ -133,5 +156,31 @@ describe("the scan window", () => {
     root.querySelector<HTMLButtonElement>(".scan-settings")!.click();
     expect(act.openSettings).toHaveBeenCalled();
     expect(root.querySelector(".scan-query")).toBeNull();
+  });
+});
+
+describe("a verdict in words", () => {
+  const v = (malicious: number, suspicious = 0, total = 71) => verdictOf({ ...(verdict(malicious, suspicious) as VtAnswer & { state: "verdict" }), total });
+  it("is clean with nothing flagged, and calm about a lone engine", () => {
+    expect(v(0)).toMatchObject({ tone: "clean", word: "Clean" });
+    expect(v(1)).toMatchObject({ tone: "fine", word: "Probably fine" });
+    expect(v(0, 1)).toMatchObject({ tone: "fine", word: "Probably fine" });
+  });
+
+  it("is malicious when two or more engines say so, and suspicious otherwise", () => {
+    expect(v(2)).toMatchObject({ tone: "bad", word: "Malicious" });
+    expect(v(1, 1)).toMatchObject({ tone: "odd", word: "Suspicious" });
+    expect(v(0, 4)).toMatchObject({ tone: "odd", word: "Suspicious" });
+    expect(v(5).advice).toBeTruthy();
+    expect(v(0).advice).toBeUndefined();
+  });
+
+  it("says when no engine has answered, rather than calling it clean", () => {
+    expect(v(0, 0, 0)).toMatchObject({ tone: "none", word: "No answer yet" });
+  });
+
+  it("times a scan in minutes and seconds", () => {
+    expect(clock(0)).toBe("0:00");
+    expect(clock(91_500)).toBe("1:31");
   });
 });

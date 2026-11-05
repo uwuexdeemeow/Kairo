@@ -59,6 +59,20 @@ pub fn url_id(url: &str) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(url)
 }
 
+/// Why a file couldn't be read, in words: a folder, gone, not allowed, or held by another program.
+pub fn read_error(path: &Path, e: &std::io::Error) -> String {
+    if path.is_dir() {
+        return "That's a folder. Drop a file instead.".into();
+    }
+    match e.kind() {
+        std::io::ErrorKind::NotFound => "That file isn't there any more.".into(),
+        std::io::ErrorKind::PermissionDenied => "Kairo isn't allowed to read that file.".into(),
+        // Windows' sharing and lock violations: another program has it open.
+        _ if cfg!(windows) && matches!(e.raw_os_error(), Some(32 | 33)) => "Another program has that file open. Close it and try again.".into(),
+        _ => "Kairo couldn't read that file.".into(),
+    }
+}
+
 /// A file's SHA-256 and size, read in pieces so a large file isn't held in memory.
 pub fn sha256_file(path: &Path) -> std::io::Result<(String, u64)> {
     let mut file = std::fs::File::open(path)?;
@@ -253,10 +267,9 @@ pub async fn test_vt_key(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub async fn vt_check_file(state: State<'_, AppState>, path: String) -> Result<Answer, String> {
     let key = key_of(&state)?;
-    let (sha256, size) = tauri::async_runtime::spawn_blocking(move || sha256_file(Path::new(&path)))
+    let (sha256, size) = tauri::async_runtime::spawn_blocking(move || sha256_file(Path::new(&path)).map_err(|e| read_error(Path::new(&path), &e)))
         .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("Couldn't read the file: {e}"))?;
+        .map_err(|e| e.to_string())??;
     match get(&key, &format!("/files/{sha256}")).await? {
         Some(json) => Ok(verdict_from(&json).map(Answer::Verdict).unwrap_or(Answer::NotSeen { sha256, size, too_big: size > UPLOAD_MAX })),
         None => Ok(Answer::NotSeen { sha256, size, too_big: size > UPLOAD_MAX }),
@@ -293,12 +306,12 @@ pub async fn vt_upload(state: State<'_, AppState>, path: String) -> Result<Answe
     let file = path.clone();
     let (data, sha256) = tauri::async_runtime::spawn_blocking(move || -> Result<(Vec<u8>, String), String> {
         let p = Path::new(&file);
-        let size = std::fs::metadata(p).map_err(|e| e.to_string())?.len();
+        let size = std::fs::metadata(p).map_err(|e| read_error(p, &e))?.len();
         if size > UPLOAD_MAX {
-            return Err("Too big to upload with a free key.".into());
+            return Err("It's bigger than the 32 MB a free key can upload.".into());
         }
-        let (sha256, _) = sha256_file(p).map_err(|e| e.to_string())?;
-        Ok((std::fs::read(p).map_err(|e| e.to_string())?, sha256))
+        let (sha256, _) = sha256_file(p).map_err(|e| read_error(p, &e))?;
+        Ok((std::fs::read(p).map_err(|e| read_error(p, &e))?, sha256))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -349,6 +362,21 @@ pub fn vt_pick_file(app: tauri::AppHandle) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_file_that_cant_be_read_says_why_in_words() {
+        let dir = std::env::temp_dir();
+        let gone = dir.join("kairo-vt-no-such-file.bin");
+        let e = sha256_file(&dir).unwrap_err();
+        assert_eq!(read_error(&dir, &e), "That's a folder. Drop a file instead.");
+        let e = sha256_file(&gone).unwrap_err();
+        assert_eq!(read_error(&gone, &e), "That file isn't there any more.");
+        let held = std::io::Error::from_raw_os_error(32);
+        if cfg!(windows) {
+            assert_eq!(read_error(&gone, &held), "Another program has that file open. Close it and try again.");
+        }
+        assert!(!read_error(&gone, &std::io::Error::other("os error 999")).contains("os error"));
+    }
+
     use super::*;
     use serde_json::json;
 
