@@ -5054,8 +5054,21 @@ select,
 }
 
 .scan-drop.over {
-  border-color: var(--kairo);
-  background: color-mix(in srgb, var(--kairo) 10%, transparent);
+  border-color: var(--app);
+  background: color-mix(in srgb, var(--app) 10%, transparent);
+}
+
+/* With results to read, the way in steps back to a line; the whole window still takes a drop. */
+.scan.has-results .scan-drop {
+  flex-flow: row wrap;
+  justify-content: center;
+  gap: 2px 10px;
+  padding: 8px 12px;
+}
+
+/* Said once, before the first check; it's no news after. */
+.scan.has-results .scan-drop .muted {
+  display: none;
 }
 
 .scan-ask {
@@ -5093,6 +5106,9 @@ select,
   overflow: hidden;
   font: inherit;
   font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5112,24 +5128,57 @@ select,
 
 /* The verdict carries the colour, in an ink that reads as text: any engine calling it malicious,
    only suspicious ones, or none. */
-/* The verdict leads with its word, in the verdict's ink; the count behind it stays plain. */
+/* The verdict is the figure: a stamp beside its word, in the display face and the verdict's
+   ink; the count behind it stays plain under the word. The newest answer is the largest. */
+.scan-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  color: var(--ink);
+}
+
+.scan-verdict .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.scan-result .scan-verdict p {
+  margin: 0;
+}
+
 .scan-word {
-  font-weight: 600;
+  display: block;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.scan-result.lead .scan-word {
+  font-size: 22px;
+}
+
+.scan-result.lead .scan-verdict .icon {
+  width: 28px;
+  height: 28px;
 }
 
 .scan-count {
+  display: block;
+  margin-top: 2px;
   color: var(--ink-2);
 }
 
-.scan-result.bad .scan-word {
+.scan-result.bad .scan-verdict {
   color: var(--rec-ink);
 }
 
-.scan-result.odd .scan-word {
+.scan-result.odd .scan-verdict {
   color: var(--ribbon-ink);
 }
 
-.scan-result.clean .scan-word {
+.scan-result.clean .scan-verdict {
   color: var(--good-ink);
 }
 
@@ -5138,13 +5187,13 @@ select,
   border-color: color-mix(in srgb, var(--warm-ink) 45%, var(--rule));
 }
 
-.scan-result.error .scan-word {
+.scan-result.error .scan-verdict {
   color: var(--warm-ink);
 }
 
 /* A lone detection is said calmly, in plain ink. */
-.scan-result.fine .scan-word,
-.scan-result.none .scan-word {
+.scan-result.fine .scan-verdict,
+.scan-result.none .scan-verdict {
   color: var(--ink);
 }
 
@@ -5160,9 +5209,11 @@ select,
   margin-top: 8px;
 }
 
+/* Centred, as the drop zone is when there's a key. */
 .scan-no-key {
-  align-items: flex-start;
+  align-items: center;
   padding-top: 28px;
+  text-align: center;
 }
 
 .scan-no-key p {

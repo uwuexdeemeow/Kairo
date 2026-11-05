@@ -16,6 +16,11 @@ const PATHS = {
   up: '<path d="M12 19V5M6 11l6-6 6 6" />',
   down: '<path d="M12 5v14M6 13l6 6 6-6" />',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5" />',
+  // The scan window's verdicts, each a stamp: a ring with its mark inside.
+  "seal-clean": '<circle cx="12" cy="12" r="9.5" /><path d="M8 12.4l2.7 2.7 5.3-6" />',
+  "seal-bad": '<circle cx="12" cy="12" r="9.5" /><path d="M9 9l6 6M15 9l-6 6" />',
+  "seal-odd": '<circle cx="12" cy="12" r="9.5" /><path d="M12 7.5v5.5M12 16.3v.2" />',
+  "seal-none": '<circle cx="12" cy="12" r="9.5" /><path d="M8.5 12h7" />',
 } as const;
 
 export type Glyph = keyof typeof PATHS;

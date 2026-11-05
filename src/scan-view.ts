@@ -1,3 +1,4 @@
+import { glyph, type Glyph } from "./glyphs";
 import { h } from "./ui";
 import type { VtAnswer, VtVerdict } from "./virustotal-api";
 
@@ -113,6 +114,14 @@ const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 let ids = 0;
 
+/// Each tone's stamp: a tick for clean or a lone engine, a cross for malicious, a mark for
+/// suspicious or an error, a dash when there's nothing to say.
+const SEAL: Record<string, Glyph> = { clean: "seal-clean", fine: "seal-clean", bad: "seal-bad", odd: "seal-odd", error: "seal-odd", none: "seal-none" };
+
+/// A verdict's line: its stamp, its word, and the count or reason behind it.
+const verdictLine = (tone: string, word: string, detail: string) =>
+  h("div", { class: "scan-verdict" }, glyph(SEAL[tone]), h("p", {}, h("strong", { class: "scan-word" }, word), " ", h("span", { class: "scan-count" }, detail)));
+
 export async function mountScan(root: HTMLElement, act: ScanActions): Promise<ScanView> {
   const entries: Entry[] = [];
   const list = h("div", { class: "scan-results" });
@@ -149,6 +158,10 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
 
   const draw = () => {
     list.replaceChildren(...entries.map(drawEntry));
+    // The newest answer is the figure, though results still being worked on may sit above it.
+    list.querySelector(".scan-verdict")?.closest(".scan-result")?.classList.add("lead");
+    // With results to read, the way in steps back to a line.
+    list.parentElement?.classList.toggle("has-results", entries.length > 0);
   };
   // Times tick in place, so nothing else on the page is redrawn under the keyboard.
   window.setInterval(() => {
@@ -180,7 +193,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       const tools: Node[] = [];
       if (e.ask) tools.push(button("scan-retry", "Try again", () => void run(e, e.ask!)));
       if (aboutKey(s.why)) tools.push(button("scan-settings-link", "Open Kairo's settings", () => act.openSettings()));
-      return card(e, "error", h("p", { class: "scan-verdict" }, h("strong", { class: "scan-word" }, "Couldn't check"), " ", h("span", { class: "scan-count" }, s.why)), ...(tools.length ? [h("p", { class: "scan-foot" }, ...tools)] : []));
+      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(tools.length ? [h("p", { class: "scan-foot" }, ...tools)] : []));
     }
     if (s.kind === "skipped") return card(e, "", h("p", { class: "muted" }, "Not uploaded."));
     if (s.kind === "stopped") {
@@ -198,7 +211,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       return card(e, "", h("p", { class: "muted scan-time", "data-since": String(since) }, scanningText(since, Date.now())), h("p", { class: "scan-foot" }, stop));
     }
     if (a.state === "unknown") {
-      return card(e, "none", h("p", { class: "scan-verdict" }, h("strong", { class: "scan-word" }, "Unknown to VirusTotal"), " ", h("span", { class: "scan-count" }, "It hasn't seen anything with this hash, so it can't say either way.")));
+      return card(e, "none", verdictLine("none", "Unknown to VirusTotal", "It hasn't seen anything with this hash, so it can't say either way."));
     }
     if (a.state === "notSeen") {
       if (a.tooBig) return card(e, "", h("p", {}, "VirusTotal hasn't seen this file, and it's bigger than the 32 MB a free key can upload."));
@@ -216,7 +229,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       );
     }
     const v = verdictOf(a);
-    const parts: Node[] = [h("p", { class: "scan-verdict" }, h("strong", { class: "scan-word" }, v.word), " ", h("span", { class: "scan-count" }, v.count))];
+    const parts: Node[] = [verdictLine(v.tone, v.word, v.count)];
     if (v.advice) parts.push(h("p", { class: "scan-advice" }, v.advice));
     if (a.names.length) {
       parts.push(h("p", { class: "scan-names muted" }, ...a.names.map(([engine, name], i) => h("span", {}, `${i ? " " : ""}${name} · ${engine}`)), ...(a.more ? [h("span", {}, ` +${a.more} more`)] : [])));
