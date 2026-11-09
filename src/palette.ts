@@ -551,7 +551,9 @@ async function open() {
   }
   await refresh();
   // Should the fit never land, the palette still appears.
-  setTimeout(() => $("#palette").classList.remove("veiled"), 300);
+  setTimeout(() => {
+    if (typeof document !== "undefined") $("#palette").classList.remove("veiled");
+  }, 300);
 }
 
 /// Files for a query not rendered yet are dropped; that's fine, as Kairo waits for a pause in typing
