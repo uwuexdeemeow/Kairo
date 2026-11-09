@@ -29,7 +29,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dwm::{
-    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_TRANSIENTWINDOW, DWMWA_BORDER_COLOR, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
+    DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_TRANSIENTWINDOW, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_USE_IMMERSIVE_DARK_MODE,
     DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DWM_SYSTEMBACKDROP_TYPE, DWM_WINDOW_CORNER_PREFERENCE,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -828,10 +828,14 @@ impl Palette {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE);
             self.extend_glass(h);
             self.place_edit();
+            // Cloaked until drawn: Windows composes a window the moment it's shown or resized, and
+            // would put up its bare backdrop for a frame before the paint lands.
+            self.cloak(true);
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_SHOWWINDOW);
             // Painted here rather than through UpdateWindow: this runs inside the palette's own
             // borrow, so a WM_PAINT sent from here would find it taken, skip, and still count as done.
             let _ = self.paint();
+            self.cloak(false);
             // Windows only hands over the keyboard to an app the user just acted in; pressing
             // Alt counts, so a refused request gets that nudge and another try.
             if !SetForegroundWindow(self.hwnd).as_bool() || GetForegroundWindow() != self.hwnd {
@@ -911,10 +915,12 @@ impl Palette {
             if let Some(t) = &self.target {
                 let _ = t.Resize(&D2D_SIZE_U { width: w as u32, height: h as u32 });
             }
+            self.cloak(true);
             self.extend_glass(h);
             let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(Some(self.hwnd), None, false);
             let _ = self.paint();
+            self.cloak(false);
         }
     }
 
@@ -928,6 +934,14 @@ impl Palette {
         let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: (height - header).max(0) };
         unsafe {
             let _ = DwmExtendFrameIntoClientArea(self.hwnd, &margins);
+        }
+    }
+
+    /// Keeps the window out of what Windows composes (or lets it back in) without hiding it.
+    fn cloak(&self, on: bool) {
+        let v = windows::core::BOOL::from(on);
+        unsafe {
+            let _ = DwmSetWindowAttribute(self.hwnd, DWMWA_CLOAK, (&v as *const windows::core::BOOL).cast(), 4);
         }
     }
 
