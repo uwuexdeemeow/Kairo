@@ -383,13 +383,45 @@ async function renderPreview() {
 function fit() {
   const panel = $("#palette").getBoundingClientRect();
   const height = Math.ceil(panel.height) + ROOM_ABOVE + ROOM_BELOW;
+  // The window resizes a moment after the page lays out. When it grows, what's new would show
+  // cut off until then, so the results wait out the resize rather than being seen drawn in.
+  const grows = height > fitted;
+  fitted = height;
+  const turn = ++fitTurn;
+  const body = $("#palette-results");
+  const card = $("#palette-preview");
+  if (grows) {
+    body.style.visibility = "hidden";
+    card.style.visibility = "hidden";
+  }
+  const settle = () => {
+    if (turn !== fitTurn) return;
+    body.style.visibility = "";
+    card.style.visibility = "";
+    $("#palette").classList.remove("veiled");
+  };
   getCurrentWindow()
     .setSize(new LogicalSize(WIDTH, height))
-    .catch(() => {});
+    .catch(() => {})
+    .then(() => requestAnimationFrame(settle));
   if (isMac()) {
     api.paletteGlass({ left: panel.left, top: panel.top, right: WIDTH - panel.right, bottom: height - panel.bottom }).catch(() => {});
   }
 }
+
+/// The height the window was last fitted to, and a count so only the latest fit reveals the page.
+let fitted = 0;
+let fitTurn = 0;
+
+/// While the palette is away its last search stays in the page; veiled, it can't flash at the
+/// next opening before that search is cleared.
+function veil() {
+  $("#palette").classList.add("veiled");
+}
+window.addEventListener("blur", veil);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) veil();
+});
 
 function showError(err: unknown) {
   $("#palette-results").prepend(h("p", { class: "palette-error" }, String(err)));
@@ -518,6 +550,8 @@ async function open() {
     // The last theme and footer stay.
   }
   await refresh();
+  // Should the fit never land, the palette still appears.
+  setTimeout(() => $("#palette").classList.remove("veiled"), 300);
 }
 
 /// Files for a query not rendered yet are dropped; that's fine, as Kairo waits for a pause in typing

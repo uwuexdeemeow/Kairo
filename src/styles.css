@@ -918,6 +918,10 @@ html.palette-root {
   overflow: hidden;
 }
 
+.palette.veiled {
+  visibility: hidden;
+}
+
 .palette kbd {
   font-family: var(--mono);
   font-size: 11px;

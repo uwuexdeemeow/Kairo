@@ -35,7 +35,7 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     AddFontMemResourceEx, BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, EndPaint, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, SetBkColor,
-    SetTextColor, CLEARTYPE_QUALITY, HBRUSH, HDC, HFONT, LOGFONTW, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
+    SetTextColor, UpdateWindow, CLEARTYPE_QUALITY, HBRUSH, HDC, HFONT, LOGFONTW, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
 };
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -823,9 +823,13 @@ impl Palette {
             let x = work.left + (work.right - work.left - w) / 2;
             let y = work.top + ((work.bottom - work.top) as f32 * FROM_TOP) as i32;
             self.mouse = (cursor.x - x, cursor.y - y);
-            let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_SHOWWINDOW);
+            // Placed and given its glass while still hidden, then shown and painted in one go, so
+            // it never appears undrawn or changes after it's seen.
+            let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE);
             self.extend_glass(h);
             self.place_edit();
+            let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_SHOWWINDOW);
+            let _ = UpdateWindow(self.hwnd);
             // Windows only hands over the keyboard to an app the user just acted in; pressing
             // Alt counts, so a refused request gets that nudge and another try.
             if !SetForegroundWindow(self.hwnd).as_bool() || GetForegroundWindow() != self.hwnd {
@@ -900,12 +904,15 @@ impl Palette {
         let s = self.scale();
         let (w, h) = ((W * s).round() as i32, (self.height() * s).round() as i32);
         unsafe {
-            let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-            self.extend_glass(h);
+            // The drawing surface first, then the window, then the paint at once: left to the
+            // message queue, the new size would show for a frame before anything is drawn in it.
             if let Some(t) = &self.target {
                 let _ = t.Resize(&D2D_SIZE_U { width: w as u32, height: h as u32 });
             }
+            self.extend_glass(h);
+            let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(Some(self.hwnd), None, false);
+            let _ = UpdateWindow(self.hwnd);
         }
     }
 
