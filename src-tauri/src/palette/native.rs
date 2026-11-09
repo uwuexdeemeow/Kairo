@@ -35,7 +35,7 @@ use windows::Win32::Graphics::Dwm::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::{
     AddFontMemResourceEx, BeginPaint, CreateFontIndirectW, CreateSolidBrush, DeleteObject, EndPaint, GetMonitorInfoW, InvalidateRect, MonitorFromPoint, SetBkColor,
-    SetTextColor, UpdateWindow, CLEARTYPE_QUALITY, HBRUSH, HDC, HFONT, LOGFONTW, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
+    SetTextColor, CLEARTYPE_QUALITY, HBRUSH, HDC, HFONT, LOGFONTW, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
 };
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -829,7 +829,9 @@ impl Palette {
             self.extend_glass(h);
             self.place_edit();
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_SHOWWINDOW);
-            let _ = UpdateWindow(self.hwnd);
+            // Painted here rather than through UpdateWindow: this runs inside the palette's own
+            // borrow, so a WM_PAINT sent from here would find it taken, skip, and still count as done.
+            let _ = self.paint();
             // Windows only hands over the keyboard to an app the user just acted in; pressing
             // Alt counts, so a refused request gets that nudge and another try.
             if !SetForegroundWindow(self.hwnd).as_bool() || GetForegroundWindow() != self.hwnd {
@@ -912,7 +914,7 @@ impl Palette {
             self.extend_glass(h);
             let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(Some(self.hwnd), None, false);
-            let _ = UpdateWindow(self.hwnd);
+            let _ = self.paint();
         }
     }
 
