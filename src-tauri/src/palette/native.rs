@@ -910,17 +910,30 @@ impl Palette {
         let s = self.scale();
         let (w, h) = ((W * s).round() as i32, (self.height() * s).round() as i32);
         unsafe {
-            // The drawing surface first, then the window, then the paint at once: left to the
-            // message queue, the new size would show for a frame before anything is drawn in it.
+            // Most keystrokes leave the size alone (the list is capped), so there's only a paint
+            // to do. Cloaking or re-placing a window that's on screen makes it blink.
+            let mut client = RECT::default();
+            let _ = GetClientRect(self.hwnd, &mut client);
+            if client.right == w && client.bottom == h {
+                let _ = self.paint();
+                return;
+            }
+            // The glass and the window change together, in an order that never lets the search row
+            // (where the edit box sits) become glass: growing, the old, smaller glass stays inside
+            // the larger window until it's drawn; shrinking, the glass shrinks first.
+            let grow = h > client.bottom;
+            if !grow {
+                self.extend_glass(h);
+            }
             if let Some(t) = &self.target {
                 let _ = t.Resize(&D2D_SIZE_U { width: w as u32, height: h as u32 });
             }
-            self.cloak(true);
-            self.extend_glass(h);
             let _ = SetWindowPos(self.hwnd, None, 0, 0, w, h, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
             let _ = InvalidateRect(Some(self.hwnd), None, false);
             let _ = self.paint();
-            self.cloak(false);
+            if grow {
+                self.extend_glass(h);
+            }
         }
     }
 
