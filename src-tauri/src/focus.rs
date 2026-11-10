@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_notification::NotificationExt;
 
 use chrono::{Local, TimeZone, Timelike};
@@ -372,6 +372,8 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         // The session's end is a natural break point.
         w.stretch_since = Some(now);
         w.breaks_sent = 0;
+        // The open window re-reads the session now rather than at its next poll.
+        let _ = app.emit("kairo:focus", ());
     }
     let mut session = active(conn)?;
 
@@ -389,6 +391,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
                 None => "Distracting apps and sites are blocked until then, as in any focus session.".to_string(),
             };
             notify(app, &format!("Scheduled focus until {until}"), &body);
+            let _ = app.emit("kairo:focus", ());
             session = Some(started);
         }
     }

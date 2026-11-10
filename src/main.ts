@@ -1184,12 +1184,15 @@ let status: { app: string | null; sinceMs: number | null; tracking: boolean } | 
 let focusSession: FocusSession | null = null;
 
 async function refreshStatus() {
+  const before = focusSession;
   try {
     [status, focusSession] = await Promise.all([api.status(), api.focus()]);
   } catch {
     status = null;
   }
   paintStatus();
+  // A session that ran out on its own: the lists drawn while it ran still call it in progress.
+  if (before && !focusSession) reloadSessionViews();
 }
 
 /// Time left in a session; a pause holds it still.
@@ -1226,6 +1229,11 @@ function paintFocus() {
 function focusChanged(s: FocusSession | null) {
   focusSession = s;
   paintFocus();
+  reloadSessionViews();
+}
+
+/// Reloads the views that list sessions.
+function reloadSessionViews() {
   if (view === "today" && selectedDay === null) load("today");
   if (view === "focus") load("focus");
 }
@@ -1654,6 +1662,8 @@ const taskActions: PickerActions = {
 };
 // Tasks change in Ledger, the palette and on other computers.
 listen("kairo:tasks", () => view === "focus" && drawTasks());
+// The backend closed or started a session by itself.
+listen("kairo:focus", () => refreshStatus());
 
 $("#timer-start").addEventListener("click", async () => {
   const label = $<HTMLInputElement>("#timer-label");
