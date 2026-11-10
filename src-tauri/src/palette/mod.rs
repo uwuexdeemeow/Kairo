@@ -21,6 +21,7 @@ use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
 pub mod calc;
 pub mod cards;
+pub mod commands;
 pub mod files;
 pub mod mode;
 #[cfg(windows)]
@@ -357,7 +358,6 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     let now = now_ms();
     let today = Local::now().date_naive();
     let apps = apps(conn, index, now).unwrap_or_default();
-    let session = focus::active(conn).ok().flatten().map(|a| a.label().map(str::to_string));
     let rows = goals::rows_for(conn, today, now).unwrap_or_default();
     let glance = crate::analysis::glance(&rows);
     let over_limits = goals::load(conn)
@@ -372,7 +372,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     let ctx = Context {
         today,
         apps,
-        session,
+        live: live(app, conn),
         today_apps: glance.top_apps,
         over_limits,
         suggestions: suggestions(conn).unwrap_or(true),
@@ -399,6 +399,27 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         }),
     };
     (ctx, footer)
+}
+
+/// How the things the palette's own commands change stand now: the focus session, tracking, the
+/// quick timers, what's blocked and the theme. Read as the palette opens and again after a
+/// command that leaves it open.
+pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
+    let now = now_ms();
+    let local = |ms: i64| Local.timestamp_millis_opt(ms).single().map(|t| t.naive_local());
+    search::Live {
+        now: Local::now().naive_local(),
+        session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
+        strict: crate::blocking::strict_now(conn).unwrap_or(false),
+        tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
+        blocked: crate::blocking::showing(app),
+        timers: crate::timers::running(conn)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|t| Some(search::TimerNow { id: t.id, name: t.name(), left_ms: (t.ends_ms - now).max(0), ends: local(t.ends_ms)? }))
+            .collect(),
+        theme: crate::appearance::get(conn).unwrap_or_else(|_| "system".into()),
+    }
 }
 
 /// The weekly goals as one line, like "7h 53m of 15h 00m productive · 3h 39m of 5h 00m
@@ -546,6 +567,52 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
                 Some(settings::Page::Kairo) => crate::show_dashboard(app, Some(&format!("settings#{control}"))),
                 _ => crate::open_main_to(app, "settings", None, Some(control)),
             }
+            Ok(())
+        }
+        Action::Theme(mode) => crate::appearance::choose(app, conn, mode),
+        // What was shown may be a moment old: strict mode may have come on since.
+        Action::Session(search::SessionDo::End) if crate::blocking::strict_now(conn).unwrap_or(false) => {
+            Err("Strict mode is on: end the session from Chrono's Focus page, where the wait counts down.".into())
+        }
+        Action::Session(what) => {
+            use tauri::Emitter;
+            let now = now_ms();
+            match what {
+                search::SessionDo::Pause => focus::pause(conn, now),
+                search::SessionDo::Resume => focus::resume(conn, now),
+                search::SessionDo::Extend(minutes) => focus::extend(conn, *minutes),
+                search::SessionDo::End => focus::stop(conn, now),
+            }
+            .map_err(|e| e.to_string())?;
+            // An open Focus page reads the session again now rather than at its next poll.
+            let _ = app.emit("kairo:focus", ());
+            Ok(())
+        }
+        Action::Allow(_) if crate::blocking::strict_now(conn).unwrap_or(false) => {
+            crate::blocking::bring_forward(app);
+            Err("Strict mode is on: allow it from the blocked window, where the wait counts down.".into())
+        }
+        Action::Allow(key) => {
+            let state = tauri::Manager::state::<crate::AppState>(app);
+            crate::blocking::allow(&state.allowances, key, now_ms());
+            crate::blocking::close_window(app);
+            Ok(())
+        }
+        Action::ShowBlocked => {
+            crate::blocking::bring_forward(app);
+            Ok(())
+        }
+        Action::StartTimer(minutes, label) => match crate::timers::start(conn, *minutes, label.as_deref(), now_ms()).map_err(|e| e.to_string())? {
+            Some(_) => Ok(()),
+            None => Err(format!("{} timers are running already. Cancel one first.", crate::timers::MAX_RUNNING)),
+        },
+        Action::CancelTimer(id) => crate::timers::cancel(conn, *id).map_err(|e| e.to_string()),
+        Action::PauseTracking(minutes) => {
+            crate::set_paused(app, true, minutes.map(|m| now_ms() + m as i64 * 60_000));
+            Ok(())
+        }
+        Action::ResumeTracking => {
+            crate::set_paused(app, false, None);
             Ok(())
         }
         // The palettes put themselves in the mode before it would get here.
@@ -853,6 +920,15 @@ impl Session {
         }
     }
 
+    /// Records how things stand after a command that acted in place, so the next results show
+    /// it: the theme now in use, a session now paused.
+    pub fn set_live(&self, live: search::Live) {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ctx) = s.ctx.as_mut() {
+            ctx.live = live;
+        }
+    }
+
     /// Whether `path` is an icon the palette is showing: an installed app's, the program of
     /// something it answers about or of an open window, or a file in its rows.
     pub fn shows_icon(&self, path: &str) -> bool {
@@ -1147,7 +1223,7 @@ mod tests {
         Context {
             today,
             apps: Vec::new(),
-            session: None,
+            live: search::Live::default(),
             today_apps: Vec::new(),
             over_limits: Vec::new(),
             suggestions: true,

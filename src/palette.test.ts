@@ -190,6 +190,36 @@ describe("switches", () => {
   });
 });
 
+describe("commands that act in place", () => {
+  const themes = (inUse: string) => results(inUse === "Walnut" ? 2 : 1, ["System", "Ink", "Walnut"].map((name) => item(`Theme: ${name}`, { section: "Theme", detail: name === inUse ? "In use" : null })));
+
+  it("a theme chosen stays open on fresh results, and is worn when Kairo says so", async () => {
+    await open(themes("Ink"));
+    key("ArrowDown");
+    key("ArrowDown");
+    api.paletteRun.mockResolvedValueOnce(themes("Walnut"));
+    key("Enter");
+    await vi.waitFor(() => expect($(".selected .palette-detail").textContent).toBe("In use"));
+    expect($(".selected .palette-title").textContent).toBe("Theme: Walnut");
+    expect(api.paletteHide).not.toHaveBeenCalled();
+    emit("kairo:appearance", "walnut");
+    expect(document.documentElement.dataset.ground).toBe("walnut");
+    emit("kairo:appearance", "light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("Ctrl+Enter on a timer cancels it and shows the ones left", async () => {
+    const timer = (name: string) => item(`Timer: ${name}`, { section: "Timers", second: "Cancel timer" });
+    await open(results(1, [timer("tea"), timer("laundry")]));
+    expect(hint()).toBe("Ctrl Enter Cancel timer");
+    api.paletteRunSecond.mockResolvedValueOnce(results(2, [timer("laundry")]));
+    key("Enter", { ctrlKey: true });
+    expect(api.paletteRunSecond).toHaveBeenCalledWith(1, 0);
+    await vi.waitFor(() => expect(titles()).toEqual(["Timer: laundry"]));
+    expect(api.paletteHide).not.toHaveBeenCalled();
+  });
+});
+
 describe("refused switches", () => {
   it("say why on their row's second line, keeping their state and the selection", async () => {
     const why = "Strict mode is on, so these stay as they are until the focus session ends.";

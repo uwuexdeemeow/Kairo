@@ -444,9 +444,17 @@ async function run(index: number) {
   }
   // Running doesn't bump the token, so a query still in flight is drawn when it lands. A flip's
   // results are drawn only if no query was asked meanwhile, and then outdate any older one.
+  await ran(api.paletteRun(results.seq, index));
+}
+
+/// Draws what running an item gave back, when it left the palette open: a flipped switch's
+/// results, a mode's, or those of a command that acted in place (a theme, a paused session).
+async function ran(running: Promise<PaletteResults | null>) {
+  // Running doesn't bump the token, so a query still in flight is drawn when it lands. What comes
+  // back is drawn only if no query was asked meanwhile, and then outdates any older one.
   const token = queryToken;
   try {
-    const fresh = await api.paletteRun(results.seq, index);
+    const fresh = await running;
     if (fresh && token === queryToken) {
       ++queryToken;
       if (fresh.mode && fresh.mode.key !== mode?.key) {
@@ -460,14 +468,11 @@ async function run(index: number) {
   }
 }
 
-/// Runs what Ctrl+Enter (Command+Enter on a Mac) does for an item.
+/// Runs what Ctrl+Enter (Command+Enter on a Mac) does for an item. Cancelling a timer leaves
+/// the palette open, on the timers that are left.
 async function runSecond(index: number) {
   if (!shown[index]?.second) return;
-  try {
-    await api.paletteRunSecond(results.seq, index);
-  } catch (err) {
-    showError(err);
-  }
+  await ran(api.paletteRunSecond(results.seq, index));
 }
 
 async function refresh() {
@@ -569,5 +574,7 @@ listen<PaletteFiles>("palette:files", (e) => {
   else if (e.payload.rows.length) render({ ...results, rows: [...results.rows, ...e.payload.rows] });
 });
 
+// A theme chosen from the palette itself (`theme walnut`) shows at once, while it's still open.
+listen<Appearance>("kairo:appearance", (e) => applyTheme(e.payload));
 listen("palette:open", open);
 open();

@@ -68,6 +68,18 @@ pub fn set(conn: &Connection, mode: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Saves a choice of theme and puts every window in it; an open page repaints itself on
+/// `kairo:appearance`. The settings page and the palette both choose through here.
+pub fn choose(app: &AppHandle, conn: &Connection, mode: &str) -> std::result::Result<(), String> {
+    use tauri::Emitter;
+    if !set(conn, mode).map_err(|e| e.to_string())? {
+        return Err(format!("unknown appearance: {mode}"));
+    }
+    apply(app, mode);
+    let _ = app.emit("kairo:appearance", mode);
+    Ok(())
+}
+
 /// The window theme for a mode: None lets the system decide.
 pub fn theme(mode: &str) -> Option<Theme> {
     ground_of(mode).map(|g| if g.light { Theme::Light } else { Theme::Dark })

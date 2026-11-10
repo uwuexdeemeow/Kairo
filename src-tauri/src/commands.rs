@@ -1359,8 +1359,7 @@ pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette:
     if let palette::search::Action::EnterMode(mode) = item.action {
         return Ok(Some(session.query("", Some(mode))));
     }
-    if item.action.keeps_palette_open() {
-        let palette::search::Action::Toggle(switch) = item.action else { unreachable!("only switches and modes keep the palette open") };
+    if let palette::search::Action::Toggle(switch) = item.action {
         let flipped = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch);
         let (query, mode) = session.last();
         let results = match flipped {
@@ -1373,19 +1372,40 @@ pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette:
         palette_ask_files(&session, &worker, &results, query);
         return Ok(Some(results));
     }
-    palette_perform(&app, &state, &index, &item.action)?;
-    Ok(None)
+    palette_act(&app, &state, &index, &session, &worker, &item.action)
 }
 
 /// Runs what Ctrl+Enter (Command+Enter on a Mac) does for item `at` of the results numbered
-/// `seq`, then puts the palette away; nothing for an item without a second action.
+/// `seq`, then puts the palette away; nothing for an item without a second action. One that acts
+/// in place, like cancelling a timer, leaves the palette open on fresh results.
 #[tauri::command]
-pub fn palette_run_second(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, seq: u64, at: usize) -> CmdResult<()> {
+pub fn palette_run_second(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
     match item.second {
-        Some((action, _)) => palette_perform(&app, &state, &index, &action),
-        None => Ok(()),
+        Some((action, _)) => palette_act(&app, &state, &index, &session, &worker, &action),
+        None => Ok(None),
     }
+}
+
+/// Does what an action says. One that acts in place (a theme, pausing a session) leaves the
+/// palette open and returns what was typed asked again, now that things stand differently; a row
+/// with nothing to do leaves it open as it is; anything else puts the palette away.
+fn palette_act(app: &AppHandle, state: &AppState, index: &palette::Index, session: &palette::Session, worker: &palette::files::Worker, action: &palette::search::Action) -> CmdResult<Option<palette::Results>> {
+    if action.acts_in_place() {
+        {
+            let conn = state.db.lock().map_err(err)?;
+            palette::perform(app, &conn, index, action)?;
+            session.set_live(palette::live(app, &conn));
+        }
+        let (query, mode) = session.last();
+        let results = session.query(&query, mode);
+        palette_ask_files(session, worker, &results, query);
+        return Ok(Some(results));
+    }
+    if !action.keeps_palette_open() {
+        palette_perform(app, state, index, action)?;
+    }
+    Ok(None)
 }
 
 /// Does what an item says and puts the palette away.
@@ -1497,13 +1517,8 @@ pub fn get_appearance(state: State<AppState>) -> CmdResult<String> {
 #[tauri::command]
 pub fn set_appearance(app: AppHandle, state: State<AppState>, mode: String) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
-    if !appearance::set(&conn, &mode).map_err(err)? {
-        return Err(format!("unknown appearance: {mode}"));
-    }
-    appearance::apply(&app, &mode);
     // Every open window repaints itself, Chrono's page included.
-    let _ = app.emit("kairo:appearance", &mode);
-    Ok(())
+    appearance::choose(&app, &conn, &mode)
 }
 
 /// Icons for the apps in `exes`, as PNG data URLs, for those Kairo knows a program file for.

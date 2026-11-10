@@ -56,6 +56,15 @@ impl Active {
         self.label.as_deref()
     }
 
+    pub fn is_paused(&self) -> bool {
+        self.paused_at.is_some()
+    }
+
+    /// How long it has left to run at `now`; a pause in progress doesn't use it up.
+    pub fn left_ms(&self, now: i64) -> i64 {
+        (self.ends_ms(now) - now).max(0)
+    }
+
     /// When the session will end, given that a pause in progress pushes the end back.
     fn ends_ms(&self, now: i64) -> i64 {
         self.start_ms + self.planned_ms + self.paused_ms + self.paused_at.map_or(0, |p| now - p)
@@ -366,6 +375,14 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     let now = now_ms();
     let slept = now - w.last_tick > SLEEP_GAP_MS;
     w.last_tick = now;
+
+    // Quick timers ring whether or not tracking is paused, and a pause asked for by the minute
+    // ends here; `paused` is as it was when this tick began, which the next one puts right.
+    for timer in crate::timers::take_due(conn, now)? {
+        let (title, body) = timer.notice(now);
+        notify(app, &title, &body);
+    }
+    crate::resume_if_due(app, now);
 
     if let Some(done) = complete_if_due(conn, now)? {
         notify(app, &format!("Focus session done: {}", fmt_dur(done.planned_ms)), "Nice work. A good moment to stand up for a few minutes.");

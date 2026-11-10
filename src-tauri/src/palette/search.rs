@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
 
 use super::calc;
+use super::commands;
 use super::mode::{self, Mode};
 use super::settings::{self, Switch};
 use super::AppEntry;
@@ -330,20 +331,60 @@ pub enum Action {
     Setting(&'static str),
     /// Puts the palette in a mode, shown as a bubble in the input (mode.rs).
     EnterMode(Mode),
+    /// Switches to a theme, by its ground's id, or "system".
+    Theme(&'static str),
+    /// Pauses, resumes, extends or ends the running focus session.
+    Session(SessionDo),
+    /// Allows what the blocked window is blocking, by its key, for a few minutes.
+    Allow(String),
+    /// Brings the blocked window forward.
+    ShowBlocked,
+    /// Starts a quick timer: minutes and a name.
+    StartTimer(u32, Option<String>),
+    /// Cancels a quick timer, by id.
+    CancelTimer(i64),
+    /// Pauses tracking, for this many minutes when given.
+    PauseTracking(Option<u32>),
+    ResumeTracking,
     /// Does nothing, for a row that only says something.
     Nothing,
+}
+
+/// What can be done to a running focus session.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SessionDo {
+    Pause,
+    Resume,
+    /// Adds this many minutes.
+    Extend(u32),
+    End,
 }
 
 impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..))
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..) | Action::ShowBlocked)
     }
 
-    /// Whether the palette stays open after it, to show the new state.
+    /// Whether the palette stays open after it, to show the new state. A row with nothing to do
+    /// on Enter (a running timer, which Ctrl+Enter cancels) leaves the palette as it is too.
     pub fn keeps_palette_open(&self) -> bool {
-        matches!(self, Action::Toggle(..) | Action::EnterMode(..))
+        matches!(self, Action::Toggle(..) | Action::EnterMode(..) | Action::Nothing) || self.acts_in_place()
+    }
+
+    /// Whether it changes something the palette shows and leaves the palette open, which then
+    /// reads how things stand (`Live`) and asks again: a theme can be tried after another, and a
+    /// paused session offers to resume.
+    pub fn acts_in_place(&self) -> bool {
+        matches!(
+            self,
+            Action::Theme(..)
+                | Action::Session(SessionDo::Pause | SessionDo::Resume | SessionDo::Extend(..))
+                | Action::CancelTimer(..)
+                | Action::PauseTracking(..)
+                | Action::ResumeTracking
+        )
     }
 }
 
@@ -425,12 +466,49 @@ pub struct NoteEntry {
     pub text: String,
 }
 
+/// The running focus session, as the palette says it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SessionNow {
+    pub label: Option<String>,
+    pub left_ms: i64,
+    pub paused: bool,
+}
+
+/// A quick timer still to ring (timers.rs).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimerNow {
+    pub id: i64,
+    /// Its name, or its length when it has none.
+    pub name: String,
+    pub left_ms: i64,
+    /// When it rings, in local time.
+    pub ends: NaiveDateTime,
+}
+
+/// What the palette's own commands change, so it's read again after one runs in place.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Live {
+    /// The local time this was read at.
+    pub now: NaiveDateTime,
+    /// The running focus session, if one runs.
+    pub session: Option<SessionNow>,
+    /// Whether strict mode holds the session: ending it and allowing a blocked app wait first.
+    pub strict: bool,
+    /// None while tracking; paused, until the time inside when there is one.
+    pub tracking_paused: Option<Option<NaiveDateTime>>,
+    /// What the blocked window is blocking, as (label, key), while it's up.
+    pub blocked: Option<(String, String)>,
+    /// The quick timers, soonest first.
+    pub timers: Vec<TimerNow>,
+    /// The theme in use: a ground's id, or "system".
+    pub theme: String,
+}
+
 /// What's known when the palette opens.
 pub struct Context {
     pub today: NaiveDate,
     pub apps: Vec<AppEntry>,
-    /// The running focus session's label, if one runs; `Some(None)` for an unlabelled one.
-    pub session: Option<Option<String>>,
+    pub live: Live,
     /// Today's busiest apps by name, with their time.
     pub today_apps: Vec<(String, i64)>,
     /// Limits passed today: (name, used, limit).
@@ -563,23 +641,29 @@ fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, aske
     vec![answer, change, copy]
 }
 
-fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
-    let mut words = query.split_whitespace();
-    if !words.next()?.eq_ignore_ascii_case("focus") {
-        return None;
-    }
-    let minutes: u32 = words.next()?.trim_end_matches(|c: char| c.is_ascii_alphabetic()).parse().ok()?;
-    let mut rest: Vec<&str> = words.collect();
-    if rest.first().is_some_and(|w| matches!(w.to_lowercase().as_str(), "m" | "min" | "mins" | "minutes")) {
-        rest.remove(0);
+/// Minutes at the start of `words`, as "50", "50m" or "50 min", kept to 1 to 240, and the words
+/// after them joined as a label. None when the first word isn't a number of minutes.
+pub(super) fn minutes_and_label(words: &[&str]) -> Option<(u32, Option<String>)> {
+    let minutes: u32 = words.first()?.trim_end_matches(|c: char| c.is_ascii_alphabetic()).parse().ok()?;
+    let mut rest = &words[1..];
+    if rest.first().is_some_and(|w| matches!(w.to_lowercase().as_str(), "m" | "min" | "mins" | "minute" | "minutes")) {
+        rest = &rest[1..];
     }
     let label = (!rest.is_empty()).then(|| rest.join(" "));
     Some((minutes.clamp(1, MAX_FOCUS_MINUTES), label))
 }
 
+fn focus_command(query: &str) -> Option<(u32, Option<String>)> {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    if !words.first()?.eq_ignore_ascii_case("focus") {
+        return None;
+    }
+    minutes_and_label(&words[1..])
+}
+
 /// The open task a focus label is for: the best match with the whole label at the start of a
 /// word in its title, the older one on a tie; None when none matches that well.
-fn task_for<'a>(tasks: &'a [crate::tasks::Task], label: &str) -> Option<&'a crate::tasks::Task> {
+pub(super) fn task_for<'a>(tasks: &'a [crate::tasks::Task], label: &str) -> Option<&'a crate::tasks::Task> {
     let mut best: Option<(&crate::tasks::Task, f64)> = None;
     for task in tasks {
         let Some(m) = fuzzy(label, &task.title).filter(|m| m.score >= 100.0) else { continue };
@@ -592,7 +676,7 @@ fn task_for<'a>(tasks: &'a [crate::tasks::Task], label: &str) -> Option<&'a crat
 
 /// What follows `prefix` at the start of `query`, ignoring case; None without it. Compared on the
 /// query itself, so a character whose lower case is longer can't shift where it's cut.
-fn after<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
+pub(super) fn after<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
     query.get(..prefix.len()).filter(|head| head.eq_ignore_ascii_case(prefix)).map(|_| &query[prefix.len()..])
 }
 
@@ -816,7 +900,7 @@ pub fn no_files_row(query: &str) -> Item {
 }
 
 /// A row that only says something, like a mode's hint before anything is typed.
-fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static str) -> Item {
+pub(super) fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static str) -> Item {
     Item::new(title, Icon::Glyph(glyph, Tone::Plain), section, Action::Nothing)
 }
 
@@ -883,8 +967,8 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
 
-    // Maths leads with its answer; a focus command or a day keeps its own meaning.
-    if focus_command(query).is_none() && parse_day(query, ctx.today).is_none() {
+    // Maths leads with its answer; a command or a day keeps its own meaning.
+    if focus_command(query).is_none() && !commands::leads(query) && parse_day(query, ctx.today).is_none() {
         if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
             item.sub = Some(query.trim().to_string());
@@ -910,6 +994,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         item.preview = Some(Preview::Focus(minutes, task.map(|t| t.title.clone()).or(label)));
         items.push(item);
     }
+    items.extend(commands::rows(ctx, query));
     items.extend(task_items(ctx, query));
     items.extend(note_items(ctx, query));
     items.extend(scan_item(query));
@@ -974,12 +1059,12 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         item.score = m.score - 2.0;
         items.push(item);
     }
-    let idle = ctx.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 11] = [
+    // A running session's own rows (pause, extend, end) are among the commands.
+    let idle = ctx.live.session.is_none();
+    let actions: [(&str, String, Glyph, Action, bool); 10] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
-        ("focus end stop session", "End the focus session".into(), Glyph::Focus, Action::Go("focus", None), !idle),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
@@ -1061,10 +1146,10 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
     if !ctx.suggestions {
         return Suggestions { rows, tiles, chips };
     }
-    match &ctx.session {
-        Some(label) => {
+    match &ctx.live.session {
+        Some(session) => {
             let mut item = Item::new("Focus session in progress", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::Go("focus", None));
-            item.sub = Some(label.as_ref().map_or("Open the timer".into(), |l| format!("“{l}”")));
+            item.sub = Some(session.label.as_ref().map_or("Open the timer".into(), |l| format!("“{l}”")));
             rows.push(item);
         }
         None => {
@@ -1073,6 +1158,7 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
             rows.push(item);
         }
     }
+    rows.extend(commands::suggestion(ctx));
     for (name, used, limit) in &ctx.over_limits {
         let mut item = Item::new(format!("{name}: {} over today’s limit", fmt_dur(used - limit)), Icon::Glyph(Glyph::Alert, Tone::Warm), "Suggested", Action::Go("today", None));
         item.sub = Some(format!("{} of {}", fmt_dur(*used), fmt_dur(*limit)));
@@ -1092,18 +1178,20 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
 
     fn app(name: &str, hours: i64) -> AppEntry {
         AppEntry { name: name.into(), path: format!(r"C:\Start\{name}.lnk"), used_ms: hours * HOUR_MS }
     }
 
-    fn ctx() -> Context {
+    /// A palette opened on a Monday with a few apps, nothing running; the commands' tests use
+    /// it too.
+    pub(in crate::palette) fn ctx() -> Context {
         Context {
             today: NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(), // a Monday
             apps: vec![app("Cursor", 61), app("Brave", 19), app("Discord", 7), app("CurseForge", 0), app("Visual Studio Code", 0), app("Notepad", 0)],
-            session: None,
+            live: Live::default(),
             today_apps: vec![("Cursor".into(), 2 * HOUR_MS), ("THE FINALS".into(), HOUR_MS), ("Brave".into(), HOUR_MS / 2)],
             over_limits: vec![("THE FINALS".into(), 132 * 60_000, 120 * 60_000)],
             suggestions: true,
@@ -1138,8 +1226,10 @@ mod tests {
         let settings = search(&c, "settings");
         assert!(settings.iter().any(|i| i.title == "Kairo settings" && i.action == Action::Dashboard(Some("settings"))));
         assert!(settings.iter().any(|i| i.title == "Chrono settings" && i.action == Action::Go("settings", None)));
-        // The theme leads to Kairo's settings, to its own control.
-        let theme = &search(&c, "theme")[0];
+        // The theme's row leads to Kairo's settings, to its own control; the themes themselves
+        // come before it (commands.rs).
+        let found = search(&c, "theme");
+        let theme = found.iter().find(|i| i.section == "Settings").expect("the setting's row");
         assert_eq!((theme.title.as_str(), theme.action.clone()), ("Theme", Action::Setting("appearance")));
         assert!(theme.action.opens_window() && !theme.action.keeps_palette_open());
     }
@@ -1205,7 +1295,8 @@ mod tests {
         assert_eq!((social.action.clone(), social.sub.as_deref()), (Action::StartFocus(25, Some("social".into()), None), Some("Blocks your “Social” list")));
         let found = search(&c, "foc");
         assert_eq!(found[0].title, "Focus");
-        assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings"));
+        // Starting a session, by the clock or until the next meeting, and the settings for one.
+        assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings" || i.title == "Focus until Design review"));
         // Nothing of Kairo's matches; only the web is offered.
         assert_eq!(search(&c, "zzzq").iter().map(|i| i.section).collect::<Vec<_>>(), ["Web"]);
     }

@@ -65,7 +65,7 @@ session; it never appears in history.
 
 | Typed | Row | Enter |
 |---|---|---|
-| `timer` | Running timers, soonest first: "Tea" with "6m left · rings at 14:32"; then a note, "Type minutes and a name: timer 10 tea" | Nothing on a timer's row; Ctrl+Enter cancels it |
+| `timer` | Running timers, soonest first: "Timer: tea" with "6m left · rings at 14:32"; then a note, "Type minutes and a name: timer 10 tea" | Nothing on a timer's row; Ctrl+Enter cancels it |
 | `timer 10 tea` | "Start a 10-minute timer", "Called “tea”" | Starts it |
 | `timer 10` | "Start a 10-minute timer", "No name" | Starts it |
 
@@ -128,14 +128,16 @@ session; it never appears in history.
 - Parsing reuses `search::after` and the minutes reading of `focus_command`, pulled out as
   `search::minutes(word) -> Option<u32>`.
 
-`Context` gains:
+`Context` gains `live: Live`, in place of its `session`: everything these commands change, kept
+together so it can be read again (`palette::live`) after a command that leaves the palette open.
 
-- `session: Option<SessionNow>` in place of `Option<Option<String>>`: `label`, `left_ms`, `paused`.
+- `now`: the local time it was read at.
+- `session: Option<SessionNow>`: `label`, `left_ms`, `paused`.
 - `strict: bool` (`blocking::strict_now`).
 - `tracking_paused: Option<Option<NaiveDateTime>>`: None while tracking; the time to resume, if
   one is set.
 - `blocked: Option<(String, String)>`: the blocked window's label and key, while it shows.
-- `timers: Vec<Timer>`.
+- `timers: Vec<TimerNow>`.
 - `theme: String`: the appearance in use.
 
 `Action` gains `Theme(&'static str)`, `Session(SessionDo)` with `Pause`, `Resume`, `Extend(u32)`,

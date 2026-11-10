@@ -57,6 +57,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              paused_at  INTEGER,
              label      TEXT
          );
+         -- Quick timers still to ring (timers.rs), by the time they end.
+         CREATE TABLE IF NOT EXISTS timers (
+             id      INTEGER PRIMARY KEY,
+             ends_ms INTEGER NOT NULL,
+             minutes INTEGER NOT NULL,
+             label   TEXT
+         );
          CREATE TABLE IF NOT EXISTS app_paths (
              exe  TEXT PRIMARY KEY,
              path TEXT NOT NULL

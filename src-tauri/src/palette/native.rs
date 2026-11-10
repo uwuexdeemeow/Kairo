@@ -1228,13 +1228,40 @@ impl Palette {
             return;
         }
         // A switch flips where it is, and the palette stays open to show its new state.
-        if item.action.keeps_palette_open() {
-            if let Action::Toggle(switch) = item.action {
-                self.flip(switch);
+        if let Action::Toggle(switch) = item.action {
+            self.flip(switch);
+            return;
+        }
+        self.act(&item.action);
+    }
+
+    /// Does what an action says. One that acts in place (a theme, pausing a session) leaves the
+    /// palette open and shows what's typed again, now that things stand differently; a row with
+    /// nothing to do leaves it as it is; anything else puts the palette away.
+    fn act(&mut self, action: &Action) {
+        if !action.acts_in_place() {
+            if !action.keeps_palette_open() {
+                self.perform(action);
             }
             return;
         }
-        self.perform(&item.action);
+        if let Err(e) = super::perform(&self.app, &self.conn, &self.app.state::<super::Index>(), action) {
+            self.fail(e);
+            return;
+        }
+        if let Some(ctx) = self.ctx.as_mut() {
+            ctx.live = super::live(&self.app, &self.conn);
+        }
+        // A theme chosen here is worn at once.
+        if let Action::Theme(mode) = action {
+            self.set_theme(theme_for(mode));
+        }
+        let (selected, scroll) = (self.selected, self.scroll);
+        self.refresh_results();
+        self.selected = choosable(&self.items, selected.min(self.items.len().saturating_sub(1)) as i64, 1).unwrap_or(0);
+        self.update_preview();
+        self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
+        self.resize();
     }
 
     /// Tells screen readers the selected row: the hidden label before the edit box takes its words,
@@ -1270,7 +1297,7 @@ impl Palette {
     /// Does what Ctrl+Enter does for item `index`; nothing for an item without a second action.
     fn run_second(&mut self, index: usize) {
         let Some((action, _)) = self.items.get(index).and_then(|i| i.second.clone()) else { return };
-        self.perform(&action);
+        self.act(&action);
     }
 
     /// Does what an item says and puts the palette away, or shows why it couldn't.

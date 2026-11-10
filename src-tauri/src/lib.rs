@@ -35,6 +35,7 @@ mod schedule;
 mod startup;
 mod sync;
 mod tasks;
+mod timers;
 mod updater;
 mod virustotal;
 
@@ -93,19 +94,44 @@ pub struct Navigation {
 pub struct PaletteItem(pub MenuItem<Wry>);
 /// The tray's App ring item, whose shortcut follows the ring's.
 pub struct RingItem(pub MenuItem<Wry>);
-/// The tray's Pause tracking item, whose words follow whether tracking is paused.
-pub struct PauseItem(pub MenuItem<Wry>, pub Arc<AtomicBool>);
+/// The tray's Pause tracking item, whose words follow whether tracking is paused; whether it is;
+/// and when a pause asked for by the minute ends (0 for one that lasts until it's resumed).
+pub struct PauseItem(pub MenuItem<Wry>, pub Arc<AtomicBool>, pub std::sync::atomic::AtomicI64);
 
 /// Pauses tracking, or resumes it: from the tray or the ring, the tray's item saying which.
 pub(crate) fn toggle_paused(app: &AppHandle) {
+    set_paused(app, !is_paused(app), None);
+}
+
+/// Pauses tracking, until `until` when there is one, or resumes it. The tray's item says which it
+/// would do next. Resuming forgets any time a pause was to end.
+pub(crate) fn set_paused(app: &AppHandle, paused: bool, until: Option<i64>) {
     let Some(item) = app.try_state::<PauseItem>() else { return };
-    let now_paused = !item.1.fetch_xor(true, Ordering::Relaxed);
-    let _ = item.0.set_text(if now_paused { "Resume tracking" } else { "Pause tracking" });
+    item.1.store(paused, Ordering::Relaxed);
+    item.2.store(until.filter(|_| paused).unwrap_or(0), Ordering::Relaxed);
+    let _ = item.0.set_text(if paused { "Resume tracking" } else { "Pause tracking" });
 }
 
 /// Whether tracking is paused now.
 pub(crate) fn is_paused(app: &AppHandle) -> bool {
     app.try_state::<PauseItem>().is_some_and(|item| item.1.load(Ordering::Relaxed))
+}
+
+/// When a pause asked for by the minute ends; None while tracking, or paused until resumed.
+pub(crate) fn paused_until(app: &AppHandle) -> Option<i64> {
+    app.try_state::<PauseItem>().map(|item| item.2.load(Ordering::Relaxed)).filter(|&until| until > 0)
+}
+
+/// Whether a pause that was to end at `until` is over at `now`; one with no end never is.
+pub(crate) fn pause_is_over(until: Option<i64>, now: i64) -> bool {
+    until.is_some_and(|until| now >= until)
+}
+
+/// Resumes tracking once a pause asked for by the minute has run out.
+pub(crate) fn resume_if_due(app: &AppHandle, now: i64) {
+    if is_paused(app) && pause_is_over(paused_until(app), now) {
+        set_paused(app, false, None);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -208,6 +234,7 @@ pub fn run() {
             let strict_waits = blocking::Waits::default();
             let browser_listening = browser::spawn(browser_tab.clone(), db_path.clone(), allowances.clone(), strict_waits.clone());
             blocking::spawn(app.handle().clone(), db_path.clone(), paused.clone(), allowances.clone());
+            app.manage(blocking::Showing::default());
             app.manage(palette::Index::default());
             palette::keep_index_fresh(app.handle());
             app.manage(palette::Session::default());
@@ -540,7 +567,7 @@ fn setup_tray(app: &tauri::App, paused: Arc<AtomicBool>, palette_shortcut: &str,
     app.manage(PaletteItem(palette_item));
     app.manage(RingItem(ring_item));
 
-    app.manage(PauseItem(pause, paused));
+    app.manage(PauseItem(pause, paused, std::sync::atomic::AtomicI64::new(0)));
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundle has an icon"))
         .tooltip("Kairo")
@@ -753,6 +780,13 @@ pub(crate) fn open_main_to(app: &AppHandle, view: &str, date: Option<NaiveDate>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pause_asked_for_by_the_minute_ends_and_one_until_resumed_does_not() {
+        assert!(!pause_is_over(Some(30 * 60_000), 29 * 60_000));
+        assert!(pause_is_over(Some(30 * 60_000), 30 * 60_000));
+        assert!(!pause_is_over(None, i64::MAX));
+    }
 
     #[test]
     fn a_left_click_on_the_tray_opens_the_dashboard() {

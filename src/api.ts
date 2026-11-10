@@ -620,8 +620,9 @@ export const api = {
    *  flipped with the palette left open instead, and the results showing its new state come back. */
   paletteRun: (seq: number, at: number) => invoke<PaletteResults | null>("palette_run", { seq, at }),
   /** Runs what Ctrl+Enter (Command+Enter on a Mac) does for item `at` of the results numbered
-   *  `seq`, then puts the palette away; nothing for an item without one. */
-  paletteRunSecond: (seq: number, at: number) => invoke<void>("palette_run_second", { seq, at }),
+   *  `seq`, then puts the palette away; nothing for an item without one. One that acts in place,
+   *  like cancelling a timer, leaves the palette open and returns fresh results. */
+  paletteRunSecond: (seq: number, at: number) => invoke<PaletteResults | null>("palette_run_second", { seq, at }),
   paletteHide: () => invoke<void>("palette_hide"),
   /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
    *  frosted glass there. */

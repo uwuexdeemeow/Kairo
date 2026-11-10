@@ -255,8 +255,41 @@ pub struct Blocked {
     reason: &'static str,
 }
 
+/// What the blocked window is showing: its label and key. Empty when it isn't up.
+#[derive(Default)]
+pub struct Showing(Mutex<Option<(String, String)>>);
+
+impl Showing {
+    fn set(&self, to: Option<(String, String)>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = to;
+    }
+
+    fn get(&self) -> Option<(String, String)> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+/// What's blocked on screen right now, as (label, key); None unless the blocked window is up.
+pub fn showing(app: &AppHandle) -> Option<(String, String)> {
+    // Closed by its own button, the window is gone though nothing said so.
+    app.get_webview_window(WINDOW_LABEL)?;
+    app.try_state::<Showing>()?.get()
+}
+
+/// Brings the blocked window forward, where strict mode's wait counts down.
+pub fn bring_forward(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn show_blocked(app: &AppHandle, blocked: &Blocked, appearance_mode: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let json = serde_json::to_string(blocked)?;
+    if let Some(showing) = app.try_state::<Showing>() {
+        showing.set(Some((blocked.label.clone(), blocked.key.clone())));
+    }
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         window.eval(format!("window.kairoBlocked && window.kairoBlocked({json})"))?;
         window.unminimize()?;
@@ -279,6 +312,9 @@ fn show_blocked(app: &AppHandle, blocked: &Blocked, appearance_mode: &str) -> st
 }
 
 pub fn close_window(app: &AppHandle) {
+    if let Some(showing) = app.try_state::<Showing>() {
+        showing.set(None);
+    }
     if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
         let _ = window.close();
     }
