@@ -80,9 +80,35 @@ pub struct Block {
     paused_ms: i64,
     completed: bool,
     label: Option<String>,
+    /// How often it spoke up about a distraction; None for a session from before that was counted.
+    nudges: Option<i64>,
 }
 
 impl Block {
+    pub fn start(&self) -> i64 {
+        self.start
+    }
+
+    pub fn end(&self) -> i64 {
+        self.end
+    }
+
+    pub fn planned_ms(&self) -> i64 {
+        self.planned_ms
+    }
+
+    pub fn completed(&self) -> bool {
+        self.completed
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    pub fn nudges(&self) -> Option<i64> {
+        self.nudges
+    }
+
     /// Time actually spent focused: the session less its pauses.
     pub fn ms(&self) -> i64 {
         (self.end - self.start - self.paused_ms).max(0)
@@ -111,10 +137,10 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-const BLOCK_COLUMNS: &str = "start_ms, COALESCE(end_ms, ?1), planned_ms, paused_ms + COALESCE(?1 - paused_at, 0), completed, label";
+const BLOCK_COLUMNS: &str = "start_ms, COALESCE(end_ms, ?1), planned_ms, paused_ms + COALESCE(?1 - paused_at, 0), completed, label, nudges";
 
 fn block(r: &rusqlite::Row) -> Result<Block> {
-    Ok(Block { start: r.get(0)?, end: r.get(1)?, planned_ms: r.get(2)?, paused_ms: r.get(3)?, completed: r.get(4)?, label: r.get(5)? })
+    Ok(Block { start: r.get(0)?, end: r.get(1)?, planned_ms: r.get(2)?, paused_ms: r.get(3)?, completed: r.get(4)?, label: r.get(5)?, nudges: r.get(6)? })
 }
 
 /// The running session, if any; an unfinished one survives a restart.
@@ -139,7 +165,7 @@ pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> 
     let label = label.map(str::trim).filter(|l| !l.is_empty()).map(|l| l.chars().take(MAX_LABEL_CHARS).collect::<String>());
     let a = Active { start_ms: now, planned_ms: minutes.min(MAX_MINUTES) as i64 * MIN_MS, paused_ms: 0, paused_at: None, label, task: None };
     conn.execute(
-        "INSERT INTO focus_sessions (start_ms, planned_ms, label) VALUES (?1, ?2, ?3)",
+        "INSERT INTO focus_sessions (start_ms, planned_ms, label, nudges) VALUES (?1, ?2, ?3, 0)",
         params![a.start_ms, a.planned_ms, a.label],
     )?;
     Ok(a)
@@ -213,6 +239,77 @@ fn complete_if_due(conn: &Connection, now: i64) -> Result<Option<Active>> {
         [],
     )?;
     Ok(Some(a))
+}
+
+/// Counts a distraction nudge against the running session, for its wrap-up.
+fn count_nudge(conn: &Connection) -> Result<()> {
+    conn.execute("UPDATE focus_sessions SET nudges = COALESCE(nudges, 0) + 1 WHERE end_ms IS NULL", [])?;
+    Ok(())
+}
+
+/// The sessions that have ended, the latest to end first.
+pub fn ended(conn: &Connection, limit: usize) -> Result<Vec<Block>> {
+    let mut stmt = conn.prepare(&format!("SELECT {BLOCK_COLUMNS} FROM focus_sessions WHERE end_ms IS NOT NULL ORDER BY end_ms DESC, id DESC LIMIT ?2"))?;
+    let rows = stmt.query_map(params![0, limit as i64], block)?;
+    rows.collect()
+}
+
+// ---------- the daily focus target ----------
+
+const TARGET_KEY: &str = "goal_focus_min";
+const TARGET_STREAK_LOOKBACK_DAYS: usize = 60;
+
+/// Minutes of focus aimed for each day; 0 means none.
+pub fn target_minutes(conn: &Connection) -> Result<u32> {
+    Ok(db::get_setting(conn, TARGET_KEY)?.and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+pub fn set_target_minutes(conn: &Connection, minutes: u32) -> Result<()> {
+    db::set_setting(conn, TARGET_KEY, &minutes.to_string())
+}
+
+/// Time focused in the sessions that started in [from, to), pauses left out; a running one
+/// counts up to `now`.
+pub fn focused_started_in(conn: &Connection, from: i64, to: i64, now: i64) -> Result<i64> {
+    Ok(blocks(conn, from, to, now)?.iter().filter(|b| b.start >= from).map(Block::ms).sum())
+}
+
+/// How a day stands against the daily focus target.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Target {
+    pub target_ms: i64,
+    pub used_ms: i64,
+    pub met: bool,
+    /// Days in a row before this one on which it was reached.
+    pub streak: u32,
+}
+
+/// The daily focus target on `date`; None when none is set.
+pub fn target(conn: &Connection, date: chrono::NaiveDate, now: i64) -> Result<Option<Target>> {
+    let target_ms = target_minutes(conn)? as i64 * MIN_MS;
+    if target_ms == 0 {
+        return Ok(None);
+    }
+    let focused = |day: chrono::NaiveDate| -> Result<Option<(i64, i64, i64)>> {
+        let Some((from, to)) = crate::analysis::day_bounds(day) else { return Ok(None) };
+        Ok(Some((focused_started_in(conn, from, to, now)?, from, to)))
+    };
+    let used_ms = focused(date)?.map_or(0, |f| f.0);
+    // Days with nothing tracked and no session (weekends away) neither count nor break it.
+    let mut streak = 0;
+    let mut day = date;
+    for _ in 0..TARGET_STREAK_LOOKBACK_DAYS {
+        let Some(prev) = day.pred_opt() else { break };
+        day = prev;
+        let Some((ms, from, to)) = focused(day)? else { break };
+        if ms >= target_ms {
+            streak += 1;
+        } else if ms > 0 || conn.query_row("SELECT EXISTS(SELECT 1 FROM sessions WHERE idle = 0 AND end_ms > ?1 AND start_ms < ?2)", [from, to], |r| r.get::<_, bool>(0))? {
+            break;
+        }
+    }
+    Ok(Some(Target { target_ms, used_ms, met: used_ms >= target_ms, streak }))
 }
 
 /// Sessions overlapping [from, to); a running one reaches to `now`.
@@ -385,7 +482,9 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     crate::resume_if_due(app, now);
 
     if let Some(done) = complete_if_due(conn, now)? {
-        notify(app, &format!("Focus session done: {}", fmt_dur(done.planned_ms)), "Nice work. A good moment to stand up for a few minutes.");
+        // How it went, in a line; the whole wrap-up waits on the Focus page.
+        let said = crate::wrapup::latest(conn, now).ok().flatten().map_or_else(|| "Nice work.".to_string(), |w| crate::wrapup::line(&w));
+        notify(app, &format!("Focus session done: {}", fmt_dur(done.planned_ms)), &said);
         // The session's end is a natural break point.
         w.stretch_since = Some(now);
         w.breaks_sent = 0;
@@ -440,6 +539,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
             if now - since >= DISTRACTION_GRACE_MS && now - w.last_distraction_nudge >= DISTRACTION_REPEAT_MS {
                 let left = fmt_dur((session.ends_ms(now) - now).max(MIN_MS));
                 notify(app, &format!("Focus session: {left} left"), &format!("{label} can wait until it's done."));
+                count_nudge(conn)?;
                 w.last_distraction_nudge = now;
             }
         }
@@ -481,8 +581,8 @@ mod tests {
         assert_eq!(
             blocks(&conn, t, t + 120 * M, t + 120 * M).unwrap(),
             vec![
-                Block { start: t, end: t + 10 * M, planned_ms: 25 * M, paused_ms: 0, completed: false, label: None },
-                Block { start: t + 10 * M, end: t + 60 * M, planned_ms: 50 * M, paused_ms: 0, completed: true, label },
+                Block { start: t, end: t + 10 * M, planned_ms: 25 * M, paused_ms: 0, completed: false, label: None, nudges: Some(0) },
+                Block { start: t + 10 * M, end: t + 60 * M, planned_ms: 50 * M, paused_ms: 0, completed: true, label, nudges: Some(0) },
             ]
         );
         assert_eq!(break_minutes(&conn).unwrap(), DEFAULT_BREAK_MIN);
@@ -518,6 +618,56 @@ mod tests {
     }
 
     #[test]
+    fn nudges_are_counted_against_the_running_session() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let t = 1_000 * M;
+        start(&conn, 25, None, t).unwrap();
+        stop(&conn, t + 5 * M).unwrap();
+        start(&conn, 25, None, t + 10 * M).unwrap();
+        count_nudge(&conn).unwrap();
+        count_nudge(&conn).unwrap();
+        stop(&conn, t + 20 * M).unwrap();
+        // With none running there's nothing to count against.
+        count_nudge(&conn).unwrap();
+        let latest_first: Vec<Option<i64>> = ended(&conn, 5).unwrap().iter().map(Block::nudges).collect();
+        assert_eq!(latest_first, [Some(2), Some(0)]);
+    }
+
+    #[test]
+    fn the_daily_target_counts_sessions_by_the_day_they_started_and_keeps_a_streak() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        let day = |ago: u64| crate::analysis::day_bounds(today - chrono::Days::new(ago)).unwrap().0;
+        let now = day(0) + 15 * 60 * M;
+        assert_eq!(target(&conn, today, now).unwrap(), None);
+        set_target_minutes(&conn, 60).unwrap();
+        let session = |from: i64, minutes: i64| {
+            start(&conn, minutes as u32, None, from).unwrap();
+            stop(&conn, from + minutes * M).unwrap();
+        };
+        // Yesterday: an hour in two sittings. Two days ago: nothing tracked at all. Three days
+        // ago: 90 minutes. Four days ago: at the computer, but only 20 minutes of focus.
+        session(day(1) + 9 * 60 * M, 40);
+        session(day(1) + 14 * 60 * M, 20);
+        session(day(3) + 9 * 60 * M, 90);
+        session(day(4) + 9 * 60 * M, 20);
+        session(day(5) + 9 * 60 * M, 120);
+        // Today: 25 minutes done, and one paused for 5 of its 20 so far.
+        session(day(0) + 9 * 60 * M, 25);
+        start(&conn, 50, None, now - 20 * M).unwrap();
+        pause(&conn, now - 5 * M).unwrap();
+        assert_eq!(target(&conn, today, now).unwrap(), Some(Target { target_ms: 60 * M, used_ms: 40 * M, met: false, streak: 2 }));
+        // A day at the computer without a session breaks it.
+        let row = db::NewSession { app: "Code", exe: "code", title: "", site: None, start_ms: day(2) + 600 * M, end_ms: day(2) + 660 * M, idle: false, demo: false };
+        db::insert_session(&conn, &row).unwrap();
+        assert_eq!(target(&conn, today, now).unwrap().unwrap().streak, 1);
+        // A session that began late yesterday and ran past midnight is yesterday's.
+        stop(&conn, now).unwrap();
+        session(day(0) - 10 * M, 60);
+        assert_eq!(target(&conn, today, day(0) + 16 * 60 * M).unwrap().unwrap().used_ms, 40 * M);
+    }
+
+    #[test]
     fn insights_compare_finish_rates_by_time_of_day_and_length() {
         use chrono::TimeZone;
         let at = |hour| chrono::Local.with_ymd_and_hms(2026, 10, 20, hour, 0, 0).unwrap().timestamp_millis();
@@ -528,6 +678,7 @@ mod tests {
             paused_ms: 0,
             completed,
             label: None,
+            nudges: None,
         };
         // Mornings: 25-minute sessions, all finished. Evenings: 90-minute ones, mostly not.
         let blocks = vec![
@@ -564,6 +715,8 @@ mod tests {
         let conn = db::open(&path).unwrap();
         let old = &recent(&conn, 5, 0).unwrap()[0];
         assert_eq!((old.ms(), old.label.as_deref()), (25 * M, None));
+        // Its nudges were never counted, which isn't the same as none.
+        assert_eq!(old.nudges, None);
         drop(conn);
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));

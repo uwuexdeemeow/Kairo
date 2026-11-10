@@ -73,7 +73,7 @@ impl Row {
     }
 
     /// What the user was "on": the site when we know it, otherwise the app.
-    fn label(&self) -> &str {
+    pub fn label(&self) -> &str {
         self.site.as_deref().unwrap_or(&self.app)
     }
 }

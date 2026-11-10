@@ -38,6 +38,7 @@ mod tasks;
 mod timers;
 mod updater;
 mod virustotal;
+mod wrapup;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -392,6 +393,7 @@ pub fn run() {
             commands::start_focus,
             commands::control_focus,
             commands::get_focus_overview,
+            commands::dismiss_focus_wrapup,
             commands::get_browsers,
             commands::allow_blocked,
             commands::close_blocked,

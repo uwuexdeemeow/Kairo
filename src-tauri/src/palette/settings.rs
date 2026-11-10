@@ -63,6 +63,7 @@ pub fn entries() -> Vec<Entry> {
     vec![
         chrono("Daily productive goal", "goal target hours day productive", "goal-productive", None),
         chrono("Daily distracting limit", "goal limit cap hours day distracting", "goal-distracting", None),
+        chrono("Daily focus target", "goal target hours day focus sessions streak", "goal-focus", None),
         chrono("Weekly productive goal", "goal target hours week productive", "goal-week-productive", None),
         chrono("Weekly distracting limit", "goal limit cap hours week distracting", "goal-week-distracting", None),
         chrono("Keep time for", "retention history how long delete old data", "retention", None),

@@ -248,11 +248,13 @@ export type Appearance = string;
 export interface GoalProgress {
   key: string;
   label: string;
-  /** "productive" is a target to reach; the others are caps not to pass. */
-  kind: "productive" | "distracting" | "limit";
+  /** "productive" and "focus" are targets to reach; the others are caps not to pass. */
+  kind: "productive" | "distracting" | "limit" | "focus";
   usedMs: number;
   targetMs: number;
   met: boolean;
+  /** The focus target's own streak, in days before this one; null for the rest. */
+  streak: number | null;
 }
 
 export interface DayGoals {
@@ -376,6 +378,35 @@ export interface FocusOverview {
   all: FocusStats;
   /** Newest first. */
   recent: FocusBlock[];
+  /** The last session's wrap-up, until it's dismissed or another starts. */
+  wrapUp: FocusWrapUp | null;
+  /** Today against the daily focus target; null with none set. */
+  target: FocusTarget | null;
+}
+
+/** How a session that ended went. */
+export interface FocusWrapUp {
+  start: number;
+  end: number;
+  plannedMs: number;
+  /** The session less its pauses. */
+  focusedMs: number;
+  /** False when it was ended early. */
+  completed: boolean;
+  label: string | null;
+  nudges: number;
+  /** Distracting apps and sites in front while it ran, biggest first. */
+  pulled: { label: string; ms: number }[];
+  /** Lines comparing it with the sessions before it. */
+  versus: string[];
+}
+
+export interface FocusTarget {
+  targetMs: number;
+  usedMs: number;
+  met: boolean;
+  /** Days in a row before today on which it was reached. */
+  streak: number;
 }
 
 export type FocusAction = "stop" | "pause" | "resume" | "extend";
@@ -385,6 +416,8 @@ export interface GoalSettings {
   distractingMaxMin: number;
   weekProductiveMin: number;
   weekDistractingMaxMin: number;
+  /** The daily focus target. */
+  focusMin: number;
 }
 
 /** A project: time whose window title or site has one of its keywords. */
@@ -461,7 +494,7 @@ export interface BlockLists {
   default: string | null;
 }
 
-export type GoalName ="productive" | "distracting" | "week-productive" | "week-distracting";
+export type GoalName = "productive" | "distracting" | "week-productive" | "week-distracting" | "focus";
 
 export type DeleteRange = "hour" | "day" | "all";
 
@@ -531,6 +564,8 @@ export const api = {
   /** Returns the session as it stands afterwards; null once it has ended. */
   controlFocus: (action: FocusAction, minutes?: number) => invoke<FocusControl>("control_focus", { action, minutes }),
   focusOverview: () => invoke<FocusOverview>("get_focus_overview"),
+  /** Puts the last session's wrap-up away. */
+  dismissFocusWrapup: () => invoke<void>("dismiss_focus_wrapup"),
   focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean; strict: boolean }>("get_focus_blocking"),
   /** Refused while strict mode guards a running session. */
   setFocusBlocking: (which: "enabled" | "launchers" | "strict", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),

@@ -1679,6 +1679,50 @@ html.palette-root {
   gap: 6px 32px;
 }
 
+/* The daily focus target, a goal of another kind under the grid of the others. */
+.goal-grid-focus {
+  margin-top: 18px;
+}
+
+.goal-focus-note {
+  margin: 10px 0 0;
+}
+
+/* How the last focus session went, on the Focus page until it's dismissed. */
+.wrapup .section-head {
+  margin-bottom: 14px;
+}
+
+.wrapup-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 28px;
+  margin: 0 0 14px;
+}
+
+.wrapup-pulled,
+.wrapup-versus {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wrapup-pulled li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.wrapup-versus {
+  margin-top: 12px;
+}
+
+.focus-target .section-head {
+  margin-bottom: 12px;
+}
+
 .goal-head {
   font-size: 12px;
   color: var(--faint);

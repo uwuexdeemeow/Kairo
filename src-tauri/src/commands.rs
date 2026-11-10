@@ -654,6 +654,10 @@ pub struct FocusOverview {
     week: focus::Stats,
     all: focus::Stats,
     recent: Vec<focus::Block>,
+    /// The last session's wrap-up, until it's dismissed or another starts.
+    wrap_up: Option<crate::wrapup::WrapUp>,
+    /// Today against the daily focus target; None with none set.
+    target: Option<focus::Target>,
 }
 
 #[tauri::command]
@@ -782,7 +786,16 @@ pub fn get_focus_overview(state: State<AppState>) -> CmdResult<FocusOverview> {
         week: focus::stats(&conn, day_start(recap::week_start(today)), now, now).map_err(err)?,
         all: focus::stats(&conn, 0, now, now).map_err(err)?,
         recent: focus::recent(&conn, 40, now).map_err(err)?,
+        wrap_up: crate::wrapup::latest(&conn, now).map_err(err)?,
+        target: focus::target(&conn, today, now).map_err(err)?,
     })
+}
+
+/// Puts the last session's wrap-up away.
+#[tauri::command]
+pub fn dismiss_focus_wrapup(state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::wrapup::dismiss(&conn).map_err(err)
 }
 
 /// Focus sessions on one local day (default today), for the timeline.
@@ -948,6 +961,8 @@ pub struct GoalSettings {
     distracting_max_min: u32,
     week_productive_min: u32,
     week_distracting_max_min: u32,
+    /// The daily focus target.
+    focus_min: u32,
 }
 
 #[tauri::command]
@@ -959,11 +974,12 @@ pub fn get_goal_settings(state: State<AppState>) -> CmdResult<GoalSettings> {
         distracting_max_min: day.distracting_max_min,
         week_productive_min: week.productive_min,
         week_distracting_max_min: week.distracting_max_min,
+        focus_min: focus::target_minutes(&conn).map_err(err)?,
     })
 }
 
-/// `kind` is "productive" (a daily target), "distracting" (a daily cap), or "week-productive" and
-/// "week-distracting" for the week; 0 minutes turns it off.
+/// `kind` is "productive" (a daily target), "distracting" (a daily cap), "focus" (the daily focus
+/// target), or "week-productive" and "week-distracting" for the week; 0 minutes turns it off.
 #[tauri::command]
 pub fn set_goal(state: State<AppState>, kind: String, minutes: u32) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;

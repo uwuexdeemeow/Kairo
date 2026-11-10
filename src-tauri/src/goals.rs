@@ -43,6 +43,8 @@ pub enum Kind {
     Distracting,
     /// At most this much time in one app or site.
     Limit,
+    /// At least this much time in focus sessions; a day's goal only, with a streak of its own.
+    Focus,
 }
 
 /// What the user has set, in minutes; 0 means off.
@@ -77,6 +79,8 @@ pub fn set_named_goal(conn: &Connection, name: &str, minutes: u32) -> Result<boo
         "distracting" => DISTRACTING_KEY,
         "week-productive" => WEEK_PRODUCTIVE_KEY,
         "week-distracting" => WEEK_DISTRACTING_KEY,
+        // The daily focus target is the focus sessions' to keep.
+        "focus" => return crate::focus::set_target_minutes(conn, minutes).map(|_| true),
         _ => return Ok(false),
     };
     db::set_setting(conn, key, &minutes.to_string())?;
@@ -146,6 +150,9 @@ pub struct Progress {
     pub target_ms: i64,
     /// A target is met once reached; a cap or limit while it isn't passed.
     pub met: bool,
+    /// The focus target's own streak: days in a row before this one it was reached. None for
+    /// the rest, which share `DayGoals::streak`.
+    pub streak: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -167,10 +174,23 @@ impl Progress {
 fn item(key: &str, label: String, kind: Kind, used_ms: i64, minutes: u32) -> Progress {
     let target_ms = minutes as i64 * MIN_MS;
     let met = match kind {
-        Kind::Productive => used_ms >= target_ms,
+        Kind::Productive | Kind::Focus => used_ms >= target_ms,
         Kind::Distracting | Kind::Limit => used_ms <= target_ms,
     };
-    Progress { key: key.to_string(), label, kind, used_ms, target_ms, met }
+    Progress { key: key.to_string(), label, kind, used_ms, target_ms, met, streak: None }
+}
+
+/// The daily focus target's row on `date`, with its own streak; None when no target is set.
+fn focus_item(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<Option<Progress>> {
+    Ok(crate::focus::target(conn, date, now_ms)?.map(|t| Progress {
+        key: "goal:focus".into(),
+        label: "Focus time".into(),
+        kind: Kind::Focus,
+        used_ms: t.used_ms,
+        target_ms: t.target_ms,
+        met: t.met,
+        streak: Some(t.streak),
+    }))
 }
 
 /// Progress on every goal over `rows`; `labels` names app limits with no time in `rows`.
@@ -247,10 +267,13 @@ fn streak(conn: &Connection, goals: &Goals, date: NaiveDate, now_ms: i64) -> Res
 
 pub fn for_day(conn: &Connection, date: NaiveDate, now_ms: i64) -> Result<DayGoals> {
     let goals = load(conn)?;
+    // The focus target follows the others and keeps its own streak, so theirs is as it was.
+    let focus = focus_item(conn, date, now_ms)?;
     if goals.is_empty() {
-        return Ok(DayGoals { items: Vec::new(), streak: 0 });
+        return Ok(DayGoals { items: focus.into_iter().collect(), streak: 0 });
     }
-    let items = progress(&goals, &rows_for(conn, date, now_ms)?, &labels(conn, &goals)?);
+    let mut items = progress(&goals, &rows_for(conn, date, now_ms)?, &labels(conn, &goals)?);
+    items.extend(focus);
     Ok(DayGoals { items, streak: streak(conn, &goals, date, now_ms)? })
 }
 
@@ -345,6 +368,8 @@ fn alert(p: &Progress) -> Option<(i64, String, String)> {
             Some((DONE, format!("Goal reached: {target} of productive time"), format!("You've put in {used} of focused work today.")))
         }
         Kind::Productive => None,
+        Kind::Focus if p.met => Some((DONE, format!("Goal reached: {target} of focus"), format!("You've focused for {used} today."))),
+        Kind::Focus => None,
         Kind::Distracting if !p.met => {
             Some((DONE, "Distracting time limit passed".into(), format!("{used} of distractions today, over your {target} limit.")))
         }
@@ -415,7 +440,7 @@ pub fn spawn(app: AppHandle, db_path: PathBuf, paused: Arc<AtomicBool>) {
 
 fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let (goals, week_goals) = (load(conn)?, load_week(conn)?);
-    if goals.is_empty() && week_goals.is_empty() {
+    if goals.is_empty() && week_goals.is_empty() && crate::focus::target_minutes(conn)? == 0 {
         return Ok(());
     }
     let now = chrono::Utc::now().timestamp_millis();
@@ -443,6 +468,9 @@ fn check(app: &AppHandle, conn: &Connection) -> std::result::Result<(), Box<dyn 
         for p in week_status(conn, &week_goals, monday, now)?.1 {
             due.extend(week_alert(&p).map(|a| (week.clone(), p.key.clone(), a)));
         }
+    }
+    if let Some(p) = focus_item(conn, today, now)? {
+        due.extend(alert(&p).map(|a| (day.clone(), p.key.clone(), a)));
     }
     for (when, key, (level, title, body)) in due {
         let sent: Option<i64> =
@@ -549,6 +577,40 @@ mod tests {
         }
         let now = analysis::day_bounds(today).unwrap().1;
         assert_eq!(for_day(&conn, today, now).unwrap().streak, 2);
+    }
+
+    #[test]
+    fn the_focus_target_follows_the_other_goals_and_leaves_their_streak_alone() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 20).unwrap();
+        let day = |ago: u64| analysis::day_bounds(today - chrono::Days::new(ago)).unwrap().0;
+        let now = day(0) + 12 * 60 * MIN_MS;
+        // Yesterday: under the distracting cap, but no focus session.
+        let row = db::NewSession { app: "Discord", exe: "discord", title: "", site: None, start_ms: day(1) + 600 * MIN_MS, end_ms: day(1) + 630 * MIN_MS, idle: false, demo: false };
+        db::insert_session(&conn, &row).unwrap();
+        crate::focus::start(&conn, 45, None, day(0) + 60 * MIN_MS).unwrap();
+        crate::focus::stop(&conn, day(0) + 105 * MIN_MS).unwrap();
+
+        // On its own, it's the only row, and the Goals box has something to show.
+        assert!(set_named_goal(&conn, "focus", 30).unwrap());
+        let alone = for_day(&conn, today, now).unwrap();
+        assert_eq!(alone.items.len(), 1);
+        let p = &alone.items[0];
+        assert_eq!((p.key.as_str(), p.label.as_str(), p.kind, p.used_ms, p.target_ms, p.met, p.streak), ("goal:focus", "Focus time", Kind::Focus, 45 * MIN_MS, 30 * MIN_MS, true, Some(0)));
+
+        // With the others it comes last, and yesterday still counts toward their streak.
+        set_named_goal(&conn, "distracting", 60).unwrap();
+        let both = for_day(&conn, today, now).unwrap();
+        assert_eq!(both.items.iter().map(|p| p.key.as_str()).collect::<Vec<_>>(), ["goal:distracting", "goal:focus"]);
+        assert_eq!((both.streak, both.items[0].streak, both.items[1].streak), (1, None, Some(0)));
+
+        let (level, title, body) = alert(&both.items[1]).unwrap();
+        assert_eq!((level, title.as_str(), body.as_str()), (DONE, "Goal reached: 30m of focus", "You've focused for 45m today."));
+        set_named_goal(&conn, "focus", 120).unwrap();
+        assert!(alert(&for_day(&conn, today, now).unwrap().items[1]).is_none());
+        // Off, the row goes.
+        set_named_goal(&conn, "focus", 0).unwrap();
+        assert_eq!(for_day(&conn, today, now).unwrap().items.len(), 1);
     }
 
     #[test]

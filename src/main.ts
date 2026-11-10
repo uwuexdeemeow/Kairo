@@ -9,6 +9,7 @@ import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay,
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
+import { renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
@@ -441,11 +442,15 @@ function renderGoalBox(id: string, g: DayGoals, streak: string) {
   $(`#${id}-streak`).textContent = streak;
   $(`#${id}-list`).replaceChildren(
     ...g.items.map((p) => {
-      const over = !p.met && p.kind !== "productive";
-      const tone = p.kind === "productive" ? "productive" : over ? "distracting" : "neutral";
+      // Productive time and focus are targets to reach; the rest are caps not to pass.
+      const target = p.kind === "productive" || p.kind === "focus";
+      const over = !p.met && !target;
+      const tone = target ? "productive" : over ? "distracting" : "neutral";
       const fill = h("div", { class: `line ${tone}` });
       fill.style.width = `${p.targetMs ? Math.min(p.usedMs / p.targetMs, 1) * 100 : 0}%`;
-      const value = over ? `${fmtGoal(p.usedMs)} · ${fmtDur(p.usedMs - p.targetMs)} over` : `${fmtGoal(p.usedMs)} of ${fmtDur(p.targetMs)}`;
+      // The focus target keeps a streak of its own, said with it.
+      const own = p.streak ? ` · ${p.streak}-day streak` : "";
+      const value = over ? `${fmtGoal(p.usedMs)} · ${fmtDur(p.usedMs - p.targetMs)} over` : `${fmtGoal(p.usedMs)} of ${fmtDur(p.targetMs)}${own}`;
       return h(
         "div",
         { class: `usage goal${over ? " over" : ""}` },
@@ -1006,6 +1011,8 @@ const WEEK_PRODUCTIVE_CHOICES = [0, 300, 600, 900, 1200, 1500, 1800, 2400];
 /// A project's weekly target: an hour up to a full working week.
 const PROJECT_TARGET_CHOICES = [0, 60, 120, 180, 300, 420, 600, 900, 1200, 1800, 2400];
 const WEEK_DISTRACTING_CHOICES = [0, 120, 180, 300, 420, 600, 840];
+/// The daily focus target: half an hour of sessions up to five hours.
+const FOCUS_TARGET_CHOICES = [0, 30, 60, 90, 120, 180, 240, 300];
 
 /// A minutes picker where 0 is "off"; a saved value outside the presets is kept as an option.
 function minutesSelect(choices: number[], current: number, label: string, offText = "None"): HTMLSelectElement {
@@ -1025,6 +1032,7 @@ function renderGoalSettings(s: GoalSettings) {
     ["#goal-distracting", DISTRACTING_CHOICES, s.distractingMaxMin, "distracting"],
     ["#goal-week-productive", WEEK_PRODUCTIVE_CHOICES, s.weekProductiveMin, "week-productive"],
     ["#goal-week-distracting", WEEK_DISTRACTING_CHOICES, s.weekDistractingMaxMin, "week-distracting"],
+    ["#goal-focus", FOCUS_TARGET_CHOICES, s.focusMin, "focus"],
   ] as const) {
     const fresh = minutesSelect([...choices], current, "", "Off");
     const select = $<HTMLSelectElement>(id);
@@ -1595,6 +1603,8 @@ function setUpScheduleForm() {
 setUpScheduleForm();
 
 function renderFocusPage(o: FocusOverview) {
+  renderWrapUp($("#focus-wrapup"), o.wrapUp, api.dismissFocusWrapup);
+  renderFocusTarget($("#focus-target"), o.target);
   const finished = o.all.sessions ? `${Math.round((o.all.completed / o.all.sessions) * 100)}%` : "—";
   $("#focus-stats").replaceChildren(
     stat("Today", String(o.today.sessions), o.today.sessions ? fmtDur(o.today.focusedMs) : ""),
