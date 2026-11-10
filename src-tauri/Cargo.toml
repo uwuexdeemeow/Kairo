@@ -77,6 +77,8 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 libc = "0.2"
 x11rb = { version = "0.13", features = ["screensaver"] }
 zbus = "5"
+# Coloring the window's title bar to the theme; the version Tauri already builds.
+gtk = "0.18"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [

@@ -95,6 +95,70 @@ pub fn apply_to(window: &WebviewWindow, mode: &str) {
     }
     let ground = ground_of(mode).unwrap_or_else(|| system_ground(window.theme().ok() == Some(Theme::Light)));
     let _ = window.set_background_color(Some(page_color(ground)));
+    tint_caption(window, ground);
+}
+
+/// Windows 11 lets the title bar take a color: the page's own ground, with the ground's ink on it,
+/// so the bar reads as part of the page. Windows 10 refuses both and keeps the system's bar.
+#[cfg(windows)]
+fn tint_caption(window: &WebviewWindow, ground: &Ground) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR};
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    // COLORREF is 0x00BBGGRR; the grounds are 0xRRGGBB.
+    let colorref = |rgb: u32| COLORREF(((rgb & 0xff) << 16) | (rgb & 0xff00) | (rgb >> 16 & 0xff));
+    let (caption, text, border) = (colorref(ground.bg), colorref(ground.ink), colorref(ground.line));
+    unsafe {
+        let hwnd = HWND(hwnd.0);
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, (&border as *const COLORREF).cast(), 4);
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, (&caption as *const COLORREF).cast(), 4);
+        let _ = DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, (&text as *const COLORREF).cast(), 4);
+    }
+}
+
+/// On a Mac the bar is made see-through, so the window's own color (set just before this) shows in
+/// it; its text follows the window's light or dark theme, already set.
+#[cfg(target_os = "macos")]
+fn tint_caption(window: &WebviewWindow, _ground: &Ground) {
+    let _ = window.set_title_bar_style(tauri::TitleBarStyle::Transparent);
+}
+
+/// On Linux the bar is GTK's own header bar, colored with a style rule of the ground's colors.
+/// A desktop that draws the bar itself (no header bar for GTK to style) keeps its own.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn tint_caption(window: &WebviewWindow, ground: &Ground) {
+    use gtk::prelude::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        /// The rule each window carries now, so a new theme takes the old one out.
+        static RULES: RefCell<HashMap<String, gtk::CssProvider>> = RefCell::new(HashMap::new());
+    }
+
+    let (bg, ink, line) = (ground.bg, ground.ink, ground.line);
+    let label = window.label().to_string();
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let Ok(gtk_window) = target.gtk_window() else { return };
+        let Some(bar) = gtk_window.titlebar() else { return };
+        let css = format!(
+            "headerbar, .titlebar {{ background: #{bg:06x}; background-image: none; color: #{ink:06x}; border-color: #{line:06x}; box-shadow: none; }} \
+             headerbar button, headerbar label {{ color: #{ink:06x}; }}"
+        );
+        let provider = gtk::CssProvider::new();
+        if provider.load_from_data(css.as_bytes()).is_err() {
+            return;
+        }
+        let context = bar.style_context();
+        RULES.with(|rules| {
+            if let Some(old) = rules.borrow_mut().insert(label, provider.clone()) {
+                context.remove_provider(&old);
+            }
+        });
+        context.add_provider(&provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+    });
 }
 
 pub fn apply(app: &AppHandle, mode: &str) {
