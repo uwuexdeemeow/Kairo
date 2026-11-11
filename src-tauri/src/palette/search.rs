@@ -11,6 +11,7 @@ use super::mode::{self, Mode};
 use super::settings::{self, Switch};
 use super::AppEntry;
 use crate::analysis::Category;
+use crate::system::{Power, Program};
 
 const MAX_APPS: usize = 6;
 /// Rows `tasks` lists at most.
@@ -293,6 +294,17 @@ pub enum Action {
     Pomodoro(Option<u32>, Option<u32>, Option<String>, Option<String>),
     /// Empties the clipboard history.
     ClearClips,
+    /// Locks or sleeps the computer, at once.
+    Power(Power),
+    /// The first Enter on logging out, restarting or shutting down: nothing happens yet but the
+    /// row asks again. The text is what was typed.
+    ConfirmPower(Power, String),
+    /// The second Enter.
+    PowerNow(Power),
+    /// Leaves what was waiting to be confirmed.
+    CancelPower,
+    /// Ends every process of the program with this name.
+    Kill(String),
     /// Adds a task to Ledger, from quick-add text.
     AddTask(String),
     /// Opens Ledger.
@@ -389,6 +401,8 @@ impl Action {
             Action::Theme(..)
                 | Action::Session(SessionDo::Pause | SessionDo::Resume | SessionDo::Extend(..))
                 | Action::CancelTimer(..)
+                | Action::ConfirmPower(..)
+                | Action::CancelPower
                 | Action::PauseTracking(..)
                 | Action::ResumeTracking
         )
@@ -524,6 +538,8 @@ pub struct Live {
     /// The latest copies, newest first; None while the clipboard history is off. Only ever shown
     /// for a query led by `clip`.
     pub clips: Option<Vec<ClipNow>>,
+    /// What is waiting for its second Enter, with the text it was asked for in.
+    pub pending_power: Option<(Power, String)>,
     /// Whether strict mode holds the session: ending it and allowing a blocked app wait first.
     pub strict: bool,
     /// None while tracking; paused, until the time inside when there is one.
@@ -573,6 +589,8 @@ pub struct Context {
     /// The next meeting on the user's calendars: its title, when it starts, and how far off that
     /// is from now, in milliseconds.
     pub next_meeting: Option<(String, NaiveDateTime, i64)>,
+    /// The programs running as the palette opened, for `kill`.
+    pub programs: Vec<Program>,
 }
 
 pub fn fmt_dur(ms: i64) -> String {
@@ -1241,6 +1259,7 @@ pub(super) mod tests {
             windows: Vec::new(),
             can_close_windows: true,
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
+            programs: Vec::new(),
         }
     }
 

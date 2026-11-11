@@ -15,6 +15,7 @@ mod demo;
 mod evening;
 mod focus;
 mod pomodoro;
+mod system;
 mod goals;
 mod ledger;
 mod lists;
@@ -274,6 +275,7 @@ pub fn run() {
             });
             calendar::spawn(db_path.clone());
             app.manage(clipboard::Shared::new(clipboard::enabled(&conn)?));
+            app.manage(system::PendingPower::default());
             clipboard::spawn(app.handle().clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());

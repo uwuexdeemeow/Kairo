@@ -369,6 +369,8 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         .collect();
     let footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
     let subjects = cards::subjects(conn, &apps).unwrap_or_default();
+    // Nothing is left waiting for a second Enter from the last time it was open.
+    tauri::Manager::state::<crate::system::PendingPower>(app).clear();
     let ctx = Context {
         today,
         apps,
@@ -393,6 +395,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
             .collect(),
         windows,
         can_close_windows: crate::platform::can_close_windows(),
+        programs: crate::system::programs(&crate::platform::processes(), std::process::id()),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
             Some((m.title, at, m.start_ms - now))
@@ -411,6 +414,7 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
         now: Local::now().naive_local(),
         session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
         cycle: crate::pomodoro::current(conn, now).ok().flatten().map(|c| search::CycleNow { round: c.round, rounds: c.rounds, on_break: c.on_break, left_ms: c.break_left_ms, waiting: c.waiting }),
+        pending_power: tauri::Manager::state::<crate::system::PendingPower>(app).get(),
         clips: tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now).map(|all| all.into_iter().map(|(text, age_ms)| search::ClipNow { text, age_ms }).collect()),
         strict: crate::blocking::strict_now(conn).unwrap_or(false),
         tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
@@ -495,6 +499,19 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::Pomodoro(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
+        Action::Power(power) | Action::PowerNow(power) => {
+            tauri::Manager::state::<crate::system::PendingPower>(app).clear();
+            crate::system::run(*power)
+        }
+        Action::ConfirmPower(power, typed) => {
+            tauri::Manager::state::<crate::system::PendingPower>(app).set(*power, typed.clone());
+            Ok(())
+        }
+        Action::CancelPower => {
+            tauri::Manager::state::<crate::system::PendingPower>(app).clear();
+            Ok(())
+        }
+        Action::Kill(name) => crate::system::kill_named(name).map(|_| ()),
         Action::ClearClips => {
             tauri::Manager::state::<crate::clipboard::Shared>(app).clear();
             Ok(())
@@ -1257,6 +1274,7 @@ mod tests {
             windows: Vec::new(),
             can_close_windows: false,
             next_meeting: None,
+            programs: Vec::new(),
         }
     }
 

@@ -600,3 +600,29 @@ Use two machines (any systems), both online, neither combining through a folder.
    "Nothing copied since Kairo started".
 6. **Linux (Wayland).** Copy text and type `clip`. *Expect:* either the copy, or the empty note if
    the desktop refuses clipboard reads from a background program.
+
+## Any system: system commands
+
+Do these on a machine with nothing unsaved. Don't run them in a test copy on a machine that is
+doing something else.
+
+1. **Lock.** Type `lock` and press Enter. *Expect:* the screen locks at once; signing back in finds
+   Kairo still running.
+2. **Sleep.** Type `sleep` and press Enter. *Expect:* the computer sleeps (a Windows laptop with
+   hibernate on still sleeps, it doesn't hibernate) and wakes with a key.
+3. **Asking twice.** Type `shut down` and press Enter. *Expect:* nothing shuts down; the row now
+   says "Confirm: shut down" in the warm colour with Cancel under it. Press Esc, open the palette
+   and type `shut down` again. *Expect:* it's a plain "Shut down" row again. Press Enter, then type
+   `x`. *Expect:* the confirmation is gone. Do the same for `restart` and `log out`.
+4. **Doing it.** Type `restart`, Enter, Enter. *Expect:* the computer restarts; with a program that
+   has unsaved work open, Windows or macOS asks about it first and doesn't force it. Try `log out`
+   the same way. On a Mac, the first time: macOS asks to let Kairo control System Events; allow it.
+5. **Kill.** Open a browser with several windows and type `kill ` and part of its name. *Expect:*
+   its row with how many processes it has; Enter ends them all. Try a program that runs as
+   administrator. *Expect:* "Couldn't end <name>. It may be running as administrator."
+6. **Never listed.** Type `kill kairo`, `kill system` and `kill webview`. *Expect:* none of them
+   offers Kairo, the web view or a system process.
+7. **Two letters.** Type `re`, `sh`, `lo` and `sl`. *Expect:* no system rows; three letters of a
+   word (like `res` or `shu`) offer them below the apps.
+8. **Linux.** `lock`, `sleep` and a shut-down confirmation on a desktop with systemd. *Expect:* as
+   above; on a desktop without `loginctl`, the lock row says it couldn't.

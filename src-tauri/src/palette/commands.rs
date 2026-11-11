@@ -8,6 +8,7 @@ use chrono::Duration;
 use super::mode::Mode;
 use super::search::{after, fmt_dur, fuzzy, minutes_and_label, note_row, task_for, Action, Context, Glyph, Icon, Item, Preview, SessionDo, TimerNow, Tone};
 use crate::blocking::ALLOW_MINUTES;
+use crate::system::Power;
 use crate::timers::MAX_RUNNING;
 
 /// Where a command typed outright sits: at the top, with the focus command.
@@ -89,6 +90,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(session_rows(ctx, query));
     items.extend(pomodoro_rows(ctx, query));
     items.extend(clip_rows(ctx, query));
+    items.extend(system_rows(ctx, query));
     items.extend(allow_rows(ctx, query));
     items.extend(timer_rows(ctx, query));
     items.extend(tracking_rows(ctx, query));
@@ -269,6 +271,86 @@ fn pomodoro_rows(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(row(title, glyph, "Focus", Action::Session(SessionDo::End), status, p));
     }
     items
+}
+
+// ---------- the computer itself ----------
+
+/// `kill` lists at most this many programs.
+const MAX_KILL_ROWS: usize = 8;
+
+/// Where a system command's row sits: as `placed`, but found by other words only once three
+/// characters are typed, so two letters never offer to restart the computer.
+fn system_placed(q: &str, exact: &[&str], title: &str, words: &str) -> Option<(f64, Vec<usize>)> {
+    let place = placed(q, exact, title, words)?;
+    (place.0 >= LEAD || q.chars().count() >= 3).then_some(place)
+}
+
+/// What was typed, as a confirmation waiting for its second Enter remembers it.
+fn typed_form(q: &str) -> String {
+    q.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// What follows `kill`, `end task` or `force quit` when the query starts with one as a word.
+fn kill_typed(q: &str) -> Option<&str> {
+    ["end task", "force quit", "kill"].iter().find_map(|word| after(q, word).filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace)).map(str::trim))
+}
+
+/// Lock and sleep act at once; logging out, restarting and shutting down ask twice: the first
+/// Enter turns the row into Confirm, with Cancel under it, and the second does it. `kill` lists
+/// the running programs it names.
+fn system_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let typed = typed_form(q);
+    let mut items = Vec::new();
+    for power in Power::ALL {
+        let (exact, words) = power.words();
+        let Some(place) = system_placed(q, exact, power.title(), words) else { continue };
+        let waiting = ctx.live.pending_power.as_ref().is_some_and(|(kind, text)| *kind == power && *text == typed);
+        if waiting {
+            let mut confirm = Item::new(format!("Confirm: {}", power.verb()), Icon::Glyph(Glyph::Alert, Tone::Warm), "System", Action::PowerNow(power));
+            confirm.sub = Some("Press Enter to do it now. Anything else cancels".into());
+            confirm.score = place.0 + 0.5;
+            let mut cancel = Item::new("Cancel", Icon::Glyph(Glyph::Alert, Tone::Plain), "System", Action::CancelPower);
+            cancel.sub = Some("Keep working".into());
+            cancel.score = place.0 + 0.4;
+            items.extend([confirm, cancel]);
+        } else if power.confirms() {
+            items.push(row(power.title(), Glyph::Alert, "System", Action::ConfirmPower(power, typed.clone()), power.about(), place));
+        } else {
+            items.push(row(power.title(), Glyph::Settings, "System", Action::Power(power), power.about(), place));
+        }
+    }
+    items.extend(kill_rows(ctx, q));
+    items
+}
+
+fn kill_rows(ctx: &Context, q: &str) -> Vec<Item> {
+    let Some(rest) = kill_typed(q) else { return Vec::new() };
+    let note = |text: String| {
+        let mut item = note_row(text, Glyph::Alert, "System");
+        item.score = LEAD;
+        vec![item]
+    };
+    if rest.is_empty() {
+        return note("Type a program's name, like kill chrome".into());
+    }
+    let mut found: Vec<_> = ctx.programs.iter().filter_map(|p| fuzzy(rest, &p.name).map(|m| (m.score, m.at, p))).collect();
+    found.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.name.cmp(&b.2.name)));
+    found.truncate(MAX_KILL_ROWS);
+    if found.is_empty() {
+        return note(format!("No running program matches “{rest}”"));
+    }
+    found
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, at, program))| {
+            let title = format!("Kill {}", program.name);
+            let count = if program.count == 1 { "1 process, lost with its unsaved work".to_string() } else { format!("{} processes, lost with their unsaved work", program.count) };
+            // The highlight is on the name, which comes after "Kill ".
+            let at = at.into_iter().map(|c| c + "Kill ".chars().count()).collect();
+            row(title, Glyph::Alert, "System", Action::Kill(program.name.clone()), format!("Ends it at once · {count}"), (LEAD - i as f64 / 100.0, at))
+        })
+        .collect()
 }
 
 // ---------- clipboard history ----------
@@ -901,5 +983,79 @@ mod tests {
         assert_eq!(search_in(&c, Mode::Clipboard, "")[0].title, "Nothing copied since Kairo started");
         c.live.clips = None;
         assert_eq!(search_in(&c, Mode::Clipboard, "")[0].action, Action::Setting("clipboard-history"));
+    }
+    #[test]
+    fn lock_and_sleep_act_at_once() {
+        let c = ctx();
+        for (q, power) in [("lock", Power::Lock), ("lock screen", Power::Lock), ("sleep", Power::Sleep), ("suspend", Power::Sleep)] {
+            let first = &search(&c, q)[0];
+            assert_eq!((first.action.clone(), first.section), (Action::Power(power), "System"), "{q}");
+        }
+        assert!(!Action::Power(Power::Lock).keeps_palette_open());
+    }
+
+    #[test]
+    fn shutting_down_asks_twice_and_cancel_or_other_typing_leaves_it() {
+        let mut c = ctx();
+        for (q, power) in [("shut down", Power::ShutDown), ("shutdown", Power::ShutDown), ("restart", Power::Restart), ("reboot", Power::Restart), ("log out", Power::LogOut), ("sign out", Power::LogOut)] {
+            let first = &search(&c, q)[0];
+            assert_eq!(first.action, Action::ConfirmPower(power, q.to_string()), "{q}");
+            assert!(first.action.acts_in_place(), "{q}");
+        }
+        // The first Enter was on "shut down": now the top row confirms, with Cancel under it.
+        c.live.pending_power = Some((Power::ShutDown, "shut down".into()));
+        let rows = search(&c, "shut down");
+        assert_eq!((rows[0].title.as_str(), rows[0].action.clone()), ("Confirm: shut down", Action::PowerNow(Power::ShutDown)));
+        assert_eq!((rows[1].title.as_str(), rows[1].action.clone()), ("Cancel", Action::CancelPower));
+        assert!(Action::CancelPower.acts_in_place() && !Action::PowerNow(Power::ShutDown).keeps_palette_open());
+        // Typing something else, or another command, doesn't carry it over.
+        assert!(!search(&c, "shut dow").iter().any(|i| i.action == Action::PowerNow(Power::ShutDown)));
+        assert_eq!(search(&c, "restart")[0].action, Action::ConfirmPower(Power::Restart, "restart".into()));
+        // Spaces and capitals don't make it a different thing.
+        assert_eq!(search(&c, "  Shut   DOWN ")[0].action, Action::PowerNow(Power::ShutDown));
+    }
+
+    #[test]
+    fn two_letters_never_offer_to_end_a_session_of_the_computer() {
+        let c = ctx();
+        for q in ["re", "sh", "lo", "sl"] {
+            assert!(!search(&c, q).iter().any(|i| i.section == "System"), "{q}");
+        }
+        // Found by other words from three characters on, below the apps.
+        let loose = search(&c, "power");
+        assert!(loose.iter().any(|i| i.action == Action::ConfirmPower(Power::ShutDown, "power".into())));
+    }
+
+    #[test]
+    fn kill_lists_the_matching_programs_with_how_many_processes_each_has() {
+        use crate::system::Program;
+        let mut c = ctx();
+        c.programs = vec![
+            Program { name: "chrome".into(), count: 12 },
+            Program { name: "chromedriver".into(), count: 1 },
+            Program { name: "code".into(), count: 4 },
+        ];
+        let rows = search(&c, "kill chrome");
+        let shown: Vec<(&str, Action)> = rows.iter().filter(|i| i.section == "System").map(|i| (i.title.as_str(), i.action.clone())).collect();
+        assert_eq!(shown, [("Kill chrome", Action::Kill("chrome".into())), ("Kill chromedriver", Action::Kill("chromedriver".into()))]);
+        assert_eq!(rows[0].sub.as_deref(), Some("Ends it at once · 12 processes, lost with their unsaved work"));
+        assert!(rows[1].sub.as_deref().unwrap().contains("1 process,"));
+        assert_eq!(search(&c, "end task code")[0].action, Action::Kill("code".into()));
+        assert_eq!(search(&c, "force quit code")[0].action, Action::Kill("code".into()));
+        // Typed alone it says what to type; with nothing matching, that.
+        assert_eq!(search(&c, "kill")[0].title, "Type a program's name, like kill chrome");
+        assert_eq!(search(&c, "kill zzzq")[0].title, "No running program matches “zzzq”");
+        // Never from an ordinary search, and never the same word as a longer one.
+        assert!(!search(&c, "chrome").iter().any(|i| matches!(i.action, Action::Kill(..))));
+        assert!(!search(&c, "killer").iter().any(|i| matches!(i.action, Action::Kill(..))));
+        assert!(!Action::Kill("chrome".into()).keeps_palette_open());
+    }
+
+    #[test]
+    fn kill_lists_no_more_than_eight() {
+        use crate::system::Program;
+        let mut c = ctx();
+        c.programs = (0..20).map(|i| Program { name: format!("worker{i:02}"), count: 1 }).collect();
+        assert_eq!(search(&c, "kill worker").iter().filter(|i| matches!(i.action, Action::Kill(..))).count(), MAX_KILL_ROWS);
     }
 }
