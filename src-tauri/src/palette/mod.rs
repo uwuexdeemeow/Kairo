@@ -410,6 +410,7 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
     search::Live {
         now: Local::now().naive_local(),
         session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
+        cycle: crate::pomodoro::current(conn, now).ok().flatten().map(|c| search::CycleNow { round: c.round, rounds: c.rounds, on_break: c.on_break, left_ms: c.break_left_ms, waiting: c.waiting }),
         strict: crate::blocking::strict_now(conn).unwrap_or(false),
         tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
         blocked: crate::blocking::showing(app),
@@ -489,6 +490,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         // Starting anew ends the running session, which strict mode only allows after its wait.
         Action::StartFocus(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
+        }
+        Action::Pomodoro(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
+            Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
+        }
+        Action::Pomodoro(work, rest, label, task) => {
+            use tauri::Emitter;
+            crate::pomodoro::start(conn, *work, *rest, label.as_deref(), task.as_deref(), now_ms()).map_err(|e| e.to_string())?;
+            let _ = app.emit("kairo:focus", ());
+            Ok(())
         }
         Action::StartFocus(minutes, label, task) => focus::start_by_hand(conn, *minutes, label.as_deref(), task.as_deref(), now_ms()).map(|_| ()).map_err(|e| e.to_string()),
         Action::AddTask(text) => crate::commands::add_task_from(app, conn, text).map(|_| ()),
@@ -582,6 +592,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
                 search::SessionDo::Resume => focus::resume(conn, now),
                 search::SessionDo::Extend(minutes) => focus::extend(conn, *minutes),
                 search::SessionDo::End => focus::stop(conn, now),
+                search::SessionDo::SkipBreak => crate::pomodoro::skip_break(conn, now).map(|_| ()),
             }
             .map_err(|e| e.to_string())?;
             // An open Focus page reads the session again now rather than at its next poll.

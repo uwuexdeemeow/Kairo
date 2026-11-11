@@ -200,6 +200,40 @@ pub fn start_focus(state: State<AppState>, minutes: u32, label: Option<String>, 
     focus::start_by_hand(&conn, minutes, label.as_deref(), task.as_deref(), now_ms()).map_err(err)
 }
 
+/// Starts a pomodoro cycle: rounds of `minutes` (the saved length without it) with `rest` minutes
+/// between, ending any session that is running.
+#[tauri::command]
+pub fn start_pomodoro(state: State<AppState>, minutes: Option<u32>, rest: Option<u32>, label: Option<String>, task: Option<String>) -> CmdResult<()> {
+    if minutes.is_some_and(|m| !(1..=focus::MAX_MINUTES).contains(&m)) {
+        return Err(format!("a round runs 1 to {} minutes", focus::MAX_MINUTES));
+    }
+    let conn = state.db.lock().map_err(err)?;
+    if blocking::strict_now(&conn).map_err(err)? {
+        return Err("Strict mode is on: end the current session first.".into());
+    }
+    crate::pomodoro::start(&conn, minutes, rest, label.as_deref(), task.as_deref(), now_ms()).map(|_| ()).map_err(err)
+}
+
+/// Ends the break and starts the next round now.
+#[tauri::command]
+pub fn skip_pomodoro_break(state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::pomodoro::skip_break(&conn, now_ms()).map(|_| ()).map_err(err)
+}
+
+#[tauri::command]
+pub fn get_pomodoro_lengths(state: State<AppState>) -> CmdResult<crate::pomodoro::Lengths> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::pomodoro::lengths(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_pomodoro_lengths(state: State<AppState>, lengths: crate::pomodoro::Lengths) -> CmdResult<crate::pomodoro::Lengths> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::pomodoro::set_lengths(&conn, lengths).map_err(err)?;
+    crate::pomodoro::lengths(&conn).map_err(err)
+}
+
 /// Every change to the task list travels to combined computers, and every open window hears of
 /// it; then the page gets the new list.
 pub(crate) fn tasks_changed(app: &AppHandle, conn: &rusqlite::Connection) -> CmdResult<Vec<tasks::Task>> {
@@ -658,6 +692,8 @@ pub struct FocusOverview {
     wrap_up: Option<crate::wrapup::WrapUp>,
     /// Today against the daily focus target; None with none set.
     target: Option<focus::Target>,
+    /// The pomodoro cycle that's on, if one is: a round running or a break.
+    cycle: Option<crate::pomodoro::Status>,
 }
 
 #[tauri::command]
@@ -788,6 +824,7 @@ pub fn get_focus_overview(state: State<AppState>) -> CmdResult<FocusOverview> {
         recent: focus::recent(&conn, 40, now).map_err(err)?,
         wrap_up: crate::wrapup::latest(&conn, now).map_err(err)?,
         target: focus::target(&conn, today, now).map_err(err)?,
+        cycle: crate::pomodoro::current(&conn, now).map_err(err)?,
     })
 }
 

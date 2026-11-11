@@ -357,6 +357,8 @@ export interface LedgerSettings {
 }
 
 export interface FocusBlock {
+  /** The pomodoro cycle it was a round of, if it was. */
+  cycle: number | null;
   start: number;
   end: number;
   plannedMs: number;
@@ -382,6 +384,38 @@ export interface FocusOverview {
   wrapUp: FocusWrapUp | null;
   /** Today against the daily focus target; null with none set. */
   target: FocusTarget | null;
+  /** The pomodoro cycle that's on, a round running or a break; null with none. */
+  cycle: PomodoroStatus | null;
+}
+
+/** A pomodoro cycle that's on. */
+export interface PomodoroStatus {
+  /** The round running, or on a break the one next, from 1. */
+  round: number;
+  rounds: number;
+  onBreak: boolean;
+  longBreak: boolean;
+  breakLeftMs: number;
+  /** The break is over and the next round waits for you to come back. */
+  waiting: boolean;
+}
+
+export interface PomodoroLengths {
+  workMin: number;
+  breakMin: number;
+  longMin: number;
+  /** Rounds before the long break. */
+  rounds: number;
+}
+
+/** A whole cycle, added to the wrap-up of its last round. */
+export interface CycleSummary {
+  rounds: number;
+  early: number;
+  focusedMs: number;
+  breakMs: number;
+  nudges: number;
+  pulled: { label: string; ms: number }[];
 }
 
 /** How a session that ended went. */
@@ -399,6 +433,8 @@ export interface FocusWrapUp {
   pulled: { label: string; ms: number }[];
   /** Lines comparing it with the sessions before it. */
   versus: string[];
+  /** The whole pomodoro cycle, when it was the last round of one with at least two rounds. */
+  cycle: CycleSummary | null;
 }
 
 export interface FocusTarget {
@@ -566,6 +602,10 @@ export const api = {
   focusOverview: () => invoke<FocusOverview>("get_focus_overview"),
   /** Puts the last session's wrap-up away. */
   dismissFocusWrapup: () => invoke<void>("dismiss_focus_wrapup"),
+  startPomodoro: (minutes?: number, rest?: number, label?: string, task?: string) => invoke<void>("start_pomodoro", { minutes, rest, label, task }),
+  skipPomodoroBreak: () => invoke<void>("skip_pomodoro_break"),
+  pomodoroLengths: () => invoke<PomodoroLengths>("get_pomodoro_lengths"),
+  setPomodoroLengths: (lengths: PomodoroLengths) => invoke<PomodoroLengths>("set_pomodoro_lengths", { lengths }),
   focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean; strict: boolean }>("get_focus_blocking"),
   /** Refused while strict mode guards a running session. */
   setFocusBlocking: (which: "enabled" | "launchers" | "strict", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),

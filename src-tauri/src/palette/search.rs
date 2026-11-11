@@ -288,6 +288,9 @@ pub enum Action {
     Dashboard(Option<&'static str>),
     /// A focus session: minutes, label, and the task it's for, by id.
     StartFocus(u32, Option<String>, Option<String>),
+    /// A pomodoro cycle: minutes per round and per break (the saved ones when None), label, and
+    /// the task it's for, by id.
+    Pomodoro(Option<u32>, Option<u32>, Option<String>, Option<String>),
     /// Adds a task to Ledger, from quick-add text.
     AddTask(String),
     /// Opens Ledger.
@@ -358,6 +361,8 @@ pub enum SessionDo {
     /// Adds this many minutes.
     Extend(u32),
     End,
+    /// Ends a pomodoro break and starts the next round.
+    SkipBreak,
 }
 
 impl Action {
@@ -474,6 +479,18 @@ pub struct SessionNow {
     pub paused: bool,
 }
 
+/// A pomodoro cycle that's on, as the palette says it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CycleNow {
+    /// The round running, or on a break the one next.
+    pub round: u32,
+    pub rounds: u32,
+    pub on_break: bool,
+    pub left_ms: i64,
+    /// The break is over and the next round waits for someone to come back.
+    pub waiting: bool,
+}
+
 /// A quick timer still to ring (timers.rs).
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimerNow {
@@ -492,6 +509,8 @@ pub struct Live {
     pub now: NaiveDateTime,
     /// The running focus session, if one runs.
     pub session: Option<SessionNow>,
+    /// The pomodoro cycle, while one is on.
+    pub cycle: Option<CycleNow>,
     /// Whether strict mode holds the session: ending it and allowing a blocked app wait first.
     pub strict: bool,
     /// None while tracking; paused, until the time inside when there is one.

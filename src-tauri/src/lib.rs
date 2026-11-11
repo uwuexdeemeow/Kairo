@@ -13,6 +13,7 @@ mod db;
 mod demo;
 mod evening;
 mod focus;
+mod pomodoro;
 mod goals;
 mod ledger;
 mod lists;
@@ -393,6 +394,10 @@ pub fn run() {
             commands::start_focus,
             commands::control_focus,
             commands::get_focus_overview,
+            commands::start_pomodoro,
+            commands::skip_pomodoro_break,
+            commands::get_pomodoro_lengths,
+            commands::set_pomodoro_lengths,
             commands::dismiss_focus_wrapup,
             commands::get_browsers,
             commands::allow_blocked,

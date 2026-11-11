@@ -37,8 +37,10 @@ Skipping a break is one action: "Skip break" starts the next round now.
   A label that names a saved block list picks that list, as for any session.
 - **Focus page**: the start form gets a "Pomodoro" switch beside the minutes. On, it starts a
   cycle with the saved lengths; the minutes field becomes the round length.
-- **Settings → Focus**: round length (default 25), short break (5), long break (15), rounds before
-  the long break (4). Typed lengths in the palette or the form are for that cycle only.
+- **Focus page, Pomodoro block**: short break (default 5), long break (15) and rounds before the
+  long break (4). The round's length is the one picked on the timer (or typed in the palette), and
+  the saved round length (25) is what the palette uses with no number. Typed lengths are for that
+  cycle only.
 
 ### While it runs
 
@@ -59,6 +61,20 @@ and the target's "reached" notification fires as usual. The wrap-up card shows f
 that ended, as now. A round that runs its course inside a cycle sends the break notification
 instead of the wrap-up line; a round the user ends early (which ends the cycle) sends nothing, as
 now.
+
+### The cycle's summary
+
+When a cycle ends (ended by the user, or lapsed), the wrap-up card gains a **Pomodoro** part above
+the latest round's own details, which stay below it:
+
+- **Rounds**: "3 rounds done" and, when some were cut short, "3 rounds done, 1 ended early".
+- **Focused**: the total across the rounds, "Focused 1h 12m", pauses left out.
+- **Breaks**: time spent on breaks, "Breaks 14m", from the rounds' gaps.
+- **Nudges and pulls**: nudges added up across the rounds ("4 nudges"), and the three distractions
+  that took the most time across all of them, as in a single session's card.
+
+The card still goes when dismissed, when another session starts or 12 hours after the end. A cycle
+that ends with one round shows no Pomodoro part, since the round says it all.
 
 ## How
 
@@ -81,6 +97,9 @@ now.
 
 ### `src-tauri/src/focus.rs`
 
+- `focus_sessions.cycle_id INTEGER`, NULL for sessions started by hand and from before; every
+  round of a cycle carries the cycle's id (the start time of its first round). `Block` gains
+  `cycle: Option<i64>`.
 - `stop` and `start` clear the cycle unless the call comes from the cycle itself (a private
   `start_round` the cycle uses), so a hand-started session replaces it and an early end finishes it.
 - No change to blocking: with no session running (`focus::running_until` is None) nothing is
@@ -95,8 +114,8 @@ now.
   four numbers.
 - `index.html`, `src/main.ts`: the switch, the "Round n of m" line, the break card and the four
   fields. `src/focus-summary.ts` draws the break card, as it draws the wrap-up.
-- `palette/commands.rs`: `pomodoro` rows and the break rows; `palette/settings.rs`: the four
-  settings as palette settings.
+- `palette/commands.rs`: `pomodoro` rows and the break rows. (Palette settings entries for the
+  lengths: not in this.)
 - Lengths and the on/off switch are per computer, like focus sessions; they don't sync.
 
 All shared code: nothing per system.
@@ -111,10 +130,12 @@ All shared code: nothing per system.
   cycle); the round's time counts toward the target and the stats, the break's doesn't.
 - `palette/commands.rs`: `pomodoro`, `pomodoro 50 10 essay` and the break rows parse and say what
   they do.
+- `wrapup.rs`: the cycle part adds up rounds, completed and early ones, focus time, nudges and
+  pulls across rounds of one cycle only; breaks come from the gaps; one round shows no cycle part.
 - `focus-summary.test.ts`: the break card and the "Round n of m" line draw what they're given; Skip
   break and End call their commands.
 
 ## Not in this
 
-A summary of a whole cycle. Different lengths for each round. Sound at the end of a round beyond
+Different lengths for each round. Sound at the end of a round beyond
 the notification. Syncing a cycle between computers. Breaks that suggest something to do.

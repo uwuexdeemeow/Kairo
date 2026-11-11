@@ -253,6 +253,10 @@
                 <button id="timer-more" aria-label="5 minutes longer">+</button>
               </div>
               <input class="filter timer-label" id="timer-label" maxlength="80" placeholder="What are you working on? (optional)" aria-label="What are you working on" autocomplete="off" />
+              <label class="pomodoro-switch" title="Rounds of this length with breaks between them">
+                <input type="checkbox" id="timer-pomodoro" />
+                Pomodoro
+              </label>
               <button class="btn primary" id="timer-start">Start focus</button>
               <p class="muted focus-blocks-note" id="focus-blocks-note" hidden></p>
             </div>
@@ -264,11 +268,24 @@
             </div>
           </section>
 
+          <section class="block pomodoro-break" id="pomodoro-break" aria-label="Pomodoro break" aria-live="polite" hidden></section>
+
           <section class="block wrapup" id="focus-wrapup" aria-label="How the last session went" hidden></section>
 
           <section class="block goals focus-target" id="focus-target" aria-label="Daily focus target" hidden></section>
 
           <dl class="stats focus-stats" id="focus-stats"></dl>
+
+          <section class="block" aria-label="Pomodoro">
+            <h2>Pomodoro</h2>
+            <p class="muted">Tick Pomodoro beside Start focus to run rounds with breaks between them: nothing is blocked during a break, and the next round starts by itself. Ending a session early ends the whole cycle. In the palette, type pomodoro, or pomodoro 50 10 essay.</p>
+            <div class="row-buttons pomodoro-lengths">
+              <label class="field">Break <input type="number" id="pomodoro-break-min" min="1" max="30" step="1" aria-label="Break minutes" /> min</label>
+              <label class="field">Long break <input type="number" id="pomodoro-long-min" min="5" max="60" step="1" aria-label="Long break minutes" /> min</label>
+              <label class="field">Long break after <input type="number" id="pomodoro-rounds" min="2" max="8" step="1" aria-label="Rounds before the long break" /> rounds</label>
+              <span class="muted" id="pomodoro-status" aria-live="polite"></span>
+            </div>
+          </section>
 
           <section class="block focus-tasks" id="focus-tasks" aria-label="Tasks"></section>
 

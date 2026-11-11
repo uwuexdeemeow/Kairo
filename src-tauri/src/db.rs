@@ -189,6 +189,7 @@ pub fn open(path: &Path) -> Result<Connection> {
         // How often a session spoke up about a distraction; NULL for sessions from before it was
         // counted (wrapup.rs).
         ("focus_sessions", "nudges", "INTEGER"),
+        ("focus_sessions", "cycle_id", "INTEGER"),
         // A task's plan (tasks.rs): its local due day, priority (0 Low, 1 Medium, 2 High), exact
         // reminder, and the reminders already sent.
         ("tasks", "due_day", "TEXT"),

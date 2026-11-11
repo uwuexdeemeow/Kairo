@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { FocusTarget, FocusWrapUp } from "./api";
-import { renderFocusTarget, renderWrapUp } from "./focus-summary";
+import type { FocusTarget, FocusWrapUp, PomodoroStatus } from "./api";
+import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 
 const MIN = 60_000;
 let box: HTMLElement;
@@ -19,6 +19,7 @@ const wrapUp = (extra: Partial<FocusWrapUp> = {}): FocusWrapUp => ({
     { label: "Discord", ms: MIN },
   ],
   versus: ["12m longer than your usual 38m", "Fewer nudges than usual"],
+  cycle: null,
   ...extra,
 });
 
@@ -88,5 +89,52 @@ describe("the daily focus target", () => {
     renderFocusTarget(box, null);
     expect(box.hidden).toBe(true);
     expect(box.children.length).toBe(0);
+  });
+});
+
+describe("a pomodoro cycle in the wrap-up", () => {
+  it("adds up the rounds above the last round's own details", () => {
+    const cycle = { rounds: 4, early: 1, focusedMs: 72 * MIN, breakMs: 14 * MIN, nudges: 4, pulled: [{ label: "YouTube", ms: 5 * MIN }] };
+    renderWrapUp(box, wrapUp({ cycle }), async () => {});
+    expect(text(".wrapup-cycle h3")).toEqual(["Pomodoro"]);
+    expect(text(".wrapup-cycle .wrapup-facts span")).toEqual(["4 rounds done, 1 ended early", "Focused 1h 12m", "Breaks 14m", "4 nudges"]);
+    expect(text(".wrapup-cycle .wrapup-pulled li")).toEqual(["YouTube5m"]);
+    // The last round's own facts are still below it.
+    expect(text(".wrapup-facts span").slice(4)).toEqual(["Focused 23m of 25m", "Ended early", "2 nudges"]);
+    renderWrapUp(box, wrapUp({ cycle: { ...cycle, early: 0, pulled: [] } }), async () => {});
+    expect(text(".wrapup-cycle .wrapup-facts span")[0]).toBe("4 rounds done");
+    expect(box.querySelector(".wrapup-cycle .wrapup-pulled")).toBeNull();
+    renderWrapUp(box, wrapUp(), async () => {});
+    expect(box.querySelector(".wrapup-cycle")).toBeNull();
+  });
+});
+
+describe("the pomodoro break", () => {
+  const onBreak = (extra: Partial<PomodoroStatus> = {}): PomodoroStatus => ({ round: 3, rounds: 4, onBreak: true, longBreak: false, breakLeftMs: 3 * MIN, waiting: false, ...extra });
+
+  it("says how long is left and which round is next, and hides when no break is on", () => {
+    renderBreak(box, onBreak(), { skip: async () => {}, end: async () => {} });
+    expect(box.hidden).toBe(false);
+    expect(text("h2")).toEqual(["Break · 3m left"]);
+    expect(box.textContent).toContain("Round 3 of 4 next");
+    renderBreak(box, onBreak({ longBreak: true }), { skip: async () => {}, end: async () => {} });
+    expect(text("h2")).toEqual(["Long break · 3m left"]);
+    renderBreak(box, onBreak({ waiting: true, breakLeftMs: 0 }), { skip: async () => {}, end: async () => {} });
+    expect(text("h2")).toEqual(["Break over. The next round starts when you're back."]);
+    renderBreak(box, { ...onBreak(), onBreak: false }, { skip: async () => {}, end: async () => {} });
+    expect(box.hidden).toBe(true);
+    renderBreak(box, null, { skip: async () => {}, end: async () => {} });
+    expect(box.hidden).toBe(true);
+  });
+
+  it("skips the break or ends the cycle from its buttons", () => {
+    const actions = { skip: vi.fn(async () => {}), end: vi.fn(async () => {}) };
+    renderBreak(box, onBreak(), actions);
+    const [skip, end] = [...box.querySelectorAll<HTMLButtonElement>("button")];
+    expect([skip.textContent, end.textContent]).toEqual(["Skip break", "End pomodoro"]);
+    skip.click();
+    expect(actions.skip).toHaveBeenCalledTimes(1);
+    end.click();
+    expect(actions.end).toHaveBeenCalledTimes(1);
   });
 });

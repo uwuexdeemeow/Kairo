@@ -1719,6 +1719,32 @@ html.palette-root {
   margin-top: 12px;
 }
 
+.wrapup-cycle {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.wrapup-cycle h3 {
+  margin: 0 0 8px;
+}
+
+.pomodoro-break .section-head {
+  margin-bottom: 10px;
+}
+
+.pomodoro-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.pomodoro-lengths input[type="number"] {
+  width: 64px;
+}
+
 .focus-target .section-head {
   margin-bottom: 12px;
 }

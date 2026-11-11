@@ -82,9 +82,15 @@ pub struct Block {
     label: Option<String>,
     /// How often it spoke up about a distraction; None for a session from before that was counted.
     nudges: Option<i64>,
+    /// The pomodoro cycle it was a round of (its id), if it was.
+    cycle: Option<i64>,
 }
 
 impl Block {
+    pub fn cycle(&self) -> Option<i64> {
+        self.cycle
+    }
+
     pub fn start(&self) -> i64 {
         self.start
     }
@@ -124,6 +130,11 @@ pub struct Stats {
 }
 
 impl Stats {
+    #[cfg(test)]
+    pub(crate) fn of_ms(sessions: usize, completed: usize, focused_ms: i64) -> Stats {
+        Stats { sessions, completed, focused_ms }
+    }
+
     fn of(blocks: &[Block]) -> Stats {
         Stats {
             sessions: blocks.len(),
@@ -137,10 +148,10 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-const BLOCK_COLUMNS: &str = "start_ms, COALESCE(end_ms, ?1), planned_ms, paused_ms + COALESCE(?1 - paused_at, 0), completed, label, nudges";
+const BLOCK_COLUMNS: &str = "start_ms, COALESCE(end_ms, ?1), planned_ms, paused_ms + COALESCE(?1 - paused_at, 0), completed, label, nudges, cycle_id";
 
 fn block(r: &rusqlite::Row) -> Result<Block> {
-    Ok(Block { start: r.get(0)?, end: r.get(1)?, planned_ms: r.get(2)?, paused_ms: r.get(3)?, completed: r.get(4)?, label: r.get(5)?, nudges: r.get(6)? })
+    Ok(Block { start: r.get(0)?, end: r.get(1)?, planned_ms: r.get(2)?, paused_ms: r.get(3)?, completed: r.get(4)?, label: r.get(5)?, nudges: r.get(6)?, cycle: r.get(7)? })
 }
 
 /// The running session, if any; an unfinished one survives a restart.
@@ -162,6 +173,11 @@ pub fn running_until(conn: &Connection, now: i64) -> Result<Option<i64>> {
 /// Starts a session now, ending any that is running.
 pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
     stop(conn, now)?;
+    insert(conn, minutes, label, now)
+}
+
+/// Adds a session that begins now; the caller has seen to any that was running.
+fn insert(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Result<Active> {
     let label = label.map(str::trim).filter(|l| !l.is_empty()).map(|l| l.chars().take(MAX_LABEL_CHARS).collect::<String>());
     let a = Active { start_ms: now, planned_ms: minutes.min(MAX_MINUTES) as i64 * MIN_MS, paused_ms: 0, paused_at: None, label, task: None };
     conn.execute(
@@ -175,14 +191,21 @@ pub fn start(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> 
 /// default list, or else as usual (see `lists::for_session`). Started on a task that exists, it
 /// counts for the task and takes its title as the label; the typed label still picks the list.
 pub fn start_by_hand(conn: &Connection, minutes: u32, label: Option<&str>, task: Option<&str>, now: i64) -> Result<Active> {
+    stop(conn, now)?;
+    begin_by_hand(conn, minutes, label, task, None, now)
+}
+
+/// `start_by_hand` without ending what runs, for a pomodoro cycle's rounds (`cycle` is the
+/// cycle's id), which come when no session is running and must not end the cycle.
+pub(crate) fn begin_by_hand(conn: &Connection, minutes: u32, label: Option<&str>, task: Option<&str>, cycle: Option<i64>, now: i64) -> Result<Active> {
     let list = crate::lists::for_session(conn, label)?;
     let task = match task {
         Some(id) => crate::tasks::title(conn, id)?.map(|title| (id.to_string(), title)),
         None => None,
     };
-    let mut a = start(conn, minutes, task.as_ref().map_or(label, |(_, title)| Some(title.as_str())), now)?;
+    let mut a = insert(conn, minutes, task.as_ref().map_or(label, |(_, title)| Some(title.as_str())), now)?;
     a.task = task.map(|(id, _)| id);
-    conn.execute("UPDATE focus_sessions SET list = ?1, task = ?2 WHERE end_ms IS NULL", params![list, a.task])?;
+    conn.execute("UPDATE focus_sessions SET list = ?1, task = ?2, cycle_id = ?3 WHERE end_ms IS NULL", params![list, a.task, cycle])?;
     Ok(a)
 }
 
@@ -193,8 +216,10 @@ pub fn start_from_slot(conn: &Connection, minutes: u32, label: Option<&str>, slo
     Ok(a)
 }
 
-/// Ends the running session early, folding a pause in progress into its paused time.
+/// Ends the running session early, folding a pause in progress into its paused time. That ends a
+/// pomodoro cycle too, whether a round or a break is on.
 pub fn stop(conn: &Connection, now: i64) -> Result<()> {
+    crate::pomodoro::clear(conn)?;
     conn.execute(
         "UPDATE focus_sessions SET paused_ms = paused_ms + COALESCE(?1 - paused_at, 0), paused_at = NULL,
              end_ms = MAX(?1, start_ms), completed = 0
@@ -229,7 +254,7 @@ pub fn extend(conn: &Connection, minutes: u32) -> Result<()> {
 
 /// Closes a session whose time is up, returning it when that just happened. A paused session
 /// never runs out.
-fn complete_if_due(conn: &Connection, now: i64) -> Result<Option<Active>> {
+pub(crate) fn complete_if_due(conn: &Connection, now: i64) -> Result<Option<Active>> {
     let Some(a) = active(conn)? else { return Ok(None) };
     if a.paused_at.is_some() || now < a.ends_ms(now) {
         return Ok(None);
@@ -242,7 +267,7 @@ fn complete_if_due(conn: &Connection, now: i64) -> Result<Option<Active>> {
 }
 
 /// Counts a distraction nudge against the running session, for its wrap-up.
-fn count_nudge(conn: &Connection) -> Result<()> {
+pub(crate) fn count_nudge(conn: &Connection) -> Result<()> {
     conn.execute("UPDATE focus_sessions SET nudges = COALESCE(nudges, 0) + 1 WHERE end_ms IS NULL", [])?;
     Ok(())
 }
@@ -251,6 +276,13 @@ fn count_nudge(conn: &Connection) -> Result<()> {
 pub fn ended(conn: &Connection, limit: usize) -> Result<Vec<Block>> {
     let mut stmt = conn.prepare(&format!("SELECT {BLOCK_COLUMNS} FROM focus_sessions WHERE end_ms IS NOT NULL ORDER BY end_ms DESC, id DESC LIMIT ?2"))?;
     let rows = stmt.query_map(params![0, limit as i64], block)?;
+    rows.collect()
+}
+
+/// The rounds of pomodoro cycle `id` that have ended, the first first.
+pub fn cycle_blocks(conn: &Connection, id: i64) -> Result<Vec<Block>> {
+    let mut stmt = conn.prepare(&format!("SELECT {BLOCK_COLUMNS} FROM focus_sessions WHERE end_ms IS NOT NULL AND cycle_id = ?2 ORDER BY start_ms"))?;
+    let rows = stmt.query_map(params![0, id], block)?;
     rows.collect()
 }
 
@@ -481,10 +513,22 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     }
     crate::resume_if_due(app, now);
 
-    if let Some(done) = complete_if_due(conn, now)? {
-        // How it went, in a line; the whole wrap-up waits on the Focus page.
-        let said = crate::wrapup::latest(conn, now).ok().flatten().map_or_else(|| "Nice work.".to_string(), |w| crate::wrapup::line(&w));
-        notify(app, &format!("Focus session done: {}", fmt_dur(done.planned_ms)), &said);
+    let completed = complete_if_due(conn, now)?;
+    // A cycle starts its break when a round ends and its next round when the break does.
+    let cycle_event = crate::pomodoro::tick(conn, now, platform::idle_ms())?;
+    if let Some(done) = &completed {
+        // How it went, in a line; the whole wrap-up waits on the Focus page. In a cycle the break
+        // is announced instead, and the wrap-up waits for the cycle to end.
+        if cycle_event.is_none() {
+            let said = crate::wrapup::latest(conn, now).ok().flatten().map_or_else(|| "Nice work.".to_string(), |w| crate::wrapup::line(&w));
+            notify(app, &format!("Focus session done: {}", fmt_dur(done.planned_ms)), &said);
+        }
+    }
+    if let Some(event) = &cycle_event {
+        let (title, body) = event.notice();
+        notify(app, &title, &body);
+    }
+    if completed.is_some() || cycle_event.is_some() {
         // The session's end is a natural break point.
         w.stretch_since = Some(now);
         w.breaks_sent = 0;
@@ -581,8 +625,8 @@ mod tests {
         assert_eq!(
             blocks(&conn, t, t + 120 * M, t + 120 * M).unwrap(),
             vec![
-                Block { start: t, end: t + 10 * M, planned_ms: 25 * M, paused_ms: 0, completed: false, label: None, nudges: Some(0) },
-                Block { start: t + 10 * M, end: t + 60 * M, planned_ms: 50 * M, paused_ms: 0, completed: true, label, nudges: Some(0) },
+                Block { start: t, end: t + 10 * M, planned_ms: 25 * M, paused_ms: 0, completed: false, label: None, nudges: Some(0), cycle: None },
+                Block { start: t + 10 * M, end: t + 60 * M, planned_ms: 50 * M, paused_ms: 0, completed: true, label, nudges: Some(0), cycle: None },
             ]
         );
         assert_eq!(break_minutes(&conn).unwrap(), DEFAULT_BREAK_MIN);
@@ -679,6 +723,7 @@ mod tests {
             completed,
             label: None,
             nudges: None,
+            cycle: None,
         };
         // Mornings: 25-minute sessions, all finished. Evenings: 90-minute ones, mostly not.
         let blocks = vec![

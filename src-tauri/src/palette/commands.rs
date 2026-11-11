@@ -79,13 +79,14 @@ fn row(title: impl Into<String>, glyph: Glyph, section: &'static str, action: Ac
 /// calculator leaves it alone as it does `focus 50`.
 pub fn leads(query: &str) -> bool {
     let q = query.trim();
-    ["extend ", "timer ", "allow ", "pause tracking "].iter().any(|word| after(q, word).is_some())
+    ["extend ", "timer ", "allow ", "pause tracking ", "pomodoro "].iter().any(|word| after(q, word).is_some())
 }
 
 /// The rows these commands offer for `query`.
 pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = theme_rows(ctx, query);
     items.extend(session_rows(ctx, query));
+    items.extend(pomodoro_rows(ctx, query));
     items.extend(allow_rows(ctx, query));
     items.extend(timer_rows(ctx, query));
     items.extend(tracking_rows(ctx, query));
@@ -145,6 +146,9 @@ fn session_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
     let left = format!("{} left", fmt_dur(session.left_ms));
     let mut status = if session.paused { format!("Paused · {left}") } else { left };
+    if let Some(cycle) = ctx.live.cycle.as_ref().filter(|c| !c.on_break) {
+        status.push_str(&format!(" · round {} of {}", cycle.round, cycle.rounds));
+    }
     if let Some(label) = &session.label {
         status.push_str(&format!(" · “{label}”"));
     }
@@ -183,7 +187,7 @@ fn session_rows(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(row(title, glyph, "Focus", Action::Session(SessionDo::Extend(minutes)), status.clone(), p));
     }
 
-    let title = "End the focus session";
+    let title = if ctx.live.cycle.is_some() { "End the pomodoro" } else { "End the focus session" };
     if let Some(p) = placed(q, &["end", "stop", "end focus", "stop focus", "end session", "stop session"], title, "focus end stop session finish quit") {
         // Strict mode makes ending wait, and the Focus page is where that counts down.
         let (action, sub) = if ctx.live.strict {
@@ -192,6 +196,75 @@ fn session_rows(ctx: &Context, query: &str) -> Vec<Item> {
             (Action::Session(SessionDo::End), status)
         };
         items.push(row(title, glyph, "Focus", action, sub, p));
+    }
+    items
+}
+
+// ---------- a pomodoro cycle ----------
+
+/// `pomodoro`, `pomodoro 50 10 essay`: rounds of 50 minutes, breaks of 10, a label. Without
+/// numbers the lengths saved in Settings apply. Returns (round, break, label).
+fn pomodoro_typed(q: &str) -> Option<(Option<u32>, Option<u32>, Option<String>)> {
+    let rest = ["pomodoro", "pomo"].iter().find_map(|word| after(q, word).filter(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace)))?;
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    if words.is_empty() {
+        return Some((None, None, None));
+    }
+    match minutes_and_label(&words) {
+        Some((work, label)) => {
+            // A second number is the break, the rest the label.
+            let (rest_min, label) = match label.as_deref().and_then(|l| l.split_whitespace().next().map(|w| (w, l))) {
+                Some((first, whole)) if first.chars().all(|c| c.is_ascii_digit()) => {
+                    let after_it = whole[first.len()..].trim();
+                    (first.parse().ok().map(|m: u32| m.clamp(1, 60)), (!after_it.is_empty()).then(|| after_it.to_string()))
+                }
+                _ => (None, label),
+            };
+            Some((Some(work), rest_min, label))
+        }
+        None => Some((None, None, Some(words.join(" ")))),
+    }
+}
+
+/// Starting a cycle, and on a break skipping it or ending the cycle.
+fn pomodoro_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let mut items = Vec::new();
+    let glyph = Glyph::Focus;
+
+    let typed = pomodoro_typed(q);
+    let title = "Start a pomodoro";
+    let loose = if typed.is_none() { placed(q, &[], title, "pomodoro cycle rounds tomato") } else { None };
+    if typed.is_some() || loose.is_some() {
+        let (work, rest, label) = typed.unwrap_or((None, None, None));
+        let task = label.as_deref().and_then(|l| task_for(&ctx.tasks, l));
+        let mut sub = match (work, rest) {
+            (Some(w), Some(r)) => format!("{w}m rounds, {r}m breaks"),
+            (Some(w), None) => format!("{w}m rounds, breaks as set in Settings"),
+            _ => "Rounds and breaks as set in Settings".to_string(),
+        };
+        match (task, &label) {
+            (Some(task), _) => sub.push_str(&format!(" · For your task “{}”", task.title)),
+            (None, Some(label)) => sub.push_str(&format!(" · Labelled “{label}”")),
+            (None, None) => {}
+        }
+        let action = Action::Pomodoro(work, rest, label.clone(), task.map(|t| t.id.clone()));
+        items.push(row(title, glyph, "Focus", action, sub, loose.unwrap_or((LEAD, Vec::new()))));
+    }
+
+    let Some(cycle) = ctx.live.cycle.as_ref().filter(|c| c.on_break) else { return items };
+    let status = if cycle.waiting {
+        format!("Break over · round {} of {} waits for you", cycle.round, cycle.rounds)
+    } else {
+        format!("Break · {} left · round {} of {} next", fmt_dur(cycle.left_ms), cycle.round, cycle.rounds)
+    };
+    let title = "Skip the break";
+    if let Some(p) = placed(q, &["skip", "skip break", "next round"], title, "skip break next round start now") {
+        items.push(row(title, glyph, "Focus", Action::Session(SessionDo::SkipBreak), status.clone(), p));
+    }
+    let title = "End the pomodoro";
+    if let Some(p) = placed(q, &["end", "stop", "end focus", "stop focus", "end pomodoro", "stop pomodoro"], title, "pomodoro end stop cycle finish quit") {
+        items.push(row(title, glyph, "Focus", Action::Session(SessionDo::End), status, p));
     }
     items
 }
@@ -645,5 +718,39 @@ mod tests {
             assert!(!search(&c, q).iter().any(|i| i.section == "Calculator"), "{q}");
         }
         assert!(!leads("10 + 5") && !leads("timer") && !leads("extended 10"));
+    }
+    #[test]
+    fn pomodoro_is_typed_with_lengths_and_a_label() {
+        let c = ctx();
+        let first = |q: &str| search(&c, q).into_iter().next().unwrap();
+        let plain = first("pomodoro");
+        assert_eq!((plain.title.as_str(), plain.action.clone()), ("Start a pomodoro", Action::Pomodoro(None, None, None, None)));
+        assert_eq!(plain.sub.as_deref(), Some("Rounds and breaks as set in Settings"));
+        let sized = first("pomodoro 50 10");
+        assert_eq!((sized.action.clone(), sized.sub.as_deref()), (Action::Pomodoro(Some(50), Some(10), None, None), Some("50m rounds, 10m breaks")));
+        assert_eq!(first("pomodoro 50 10 essay draft").action, Action::Pomodoro(Some(50), Some(10), Some("essay draft".into()), None));
+        assert_eq!(first("pomodoro 40 essay").action, Action::Pomodoro(Some(40), None, Some("essay".into()), None));
+        assert_eq!(first("pomodoro essay").action, Action::Pomodoro(None, None, Some("essay".into()), None));
+        // Found by its other word, too, but not by "focus", which is the plain command's.
+        assert!(search(&c, "tomato").iter().any(|i| matches!(i.action, Action::Pomodoro(..))));
+        assert!(!search(&c, "pomodorox").iter().any(|i| i.title == "Start a pomodoro" && i.score >= LEAD));
+    }
+
+    #[test]
+    fn a_pomodoro_break_offers_to_skip_or_end_it() {
+        let mut c = ctx();
+        assert!(!search(&c, "skip").iter().any(|i| i.action == Action::Session(SessionDo::SkipBreak)));
+        c.live.cycle = Some(super::super::search::CycleNow { round: 3, rounds: 4, on_break: true, left_ms: 3 * 60_000, waiting: false });
+        let skip = search(&c, "skip").into_iter().next().unwrap();
+        assert_eq!((skip.title.as_str(), skip.action.clone(), skip.sub.as_deref()), ("Skip the break", Action::Session(SessionDo::SkipBreak), Some("Break · 3m left · round 3 of 4 next")));
+        assert_eq!(search(&c, "end focus")[0].title, "End the pomodoro");
+        assert_eq!(search(&c, "end focus")[0].action, Action::Session(SessionDo::End));
+        c.live.cycle.as_mut().unwrap().waiting = true;
+        assert_eq!(search(&c, "skip")[0].sub.as_deref(), Some("Break over · round 3 of 4 waits for you"));
+        // A round running says which it is.
+        c.live.cycle = Some(super::super::search::CycleNow { round: 2, rounds: 4, ..Default::default() });
+        c.live.session = Some(SessionNow { label: None, left_ms: 10 * 60_000, paused: false });
+        assert_eq!(search(&c, "pause")[0].sub.as_deref(), Some("10m left · round 2 of 4"));
+        assert_eq!(search(&c, "end")[0].title, "End the pomodoro");
     }
 }

@@ -33,6 +33,20 @@ pub struct Pull {
     pub ms: i64,
 }
 
+/// A pomodoro cycle in total, added to the wrap-up of its last round.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CycleSummary {
+    pub rounds: usize,
+    /// Rounds that were ended early.
+    pub early: usize,
+    pub focused_ms: i64,
+    /// Time between the rounds.
+    pub break_ms: i64,
+    pub nudges: i64,
+    pub pulled: Vec<Pull>,
+}
+
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct WrapUp {
@@ -49,6 +63,24 @@ pub struct WrapUp {
     pub pulled: Vec<Pull>,
     /// Lines comparing it with the sessions before it; none with too few to compare with.
     pub versus: Vec<String>,
+    /// The whole cycle, when the session was the last round of one with at least two rounds.
+    pub cycle: Option<CycleSummary>,
+}
+
+/// A cycle's rounds in total; None for fewer than two, since a single round says it all. Breaks
+/// are the gaps between rounds.
+fn cycle_summary(rounds: &[Block], pulled: Vec<Pull>) -> Option<CycleSummary> {
+    if rounds.len() < 2 {
+        return None;
+    }
+    Some(CycleSummary {
+        rounds: rounds.len(),
+        early: rounds.iter().filter(|b| !b.completed()).count(),
+        focused_ms: rounds.iter().map(Block::ms).sum(),
+        break_ms: rounds.windows(2).map(|w| (w[1].start() - w[0].end()).max(0)).sum(),
+        nudges: rounds.iter().map(|b| b.nudges().unwrap_or(0)).sum(),
+        pulled,
+    })
 }
 
 /// The distracting apps and sites among `rows`, by time in front, biggest first.
@@ -94,7 +126,8 @@ fn versus(this: &Block, before: &[Block]) -> Vec<String> {
 /// The wrap-up for the last session that ended. None while a session runs, once its card was
 /// dismissed, or long after it ended.
 pub fn latest(conn: &Connection, now: i64) -> Result<Option<WrapUp>> {
-    if focus::active(conn)?.is_some() {
+    // A cycle on a break is still going: its wrap-up waits for it to end.
+    if focus::active(conn)?.is_some() || crate::pomodoro::load(conn)?.is_some() {
         return Ok(None);
     }
     let ended = focus::ended(conn, USUAL_SESSIONS + 1)?;
@@ -102,6 +135,17 @@ pub fn latest(conn: &Connection, now: i64) -> Result<Option<WrapUp>> {
     if now - this.end() > SHOWN_FOR_MS || db::get_setting(conn, DISMISSED_KEY)?.as_deref() == Some(this.start().to_string().as_str()) {
         return Ok(None);
     }
+    let cycle = match this.cycle() {
+        Some(id) => {
+            let rounds = focus::cycle_blocks(conn, id)?;
+            let mut rows = Vec::new();
+            for b in &rounds {
+                rows.extend(analysis::load_rows(conn, b.start(), b.end())?);
+            }
+            cycle_summary(&rounds, pulled(&rows))
+        }
+        None => None,
+    };
     Ok(Some(WrapUp {
         start: this.start(),
         end: this.end(),
@@ -112,6 +156,7 @@ pub fn latest(conn: &Connection, now: i64) -> Result<Option<WrapUp>> {
         nudges: this.nudges().unwrap_or(0),
         pulled: pulled(&analysis::load_rows(conn, this.start(), this.end())?),
         versus: versus(this, before),
+        cycle,
     }))
 }
 
@@ -262,8 +307,38 @@ mod tests {
     }
 
     #[test]
+    fn a_cycle_adds_up_its_rounds_and_waits_for_it_to_end() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        // Two rounds with a 5-minute break between them; the second is ended early.
+        crate::pomodoro::start(&conn, Some(25), Some(5), None, None, T).unwrap();
+        focus::complete_if_due(&conn, T + 25 * M).unwrap();
+        // While the cycle is on, even on a break, there's no wrap-up.
+        crate::pomodoro::tick(&conn, T + 25 * M, 0).unwrap();
+        assert!(latest(&conn, T + 26 * M).unwrap().is_none());
+        crate::pomodoro::tick(&conn, T + 30 * M, 0).unwrap();
+        focus::count_nudge(&conn).unwrap();
+        focus::stop(&conn, T + 40 * M).unwrap();
+        let w = latest(&conn, T + 41 * M).unwrap().unwrap();
+        let cycle = w.cycle.unwrap();
+        assert_eq!((cycle.rounds, cycle.early, cycle.focused_ms, cycle.break_ms, cycle.nudges), (2, 1, 35 * M, 5 * M, 1));
+        // The card itself is still the last round's.
+        assert_eq!((w.start, w.focused_ms, w.completed), (T + 30 * M, 10 * M, false));
+    }
+
+    #[test]
+    fn a_single_round_or_a_hand_started_session_has_no_cycle_part() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        crate::pomodoro::start(&conn, None, None, None, None, T).unwrap();
+        focus::stop(&conn, T + 10 * M).unwrap();
+        assert_eq!(latest(&conn, T + 11 * M).unwrap().unwrap().cycle, None);
+        focus::start(&conn, 25, None, T + 20 * M).unwrap();
+        focus::stop(&conn, T + 30 * M).unwrap();
+        assert_eq!(latest(&conn, T + 31 * M).unwrap().unwrap().cycle, None);
+    }
+
+    #[test]
     fn the_notification_says_it_in_a_line() {
-        let base = WrapUp { start: 0, end: 25 * M, planned_ms: 25 * M, focused_ms: 25 * M, completed: true, label: None, nudges: 0, pulled: Vec::new(), versus: Vec::new() };
+        let base = WrapUp { start: 0, end: 25 * M, planned_ms: 25 * M, focused_ms: 25 * M, completed: true, label: None, nudges: 0, pulled: Vec::new(), versus: Vec::new(), cycle: None };
         assert_eq!(line(&base), "No nudges and nothing distracting. Nice work.");
         assert_eq!(line(&WrapUp { nudges: 1, ..base.clone() }), "1 nudge. The wrap-up is on Chrono's Focus page.");
         let pulled = vec![Pull { label: "YouTube".into(), ms: 3 * M }, Pull { label: "Discord".into(), ms: M }];

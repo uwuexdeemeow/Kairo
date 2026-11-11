@@ -4,12 +4,12 @@ import { dayParts, watchSvg } from "./chrono-look";
 import { dialSvg, logo } from "./logos";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
+import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type PomodoroStatus, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay, todayIso, weekdayIndex } from "./calendar";
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
-import { renderFocusTarget, renderWrapUp } from "./focus-summary";
+import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
 
@@ -1246,7 +1246,12 @@ function reloadSessionViews() {
   if (view === "focus") load("focus");
 }
 
-const startFocus = async (minutes: number, label?: string, task?: string) => focusChanged(await api.startFocus(minutes, label, task));
+/// Starts a session, or with Pomodoro ticked a cycle whose rounds are this long.
+const startFocus = async (minutes: number, label?: string, task?: string) => {
+  if (!($("#timer-pomodoro") as HTMLInputElement).checked) return focusChanged(await api.startFocus(minutes, label, task));
+  await api.startPomodoro(minutes, undefined, label, task);
+  focusChanged(await api.focus());
+};
 const controlFocus = async (action: FocusAction, minutes?: number) => focusChanged((await api.controlFocus(action, minutes)).session);
 
 /// How long a finished strict-mode wait stays good for its confirming click (matches Kairo's).
@@ -1358,7 +1363,8 @@ function paintTimer() {
   }
   const left = focusLeft(running);
   const paused = running.pausedAt !== null;
-  $("#timer-eyebrow").textContent = paused ? "Focus · paused" : "Focus · in progress";
+  const round = cycle && !cycle.onBreak ? ` · round ${cycle.round} of ${cycle.rounds}` : "";
+  $("#timer-eyebrow").textContent = (paused ? "Focus · paused" : "Focus · in progress") + round;
   $("#timer-title").textContent = running.label ?? "Focusing";
   setTimerTime(fmtElapsed(left));
   time.classList.toggle("paused", paused);
@@ -1602,7 +1608,58 @@ function setUpScheduleForm() {
 }
 setUpScheduleForm();
 
+/// The pomodoro cycle as the Focus page last read it, and when that was, so a break's countdown can
+/// run on between reads.
+let cycle: PomodoroStatus | null = null;
+let cycleReadAt = 0;
+const breakActions = {
+  skip: async () => {
+    await api.skipPomodoroBreak();
+    focusChanged(await api.focus());
+  },
+  end: async () => {
+    await api.controlFocus("stop");
+    focusChanged(await api.focus());
+  },
+};
+function paintBreak() {
+  const shown = cycle?.onBreak ? { ...cycle, breakLeftMs: Math.max(0, cycle.breakLeftMs - (Date.now() - cycleReadAt)) } : cycle;
+  renderBreak($("#pomodoro-break"), shown, breakActions);
+}
+window.setInterval(() => view === "focus" && cycle?.onBreak && paintBreak(), 10_000);
+
+/// The lengths a cycle starts with: the break, the long break and the rounds before it. The round
+/// itself is the length picked on the timer.
+const pomodoroFields = { breakMin: "#pomodoro-break-min", longMin: "#pomodoro-long-min", rounds: "#pomodoro-rounds" } as const;
+let pomodoroWorkMin = 25;
+async function showPomodoroLengths() {
+  try {
+    const l = await api.pomodoroLengths();
+    pomodoroWorkMin = l.workMin;
+    for (const [key, sel] of Object.entries(pomodoroFields)) $<HTMLInputElement>(sel).value = String(l[key as keyof typeof pomodoroFields]);
+  } catch {
+    // The fields stay as they were.
+  }
+}
+for (const sel of Object.values(pomodoroFields)) {
+  $<HTMLInputElement>(sel).addEventListener("change", async () => {
+    const value = (key: keyof typeof pomodoroFields) => Number($<HTMLInputElement>(pomodoroFields[key]).value) || 0;
+    try {
+      const saved = await api.setPomodoroLengths({ workMin: pomodoroWorkMin, breakMin: value("breakMin"), longMin: value("longMin"), rounds: value("rounds") });
+      for (const [key, s] of Object.entries(pomodoroFields)) $<HTMLInputElement>(s).value = String(saved[key as keyof typeof pomodoroFields]);
+      $("#pomodoro-status").textContent = "Saved";
+    } catch {
+      $("#pomodoro-status").textContent = "Couldn't save";
+    }
+  });
+}
+
 function renderFocusPage(o: FocusOverview) {
+  cycle = o.cycle;
+  cycleReadAt = Date.now();
+  void showPomodoroLengths();
+  paintBreak();
+  paintTimer();
   renderWrapUp($("#focus-wrapup"), o.wrapUp, api.dismissFocusWrapup);
   renderFocusTarget($("#focus-target"), o.target);
   const finished = o.all.sessions ? `${Math.round((o.all.completed / o.all.sessions) * 100)}%` : "—";

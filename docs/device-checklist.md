@@ -561,3 +561,22 @@ Use two machines (any systems), both online, neither combining through a folder.
 2. Restore it on another computer (even another system). *Expect:* a confirmation, a restart, and
    the history, categories, limits and goals of the backup, with this computer's palette shortcut
    kept.
+
+## Any system: pomodoro cycles
+
+1. **A cycle.** On the Focus page, tick Pomodoro, pick 15m and press Start focus. *Expect:* the
+   timer's heading says "Focus · in progress · round 1 of 4". Open an app on the block list during
+   the round. *Expect:* it is blocked as in any session.
+2. **A break.** Let the round run out (or use a test copy with a short round). *Expect:* a
+   notification "Round 1 done", and a "Break · 5m left" card on the Focus page with Skip break and
+   End pomodoro. The app from step 1 now opens without being blocked.
+3. **The next round.** Let the break run out with you at the computer. *Expect:* "Break over.
+   Round 2 of 4." and blocking is back on. Leave the computer for 3 minutes before a break ends.
+   *Expect:* the card says "Break over. The next round starts when you're back." and the round
+   starts at your first input.
+4. **Skip and end.** Press Skip break on a break. *Expect:* round 2 starts at once. End early
+   during a round, or press End pomodoro on a break. *Expect:* the cycle is gone and the wrap-up
+   shows a Pomodoro part with the rounds, focus time, breaks and nudges.
+5. **The palette.** Type `pomodoro 50 10 essay`. *Expect:* "Start a pomodoro" with "50m rounds,
+   10m breaks · Labelled “essay”". On a break, `skip` offers "Skip the break" and `end focus`
+   offers "End the pomodoro".
