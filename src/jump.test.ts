@@ -31,6 +31,14 @@ describe("jumpTo", () => {
     expect(document.getElementById("breaks")!.contains(document.activeElement)).toBe(true);
   });
 
+  it("opens the folded sections a control sits in before landing on it", () => {
+    document.body.innerHTML = `<details class="block" id="setup"><summary>Set up</summary><details id="inner"><summary>More</summary><input id="deep" /></details></details>`;
+    jumpTo("deep");
+    expect((document.getElementById("setup") as HTMLDetailsElement).open).toBe(true);
+    expect((document.getElementById("inner") as HTMLDetailsElement).open).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById("deep"));
+  });
+
   it("does nothing for an id the page doesn't have", () => {
     expect(() => jumpTo("nope")).not.toThrow();
     expect(document.querySelector(".jumped")).toBeNull();

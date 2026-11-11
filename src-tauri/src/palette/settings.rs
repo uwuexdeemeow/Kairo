@@ -24,6 +24,8 @@ pub enum Switch {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Page {
     Chrono,
+    /// Chrono's Focus page, for settings that live there rather than under Settings.
+    Focus,
     Kairo,
 }
 
@@ -53,6 +55,10 @@ fn chrono(title: &'static str, words: &'static str, control: &'static str, switc
     Entry { title, words, page: Page::Chrono, control, switch, runs: None }
 }
 
+fn focus_page(title: &'static str, words: &'static str, control: &'static str) -> Entry {
+    Entry { title, words, page: Page::Focus, control, switch: None, runs: None }
+}
+
 fn kairo(title: &'static str, words: &'static str, control: &'static str, switch: Option<Switch>, runs: Option<Action>) -> Entry {
     Entry { title, words, page: Page::Kairo, control, switch, runs }
 }
@@ -77,6 +83,9 @@ pub fn entries() -> Vec<Entry> {
         chrono("Block launchers too", "game steam epic launcher close", "block-launchers", Some(Launchers)),
         chrono("Strict blocking", "strict mode lock session", "block-strict", None),
         chrono("Breaks", "break rest reminder every", "break-every", None),
+        focus_page("Pomodoro break length", "pomodoro rounds short rest minutes cycle", "pomodoro-break-min"),
+        focus_page("Pomodoro long break", "pomodoro rounds long rest minutes cycle", "pomodoro-long-min"),
+        focus_page("Rounds before the long break", "pomodoro cycle rounds how many", "pomodoro-rounds"),
         chrono("Demo data", "sample example fake try", "demo-load", None),
         kairo("Kairo settings", "preferences options dashboard", "appearance", None, Some(Action::Dashboard(Some("settings")))),
         kairo("Theme", "appearance dark mode light system colors", "appearance", None, None),
@@ -111,6 +120,7 @@ pub fn search(query: &str, switches: &[(Switch, bool)]) -> Vec<Item> {
             item.at = fuzzy(query, e.title).map(|m| m.at).unwrap_or_default();
             item.sub = Some(match e.page {
                 Page::Chrono => "Chrono settings".into(),
+                Page::Focus => "Chrono's Focus page".into(),
                 Page::Kairo => "Kairo settings".into(),
             });
             item.detail = e.switch.map(|s| if switches.iter().any(|&(k, on)| k == s && on) { "On" } else { "Off" }.to_string());
@@ -248,11 +258,21 @@ mod tests {
         let kairo = std::fs::read_to_string(root.join("dashboard.html")).unwrap();
         for e in entries() {
             let page = match e.page {
-                Page::Chrono => &chrono,
+                Page::Chrono | Page::Focus => &chrono,
                 Page::Kairo => &kairo,
             };
             assert!(page.contains(&format!("id=\"{}\"", e.control)), "{} is missing #{}", e.title, e.control);
         }
+    }
+
+    #[test]
+    fn the_pomodoro_lengths_are_found_and_belong_to_the_focus_page() {
+        for (query, control) in [("pomodoro break", "pomodoro-break-min"), ("long break", "pomodoro-long-min"), ("rounds before", "pomodoro-rounds")] {
+            let found = &search(query, &[])[0];
+            assert_eq!(found.action, Action::Setting(control), "{query}");
+            assert_eq!(found.sub.as_deref(), Some("Chrono's Focus page"));
+        }
+        assert!(entries().iter().filter(|e| e.page == Page::Focus).all(|e| e.control.starts_with("pomodoro-")));
     }
 
     #[test]

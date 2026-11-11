@@ -580,6 +580,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::Setting(control) => {
             match settings::entries().iter().find(|e| e.control == *control).map(|e| e.page) {
                 Some(settings::Page::Kairo) => crate::show_dashboard(app, Some(&format!("settings#{control}"))),
+                Some(settings::Page::Focus) => crate::open_main_to(app, "focus", None, Some(control)),
                 _ => crate::open_main_to(app, "settings", None, Some(control)),
             }
             Ok(())

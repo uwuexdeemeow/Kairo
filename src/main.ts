@@ -1021,11 +1021,12 @@ function paintCategories() {
       h("td", {}, h("span", { class: "entry-name" }, dot, appIcon(e.key, e.label), e.label)),
       h("td", { class: "kind" }, e.kind),
       h("td", { class: "num" }, fmtDur(e.ms)),
-      h("td", {}, select),
+      // `data-label` names a control when the table is narrow and its header is gone.
+      h("td", { "data-label": "Category" }, select),
       // In a span, so the cell stays a table cell and lines up with the rest of its row.
-      h("td", {}, h("span", { class: "limit-cell" }, limit, hardToggle)),
-      h("td", {}, focus),
-      h("td", {}, recording),
+      h("td", { "data-label": "Daily limit" }, h("span", { class: "limit-cell" }, limit, hardToggle)),
+      h("td", { "data-label": "During focus" }, focus),
+      h("td", { "data-label": "Recording" }, recording),
     );
   });
   root.replaceChildren(
