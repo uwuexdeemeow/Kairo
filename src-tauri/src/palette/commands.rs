@@ -87,6 +87,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = theme_rows(ctx, query);
     items.extend(session_rows(ctx, query));
     items.extend(pomodoro_rows(ctx, query));
+    items.extend(clip_rows(ctx, query));
     items.extend(allow_rows(ctx, query));
     items.extend(timer_rows(ctx, query));
     items.extend(tracking_rows(ctx, query));
@@ -265,6 +266,50 @@ fn pomodoro_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let title = "End the pomodoro";
     if let Some(p) = placed(q, &["end", "stop", "end focus", "stop focus", "end pomodoro", "stop pomodoro"], title, "pomodoro end stop cycle finish quit") {
         items.push(row(title, glyph, "Focus", Action::Session(SessionDo::End), status, p));
+    }
+    items
+}
+
+// ---------- clipboard history ----------
+
+/// `clip` or `clipboard` lists the latest copies, `clip invoice` those containing "invoice";
+/// Enter puts one back on the clipboard. Only a query led by the word asks for them: a password
+/// copied a minute ago must not surface while typing something else.
+fn clip_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    let glyph = Glyph::Tag;
+    let note = |text: &str| {
+        let mut item = note_row(text, glyph, "Clipboard");
+        item.score = LEAD;
+        vec![item]
+    };
+    if q.to_lowercase().starts_with("clear clip") {
+        return match &ctx.live.clips {
+            Some(clips) if !clips.is_empty() => vec![row("Clear clipboard history", glyph, "Clipboard", Action::ClearClips, format!("Forget {} copied", clips.len()), (LEAD, Vec::new()))],
+            _ => Vec::new(),
+        };
+    }
+    let Some(filter) = crate::clipboard::led_by(q) else { return Vec::new() };
+    let Some(clips) = &ctx.live.clips else { return note("Clipboard history is off. Turn it on in Settings under Privacy") };
+    if clips.is_empty() {
+        return note("Nothing copied since Kairo started");
+    }
+    let wanted = filter.to_lowercase();
+    let mut items: Vec<Item> = clips
+        .iter()
+        .filter(|c| wanted.is_empty() || c.text.to_lowercase().contains(&wanted))
+        .enumerate()
+        .map(|(i, c)| {
+            let age = if c.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(c.age_ms)) };
+            let sub = format!("{age} · {}", crate::clipboard::size_of(&c.text));
+            row(crate::clipboard::title_of(&c.text), glyph, "Clipboard", Action::Copy(c.text.clone()), sub, (LEAD - i as f64 / 100.0, Vec::new()))
+        })
+        .collect();
+    if items.is_empty() {
+        return note(&format!("No copies contain “{filter}”"));
+    }
+    if wanted.is_empty() {
+        items.push(row("Clear clipboard history", glyph, "Clipboard", Action::ClearClips, format!("Forget {} copied", clips.len()), (LEAD - 0.5, Vec::new())));
     }
     items
 }
@@ -752,5 +797,45 @@ mod tests {
         c.live.session = Some(SessionNow { label: None, left_ms: 10 * 60_000, paused: false });
         assert_eq!(search(&c, "pause")[0].sub.as_deref(), Some("10m left · round 2 of 4"));
         assert_eq!(search(&c, "end")[0].title, "End the pomodoro");
+    }
+    #[test]
+    fn clip_lists_the_latest_copies_and_only_when_asked_for() {
+        use super::super::search::ClipNow;
+        let mut c = ctx();
+        let clip = |text: &str, age_ms: i64| ClipNow { text: text.into(), age_ms };
+        c.live.clips = Some(vec![clip("Invoice 4471\nTotal due", 30_000), clip("https://example.com/a-long-address", 5 * 60_000), clip("x", 3_600_000)]);
+        let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
+        let shown: Vec<_> = rows.iter().map(|i| (i.title.as_str(), i.sub.as_deref())).collect();
+        assert_eq!(
+            shown,
+            [
+                ("Invoice 4471", Some("just now · 2 lines")),
+                ("https://example.com/a-long-address", Some("5m ago · 34 characters")),
+                ("x", Some("1h 00m ago · 1 character")),
+                ("Clear clipboard history", Some("Forget 3 copied")),
+            ]
+        );
+        assert_eq!(rows[0].action, Action::Copy("Invoice 4471\nTotal due".into()));
+        assert_eq!(rows[3].action, Action::ClearClips);
+        assert_eq!(search(&c, "clipboard")[0].title, "Invoice 4471");
+        // A filter shows only what contains it, and no Clear row.
+        let found = search(&c, "clip EXAMPLE");
+        assert_eq!(found.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["https://example.com/a-long-address"]);
+        assert_eq!(search(&c, "clip nothing like it")[0].title, "No copies contain “nothing like it”");
+        // Never in an ordinary search, whatever the copies hold.
+        for q in ["invoice", "x", "example", "total", "inv", "paste"] {
+            assert!(!search(&c, q).iter().any(|i| i.section == "Clipboard"), "{q}");
+        }
+        assert_eq!(search(&c, "clear clipboard history")[0].action, Action::ClearClips);
+    }
+
+    #[test]
+    fn clip_says_so_when_there_is_nothing_or_it_is_off() {
+        let mut c = ctx();
+        c.live.clips = Some(Vec::new());
+        assert_eq!(search(&c, "clip")[0].title, "Nothing copied since Kairo started");
+        assert!(search(&c, "clear clipboard")[0].title != "Clear clipboard history");
+        c.live.clips = None;
+        assert!(search(&c, "clip")[0].title.starts_with("Clipboard history is off"));
     }
 }

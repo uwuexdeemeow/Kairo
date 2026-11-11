@@ -41,8 +41,9 @@ the point of the project is to stay light.
 
 ### Settings
 
-One switch, **Remember what I copy**, in Settings under Privacy, on by default. Turning it off
-stops watching and clears the list. The palette finds it as a setting, "Clipboard history". It's
+One switch, **Remember what I copy**, in Chrono's settings in a block of its own, "Clipboard
+history", on by default. Turning it off
+stops watching and clears the list. The palette finds it as a setting, "Clipboard history", and jumps to it. It's
 per computer and does not sync.
 
 ## How
@@ -54,12 +55,11 @@ per computer and does not sync.
   constants. `push` ignores empty and whitespace-only text, over-long text, and trims nothing.
 - `spawn(app)`: a thread that reads the clipboard's text once a second and pushes it when it
   differs from the last text seen. No cost beyond that read; it skips the read while the setting is
-  off, and it never logs what it read. Where the system offers a cheap change counter (Windows'
-  clipboard sequence number, macOS's pasteboard change count) it checks that first and reads only
-  when it moved; elsewhere it just reads. Reading goes through `tauri-plugin-clipboard-manager`,
+  off, and it never logs what it read. Reading goes through `tauri-plugin-clipboard-manager`,
   already a dependency, so nothing new is added.
 - The last text seen is remembered even when the list is cleared, so clearing doesn't bring the
-  clipboard's current content straight back.
+  clipboard's current content straight back. What was on the clipboard when Kairo started, or when
+  the history was turned on, isn't kept: it wasn't copied while Kairo was watching.
 - `text_when_led(query) -> Option<&str>`: whether the query starts with `clip`/`clipboard`, and the
   rest of it. A plain function with tests.
 
@@ -74,7 +74,7 @@ per computer and does not sync.
 ### Settings
 
 - Setting key `clipboard_history` ("1"/"0", default on). `palette/settings.rs`: the "Clipboard
-  history" entry. `index.html` and `src/main.ts`: the switch under Privacy. Not part of
+  history" entry. `index.html` and `src/main.ts`: the switch. Not part of
   `choices.json`, so it doesn't sync or travel in a backup.
 
 All shared code: nothing per system. Wayland sessions that refuse clipboard reads from a background
@@ -95,7 +95,7 @@ device checklist gets a line for it.
 
 ## Not in this
 
-Writing the history to disk. Pinning a copy. Images and files. Pasting straight into the program
+Writing the history to disk. Pinning a copy. Images and files. Reading the system's clipboard change counter instead of the text. Pasting straight into the program
 that was in front. Skipping copies from password managers (the clipboard can't tell us where a copy
 came from through the plugin, so the safeguards are memory-only, a short list, never showing in
 ordinary results and a switch to turn it off). Syncing the history between computers.

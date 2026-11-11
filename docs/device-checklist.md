@@ -580,3 +580,21 @@ Use two machines (any systems), both online, neither combining through a folder.
 5. **The palette.** Type `pomodoro 50 10 essay`. *Expect:* "Start a pomodoro" with "50m rounds,
    10m breaks · Labelled “essay”". On a break, `skip` offers "Skip the break" and `end focus`
    offers "End the pomodoro".
+
+## Any system: clipboard history
+
+1. **Copies appear.** Copy three different pieces of text in other programs, then type `clip` in
+   the palette. *Expect:* the three, newest first, each with how long ago and its size, then
+   "Clear clipboard history". Type `clip` and part of one. *Expect:* only the copies containing it.
+2. **Put one back.** Press Enter on the oldest. *Expect:* the palette closes, and pasting gives
+   that text. Open `clip` again. *Expect:* it is now at the top, not repeated.
+3. **Not in ordinary searches.** Copy a word, then type that word in the palette without `clip`.
+   *Expect:* no "Clipboard" rows.
+4. **Clear and off.** Choose "Clear clipboard history". *Expect:* `clip` says "Nothing copied
+   since Kairo started", and the text still on the clipboard doesn't come back. In Chrono's
+   settings, untick Clipboard history, copy something, and type `clip`. *Expect:* "Clipboard
+   history is off". Tick it again. *Expect:* what was copied while it was off is not listed.
+5. **Gone on quit.** Copy something, quit Kairo from the tray, start it and type `clip`. *Expect:*
+   "Nothing copied since Kairo started".
+6. **Linux (Wayland).** Copy text and type `clip`. *Expect:* either the copy, or the empty note if
+   the desktop refuses clipboard reads from a background program.

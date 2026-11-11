@@ -1165,6 +1165,22 @@ pub fn dismiss_heads_up(state: State<AppState>) -> CmdResult<()> {
     nudge::dismiss(&conn).map_err(err)
 }
 
+/// Whether copies are remembered for the palette's `clip` command.
+#[tauri::command]
+pub fn get_clipboard_history(state: State<AppState>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::clipboard::enabled(&conn).map_err(err)
+}
+
+/// Turns the clipboard history on or off; off, it forgets everything at once.
+#[tauri::command]
+pub fn set_clipboard_history(app: AppHandle, state: State<AppState>, enabled: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::clipboard::set_enabled(&conn, enabled).map_err(err)?;
+    app.state::<crate::clipboard::Shared>().set_on(enabled);
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_nudges_enabled(state: State<AppState>) -> CmdResult<bool> {
     let conn = state.db.lock().map_err(err)?;

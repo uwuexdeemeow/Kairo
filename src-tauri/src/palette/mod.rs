@@ -411,6 +411,7 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
         now: Local::now().naive_local(),
         session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
         cycle: crate::pomodoro::current(conn, now).ok().flatten().map(|c| search::CycleNow { round: c.round, rounds: c.rounds, on_break: c.on_break, left_ms: c.break_left_ms, waiting: c.waiting }),
+        clips: tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now).map(|all| all.into_iter().map(|(text, age_ms)| search::ClipNow { text, age_ms }).collect()),
         strict: crate::blocking::strict_now(conn).unwrap_or(false),
         tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
         blocked: crate::blocking::showing(app),
@@ -493,6 +494,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         }
         Action::Pomodoro(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
+        }
+        Action::ClearClips => {
+            tauri::Manager::state::<crate::clipboard::Shared>(app).clear();
+            Ok(())
         }
         Action::Pomodoro(work, rest, label, task) => {
             use tauri::Emitter;

@@ -77,6 +77,7 @@ pub fn entries() -> Vec<Entry> {
         chrono("Block launchers too", "game steam epic launcher close", "block-launchers", Some(Launchers)),
         chrono("Strict blocking", "strict mode lock session", "block-strict", None),
         chrono("Breaks", "break rest reminder every", "break-every", None),
+        chrono("Clipboard history", "copy paste clip remember copied text privacy", "clipboard-history", None),
         chrono("Demo data", "sample example fake try", "demo-load", None),
         kairo("Kairo settings", "preferences options dashboard", "appearance", None, Some(Action::Dashboard(Some("settings")))),
         kairo("Theme", "appearance dark mode light system colors", "appearance", None, None),

@@ -4,6 +4,7 @@ mod away;
 mod backup;
 mod blocking;
 mod calendar;
+mod clipboard;
 mod browser;
 mod classify;
 mod collector;
@@ -272,6 +273,8 @@ pub fn run() {
                 let _ = handle.emit("kairo:sync", ());
             });
             calendar::spawn(db_path.clone());
+            app.manage(clipboard::Shared::new(clipboard::enabled(&conn)?));
+            clipboard::spawn(app.handle().clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
             reminders::spawn(app.handle().clone(), db_path.clone());
@@ -394,6 +397,8 @@ pub fn run() {
             commands::start_focus,
             commands::control_focus,
             commands::get_focus_overview,
+            commands::get_clipboard_history,
+            commands::set_clipboard_history,
             commands::start_pomodoro,
             commands::skip_pomodoro_break,
             commands::get_pomodoro_lengths,

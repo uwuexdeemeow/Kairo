@@ -291,6 +291,8 @@ pub enum Action {
     /// A pomodoro cycle: minutes per round and per break (the saved ones when None), label, and
     /// the task it's for, by id.
     Pomodoro(Option<u32>, Option<u32>, Option<String>, Option<String>),
+    /// Empties the clipboard history.
+    ClearClips,
     /// Adds a task to Ledger, from quick-add text.
     AddTask(String),
     /// Opens Ledger.
@@ -479,6 +481,14 @@ pub struct SessionNow {
     pub paused: bool,
 }
 
+/// One thing copied lately, for the `clip` command.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClipNow {
+    pub text: String,
+    /// How long ago it was copied.
+    pub age_ms: i64,
+}
+
 /// A pomodoro cycle that's on, as the palette says it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct CycleNow {
@@ -511,6 +521,9 @@ pub struct Live {
     pub session: Option<SessionNow>,
     /// The pomodoro cycle, while one is on.
     pub cycle: Option<CycleNow>,
+    /// The latest copies, newest first; None while the clipboard history is off. Only ever shown
+    /// for a query led by `clip`.
+    pub clips: Option<Vec<ClipNow>>,
     /// Whether strict mode holds the session: ending it and allowing a blocked app wait first.
     pub strict: bool,
     /// None while tracking; paused, until the time inside when there is one.
