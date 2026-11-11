@@ -23,6 +23,41 @@ export function h(tag: string, attrs: Record<string, string> = {}, ...children: 
   return el;
 }
 
+/// What to show beside a failure: the reason when it reads like one, else a calm nudge. Raw
+/// exceptions ("TypeError: Cannot read properties of undefined") are no help to anyone.
+export function why(err: unknown): string {
+  const text = String(err instanceof Error ? err.message : err).replace(/^Error:\s*/, "").trim();
+  return !text || /TypeError|ReferenceError|SyntaxError|undefined|\bnull\b|Cannot read|not a function|not defined|\binvoke\b|sqlite|database|panicked|\[object/i.test(text) ? "Try again in a moment." : text;
+}
+
+/// Makes `items` one stop for the Tab key, with the arrow keys moving between them (Home and End
+/// too, and up and down by a row when `columns` is given). For charts: dozens of bars, cells or
+/// segments that would otherwise be dozens of Tab stops, or none.
+export function rove(items: Element[], columns = 0): void {
+  const usable = items.filter((el) => !(el as HTMLButtonElement).disabled);
+  usable.forEach((el, i) => {
+    el.setAttribute("tabindex", i === 0 ? "0" : "-1");
+    el.setAttribute("data-rove", "");
+    el.addEventListener("keydown", (ev) => {
+      const e = ev as KeyboardEvent;
+      let to = i;
+      if (e.key === "ArrowRight") to = i + 1;
+      else if (e.key === "ArrowLeft") to = i - 1;
+      else if (e.key === "ArrowDown" && columns) to = i + columns;
+      else if (e.key === "ArrowUp" && columns) to = i - columns;
+      else if (e.key === "Home") to = 0;
+      else if (e.key === "End") to = usable.length - 1;
+      else return;
+      e.preventDefault();
+      e.stopPropagation();
+      const next = usable[Math.max(0, Math.min(usable.length - 1, to))];
+      el.setAttribute("tabindex", "-1");
+      next.setAttribute("tabindex", "0");
+      (next as HTMLElement).focus();
+    });
+  });
+}
+
 const SVG_NS = "http://www.w3.org/2000/svg";
 export function s(tag: string, attrs: Record<string, string | number> = {}): SVGElement {
   const el = document.createElementNS(SVG_NS, tag);

@@ -408,15 +408,7 @@ h2 {
   color: var(--muted);
 }
 
-.tabs button[aria-selected="true"] {
-  background: var(--raised);
-}
-
 .tabs button:hover {
-  color: var(--ink);
-}
-
-.tabs button[aria-selected="true"] {
   color: var(--ink);
 }
 
@@ -1545,7 +1537,6 @@ html.palette-root {
 
 .timer-presets button[aria-pressed="true"] {
   border-color: var(--app);
-  color: var(--ink);
 }
 
 .stepper {
@@ -2352,7 +2343,7 @@ html.palette-root {
 .pd-label {
   min-height: 14px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--faint);
   white-space: nowrap;
 }
@@ -2463,18 +2454,12 @@ html.palette-root {
 .range button {
   min-height: 40px;
   padding: 0 10px;
+  border-radius: 6px;
   color: var(--faint);
 }
 
 .range button:hover {
   color: var(--ink);
-}
-
-.range button[aria-pressed="true"],
-.range button[aria-selected="true"] {
-  color: var(--ink);
-  text-decoration: underline;
-  text-underline-offset: 6px;
 }
 
 /* The dashboard's Home and Settings: its main way around, so words in the text face, the shown
@@ -2556,7 +2541,7 @@ html.palette-root {
 .axis-text {
   fill: var(--faint);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .hit {
@@ -2580,7 +2565,7 @@ html.palette-root {
 
 .hm-col {
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .hm-cell {
@@ -2611,7 +2596,7 @@ html.palette-root {
   align-items: center;
   gap: 4px;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--faint);
 }
 
@@ -2619,8 +2604,16 @@ html.palette-root {
   margin-right: 6px;
 }
 
-.ramp-legend span:last-child {
+.ramp-legend span:nth-last-child(3) {
   margin-left: 6px;
+}
+
+.ramp-legend .hm-dist {
+  margin-left: 14px;
+}
+
+.ramp-legend span:last-child {
+  margin-left: 2px;
 }
 
 .ramp {
@@ -2951,10 +2944,6 @@ select,
 
 .filter:hover {
   border-color: color-mix(in srgb, var(--app) 30%, var(--edge));
-}
-
-.filter::placeholder {
-  color: var(--faint);
 }
 
 .filter:focus-visible {
@@ -6067,4 +6056,158 @@ select,
 /* The first section under a group's name sits right under it. */
 .settings-group-title + .block {
   margin-top: 16px;
+}
+
+/* "Shown" has one look: the app's ink on a soft tint of it. The sidebar's page, the range toggles
+   and the length presets all use it. */
+.tabs button[aria-current="page"],
+.tabs button[aria-selected="true"],
+.range button[aria-pressed="true"],
+.range button[aria-selected="true"],
+.timer-presets button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--app) 14%, transparent);
+  color: var(--app);
+}
+
+/* Settings come in groups, each with a heading the eye can find. */
+.group-head {
+  margin: 44px 0 14px;
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
+}
+
+.settings-first + .group-head,
+#settings-status + .group-head {
+  margin-top: 20px;
+}
+
+.block-title {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* The longer explanation sits behind its heading; the short line above it is enough to act on. */
+.more {
+  margin: 4px 0 12px;
+}
+
+.more > summary,
+.focus-setup > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.more > summary {
+  min-height: 28px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.more > summary:hover,
+.focus-setup > summary:hover {
+  color: var(--ink);
+}
+
+.more > summary::-webkit-details-marker,
+.focus-setup > summary::-webkit-details-marker {
+  display: none;
+}
+
+.more > summary::before,
+.focus-setup > summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.75px solid currentColor;
+  border-bottom: 1.75px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 140ms var(--ease);
+}
+
+details[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more > summary::before,
+  .focus-setup > summary::before {
+    transition: none;
+  }
+}
+
+summary:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.more p {
+  margin: 4px 0 8px;
+}
+
+/* Rounds, schedule and block lists: set up once in a while, so the Focus page opens on the timer. */
+.focus-setup > summary {
+  min-height: 32px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.focus-setup[open] > summary {
+  margin-bottom: 14px;
+}
+
+.setup-part + .setup-part {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid var(--rule);
+}
+
+.setup-part h3 {
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+/* The week's three figures lead; the rest follow smaller. */
+.stats-lead dd {
+  font-size: 28px;
+}
+
+.stats-minor {
+  margin-top: 16px;
+}
+
+.stats-minor dd {
+  font-size: 15px;
+}
+
+/* An hour that was mostly distraction is orange on the heatmap, not just the faintest blue. */
+.hm-dist {
+  background: var(--distracting);
+}
+
+/* Chart marks the arrow keys land on show where they are. */
+[data-rove]:focus-visible {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+  z-index: 1;
+}
+
+.hit:focus-visible {
+  fill: var(--ink);
+  fill-opacity: 0.08;
 }

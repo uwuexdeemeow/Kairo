@@ -11,7 +11,7 @@ import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
 import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
-import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, s } from "./ui";
+import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
@@ -92,10 +92,11 @@ async function fetchIcons() {
 const tooltip = $("#tooltip");
 
 function tip(target: Element, html: () => string) {
-  target.addEventListener("pointerenter", () => {
+  const show = () => {
     tooltip.innerHTML = html();
     tooltip.hidden = false;
-  });
+  };
+  target.addEventListener("pointerenter", show);
   target.addEventListener("pointermove", (e) => {
     const ev = e as PointerEvent;
     const { width, height } = tooltip.getBoundingClientRect();
@@ -104,6 +105,24 @@ function tip(target: Element, html: () => string) {
     tooltip.style.transform = `translate(${x}px, ${y}px)`;
   });
   target.addEventListener("pointerleave", () => (tooltip.hidden = true));
+  // The keyboard gets the same words, beside the element it is on.
+  target.addEventListener("focus", () => {
+    if (!target.matches(":focus-visible")) return;
+    show();
+    const r = target.getBoundingClientRect();
+    const { width, height } = tooltip.getBoundingClientRect();
+    const x = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    const y = r.bottom + 8 + height > window.innerHeight ? Math.max(8, r.top - height - 8) : r.bottom + 8;
+    tooltip.style.transform = `translate(${x}px, ${y}px)`;
+  });
+  target.addEventListener("blur", () => (tooltip.hidden = true));
+}
+
+/// Says in words what a chart mark shows, for a screen reader; a mark that is not a button is an
+/// image with that label.
+function speak(el: Element, label: string) {
+  if (el.tagName.toLowerCase() !== "button") el.setAttribute("role", "img");
+  el.setAttribute("aria-label", label);
 }
 
 const dotHtml = (c: Category) => `<span class="dot ${c}"></span>`;
@@ -116,10 +135,10 @@ function renderLegends() {
 
 // ---------- today ----------
 
-function stat(label: string, value: string, extra = ""): HTMLElement {
+function stat(label: string, value: string, extra = "", hint = ""): HTMLElement {
   const dd = h("dd", {}, value);
   if (extra) dd.append(h("span", {}, ` · ${extra}`));
-  return h("div", {}, h("dt", {}, label), dd);
+  return h("div", {}, h("dt", hint ? { title: hint } : {}, label), dd);
 }
 
 /// The day shown on the Today view; null follows the current day, including across midnight.
@@ -160,9 +179,9 @@ function renderToday(d: DaySummary) {
   const perHour = d.activeMs ? Math.round(d.switches / (d.activeMs / HOUR_MS)) : 0;
   $("#today-stats").replaceChildren(
     stat("Longest focus", fmtDur(d.longestFocusMs)),
-    stat("Deep-work blocks", String(d.deepBlocks)),
+    stat("Deep-work blocks", String(d.deepBlocks), "", "Stretches of 25 minutes or more of productive time"),
     stat("Distracted", fmtDur(d.distractingMs)),
-    stat("Switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
+    stat("App switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
     stat("Focus sessions", String(shownFocus.length), shownFocus.length ? fmtDur(shownFocus.reduce((ms, b) => ms + focusedMs(b), 0)) : ""),
   );
   renderTimeline(d, isToday);
@@ -198,14 +217,19 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
   const t0 = day0 + fromHour * HOUR_MS;
   const span = (toHour - fromHour) * HOUR_MS;
   const clock = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
-  const strip = h("div", { class: "timeline", role: "img", "aria-label": `Activity on ${$("#today-date").textContent} from ${clock(fromHour)} to ${clock(toHour)}` });
+  const most = d.topApps.slice(0, 3).map((u) => `${u.label} ${fmtDur(u.ms)}`).join(", ");
+  const strip = h("div", { class: "timeline", role: "group", "aria-label": `Activity on ${$("#today-date").textContent} from ${clock(fromHour)} to ${clock(toHour)}.${most ? ` Most time: ${most}.` : ""} Arrow keys move between stretches.` });
+  const segs: HTMLElement[] = [];
   for (const seg of d.timeline) {
     const el = h("span", { class: `seg ${seg.category}` });
+    speak(el, `${seg.label}, ${LABELS[seg.category]}, ${fmtClock(seg.start)} to ${fmtClock(seg.end)}, ${fmtDur(seg.end - seg.start)}`);
+    segs.push(el);
     el.style.left = `${((seg.start - t0) / span) * 100}%`;
     el.style.width = `max(calc(${((seg.end - seg.start) / span) * 100}% - 2px), 3px)`;
     tip(el, () => `<strong>${esc(seg.label)}</strong><div>${dotHtml(seg.category)}${LABELS[seg.category]}</div><div class="muted">${fmtClock(seg.start)}–${fmtClock(seg.end)} · ${fmtDur(seg.end - seg.start)}</div>`);
     strip.append(el);
   }
+  rove(segs);
   if (isToday) {
     const now = h("span", { class: "now", "aria-hidden": "true" });
     now.style.left = `${((Date.now() - t0) / span) * 100}%`;
@@ -224,14 +248,18 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
   const parts: Node[] = [strip, axis];
   // Focus sessions run as a thin lane above the activity they covered.
   if (shownFocus.length) {
-    const lane = h("div", { class: "focus-lane", role: "img", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
+    const lane = h("div", { class: "focus-lane", role: "group", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
+    const blocks: HTMLElement[] = [];
     for (const b of shownFocus) {
       const el = h("span", { class: `focus-block${b.completed ? "" : " cut"}` });
+      speak(el, `Focus session, ${fmtClock(b.start)} to ${fmtClock(b.end)}, ${fmtDur(b.end - b.start)}${b.completed ? "" : ", ended early"}`);
+      blocks.push(el);
       el.style.left = `${((b.start - t0) / span) * 100}%`;
       el.style.width = `max(${((b.end - b.start) / span) * 100}%, 3px)`;
       tip(el, () => `<strong>Focus session</strong><div class="muted">${fmtClock(b.start)}–${fmtClock(b.end)} · ${fmtDur(b.end - b.start)}${b.completed ? "" : " · ended early"}</div>`);
       lane.append(el);
     }
+    rove(blocks);
     parts.unshift(lane);
   }
   if (!d.timeline.length) parts.push(h("p", { class: "empty" }, isToday ? "Nothing tracked yet today. Chrono records in the background while Kairo runs." : "Nothing was tracked this day."));
@@ -291,7 +319,7 @@ function renderProjectTimes(id: string, times: ProjectTime[], span: Span, date?:
         api
           .projectDetail(p.id, date, span)
           .then((d) => paintProjectDetail(box, d, span))
-          .catch((err) => box.replaceChildren(h("p", { class: "empty" }, `Couldn't load it: ${err}`)));
+          .catch((err) => box.replaceChildren(h("p", { class: "empty" }, `Couldn't read it. ${why(err)}`)));
       }
       return item;
     }),
@@ -353,7 +381,7 @@ function renderProjects(projects: Project[]) {
       renderProjects(await run());
       status.textContent = "";
     } catch (err) {
-      status.textContent = String(err);
+      status.textContent = why(err);
     }
   };
   $("#project-list").replaceChildren(
@@ -380,7 +408,7 @@ $("#project-add").addEventListener("click", async () => {
     words.value = "";
     $("#project-status").textContent = "";
   } catch (err) {
-    $("#project-status").textContent = String(err);
+    $("#project-status").textContent = why(err);
   }
 });
 
@@ -409,7 +437,7 @@ function renderAway(stretches: AwayStretch[]) {
           await run();
           load();
         } catch (err) {
-          $("#away-status").textContent = String(err);
+          $("#away-status").textContent = why(err);
         }
       };
       const buttons = AWAY_KINDS.map(([kind, name]) => {
@@ -582,6 +610,8 @@ function renderPeriod(w: Period) {
     stat("Productive", fmtGoal(t.productiveMs), vsBefore(t.productiveMs, p.productiveMs)),
     stat("Distracting", fmtGoal(t.distractingMs), vsBefore(t.distractingMs, p.distractingMs)),
     stat("On screen", fmtGoal(t.activeMs), vsBefore(t.activeMs, p.activeMs)),
+  );
+  $("#week-stats-minor").replaceChildren(
     stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
     ...(w.goalWeeks ? [stat("Weekly goals", `${w.goalWeeksMet} of ${w.goalWeeks} weeks`)] : []),
     year
@@ -695,7 +725,7 @@ function renderYearChart(w: Period) {
       const goals = m.tracked ? `${m.met}/${m.tracked}` : "";
       const col = h(
         "button",
-        { class: `wk-day${m.first === thisMonth ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(m.totals.activeMs)} on screen` },
+        { class: `wk-day${m.first === thisMonth ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(m.totals.activeMs)} on screen. ${CATEGORIES.map((c) => `${LABELS[c]} ${fmtGoal(m.totals[TOTAL_KEYS[c]])}`).join(", ")}.${m.tracked ? ` Goals met on ${m.met} of ${m.tracked} days.` : ""}` },
         h("span", { class: "wk-value" }, m.totals.activeMs ? fmtHours(m.totals.activeMs) : ""),
         bar,
         h("span", { class: "wk-label" }, date.toLocaleDateString([], { month: "short" })),
@@ -710,6 +740,7 @@ function renderYearChart(w: Period) {
       return col;
     }),
   );
+  rove([...chart.children]);
 }
 
 /// Whole hours for a month's bar, which has no room for minutes: "142h".
@@ -741,7 +772,7 @@ function renderWeekChart(w: Period) {
       const goal = d.goalsMet === null ? "" : d.goalsMet ? "✓" : "×";
       const col = h(
         "button",
-        { class: `wk-day${d.date === today ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(d.totals.activeMs)} on screen` },
+        { class: `wk-day${d.date === today ? " today" : ""}`, "aria-label": `${name}: ${fmtGoal(d.totals.activeMs)} on screen. ${CATEGORIES.map((c) => `${LABELS[c]} ${fmtGoal(d.totals[TOTAL_KEYS[c]])}`).join(", ")}.${d.goalsMet === null ? "" : d.goalsMet ? " Goals met." : " Goals missed."}` },
         h("span", { class: "wk-value" }, d.totals.activeMs && !month ? fmtDur(d.totals.activeMs) : ""),
         bar,
         month
@@ -755,6 +786,7 @@ function renderWeekChart(w: Period) {
       return col;
     }),
   );
+  rove([...chart.children]);
 }
 
 function renderWeekApps(w: Period) {
@@ -840,7 +872,8 @@ function renderHourly(p: Patterns) {
   const barW = Math.max(band - 8, 3);
   const base = m.top + innerH;
 
-  const svg = s("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Average minutes per hour of day, split by category" });
+  const svg = s("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "group", "aria-label": "Average minutes per hour of day, split by category. Arrow keys move between hours." });
+  const hits: SVGElement[] = [];
   svg.append(s("line", { x1: 0, x2: width, y1: m.top, y2: m.top, class: "top-line" }));
   const topLabel = s("text", { x: width, y: m.top - 6, "text-anchor": "end", class: "axis-text" });
   topLabel.textContent = `${top}m`;
@@ -865,6 +898,8 @@ function renderHourly(p: Patterns) {
     }
     // Hit target covers the whole column so thin bars are easy to hover.
     const hit = s("rect", { x: d.hour * band, y: m.top, width: band, height: innerH, class: "hit" });
+    speak(hit, d.active < 0.5 ? `${fmtHour(d.hour)} to ${fmtHour(d.hour + 1)}: no activity` : `${fmtHour(d.hour)} to ${fmtHour(d.hour + 1)}: ${fmtDur(d.active * 60_000)} on an average day. ${CATEGORIES.map((c) => `${LABELS[c]} ${fmtDur(d[c] * 60_000)}`).join(", ")}`);
+    hits.push(hit);
     tip(hit, () =>
       d.active < 0.5
         ? `<strong>${fmtHour(d.hour)}–${fmtHour(d.hour + 1)}</strong><div class="muted">No activity</div>`
@@ -875,6 +910,7 @@ function renderHourly(p: Patterns) {
     );
     svg.append(hit);
   }
+  rove(hits);
   root.replaceChildren(svg);
 }
 
@@ -884,13 +920,17 @@ function roundedTop(x: number, y: number, w: number, hgt: number, r: number): st
 }
 
 function renderHeatmap(p: Patterns) {
-  const grid = h("div", { class: "heatmap", role: "img", "aria-label": "Productive share by weekday and hour; hours without data are small dots" });
+  const grid = h("div", { class: "heatmap", role: "group", "aria-label": "Productive share by weekday and hour; hours without data are small dots, and hours that were mostly distraction are orange. Arrow keys move between hours." });
+  const cells: HTMLElement[] = [];
   p.heatmap.forEach((row, wd) => {
     grid.append(h("span", {}, WEEKDAYS[wd]));
     row.forEach((cell, hr) => {
       const enough = cell.activeMs >= MIN_CELL_MS;
       const step = Math.min(RAMP_STEPS - 1, Math.floor((enough ? cell.productiveMs / cell.activeMs : 0) * RAMP_STEPS));
-      const el = h("span", { class: enough ? "hm-cell" : "hm-cell empty" }, h("span", { class: enough ? `seq-${step}` : "" }));
+      const mostlyDistracting = enough && cell.distractingMs * 2 >= cell.activeMs;
+      const el = h("span", { class: enough ? "hm-cell" : "hm-cell empty" }, h("span", { class: enough ? (mostlyDistracting ? "hm-dist" : `seq-${step}`) : "" }));
+      speak(el, `${WEEKDAYS[wd]} ${fmtHour(hr)} to ${fmtHour(hr + 1)}: ${enough ? `${pct(cell.productiveMs, cell.activeMs)}% productive, ${pct(cell.distractingMs, cell.activeMs)}% distracting, ${fmtDur(cell.activeMs)} tracked` : "not enough data"}`);
+      cells.push(el);
       tip(el, () =>
         enough
           ? `<strong>${WEEKDAYS[wd]} ${fmtHour(hr)}–${fmtHour(hr + 1)}</strong><div>${pct(cell.productiveMs, cell.activeMs)}% productive · ${pct(cell.distractingMs, cell.activeMs)}% distracting</div><div class="muted">${fmtDur(cell.activeMs)} tracked in range</div>`
@@ -901,9 +941,10 @@ function renderHeatmap(p: Patterns) {
   });
   grid.append(h("span"));
   for (let hr = 0; hr < 24; hr++) grid.append(h("span", { class: "hm-col" }, hr % 6 === 0 ? String(hr).padStart(2, "0") : ""));
+  rove(cells, 24);
   $("#heatmap").replaceChildren(grid);
 
-  $("#heatmap-legend").replaceChildren(h("span", {}, "0%"), ...Array.from({ length: RAMP_STEPS }, (_, i) => h("span", { class: `ramp seq-${i}` })), h("span", {}, "100%"));
+  $("#heatmap-legend").replaceChildren(h("span", {}, "0%"), ...Array.from({ length: RAMP_STEPS }, (_, i) => h("span", { class: `ramp seq-${i}` })), h("span", {}, "100%"), h("span", { class: "ramp hm-dist" }), h("span", {}, "mostly distracting"));
 }
 
 // ---------- categories ----------
@@ -1076,7 +1117,7 @@ const disarmNotice = confirmTwice(
       $("#privacy-notice-apply").hidden = true;
       renderCategories(await api.categories());
     } catch (err) {
-      text.textContent = `Couldn't change past data: ${err}`;
+      text.textContent = `Couldn't change past data. ${why(err)}`;
     }
   },
 );
@@ -1111,7 +1152,7 @@ async function saveRetention(days: number) {
     renderRetention(days);
     out.textContent = n ? `Saved. Older history deleted.` : "Saved.";
   } catch (err) {
-    out.textContent = `Couldn't save: ${err}`;
+    out.textContent = `Couldn't save. ${why(err)}`;
   }
 }
 
@@ -1180,7 +1221,7 @@ const disarmDelete = confirmTwice(
       renderCategories(await api.categories());
       refreshStatus();
     } catch (err) {
-      out.textContent = `Couldn't delete: ${err}`;
+      out.textContent = `Couldn't delete. ${why(err)}`;
     }
   },
 );
@@ -1480,7 +1521,7 @@ function slotBlocksEditor(s: FocusSlot) {
     try {
       renderSchedule(await change());
     } catch (err) {
-      status.textContent = String(err);
+      status.textContent = why(err);
     }
   };
   // "Only these" with nothing on the list yet blocks as usual until something's added.
@@ -1541,7 +1582,7 @@ function renderBlockLists(b: BlockLists) {
       // A slot's summary names its list, which may have been renamed or removed.
       renderSchedule(await api.focusSchedule());
     } catch (err) {
-      status.textContent = String(err);
+      status.textContent = why(err);
     }
   };
   const fallback = h("select", { id: "default-block-list", "aria-label": "Sessions you start block" }, h("option", { value: "" }, "Distracting apps and sites"), ...b.lists.map((l) => h("option", { value: l.name }, `Your “${l.name}” list`))) as HTMLSelectElement;
@@ -1577,7 +1618,7 @@ $("#block-list-add").addEventListener("click", async () => {
     name.value = "";
     $("#block-list-status").textContent = "";
   } catch (err) {
-    $("#block-list-status").textContent = String(err);
+    $("#block-list-status").textContent = why(err);
   }
 });
 
@@ -1602,7 +1643,7 @@ function setUpScheduleForm() {
       $<HTMLInputElement>("#schedule-label").value = "";
       $("#schedule-status").textContent = "";
     } catch (err) {
-      $("#schedule-status").textContent = String(err);
+      $("#schedule-status").textContent = why(err);
     }
   });
 }
@@ -1763,7 +1804,7 @@ function paintStatus() {
 
 if (IS_MAC) {
   $("#block-explainer").textContent =
-    "Blocked apps are hidden behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. Closing the launchers stops new games from starting.";
+    "Blocked apps are hidden behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Closing the launchers stops new games from starting.";
   // A Mac lets Kairo ask Safari, Chrome and the like which page they show, so the extension is
   // only needed for blocking sites.
   $("#ext-intro").textContent =
@@ -1775,11 +1816,11 @@ if (IS_LINUX) {
     "Without it, Chrono guesses sites from window titles, which misses most pages in Brave and Chrome. The extension tells Chrono the exact site instead, and blocks distracting sites during focus sessions. It sends only the domain, never the page or what you type, and only to Kairo on this computer.";
   // Kairo sees other apps through X11 or, on Wayland, through GNOME or KDE Plasma themselves.
   $("#block-explainer").textContent =
-    "Blocked apps are minimized behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. Pausing a session pauses blocking. Choose what's blocked for each app or site in Categories. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
+    "Blocked apps are minimized behind a Chrono window, and with the browser extension, blocked sites show a Chrono page instead. On Wayland desktops other than GNOME and KDE Plasma, Kairo sees and hides only apps running through XWayland, as most games do.";
 }
 
 type View = "today" | "week" | "focus" | "patterns" | "categories" | "settings";
-/// In sidebar order, for Ctrl+1 to Ctrl+5.
+/// In sidebar order, for Ctrl+1 to Ctrl+6.
 const VIEWS: View[] = ["today", "week", "focus", "patterns", "categories", "settings"];
 let view: View = "today";
 
@@ -1840,7 +1881,15 @@ async function load(v: View = view) {
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
-      breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
+      breaks.onchange = async () => {
+        const out = $("#break-status");
+        try {
+          await api.setBreakMinutes(Number(breaks.value));
+          out.textContent = "Saved";
+        } catch (e) {
+          out.textContent = `Couldn't save. ${why(e)}`;
+        }
+      };
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
       const evening = await api.eveningSummary();
       $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;
@@ -1848,14 +1897,14 @@ async function load(v: View = view) {
     }
   } catch (e) {
     const target = { today: "#today-timeline", week: "#week-chart", focus: "#focus-history", patterns: "#insights", categories: "#categories", settings: "#settings-status" }[v];
-    $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't load data: ${e}`));
+    $(target).replaceChildren(h("p", { class: "empty" }, `Couldn't read your data. ${why(e)}`));
   }
 }
 
 /// Switches to a view and loads it; resolves once it's filled.
 function showView(next: View): Promise<void> {
   view = next;
-  for (const t of document.querySelectorAll<HTMLButtonElement>("[data-view]")) t.setAttribute("aria-selected", String(t.dataset.view === next));
+  for (const t of document.querySelectorAll<HTMLButtonElement>("[data-view]")) void (t.dataset.view === next ? t.setAttribute("aria-current", "page") : t.removeAttribute("aria-current"));
   for (const sec of document.querySelectorAll<HTMLElement>(".view")) sec.hidden = sec.id !== `view-${next}`;
   // Each view starts at its top, not wherever the last one was scrolled to.
   window.scrollTo(0, 0);
@@ -1902,7 +1951,7 @@ if (import.meta.env.PROD) {
   });
 }
 
-/// Ctrl+1 to Ctrl+5 open the views in sidebar order.
+/// Ctrl+1 to Ctrl+6 open the views in sidebar order.
 document.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
   const next = VIEWS[Number(e.key) - 1];
@@ -1930,7 +1979,7 @@ async function refreshExtension() {
           ? "Not connected yet. Once it's installed, open the browser and this turns green."
           : `Last heard ${fmtAgo(ago)}. Is the browser open?`;
   } catch (err) {
-    el.textContent = `Couldn't check the extension: ${err}`;
+    el.textContent = `Couldn't check the extension. ${why(err)}`;
   }
 }
 
@@ -1956,7 +2005,7 @@ function renderBrowsers(browsers: { id: string; name: string }[]) {
             note.textContent = `Opened ${b.name}. Click Load unpacked and choose ${folder}`;
           }
         } catch (err) {
-          note.textContent = `Couldn't open ${b.name}: ${err}`;
+          note.textContent = `Couldn't open ${b.name}. ${why(err)}`;
         }
       });
       return btn;
@@ -1969,7 +2018,7 @@ $("#ext-open").addEventListener("click", async () => {
     await api.openExtensionFolder();
     $("#ext-note").textContent = "";
   } catch (err) {
-    $("#ext-note").textContent = `Couldn't open it: ${err}`;
+    $("#ext-note").textContent = `Couldn't open it. ${why(err)}`;
   }
 });
 
@@ -2007,7 +2056,7 @@ for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "
     } catch (err) {
       // Strict mode keeps these as they are mid-session.
       box.checked = !box.checked;
-      $("#block-note").textContent = String(err);
+      $("#block-note").textContent = why(err);
     }
   });
 }
@@ -2056,15 +2105,34 @@ for (const id of ["#week-note-well", "#week-note-change"]) {
       await api.setWeekNotes(shownWeek(), $<HTMLTextAreaElement>("#week-note-well").value, $<HTMLTextAreaElement>("#week-note-change").value);
       status.textContent = "Saved";
     } catch (err) {
-      status.textContent = `Couldn't save: ${err}`;
+      status.textContent = `Couldn't save. ${why(err)}`;
     }
   });
 }
 
+/// Whether ← → and T step through days; a single key that acts on its own can be turned off.
+const DAY_KEYS = "chrono.day-keys";
+const dayKeysOn = () => {
+  try {
+    return localStorage.getItem(DAY_KEYS) !== "off";
+  } catch {
+    return true;
+  }
+};
+$<HTMLInputElement>("#day-keys").checked = dayKeysOn();
+$<HTMLInputElement>("#day-keys").addEventListener("change", (e) => {
+  try {
+    localStorage.setItem(DAY_KEYS, (e.target as HTMLInputElement).checked ? "on" : "off");
+  } catch {
+    // The choice then lasts until the window closes.
+  }
+});
+
 /// ←/→ step a day on Today and a week or month on Week; T jumps back to the present.
 document.addEventListener("keydown", (e) => {
-  if ((view !== "today" && view !== "week") || e.altKey || e.ctrlKey || e.metaKey) return;
-  if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+  if ((view !== "today" && view !== "week") || e.altKey || e.ctrlKey || e.metaKey || !dayKeysOn()) return;
+  // Inputs, dropdowns and the charts' own arrow keys keep theirs.
+  if ((e.target as HTMLElement).closest("input, select, textarea, [role=combobox], [role=listbox], [data-rove]")) return;
   const step = (n: number) => (view === "today" ? goToDay(shiftDate(shownDay(), n)) : stepPeriod(n));
   if (e.key === "ArrowLeft") step(-1);
   else if (e.key === "ArrowRight") step(1);
@@ -2091,7 +2159,7 @@ for (const id of ["#evening-enabled", "#evening-time"]) {
       await api.setEveningSummary($<HTMLInputElement>("#evening-enabled").checked, (h24 || 0) * 60 + (m || 0));
       out.textContent = "";
     } catch (e) {
-      out.textContent = `Couldn't save: ${e}`;
+      out.textContent = `Couldn't save. ${why(e)}`;
     }
   });
 }
@@ -2102,7 +2170,7 @@ $("#evening-test").addEventListener("click", async () => {
     await api.testEveningSummary();
     out.textContent = "Sent. Check your notifications.";
   } catch (e) {
-    out.textContent = `Couldn't send: ${e}`;
+    out.textContent = `Couldn't send. ${why(e)}`;
   }
 });
 
@@ -2112,7 +2180,7 @@ $("#nudge-test").addEventListener("click", async () => {
     await api.testNudge();
     out.textContent = "Sent. Check your notifications.";
   } catch (e) {
-    out.textContent = `Couldn't send: ${e}`;
+    out.textContent = `Couldn't send. ${why(e)}`;
   }
 });
 
@@ -2129,7 +2197,7 @@ $("#calendar-save").addEventListener("click", async () => {
   try {
     renderCalendar(await api.setCalendar($<HTMLTextAreaElement>("#calendar-urls").value));
   } catch (err) {
-    out.textContent = String(err);
+    out.textContent = why(err);
   }
 });
 

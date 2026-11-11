@@ -94,3 +94,68 @@ describe("theme", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
+
+describe("saying why something failed", () => {
+  it("shows a reason that reads like one, and a calm line for raw exceptions", async () => {
+    const { why } = await import("./ui");
+    expect(why("Strict mode is on: end the current session first.")).toBe("Strict mode is on: end the current session first.");
+    expect(why(new Error("Error: no such folder"))).toBe("no such folder");
+    for (const raw of [new TypeError("Cannot read properties of undefined (reading 'invoke')"), new Error("Cannot read properties of null (reading 'filter')"), "database is locked", "", undefined, "[object Object]"]) {
+      expect(why(raw)).toBe("Try again in a moment.");
+    }
+  });
+});
+
+describe("arrow keys across a row of chart marks", () => {
+  const key = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  const marks = (n: number) => {
+    document.body.replaceChildren(...Array.from({ length: n }, () => document.createElement("span")));
+    return [...document.body.children] as HTMLElement[];
+  };
+
+  it("is one Tab stop, with the arrows, Home and End moving between marks", async () => {
+    const { rove } = await import("./ui");
+    const m = marks(4);
+    rove(m);
+    expect(m.map((el) => el.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1"]);
+    m[0].focus();
+    key(m[0], "ArrowRight");
+    expect(document.activeElement).toBe(m[1]);
+    expect(m.map((el) => el.getAttribute("tabindex"))).toEqual(["-1", "0", "-1", "-1"]);
+    key(m[1], "End");
+    expect(document.activeElement).toBe(m[3]);
+    key(m[3], "ArrowRight");
+    expect(document.activeElement).toBe(m[3]);
+    key(m[3], "Home");
+    expect(document.activeElement).toBe(m[0]);
+  });
+
+  it("moves by a row with up and down when it has columns, and skips disabled marks", async () => {
+    const { rove } = await import("./ui");
+    const m = marks(6);
+    rove(m, 3);
+    m[1].focus();
+    key(m[1], "ArrowDown");
+    expect(document.activeElement).toBe(m[4]);
+    key(m[4], "ArrowUp");
+    expect(document.activeElement).toBe(m[1]);
+
+    document.body.replaceChildren(...Array.from({ length: 3 }, () => document.createElement("button")));
+    const b = [...document.body.children] as HTMLButtonElement[];
+    b[1].disabled = true;
+    rove(b);
+    b[0].focus();
+    key(b[0], "ArrowRight");
+    expect(document.activeElement).toBe(b[2]);
+  });
+
+  it("keeps the arrows from reaching the page's own shortcuts", async () => {
+    const { rove } = await import("./ui");
+    const m = marks(2);
+    rove(m);
+    const page = vi.fn();
+    document.addEventListener("keydown", page, { once: true });
+    key(m[0], "ArrowRight");
+    expect(page).not.toHaveBeenCalled();
+  });
+});

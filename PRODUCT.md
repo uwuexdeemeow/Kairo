@@ -56,7 +56,7 @@ and turns it into insights only when there's enough data behind them.
 
 ## Evidence on Hand
 
-- Real usage data lives only on the user's device; demo data can be loaded from Categories.
+- Real usage data lives only on the user's device; demo data can be loaded from Chrono's settings.
 - No testimonials, users or metrics exist beyond the author's own use; do not invent any.
 
 ## Product Principles
