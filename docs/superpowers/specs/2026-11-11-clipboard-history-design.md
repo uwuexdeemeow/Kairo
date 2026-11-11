@@ -17,8 +17,8 @@ the point of the project is to stay light.
 
 | Typed | Rows | Enter |
 |---|---|---|
-| `clip`, `clipboard` | The latest copies, newest first, then "Clear clipboard history" | Copies the row back and closes the palette |
-| `clip invoice` | Only the copies containing "invoice" (case ignored) | Same |
+| `clip`, `clipboard` | The latest 5 copies, newest first, then "Show all N copies" (when there are more) and "Clear clipboard history" | Copies the row back and closes the palette |
+| `clip ` (a space after it) | The **Clipboard** mode, a bubble like Files or Notes: every copy, newest first; typing narrows them to those containing it (case ignored) | Copies the row back and closes the palette |
 
 - A row's title is the copy's first non-empty line, cut to one line; its second line says "3m ago ·
   214 characters", or "· 4 lines" when it has more than one.
@@ -41,8 +41,8 @@ the point of the project is to stay light.
 
 ### Settings
 
-One switch, **Remember what I copy**, in Chrono's settings in a block of its own, "Clipboard
-history", on by default. Turning it off
+One switch, **Remember what I copy**, in Kairo's settings (the dashboard) under the palette's,
+on by default. Turning it off
 stops watching and clears the list. The palette finds it as a setting, "Clipboard history", and jumps to it. It's
 per computer and does not sync.
 

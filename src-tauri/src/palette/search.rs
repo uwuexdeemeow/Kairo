@@ -983,6 +983,7 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
                 (true, true) => vec![note_row("No open tasks. Type one to add it", Glyph::Focus, "Tasks")],
             }
         }
+        Mode::Clipboard => commands::clipboard_mode_rows(ctx, q),
         Mode::Notes => {
             let found = note_rows(ctx, q);
             match (found.is_empty(), q.is_empty()) {

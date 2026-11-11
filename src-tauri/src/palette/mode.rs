@@ -14,6 +14,8 @@ pub enum Mode {
     Windows,
     Tasks,
     Notes,
+    /// Everything copied lately, to choose one to put back.
+    Clipboard,
 }
 
 /// The short word for the calculator; the sites' are in `search::WEB`.
@@ -29,7 +31,7 @@ impl Mode {
     pub fn all() -> Vec<Mode> {
         let mut all = vec![Mode::Calc];
         all.extend((0..WEB.len()).map(Mode::Web));
-        all.extend([Mode::Files, Mode::Windows, Mode::Tasks, Mode::Notes]);
+        all.extend([Mode::Files, Mode::Windows, Mode::Tasks, Mode::Notes, Mode::Clipboard]);
         all
     }
 
@@ -42,6 +44,7 @@ impl Mode {
             Mode::Windows => "Windows",
             Mode::Tasks => "Tasks",
             Mode::Notes => "Notes",
+            Mode::Clipboard => "Clipboard",
         }
     }
 
@@ -50,7 +53,7 @@ impl Mode {
             Mode::Calc => Glyph::Calc,
             Mode::Web(_) | Mode::Files | Mode::Windows => Glyph::Search,
             Mode::Tasks => Glyph::Focus,
-            Mode::Notes => Glyph::Tag,
+            Mode::Notes | Mode::Clipboard => Glyph::Tag,
         }
     }
 
@@ -63,6 +66,7 @@ impl Mode {
             Mode::Windows => "Find an open window…".into(),
             Mode::Tasks => "Find a task, or add one…".into(),
             Mode::Notes => "Find a note, or start one…".into(),
+            Mode::Clipboard => "Find something you copied…".into(),
         }
     }
 
@@ -75,6 +79,7 @@ impl Mode {
             Mode::Windows => "windows".into(),
             Mode::Tasks => "tasks".into(),
             Mode::Notes => "notes".into(),
+            Mode::Clipboard => "clipboard".into(),
         }
     }
 
@@ -92,6 +97,7 @@ impl Mode {
             Mode::Windows => ("Find a window".into(), "windows open switch"),
             Mode::Tasks => ("Find a task".into(), "tasks todo to-do"),
             Mode::Notes => ("Find a note".into(), "notes"),
+            Mode::Clipboard => ("Clipboard history".into(), "clip clipboard copied paste"),
         }
     }
 }
@@ -102,6 +108,9 @@ pub fn shortcut(text: &str) -> Option<(Mode, &str)> {
     let (word, rest) = text.split_once(' ')?;
     if word == CALC_WORD {
         return Some((Mode::Calc, rest));
+    }
+    if word.eq_ignore_ascii_case("clip") || word.eq_ignore_ascii_case("clipboard") {
+        return Some((Mode::Clipboard, rest));
     }
     let i = WEB.iter().position(|(w, _, _)| w.eq_ignore_ascii_case(word))?;
     Some((Mode::Web(i), rest))
@@ -116,6 +125,8 @@ pub fn rows(query: &str) -> Vec<Item> {
     }
     Mode::all()
         .into_iter()
+        // Typing `clip` already lists the latest copies and a row for the rest (commands.rs).
+        .filter(|mode| *mode != Mode::Clipboard)
         .filter_map(|mode| {
             let (title, words) = mode.row();
             let best = [fuzzy(q, &title), fuzzy(q, mode.name()), fuzzy(q, words)].into_iter().flatten().max_by(|a, b| a.score.total_cmp(&b.score))?;
@@ -142,6 +153,10 @@ mod tests {
         assert_eq!(shortcut("GH "), Some((Mode::Web(4), "")));
         assert_eq!(shortcut("yt lofi beats"), Some((Mode::Web(1), "lofi beats")));
         assert_eq!(shortcut("= 2+2"), Some((Mode::Calc, "2+2")));
+        assert_eq!(shortcut("clip invoice"), Some((Mode::Clipboard, "invoice")));
+        assert_eq!(shortcut("Clipboard "), Some((Mode::Clipboard, "")));
+        assert_eq!(shortcut("clip"), None);
+        assert_eq!(shortcut("clipart x"), None);
         // Without the space it's still being typed; other words are no mode.
         assert_eq!(shortcut("gh"), None);
         assert_eq!(shortcut("ghost town"), None);
@@ -168,6 +183,8 @@ mod tests {
         assert_eq!(first("youtube"), Some(Action::EnterMode(Mode::Web(1))));
         assert_eq!(first("files"), Some(Action::EnterMode(Mode::Files)));
         assert_eq!(first("notes"), Some(Action::EnterMode(Mode::Notes)));
+        // The clipboard has its own rows for `clip`, so no mode row repeats them.
+        assert!(rows("clipboard").is_empty());
         // A letter alone offers nothing.
         assert!(rows("g").is_empty());
         assert!(rows("zzqx").is_empty());

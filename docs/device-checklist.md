@@ -585,14 +585,16 @@ Use two machines (any systems), both online, neither combining through a folder.
 
 1. **Copies appear.** Copy three different pieces of text in other programs, then type `clip` in
    the palette. *Expect:* the three, newest first, each with how long ago and its size, then
-   "Clear clipboard history". Type `clip` and part of one. *Expect:* only the copies containing it.
+   "Clear clipboard history". Copy five more. *Expect:* `clip` shows the latest five, then "Show
+   all 8 copies". Press Enter on that row, or type `clip` and a space. *Expect:* a Clipboard
+   bubble with all eight; typing part of one narrows them; Backspace on an empty input leaves.
 2. **Put one back.** Press Enter on the oldest. *Expect:* the palette closes, and pasting gives
    that text. Open `clip` again. *Expect:* it is now at the top, not repeated.
 3. **Not in ordinary searches.** Copy a word, then type that word in the palette without `clip`.
    *Expect:* no "Clipboard" rows.
 4. **Clear and off.** Choose "Clear clipboard history". *Expect:* `clip` says "Nothing copied
-   since Kairo started", and the text still on the clipboard doesn't come back. In Chrono's
-   settings, untick Clipboard history, copy something, and type `clip`. *Expect:* "Clipboard
+   since Kairo started", and the text still on the clipboard doesn't come back. In Kairo's
+   settings (the dashboard), untick Remember what I copy, copy something, and type `clip`. *Expect:* "Clipboard
    history is off". Tick it again. *Expect:* what was copied while it was off is not listed.
 5. **Gone on quit.** Copy something, quit Kairo from the tray, start it and type `clip`. *Expect:*
    "Nothing copied since Kairo started".

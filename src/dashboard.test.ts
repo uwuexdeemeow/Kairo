@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({
   dayTotals: vi.fn(),
   day: vi.fn(),
   paletteSettings: vi.fn(),
+  clipboardHistory: vi.fn(),
+  setClipboardHistory: vi.fn(),
   takeDashboardTab: vi.fn(),
   openChrono: vi.fn(),
   openPalette: vi.fn(),
@@ -52,6 +54,7 @@ beforeEach(() => {
   api.status.mockResolvedValue({ tracking: true });
   api.dayTotals.mockResolvedValue([{ date: "2026-10-29", activeMs: 125 * 60_000, productiveMs: 50 * 60_000 }]);
   api.paletteSettings.mockResolvedValue({ shortcut: "Alt+Space", suggestions: true, overFullscreen: false });
+  api.clipboardHistory.mockResolvedValue(true);
   api.takeDashboardTab.mockResolvedValue(null);
   api.appearance.mockResolvedValue("dark");
   api.version.mockResolvedValue("1.19.3");

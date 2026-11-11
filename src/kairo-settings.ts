@@ -386,6 +386,7 @@ export function wireKairoSettings(): void {
   });
   saves("#palette-over-fullscreen", (on) => api.setPaletteOverFullscreen(on));
   saves("#palette-search-files", (on) => api.setPaletteSearchFiles(on));
+  saves("#clipboard-history", (on) => api.setClipboardHistory(on));
 
   // The theme shows at once; whether it was kept is said beside it, as the switches do.
   $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
@@ -573,6 +574,7 @@ export async function loadKairoSettings(): Promise<void> {
       $<HTMLSelectElement>("#palette-look").value = palette.look;
       $<HTMLInputElement>("#palette-over-fullscreen").checked = palette.overFullscreen;
       $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
+      $<HTMLInputElement>("#clipboard-history").checked = await api.clipboardHistory();
     }),
     fill("#vt-key", async () => {
       // The key itself never comes back to the page: only whether one is saved.

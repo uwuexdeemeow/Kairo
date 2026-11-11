@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   setAppearance: vi.fn(),
   paletteSettings: vi.fn(),
   setPaletteSearchFiles: vi.fn(),
+  clipboardHistory: vi.fn(),
+  setClipboardHistory: vi.fn(),
   setPaletteShortcut: vi.fn(),
   autostart: vi.fn(),
   setAutostart: vi.fn(),
@@ -74,6 +76,8 @@ beforeEach(async () => {
   api.appearance.mockResolvedValue("dark");
   api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false, searchFiles: true });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
+  api.clipboardHistory.mockResolvedValue(true);
+  api.setClipboardHistory.mockResolvedValue(undefined);
   api.setPaletteShortcut.mockResolvedValue(undefined);
   const ring = { items: ["chrono", "ledger", "palette"], all: [["chrono", "Chrono"], ["ledger", "Ledger"], ["palette", "Palette"], ["week", "This week"]], focusMinutes: 25 };
   api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", ...ring });
@@ -91,6 +95,7 @@ describe("loading", () => {
     expect(keys()).toEqual(["Ctrl", "Space"]);
     expect($<HTMLInputElement>("#palette-suggestions").checked).toBe(true);
     expect($<HTMLInputElement>("#palette-search-files").checked).toBe(true);
+    expect($<HTMLInputElement>("#clipboard-history").checked).toBe(true);
     expect($("#sync-where").textContent).toBe("Off. This computer would show up as Tower.");
     expect($("#sync-stop").hidden).toBe(true);
   });

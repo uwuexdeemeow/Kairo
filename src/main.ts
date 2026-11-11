@@ -1842,7 +1842,6 @@ async function load(v: View = view) {
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
       breaks.onchange = () => api.setBreakMinutes(Number(breaks.value));
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
-      $<HTMLInputElement>("#clipboard-history").checked = await api.clipboardHistory();
       const evening = await api.eveningSummary();
       $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;
       $<HTMLInputElement>("#evening-time").value = `${String(Math.floor(evening.minute / 60)).padStart(2, "0")}:${String(evening.minute % 60).padStart(2, "0")}`;
@@ -2077,10 +2076,6 @@ document.addEventListener("keydown", (e) => {
 $("#heads-up-dismiss").addEventListener("click", async () => {
   await api.dismissHeadsUp();
   $("#heads-up").hidden = true;
-});
-
-$<HTMLInputElement>("#clipboard-history").addEventListener("change", async (e) => {
-  await api.setClipboardHistory((e.target as HTMLInputElement).checked);
 });
 
 $<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {

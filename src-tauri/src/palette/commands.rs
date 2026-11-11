@@ -5,6 +5,7 @@
 
 use chrono::Duration;
 
+use super::mode::Mode;
 use super::search::{after, fmt_dur, fuzzy, minutes_and_label, note_row, task_for, Action, Context, Glyph, Icon, Item, Preview, SessionDo, TimerNow, Tone};
 use crate::blocking::ALLOW_MINUTES;
 use crate::timers::MAX_RUNNING;
@@ -272,44 +273,81 @@ fn pomodoro_rows(ctx: &Context, query: &str) -> Vec<Item> {
 
 // ---------- clipboard history ----------
 
-/// `clip` or `clipboard` lists the latest copies, `clip invoice` those containing "invoice";
-/// Enter puts one back on the clipboard. Only a query led by the word asks for them: a password
-/// copied a minute ago must not surface while typing something else.
+/// `clip` shows this many of the latest copies, with a row for the rest.
+const RECENT_CLIPS: usize = 5;
+
+/// A row for a copy: its first line, how long ago and how big. Enter puts it on the clipboard.
+fn clip_row(clip: &super::search::ClipNow, place: f64) -> Item {
+    let age = if clip.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(clip.age_ms)) };
+    let sub = format!("{age} · {}", crate::clipboard::size_of(&clip.text));
+    row(crate::clipboard::title_of(&clip.text), Glyph::Tag, "Clipboard", Action::Copy(clip.text.clone()), sub, (place, Vec::new()))
+}
+
+fn clear_clips_row(count: usize, place: f64) -> Item {
+    row("Clear clipboard history", Glyph::Tag, "Clipboard", Action::ClearClips, format!("Forget {count} copied"), (place, Vec::new()))
+}
+
+fn clip_note(text: &str) -> Vec<Item> {
+    let mut item = note_row(text, Glyph::Tag, "Clipboard");
+    item.score = LEAD;
+    vec![item]
+}
+
+/// `clip` lists the latest few copies and a row to see them all (the Clipboard mode); `clip
+/// invoice` those containing "invoice"; Enter puts one back on the clipboard. Only a query led by
+/// the word asks for them: a password copied a minute ago must not surface while typing
+/// something else.
 fn clip_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
-    let glyph = Glyph::Tag;
-    let note = |text: &str| {
-        let mut item = note_row(text, glyph, "Clipboard");
-        item.score = LEAD;
-        vec![item]
-    };
     if q.to_lowercase().starts_with("clear clip") {
         return match &ctx.live.clips {
-            Some(clips) if !clips.is_empty() => vec![row("Clear clipboard history", glyph, "Clipboard", Action::ClearClips, format!("Forget {} copied", clips.len()), (LEAD, Vec::new()))],
+            Some(clips) if !clips.is_empty() => vec![clear_clips_row(clips.len(), LEAD)],
             _ => Vec::new(),
         };
     }
     let Some(filter) = crate::clipboard::led_by(q) else { return Vec::new() };
-    let Some(clips) = &ctx.live.clips else { return note("Clipboard history is off. Turn it on in Settings under Privacy") };
+    let Some(clips) = &ctx.live.clips else { return clip_note("Clipboard history is off. Turn it on in Kairo's settings") };
     if clips.is_empty() {
-        return note("Nothing copied since Kairo started");
+        return clip_note("Nothing copied since Kairo started");
     }
+    if !filter.is_empty() {
+        return matching_clips(clips, filter);
+    }
+    let mut items: Vec<Item> = clips.iter().take(RECENT_CLIPS).enumerate().map(|(i, c)| clip_row(c, LEAD - i as f64 / 100.0)).collect();
+    if clips.len() > RECENT_CLIPS {
+        let mut more = row(format!("Show all {} copies", clips.len()), Glyph::Tag, "Clipboard", Action::EnterMode(Mode::Clipboard), "Everything copied, to choose from", (LEAD - 0.4, Vec::new()));
+        more.second = None;
+        items.push(more);
+    }
+    items.push(clear_clips_row(clips.len(), LEAD - 0.5));
+    items
+}
+
+/// The copies containing `filter`, any case, newest first; a note when none do.
+fn matching_clips(clips: &[super::search::ClipNow], filter: &str) -> Vec<Item> {
     let wanted = filter.to_lowercase();
-    let mut items: Vec<Item> = clips
-        .iter()
-        .filter(|c| wanted.is_empty() || c.text.to_lowercase().contains(&wanted))
-        .enumerate()
-        .map(|(i, c)| {
-            let age = if c.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(c.age_ms)) };
-            let sub = format!("{age} · {}", crate::clipboard::size_of(&c.text));
-            row(crate::clipboard::title_of(&c.text), glyph, "Clipboard", Action::Copy(c.text.clone()), sub, (LEAD - i as f64 / 100.0, Vec::new()))
-        })
-        .collect();
+    let items: Vec<Item> = clips.iter().filter(|c| c.text.to_lowercase().contains(&wanted)).enumerate().map(|(i, c)| clip_row(c, LEAD - i as f64 / 100.0)).collect();
     if items.is_empty() {
-        return note(&format!("No copies contain “{filter}”"));
+        clip_note(&format!("No copies contain “{filter}”"))
+    } else {
+        items
     }
-    if wanted.is_empty() {
-        items.push(row("Clear clipboard history", glyph, "Clipboard", Action::ClearClips, format!("Forget {} copied", clips.len()), (LEAD - 0.5, Vec::new())));
+}
+
+/// The Clipboard mode: every copy, or those containing what's typed.
+pub(super) fn clipboard_mode_rows(ctx: &Context, text: &str) -> Vec<Item> {
+    let Some(clips) = &ctx.live.clips else {
+        let mut item = Item::new("Clipboard history is off", Icon::Glyph(Glyph::Settings, Tone::Plain), "Clipboard", Action::Setting("clipboard-history"));
+        item.sub = Some("Turn it on in Kairo's settings".into());
+        return vec![item];
+    };
+    if clips.is_empty() {
+        return clip_note("Nothing copied since Kairo started");
+    }
+    let q = text.trim();
+    let mut items = matching_clips(clips, q);
+    if q.is_empty() {
+        items.push(clear_clips_row(clips.len(), LEAD - 0.5));
     }
     items
 }
@@ -505,7 +543,7 @@ fn meeting_rows(ctx: &Context, query: &str) -> Vec<Item> {
 #[cfg(test)]
 mod tests {
     use super::super::search::tests::ctx;
-    use super::super::search::{search, suggestions, SessionNow};
+    use super::super::search::{search, search_in, suggestions, SessionNow};
     use super::*;
     use chrono::{NaiveDate, NaiveDateTime};
 
@@ -822,6 +860,7 @@ mod tests {
         let found = search(&c, "clip EXAMPLE");
         assert_eq!(found.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["https://example.com/a-long-address"]);
         assert_eq!(search(&c, "clip nothing like it")[0].title, "No copies contain “nothing like it”");
+        assert!(search_in(&c, Mode::Clipboard, "").len() == 4);
         // Never in an ordinary search, whatever the copies hold.
         for q in ["invoice", "x", "example", "total", "inv", "paste"] {
             assert!(!search(&c, q).iter().any(|i| i.section == "Clipboard"), "{q}");
@@ -837,5 +876,30 @@ mod tests {
         assert!(search(&c, "clear clipboard")[0].title != "Clear clipboard history");
         c.live.clips = None;
         assert!(search(&c, "clip")[0].title.starts_with("Clipboard history is off"));
+    }
+    #[test]
+    fn clip_shows_the_latest_five_and_a_row_for_all_of_them() {
+        use super::super::search::ClipNow;
+        let mut c = ctx();
+        c.live.clips = Some((0..9).map(|i| ClipNow { text: format!("copy number {i}"), age_ms: (i + 1) * 120_000 }).collect());
+        let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
+        let titles: Vec<_> = rows.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["copy number 0", "copy number 1", "copy number 2", "copy number 3", "copy number 4", "Show all 9 copies", "Clear clipboard history"]);
+        assert_eq!(rows[5].action, Action::EnterMode(Mode::Clipboard));
+        // The mode lists every copy, newest first, and Enter on one puts it back.
+        let all = search_in(&c, Mode::Clipboard, "");
+        assert_eq!(all.len(), 10);
+        assert_eq!(all[8].title, "copy number 8");
+        assert_eq!(all[8].action, Action::Copy("copy number 8".into()));
+        assert_eq!(all[9].action, Action::ClearClips);
+        // Typing filters them, with no Clear row among the matches.
+        let found = search_in(&c, Mode::Clipboard, "NUMBER 7");
+        assert_eq!(found.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["copy number 7"]);
+        assert_eq!(search_in(&c, Mode::Clipboard, "zzz")[0].title, "No copies contain “zzz”");
+        // Nothing to show or switched off.
+        c.live.clips = Some(Vec::new());
+        assert_eq!(search_in(&c, Mode::Clipboard, "")[0].title, "Nothing copied since Kairo started");
+        c.live.clips = None;
+        assert_eq!(search_in(&c, Mode::Clipboard, "")[0].action, Action::Setting("clipboard-history"));
     }
 }
