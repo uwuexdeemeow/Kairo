@@ -84,6 +84,13 @@ describe("narrowing by tag or project", () => {
     expect(change).toHaveBeenLastCalledWith(NO_FILTER);
   });
 
+  it("names its two groups, only when there is something in them", () => {
+    filterBar(root, tasks, NO_FILTER, vi.fn());
+    expect([...root.querySelectorAll(".label-group")].map((g) => g.textContent)).toEqual(["Project", "Tag"]);
+    filterBar(root, [task("a", { tags: ["x"] })], NO_FILTER, vi.fn());
+    expect([...root.querySelectorAll(".label-group")].map((g) => g.textContent)).toEqual(["Tag"]);
+  });
+
   it("hides itself when nothing has a tag or project, and keeps a chosen one offered", () => {
     filterBar(root, [task("a")], NO_FILTER, vi.fn());
     expect(root.hidden).toBe(true);

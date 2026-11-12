@@ -101,6 +101,15 @@ describe("the Done view", () => {
     expect(root.querySelectorAll(".done-row")).toHaveLength(2);
   });
 
+  it("says in words what its times are", () => {
+    mountDone(root, act, () => NOW).render([task("a", "Write essay", at(2026, 11, 12, 9), 90 * 60_000), task("b", "Quick one", at(2026, 11, 12, 8))]);
+    const meta = [...root.querySelectorAll(".done-meta")].map((m) => m.textContent ?? "");
+    // Newest first: the 9:00 one, with its focus time, then the 8:00 one with none to say.
+    expect(meta[0]).toMatch(/^1h 30m focused · done .*9/);
+    expect(meta[1]).toMatch(/^done .*8/);
+    expect(meta[1]).not.toMatch(/focused/);
+  });
+
   it("reopens, deletes and opens a task from its row", () => {
     mountDone(root, act, () => NOW).render([task("a", "Write essay", at(2026, 11, 12, 9))]);
     root.querySelector<HTMLButtonElement>(".done-reopen")!.click();

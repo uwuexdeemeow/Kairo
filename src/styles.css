@@ -4265,10 +4265,23 @@ select,
   border-color: var(--line);
 }
 
+/* What the list is narrowed to is filled in the app's colour, so a narrowed list is never mistaken
+   for the whole one. */
 .label-chip[aria-pressed="true"] {
   border-color: var(--ledger);
-  background: color-mix(in srgb, var(--ledger) 14%, var(--raised));
-  color: inherit;
+  background: var(--ledger);
+  color: var(--on-app);
+  font-weight: 600;
+}
+
+/* "Project" and "Tag" before their chips; the second starts a new group a little apart. */
+.label-group {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.label-group:not(:first-child) {
+  margin-left: 10px;
 }
 
 .label-clear {

@@ -60,9 +60,11 @@ export function filterBar(root: HTMLElement, tasks: Task[], f: Filter, change: (
     b.addEventListener("click", () => change(next));
     return b;
   };
+  // Two kinds of thing, named as two groups: a project is where a task lives, a tag is a label on it.
+  const group = (name: string, chips: HTMLElement[]): Node[] => (chips.length ? [h("span", { class: "label-group" }, name), ...chips] : []);
   const nodes: Node[] = [
-    ...projects.map((p) => chip(p, "project", f.project === p, { ...f, project: f.project === p ? null : p })),
-    ...tags.map((x) => chip(x, "tag", f.tag === x, { ...f, tag: f.tag === x ? null : x })),
+    ...group("Project", projects.map((p) => chip(p, "project", f.project === p, { ...f, project: f.project === p ? null : p }))),
+    ...group("Tag", tags.map((x) => chip(x, "tag", f.tag === x, { ...f, tag: f.tag === x ? null : x }))),
   ];
   if (isFiltered(f)) {
     const clear = h("button", { class: "link-btn label-clear", type: "button" }, "Show all");

@@ -129,7 +129,8 @@ export function mountDone(root: HTMLElement, act: DoneActions, now: () => number
     reopen.addEventListener("click", () => act.reopen(t.id));
     const del = h("button", { class: "btn done-delete", type: "button", "aria-label": `Delete “${t.title}”` }, "Delete");
     del.addEventListener("click", () => act.remove(t.id));
-    const chips = [t.focusedMs >= 60_000 ? fmtDur(t.focusedMs) : "", fmtClock(t.doneMs!)].filter(Boolean);
+    // In words, so neither time is a guess: "20m focused · done 4:00 PM".
+    const chips = [t.focusedMs >= 60_000 ? `${fmtDur(t.focusedMs)} focused` : "", `done ${fmtClock(t.doneMs!)}`].filter(Boolean);
     return h("div", { class: "done-row", "data-task": t.id }, title, h("span", { class: "muted done-meta" }, chips.join(" · ")), reopen, del);
   };
 
