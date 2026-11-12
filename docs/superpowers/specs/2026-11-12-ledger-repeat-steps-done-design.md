@@ -18,6 +18,8 @@ kilobytes of page code, nothing running while Ledger is closed.
   (due the next Friday, repeating weekly). Only `every <day|weekday|week|month|year|mon…sun>` is
   read, at the end like the other shortcuts; a word in double quotes is never a shortcut.
   The palette's `task` command reads the same words (`quick_add.rs`).
+- Known limit: the next date comes from the one just ticked, so a monthly task on the 31st falls
+  on 28 Feb and stays on the 28th from then on.
 - **Ticking a repeating task** marks it done as usual (so it shows in the Done log) and adds the
   next one: same title, priority, reminder time of day, attached note, repeat rule, steps
   unticked; due on the first matching day after the later of its due day and today, so ticking
@@ -31,7 +33,7 @@ kilobytes of page code, nothing running while Ledger is closed.
 
 - A task holds up to 30 steps of up to 120 characters: a checklist inside its panel, under the
   plan, above the attached note. Click to tick, Enter adds the next, Backspace on an empty step
-  removes it, drag handle or Alt+↑/↓ to move; the same keyboard rules as the notes' checkboxes.
+  removes it, Alt+↑/↓ to move (no drag handle: the keyboard way costs nothing and is enough).
 - The task's row shows "2/5" after the title while any step is open or ticked; the task can be
   ticked with steps left (steps never block it).
 - Pasting several lines into the new-step field makes one step per line (leading `- `, `* `,

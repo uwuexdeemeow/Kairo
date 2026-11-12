@@ -243,6 +243,16 @@ const actions: LedgerActions = {
       if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
       draw();
     }),
+  repeat: (task, repeat) =>
+    tried("change how it repeats", async () => {
+      const list = await api.setTaskRepeat(task, repeat);
+      selected = task;
+      tasks = list;
+      const t = list.find((x) => x.id === task);
+      // The panel shows the new rule and the due day it may have given, though it has the keyboard.
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+      draw();
+    }),
   steps: (task, steps) =>
     tried("change its steps", async () => {
       const list = await api.setTaskSteps(task, steps);

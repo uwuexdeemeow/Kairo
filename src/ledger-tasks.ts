@@ -1,4 +1,4 @@
-import type { Step, Task, TaskGroup } from "./api";
+import type { Repeat, Step, Task, TaskGroup } from "./api";
 import { calendar, isoDate, parseDate, todayIso } from "./calendar";
 import { glyph } from "./glyphs";
 import { progress, stepsBlock, takeFocus } from "./ledger-steps";
@@ -31,6 +31,8 @@ export type LedgerActions = {
   attach(task: string, note: string | null): void;
   /** Replaces a task's checklist. */
   steps(task: string, steps: Step[]): void;
+  /** How the task comes back once ticked; null for never. */
+  repeat(task: string, repeat: Repeat | null): void;
   /** A new note headed with the task's title, attached to it. */
   newNoteFor(task: string, title: string): void;
 };
@@ -129,6 +131,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
     chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }
+  if (t.repeat) chips.append(h("span", { class: "task-repeat chip", title: repeatName(t.repeat) }, glyph("repeat"), h("span", { class: "sr-only" }, repeatName(t.repeat))));
   if (t.steps.length) chips.append(h("span", { class: "task-steps chip", title: "Steps done" }, h("span", { class: "sr-only" }, "Steps done "), progress(t.steps)));
   if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
   if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
@@ -454,6 +457,22 @@ function noteRow(t: Task, act: LedgerActions, notes: NoteName[]): HTMLElement {
   return row;
 }
 
+const REPEATS: Repeat[] = ["day", "weekday", "week", "month", "year"];
+
+/// "Every week", as a task's repeat is said.
+export function repeatName(repeat: Repeat): string {
+  return `Every ${repeat}`;
+}
+
+/// The choice of how a task comes back once ticked.
+function repeatField(t: Task, act: LedgerActions): HTMLElement {
+  const select = h("select", { class: "filter repeat-select", "aria-label": "Repeat" }) as HTMLSelectElement;
+  select.append(h("option", { value: "" }, "Never"), ...REPEATS.map((r) => h("option", { value: r }, repeatName(r))));
+  select.value = t.repeat ?? "";
+  select.addEventListener("change", () => act.repeat(t.id, (select.value || null) as Repeat | null));
+  return h("div", { class: "detail-field" }, h("span", {}, "Repeat"), select);
+}
+
 /// Draws the detail panel for `t`: title, due day, priority, exact reminder, note, focus time,
 /// Delete. `notes` names the notes it can be attached to.
 export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = [], session: RunningSession = null): void {
@@ -545,6 +564,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     h("div", { class: "detail-head" }, title, close),
     h("div", { class: "detail-actions" }, ...actions),
     h("div", { class: "detail-field" }, h("span", {}, "Due"), ...dueParts),
+    repeatField(t, act),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
     h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
     stepsBlock(t, (steps) => act.steps(t.id, steps)),

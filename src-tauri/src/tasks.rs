@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use chrono::{Datelike, Days, NaiveDate, Weekday};
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
@@ -377,6 +378,136 @@ pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
     Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3 WHERE id = ?1", params![id, repeat, text])? > 0)
 }
 
+/// The first day a repeating task comes due again, after the later of its due day and `today`, so
+/// ticking early skips nothing and ticking late leaves nothing overdue. A week, month or year
+/// keeps the due day's weekday, date or month and date (a 31st falls on a short month's last day;
+/// 29 Feb on 28 Feb in other years); with no due day, today's. None for a rule that isn't one.
+pub fn next_due(rule: &str, due: Option<NaiveDate>, today: NaiveDate) -> Option<NaiveDate> {
+    let anchor = due.unwrap_or(today);
+    let base = anchor.max(today);
+    match rule {
+        "day" => base.succ_opt(),
+        "weekday" => {
+            let mut day = base.succ_opt()?;
+            while matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
+                day = day.succ_opt()?;
+            }
+            Some(day)
+        }
+        "week" => {
+            let weeks = (base - anchor).num_days() / 7 + 1;
+            anchor.checked_add_days(Days::new(weeks as u64 * 7))
+        }
+        "month" => {
+            let (mut year, mut month) = (base.year(), base.month());
+            loop {
+                let day = clamped(year, month, anchor.day())?;
+                if day > base {
+                    return Some(day);
+                }
+                (year, month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+            }
+        }
+        "year" => {
+            let mut year = base.year();
+            loop {
+                let day = clamped(year, anchor.month(), anchor.day())?;
+                if day > base {
+                    return Some(day);
+                }
+                year += 1;
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `day` of the month, or its last day when the month is shorter.
+fn clamped(year: i32, month: u32, day: u32) -> Option<NaiveDate> {
+    (1..=day).rev().find_map(|d| NaiveDate::from_ymd_opt(year, month, d))
+}
+
+/// The id of a repeating task's next one, made from its own so two combined computers ticking the
+/// same task make the same new one: `abc` gives `abc~1`, which gives `abc~2`.
+fn next_id(id: &str) -> String {
+    let (base, n) = id.split_once('~').map_or((id, 0), |(base, n)| (base, n.parse::<u32>().unwrap_or(0)));
+    format!("{base}~{}", n + 1)
+}
+
+/// `ms` moved to `day`, at the same local time of day.
+fn shift_remind(ms: i64, day: NaiveDate) -> Option<i64> {
+    use chrono::{Local, TimeZone};
+    let time = Local.timestamp_millis_opt(ms).single()?.time();
+    Local.from_local_datetime(&day.and_time(time)).earliest().map(|d| d.timestamp_millis())
+}
+
+/// What ticking or reopening a task did besides: the repeat it made, or the untouched one it took away.
+#[derive(Debug, Default, PartialEq)]
+pub struct Ticked {
+    pub added: Option<String>,
+    pub removed: Option<String>,
+}
+
+/// Ticks a task off, or reopens it. Ticking a repeating one also adds its next: the same title,
+/// priority, reminder time of day, note and rule, its steps unticked, due on `next_due`; if that
+/// one is already there nothing is added. Reopening takes that next one away again, if it's still
+/// untouched (open, no focus session on it, no step ticked).
+pub fn tick(conn: &Connection, id: &str, done: bool, now: i64, today: NaiveDate) -> Result<Ticked> {
+    let mut out = Ticked::default();
+    type Row = (String, Option<String>, u8, Option<i64>, Option<String>, String, Option<String>, Option<i64>);
+    let row: Option<Row> = conn
+        .query_row("SELECT title, due_day, priority, remind_ms, note, steps, repeat, done_ms FROM tasks WHERE id = ?1", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))
+        })
+        .optional()?;
+    let Some((title, due, priority, remind, note, steps, repeat, done_ms)) = row else { return Ok(out) };
+    set_done(conn, id, done, now)?;
+    let Some(rule) = repeat else { return Ok(out) };
+    let copy = next_id(id);
+    if done && done_ms.is_none() {
+        let due = due.and_then(|d| NaiveDate::parse_from_str(&d, "%Y-%m-%d").ok());
+        let Some(next) = next_due(&rule, due, today) else { return Ok(out) };
+        let remind = remind.and_then(|ms| shift_remind(ms, next));
+        let steps = steps_text(&parse_steps(&steps).into_iter().map(|s| Step { d: false, ..s }).collect::<Vec<_>>());
+        let added = conn.execute(
+            "INSERT OR IGNORE INTO tasks (id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, '', ?8, ?9, ?10)",
+            params![copy, title, now, next_position(conn)?, next.format("%Y-%m-%d").to_string(), priority, remind, note, steps, rule],
+        )?;
+        if added > 0 {
+            out.added = Some(copy);
+        }
+    } else if !done && done_ms.is_some() {
+        let untouched = conn
+            .query_row("SELECT steps FROM tasks WHERE id = ?1 AND done_ms IS NULL", [&copy], |r| r.get::<_, String>(0))
+            .optional()?
+            .is_some_and(|steps| !parse_steps(&steps).iter().any(|s| s.d))
+            && conn.query_row("SELECT COUNT(*) FROM focus_sessions WHERE task = ?1", [&copy], |r| r.get::<_, i64>(0))? == 0;
+        if untouched {
+            remove(conn, &copy)?;
+            out.removed = Some(copy);
+        }
+    }
+    Ok(out)
+}
+
+/// How a task repeats; the rule must be one of `REPEATS`, or None for never. A task made to repeat
+/// with no due day is due today. False when there's no such task or the rule isn't one.
+pub fn set_repeat(conn: &Connection, id: &str, repeat: Option<&str>, today: &str) -> Result<bool> {
+    if repeat.is_some_and(|r| !REPEATS.contains(&r)) {
+        return Ok(false);
+    }
+    Ok(conn.execute(
+        "UPDATE tasks SET repeat = ?2, due_day = CASE WHEN ?2 IS NOT NULL AND due_day IS NULL THEN ?3 ELSE due_day END WHERE id = ?1",
+        params![id, repeat, today],
+    )? > 0)
+}
+
+/// The note a task is attached to.
+pub fn note_of(conn: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(conn.query_row("SELECT note FROM tasks WHERE id = ?1", [id], |r| r.get(0)).optional()?.flatten())
+}
+
 /// The whole list as text, for sharing with combined computers.
 pub fn to_json(conn: &Connection) -> Result<String> {
     let tasks: Vec<Shared> = list(conn, 0, "")?
@@ -416,6 +547,7 @@ pub fn replace_from_json(conn: &Connection, json: &str) -> std::result::Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
 
     const M: i64 = 60_000;
 
@@ -621,6 +753,164 @@ mod tests {
         rename(&there, &t.id, "Essay draft").unwrap();
         replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
         assert_eq!(list(&here, 1, TODAY).unwrap()[0].steps, vec![step("Outline", false)]);
+    }
+
+    fn d(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn days_and_weekdays_come_back_after_the_later_of_due_and_today() {
+        // Thursday 12 Nov 2026.
+        let today = d("2026-11-12");
+        assert_eq!(next_due("day", Some(d("2026-11-12")), today), Some(d("2026-11-13")));
+        // Ticked early: after its due day. Ticked late: after today.
+        assert_eq!(next_due("day", Some(d("2026-11-20")), today), Some(d("2026-11-21")));
+        assert_eq!(next_due("day", Some(d("2026-11-01")), today), Some(d("2026-11-13")));
+        assert_eq!(next_due("day", None, today), Some(d("2026-11-13")));
+        // Friday goes to Monday; a weekend does too.
+        assert_eq!(next_due("weekday", Some(d("2026-11-13")), today), Some(d("2026-11-16")));
+        assert_eq!(next_due("weekday", Some(d("2026-11-14")), today), Some(d("2026-11-16")));
+        assert_eq!(next_due("weekday", Some(d("2026-11-12")), today), Some(d("2026-11-13")));
+    }
+
+    #[test]
+    fn a_week_keeps_its_weekday_and_never_lands_on_or_before_today() {
+        let today = d("2026-11-12");
+        assert_eq!(next_due("week", Some(d("2026-11-13")), today), Some(d("2026-11-20")));
+        assert_eq!(next_due("week", Some(d("2026-11-12")), today), Some(d("2026-11-19")));
+        // A Monday task ticked on Thursday, a week late: the Monday after today, not a past one.
+        assert_eq!(next_due("week", Some(d("2026-11-02")), today), Some(d("2026-11-16")));
+        assert_eq!(next_due("week", Some(d("2026-10-05")), today), Some(d("2026-11-16")));
+        assert_eq!(next_due("week", None, today), Some(d("2026-11-19")));
+    }
+
+    #[test]
+    fn a_month_keeps_its_date_and_a_short_month_takes_its_last_day() {
+        let today = d("2026-11-12");
+        assert_eq!(next_due("month", Some(d("2026-11-15")), today), Some(d("2026-12-15")));
+        assert_eq!(next_due("month", Some(d("2026-11-12")), today), Some(d("2026-12-12")));
+        assert_eq!(next_due("month", Some(d("2026-12-31")), d("2026-12-31")), Some(d("2027-01-31")));
+        assert_eq!(next_due("month", Some(d("2027-01-31")), d("2027-01-20")), Some(d("2027-02-28")));
+        assert_eq!(next_due("month", Some(d("2028-01-31")), d("2028-01-31")), Some(d("2028-02-29")));
+        // Late by months: the next one after today.
+        assert_eq!(next_due("month", Some(d("2026-06-05")), today), Some(d("2026-12-05")));
+        assert_eq!(next_due("month", Some(d("2026-06-20")), today), Some(d("2026-11-20")));
+    }
+
+    #[test]
+    fn a_year_keeps_its_date_and_29_feb_falls_on_the_28th() {
+        let today = d("2026-11-12");
+        assert_eq!(next_due("year", Some(d("2026-11-12")), today), Some(d("2027-11-12")));
+        assert_eq!(next_due("year", Some(d("2026-03-01")), today), Some(d("2027-03-01")));
+        assert_eq!(next_due("year", Some(d("2028-02-29")), d("2028-02-29")), Some(d("2029-02-28")));
+        assert_eq!(next_due("fortnight", Some(today), today), None);
+    }
+
+    fn repeating(c: &Connection, title: &str, rule: &str, due: &str) -> Task {
+        let t = add(c, title, 1).unwrap().unwrap();
+        set_plan(c, &t.id, Some(due), 2, None).unwrap();
+        assert!(set_repeat(c, &t.id, Some(rule), TODAY).unwrap());
+        t
+    }
+
+    #[test]
+    fn ticking_a_repeating_task_adds_its_next_and_keeps_the_done_one() {
+        let c = conn();
+        let t = repeating(&c, "Water plants", "week", "2026-11-12");
+        set_steps(&c, &t.id, vec![step("Kitchen", true), step("Hall", false)]).unwrap();
+        let ticked = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap();
+        assert_eq!(ticked.added.as_deref(), Some(format!("{}~1", t.id).as_str()));
+        let all = list(&c, 100, "2026-11-12").unwrap();
+        assert_eq!(all.len(), 2);
+        let next = all.iter().find(|x| x.id.ends_with("~1")).unwrap();
+        assert_eq!((next.title.as_str(), next.due_day.as_deref(), next.priority, next.repeat.as_deref()), ("Water plants", Some("2026-11-19"), 2, Some("week")));
+        assert_eq!(next.steps, vec![step("Kitchen", false), step("Hall", false)]);
+        assert!(next.done_ms.is_none());
+        // The ticked one stays, done, in the log.
+        assert_eq!(all.iter().find(|x| x.id == t.id).unwrap().done_ms, Some(100));
+    }
+
+    #[test]
+    fn the_next_one_brings_its_reminder_time_and_note() {
+        let c = conn();
+        let t = repeating(&c, "Pills", "day", "2026-11-12");
+        let nine = chrono::Local.with_ymd_and_hms(2026, 11, 12, 9, 0, 0).earliest().unwrap().timestamp_millis();
+        set_plan(&c, &t.id, Some("2026-11-12"), 1, Some(nine)).unwrap();
+        set_note(&c, &t.id, Some("note1")).unwrap();
+        let new = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap().added.unwrap();
+        let next = list(&c, 100, "2026-11-12").unwrap().into_iter().find(|x| x.id == new).unwrap();
+        let tomorrow_nine = chrono::Local.with_ymd_and_hms(2026, 11, 13, 9, 0, 0).earliest().unwrap().timestamp_millis();
+        assert_eq!((next.remind_ms, next.note.as_deref(), next.reminded.as_str()), (Some(tomorrow_nine), Some("note1"), ""));
+    }
+
+    #[test]
+    fn a_task_that_doesnt_repeat_adds_nothing() {
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        assert_eq!(tick(&c, &t.id, true, 5, d("2026-11-12")).unwrap(), Ticked::default());
+        assert_eq!(list(&c, 5, TODAY).unwrap().len(), 1);
+        assert_eq!(tick(&c, "elsewhere", true, 5, d("2026-11-12")).unwrap(), Ticked::default());
+    }
+
+    #[test]
+    fn ticking_twice_or_on_two_computers_makes_one_next_task() {
+        let (a, b) = (conn(), conn());
+        let t = repeating(&a, "Rent", "month", "2026-11-01");
+        replace_from_json(&b, &to_json(&a).unwrap()).unwrap();
+        let more = more(&a, &t.id).unwrap().unwrap();
+        apply_more(&b, &t.id, &more).unwrap();
+        set_plan(&b, &t.id, Some("2026-11-01"), 2, None).unwrap();
+        let (x, y) = (tick(&a, &t.id, true, 10, d("2026-11-12")).unwrap(), tick(&b, &t.id, true, 11, d("2026-11-12")).unwrap());
+        assert_eq!(x.added, y.added);
+        // Ticking a done one again changes nothing.
+        assert_eq!(tick(&a, &t.id, true, 12, d("2026-11-12")).unwrap().added, None);
+        assert_eq!(list(&a, 20, TODAY).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_chain_of_ids_stays_short() {
+        assert_eq!(next_id("abc"), "abc~1");
+        assert_eq!(next_id("abc~1"), "abc~2");
+        assert_eq!(next_id("abc~41"), "abc~42");
+    }
+
+    #[test]
+    fn reopening_takes_the_untouched_next_one_away_but_keeps_one_you_used() {
+        let c = conn();
+        let t = repeating(&c, "Gym", "day", "2026-11-12");
+        let copy = tick(&c, &t.id, true, 10, d("2026-11-12")).unwrap().added.unwrap();
+        let undone = tick(&c, &t.id, false, 11, d("2026-11-12")).unwrap();
+        assert_eq!(undone.removed.as_deref(), Some(copy.as_str()));
+        assert_eq!(list(&c, 12, TODAY).unwrap().len(), 1);
+        // Tick again, then use the new one (a step ticked): reopening leaves it.
+        let copy = tick(&c, &t.id, true, 20, d("2026-11-12")).unwrap().added.unwrap();
+        set_steps(&c, &copy, vec![step("warm up", true)]).unwrap();
+        assert_eq!(tick(&c, &t.id, false, 21, d("2026-11-12")).unwrap().removed, None);
+        assert_eq!(list(&c, 22, TODAY).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn reopening_keeps_a_next_one_a_focus_session_was_started_on() {
+        let c = conn();
+        let t = repeating(&c, "Read", "day", "2026-11-12");
+        let copy = tick(&c, &t.id, true, 10, d("2026-11-12")).unwrap().added.unwrap();
+        c.execute("INSERT INTO focus_sessions (start_ms, planned_ms, task) VALUES (1, 60000, ?1)", [&copy]).unwrap();
+        assert_eq!(tick(&c, &t.id, false, 11, d("2026-11-12")).unwrap().removed, None);
+    }
+
+    #[test]
+    fn a_repeat_with_no_due_day_is_due_today_and_an_odd_rule_is_refused() {
+        let c = conn();
+        let t = add(&c, "Stretch", 1).unwrap().unwrap();
+        assert!(!set_repeat(&c, &t.id, Some("fortnight"), TODAY).unwrap());
+        assert!(!set_repeat(&c, "elsewhere", Some("day"), TODAY).unwrap());
+        assert!(set_repeat(&c, &t.id, Some("day"), TODAY).unwrap());
+        let got = &list(&c, 1, TODAY).unwrap()[0];
+        assert_eq!((got.repeat.as_deref(), got.due_day.as_deref()), (Some("day"), Some(TODAY)));
+        // Never again: the day stays.
+        assert!(set_repeat(&c, &t.id, None, TODAY).unwrap());
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].repeat, None);
     }
 
     #[test]

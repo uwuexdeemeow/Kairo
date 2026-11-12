@@ -5,6 +5,7 @@
 const PATHS = {
   bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2 2 0 0 0 4 0" />',
   note: '<path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 12h6M9 16h4" />',
+  repeat: '<path d="M17 3l3 3-3 3" /><path d="M4 11V9a3 3 0 0 1 3-3h13" /><path d="M7 21l-3-3 3-3" /><path d="M20 13v2a3 3 0 0 1-3 3H4" />',
   play: '<path class="fill" d="M8 5.5v13l10.5-6.5z" />',
   pencil: '<path d="M4 20l1.2-4.2L15.5 5.5l3 3L8.2 18.8z" /><path d="M13.5 7.5l3 3" />',
   box: '<rect x="4" y="4" width="16" height="16" rx="3" /><path d="M8.5 12.5l2.5 2.5 4.5-5.5" />',

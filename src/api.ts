@@ -361,6 +361,7 @@ export interface ParsedTask {
   title: string;
   due: string | null;
   priority: number | null;
+  repeat: Repeat | null;
   shown: string;
 }
 
@@ -593,6 +594,8 @@ export const api = {
   /** A note deleted here but waiting on its Undo, out of every window's sight; false brings it back. */
   hideNote: (id: string, waiting: boolean) => invoke<void>("hide_note", { id, waiting }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
+  /** How a task comes back once ticked; null for never. One made to repeat with no due day is due today. */
+  setTaskRepeat: (id: string, repeat: Repeat | null) => invoke<Task[]>("set_task_repeat", { id, repeat }),
   /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
   setTaskSteps: (id: string, steps: Step[]) => invoke<Task[]>("set_task_steps", { id, steps }),
   syncSoon: () => invoke<void>("sync_soon"),

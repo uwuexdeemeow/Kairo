@@ -368,6 +368,28 @@ On Windows, a Mac and Linux. No focus session involved.
 6. **Two computers.** On two combined computers, add steps on one. *Expect:* the other shows them
    within a sync round, ticks included; deleting the task removes them.
 
+## Ledger: repeating tasks
+
+On Windows, a Mac and Linux. No focus session involved.
+
+1. **Quick add.** Type `water plants every day` in Add a task. *Expect:* under the field, "Tue 3 Nov ·
+   Every day" (today's date), and the task has a repeat arrow on its row. Try `report every fri !h`:
+   "High · Fri 6 Nov · Every week". `every weekday` on a weekend starts on Monday.
+2. **Set it in the panel.** Open a task with no due day, choose Repeat → Every week. *Expect:* it
+   becomes due today and the row shows the arrow. Choose Never: the arrow goes, the day stays.
+3. **Tick it.** Tick a task that repeats weekly and is due today. *Expect:* it goes to Done and a new
+   one with the same title, priority and reminder time appears due a week later; steps are
+   unticked, an attached note is still attached.
+4. **Early and late.** Tick one due next Friday today: the next is the Friday after that. Tick one
+   that was due last Monday, today: the next is the coming Monday, never in the past.
+5. **Undo it.** Untick the done one in Done (Reopen). *Expect:* the new one made by ticking is gone.
+   Tick again, tick a step on the new one, then Reopen the old: the new one stays.
+6. **Month ends.** A monthly task due on the 31st: ticked in January, the next is 28 Feb (29 in a
+   leap year). Known limit: it then stays on the 28th.
+7. **Two computers.** On two combined computers, tick the same repeating task on both before they
+   sync. *Expect:* one new task, not two.
+8. **Palette.** `task rent every month` adds it; Ctrl+Enter on it in `tasks` ticks it and adds the next.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

@@ -567,7 +567,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::CloseWindow(id) if crate::platform::close_window(id) || !crate::platform::window_exists(id) => Ok(()),
         Action::CloseWindow(_) => Err("That window didn't let Kairo close it. It may be running as administrator.".into()),
         Action::FinishTask(id) => {
-            crate::tasks::set_done(conn, id, true, now_ms()).map_err(|e| e.to_string())?;
+            crate::commands::tick_task(conn, id, true)?;
             crate::commands::tasks_changed(app, conn).map(|_| ())
         }
         Action::CheckUpdates => {

@@ -39,6 +39,7 @@ beforeEach(() => {
     openNote: vi.fn(),
     attach: vi.fn(),
     steps: vi.fn(),
+    repeat: vi.fn(),
     newNoteFor: vi.fn(),
   };
 });
@@ -458,6 +459,30 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-06", 2, 99);
     panel().querySelector<HTMLButtonElement>(".clear-due")!.click();
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, 99);
+  });
+
+  it("chooses how a task repeats, and never", () => {
+    renderDetail(panel(), task("a", "Essay"), act);
+    const select = panel().querySelector<HTMLSelectElement>(".repeat-select")!;
+    expect(select.getAttribute("aria-label")).toBe("Repeat");
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Never", "Every day", "Every weekday", "Every week", "Every month", "Every year"]);
+    expect(select.value).toBe("");
+    select.value = "week";
+    select.dispatchEvent(new Event("change"));
+    expect(act.repeat).toHaveBeenLastCalledWith("a", "week");
+    renderDetail(panel(), task("a", "Essay", { repeat: "week" }), act);
+    const again = panel().querySelector<HTMLSelectElement>(".repeat-select")!;
+    expect(again.value).toBe("week");
+    again.value = "";
+    again.dispatchEvent(new Event("change"));
+    expect(act.repeat).toHaveBeenLastCalledWith("a", null);
+  });
+
+  it("says on a task's row that it repeats, in words too", () => {
+    renderTaskList(root, [task("a", "Water plants", { repeat: "month", group: "none" }), task("b", "Essay")], null, act as unknown as LedgerActions, null, "");
+    const chip = root.querySelector('[data-task="a"] .task-repeat')!;
+    expect(chip.textContent).toContain("Every month");
+    expect(root.querySelector('[data-task="b"] .task-repeat')).toBeNull();
   });
 
   it("keeps the keyboard on the priority just chosen when it's redrawn", () => {

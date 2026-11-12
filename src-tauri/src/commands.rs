@@ -264,6 +264,7 @@ pub struct ParsedTask {
     title: String,
     due: Option<String>,
     priority: Option<u8>,
+    repeat: Option<String>,
     shown: String,
 }
 
@@ -275,7 +276,7 @@ fn quick(text: &str) -> crate::quick_add::Quick {
 pub fn parse_task(text: String) -> ParsedTask {
     let q = quick(&text);
     let shown = crate::quick_add::describe(&q);
-    ParsedTask { title: q.title, due: q.due, priority: q.priority, shown }
+    ParsedTask { title: q.title, due: q.due, priority: q.priority, repeat: q.repeat, shown }
 }
 
 /// Adds a task from quick-add text: its title, and the day and priority it ends with.
@@ -285,6 +286,10 @@ pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: 
         if q.due.is_some() || q.priority.is_some() {
             tasks::set_plan(conn, &t.id, q.due.as_deref(), q.priority.unwrap_or(tasks::MEDIUM), None).map_err(err)?;
             plan_changed(conn, &t.id)?;
+        }
+        if q.repeat.is_some() {
+            tasks::set_repeat(conn, &t.id, q.repeat.as_deref(), &tasks::today()).map_err(err)?;
+            more_changed(conn, &t.id)?;
         }
     }
     tasks_changed(app, conn)
@@ -306,7 +311,39 @@ pub fn rename_task(app: AppHandle, state: State<AppState>, id: String, title: St
 #[tauri::command]
 pub fn set_task_done(app: AppHandle, state: State<AppState>, id: String, done: bool) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
-    tasks::set_done(&conn, &id, done, now_ms()).map_err(err)?;
+    tick_task(&conn, &id, done)?;
+    tasks_changed(&app, &conn)
+}
+
+/// Ticks a task off or reopens it, and shares what that made or took away: a repeating task's
+/// next one, with its plan, steps and note, or the untouched next one a reopening removes.
+pub(crate) fn tick_task(conn: &rusqlite::Connection, id: &str, done: bool) -> CmdResult<()> {
+    let ticked = tasks::tick(conn, id, done, now_ms(), chrono::Local::now().date_naive()).map_err(err)?;
+    if let Some(new) = ticked.added {
+        plan_changed(conn, &new)?;
+        more_changed(conn, &new)?;
+        if let Some(note) = tasks::note_of(conn, &new).map_err(err)? {
+            sync::record(conn, &format!("tasknote:{new}"), &note)?;
+        }
+    }
+    if let Some(old) = ticked.removed {
+        for kind in ["taskplan", "taskmore", "tasknote"] {
+            sync::drop_choice(conn, &format!("{kind}:{old}"))?;
+        }
+    }
+    Ok(())
+}
+
+/// How a task repeats once ticked: "day", "weekday", "week", "month" or "year"; none for never.
+/// One made to repeat with no due day is due today.
+#[tauri::command]
+pub fn set_task_repeat(app: AppHandle, state: State<AppState>, id: String, repeat: Option<String>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    if !tasks::set_repeat(&conn, &id, repeat.as_deref().filter(|r| !r.is_empty()), &tasks::today()).map_err(err)? {
+        return Err("no such task, or it can't repeat that way".into());
+    }
+    plan_changed(&conn, &id)?;
+    more_changed(&conn, &id)?;
     tasks_changed(&app, &conn)
 }
 

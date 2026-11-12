@@ -10,6 +10,8 @@ pub struct Quick {
     /// "2026-11-07"
     pub due: Option<String>,
     pub priority: Option<u8>,
+    /// How it repeats: one of `tasks::REPEATS`.
+    pub repeat: Option<String>,
 }
 
 /// Reads `text`'s shortcuts as of `today`: whole words at its end, in any order, one priority and
@@ -19,9 +21,18 @@ pub struct Quick {
 pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     let words: Vec<&str> = text.split_whitespace().collect();
     let (mut due, mut priority) = (None, None);
+    // "every fri" repeats weekly and is due the next Friday, unless a day is given beside it.
+    let (mut repeat, mut repeat_day): (Option<&str>, Option<NaiveDate>) = (None, None);
     let mut end = words.len();
     while end > 0 {
         let word = words[end - 1];
+        if repeat.is_none() && end >= 2 && words[end - 2].eq_ignore_ascii_case("every") {
+            if let Some((rule, day)) = repeat_of(word, today) {
+                (repeat, repeat_day) = (Some(rule), day);
+                end -= 2;
+                continue;
+            }
+        }
         if priority.is_none() {
             if let Some(p) = priority_of(word) {
                 priority = Some(p);
@@ -50,9 +61,28 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     let title: Vec<String> = words[..end].iter().map(unquote).collect();
     if title.is_empty() {
         let all: Vec<String> = words.iter().map(unquote).collect();
-        return Quick { title: all.join(" "), due: None, priority: None };
+        return Quick { title: all.join(" "), due: None, priority: None, repeat: None };
     }
-    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority }
+    // A repeating task always has a day: the one beside it, the weekday named, or today (the next
+    // weekday, for "every weekday" on a weekend).
+    if repeat.is_some() && due.is_none() {
+        due = repeat_day.or_else(|| if repeat == Some("weekday") { crate::tasks::next_due("weekday", None, today.pred_opt().unwrap_or(today)) } else { Some(today) });
+    }
+    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority, repeat: repeat.map(String::from) }
+}
+
+/// What "every <word>" repeats: its rule, and for a weekday's name the next such day.
+fn repeat_of(word: &str, today: NaiveDate) -> Option<(&'static str, Option<NaiveDate>)> {
+    let w = word.to_ascii_lowercase();
+    let rule = match w.as_str() {
+        "day" => "day",
+        "weekday" => "weekday",
+        "week" => "week",
+        "month" => "month",
+        "year" => "year",
+        _ => return one_word_day(&w, today, true).filter(|_| WEEKDAYS.iter().any(|(names, _)| names.contains(&w.as_str()))).map(|d| ("week", Some(d))),
+    };
+    Some((rule, None))
 }
 
 fn priority_of(word: &str) -> Option<u8> {
@@ -126,7 +156,8 @@ fn one_word_day(word: &str, today: NaiveDate, day_first: bool) -> Option<NaiveDa
 pub fn describe(q: &Quick) -> String {
     let priority = q.priority.map(|p| ["Low", "Medium", "High"][p.min(2) as usize].to_string());
     let due = q.due.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).map(|d| d.format("%a %-d %b").to_string());
-    [priority, due].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    let repeat = q.repeat.as_deref().map(|r| format!("Every {r}"));
+    [priority, due, repeat].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
 /// Whether the system writes dates day first: everywhere but the US.
@@ -201,11 +232,55 @@ mod tests {
         assert_eq!(read("fri !h"), ("fri !h".into(), None, None));
     }
 
+    fn repeats(text: &str) -> (String, Option<String>, Option<String>) {
+        let q = parse(text, today(), true);
+        (q.title, q.due, q.repeat)
+    }
+
+    #[test]
+    fn every_something_repeats_and_gives_the_task_a_day() {
+        // today() is Tuesday 3 Nov 2026.
+        assert_eq!(repeats("water plants every day"), ("water plants".into(), day("2026-11-03"), Some("day".into())));
+        assert_eq!(repeats("report every fri"), ("report".into(), day("2026-11-06"), Some("week".into())));
+        assert_eq!(repeats("report every Friday"), ("report".into(), day("2026-11-06"), Some("week".into())));
+        assert_eq!(repeats("gym every tue"), ("gym".into(), day("2026-11-10"), Some("week".into())));
+        assert_eq!(repeats("rent every month"), ("rent".into(), day("2026-11-03"), Some("month".into())));
+        assert_eq!(repeats("passport every year"), ("passport".into(), day("2026-11-03"), Some("year".into())));
+        assert_eq!(repeats("standup every weekday"), ("standup".into(), day("2026-11-03"), Some("weekday".into())));
+        assert_eq!(repeats("standup EVERY WEEK"), ("standup".into(), day("2026-11-03"), Some("week".into())));
+    }
+
+    #[test]
+    fn a_day_beside_the_repeat_is_its_first_day_and_the_priority_still_reads() {
+        assert_eq!(repeats("rent every month 1 dec"), ("rent".into(), day("2026-12-01"), Some("month".into())));
+        assert_eq!(repeats("rent 1 dec every month"), ("rent".into(), day("2026-12-01"), Some("month".into())));
+        assert_eq!(read("water plants !h every day"), ("water plants".into(), day("2026-11-03"), Some(2)));
+        assert_eq!(read("water plants every day !h"), ("water plants".into(), day("2026-11-03"), Some(2)));
+    }
+
+    #[test]
+    fn every_on_a_weekend_starts_on_the_next_weekday() {
+        let saturday = NaiveDate::from_ymd_opt(2026, 11, 7).unwrap();
+        assert_eq!(parse("standup every weekday", saturday, true).due, day("2026-11-09"));
+    }
+
+    #[test]
+    fn only_a_rule_after_every_counts() {
+        assert_eq!(repeats("every day"), ("every day".into(), None, None));
+        assert_eq!(repeats("clean every other day"), ("clean every other day".into(), None, None));
+        assert_eq!(repeats("every fortnight"), ("every fortnight".into(), None, None));
+        assert_eq!(repeats("call \"every\" day"), ("call every day".into(), None, None));
+        assert_eq!(repeats("party every night"), ("party every night".into(), None, None));
+        assert_eq!(repeats("do it every today"), ("do it every".into(), day("2026-11-03"), None));
+    }
+
     #[test]
     fn what_was_read_reads_back() {
         assert_eq!(describe(&parse("essay !h fri", today(), true)), "High · Fri 6 Nov");
         assert_eq!(describe(&parse("essay tmr", today(), true)), "Wed 4 Nov");
         assert_eq!(describe(&parse("essay !l", today(), true)), "Low");
         assert_eq!(describe(&parse("essay", today(), true)), "");
+        assert_eq!(describe(&parse("essay !h every fri", today(), true)), "High · Fri 6 Nov · Every week");
+        assert_eq!(describe(&parse("rent every month", today(), true)), "Tue 3 Nov · Every month");
     }
 }

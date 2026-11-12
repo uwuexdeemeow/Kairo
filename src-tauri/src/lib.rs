@@ -495,6 +495,7 @@ pub fn run() {
             commands::hide_note,
             commands::set_task_note,
             commands::set_task_steps,
+            commands::set_task_repeat,
             commands::sync_soon,
             commands::take_ledger_open,
             commands::pop_out_note,
