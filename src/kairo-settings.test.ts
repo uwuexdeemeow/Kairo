@@ -229,6 +229,35 @@ describe("recording the palette shortcut", () => {
     await vi.waitFor(() => expect(api.recordingShortcut).toHaveBeenLastCalledWith(false));
   });
 
+  // Windows turns Alt+Space into its window menu before the page hears the Space; Kairo holds the
+  // menu back and sends word instead.
+  const altSpace = () => {
+    for (const fn of events.get("kairo:altspace") ?? []) fn({ payload: null });
+  };
+
+  it("takes Alt+Space from Windows' word of it, when the Space itself never arrives", async () => {
+    press("Alt", "AltLeft", { altKey: true });
+    expect(keys()).toEqual(["Alt", "…"]);
+    altSpace();
+    await vi.waitFor(() => expect(api.setPaletteShortcut).toHaveBeenCalledWith("Alt+Space"));
+    await vi.waitFor(() => expect($("#palette-note").textContent).toBe("Saved. Alt+Space opens the palette from anywhere."));
+    expect($("#palette-record").textContent).toBe("Change");
+  });
+
+  it("keeps the other modifiers that were held with it", async () => {
+    press("Shift", "ShiftLeft", { shiftKey: true });
+    press("Alt", "AltLeft", { shiftKey: true, altKey: true });
+    altSpace();
+    await vi.waitFor(() => expect(api.setPaletteShortcut).toHaveBeenCalledWith("Alt+Shift+Space"));
+  });
+
+  it("ignores word of Alt+Space when nothing is being recorded", async () => {
+    press("Escape", "Escape");
+    altSpace();
+    await Promise.resolve();
+    expect(api.setPaletteShortcut).not.toHaveBeenCalled();
+  });
+
   it("asks for a modifier when a key comes alone", () => {
     press("k", "KeyK");
     expect(api.setPaletteShortcut).not.toHaveBeenCalled();

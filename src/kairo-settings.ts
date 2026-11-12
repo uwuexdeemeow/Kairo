@@ -71,6 +71,7 @@ function stopRecording(note: string) {
 function startRecording(row: Recorder) {
   if (recording) stopRecording("Kept as it was.");
   recording = row;
+  heldMods = [];
   void api.recordingShortcut(true).catch(() => {});
   $(row.keys).classList.add("recording");
   $(row.button).textContent = "Cancel";
@@ -132,6 +133,7 @@ async function recordKeys(e: KeyboardEvent) {
     return;
   }
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
+  heldMods = mods;
   const key = shortcutKey(e);
   $(row.keys).replaceChildren(...[...mods, key ?? "…"].map((k) => h("kbd", {}, keyName(k))));
   if (!key) {
@@ -141,6 +143,26 @@ async function recordKeys(e: KeyboardEvent) {
     }
     return;
   }
+  await choose(row, mods, key);
+}
+
+/// The modifiers held at the last key press while recording, for Alt+Space, which Windows turns
+/// into its window menu before the page hears the Space.
+let heldMods: string[] = [];
+
+/// Windows told us Alt+Space was pressed (`menukey.rs` held its menu back and sent word): taken as
+/// the Space key with Alt and whatever else was held.
+async function altSpacePressed() {
+  const row = recording;
+  if (!row) return;
+  const order = ["Ctrl", "Alt", "Shift", "Super"];
+  const mods = order.filter((m) => m === "Alt" || heldMods.includes(m));
+  $(row.keys).replaceChildren(...[...mods, "Space"].map((k) => h("kbd", {}, keyName(k))));
+  await choose(row, mods, "Space");
+}
+
+/// Saves the keys pressed as the row's shortcut, or says what's missing.
+async function choose(row: Recorder, mods: string[], key: string) {
   if (!mods.length) {
     const hold = IS_MAC ? "Control, Option, Shift or Command" : IS_LINUX ? "Ctrl, Alt, Shift or Super" : "Ctrl, Alt, Shift or the Windows key";
     $(row.note).textContent = `Hold ${hold} with it, so typing elsewhere doesn't set it off.`;
@@ -411,6 +433,8 @@ export function wireKairoSettings(): void {
   listen<Appearance>("kairo:appearance", (e) => ($<HTMLSelectElement>("#appearance").value = e.payload));
   // The palette flipped a switch.
   listen("kairo:settings", () => loadKairoSettings());
+  // Windows' Alt+Space, held back while recording: the page never hears that Space itself.
+  listen("kairo:altspace", () => void altSpacePressed());
 
   $("#update-check").addEventListener("click", async () => {
     const out = $("#update-status");

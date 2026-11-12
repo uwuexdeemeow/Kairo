@@ -6,13 +6,17 @@
 #[cfg(windows)]
 mod imp {
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::OnceLock;
 
-    use tauri::{AppHandle, WebviewWindow};
+    use tauri::{AppHandle, Emitter, WebviewWindow};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
     use windows::Win32::UI::WindowsAndMessaging::WM_SYSCOMMAND;
 
     static RECORDING: AtomicBool = AtomicBool::new(false);
+    /// Who to tell that Alt+Space was pressed: the web view never hears that Space, so the page
+    /// is told in words (`kairo:altspace`) and takes it as the key.
+    static APP: OnceLock<AppHandle> = OnceLock::new();
     /// The menu opened from the keyboard, as WM_SYSCOMMAND's wparam says it (low four bits are the system's).
     const SC_KEYMENU: usize = 0xF100;
 
@@ -23,6 +27,9 @@ mod imp {
 
     unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _id: usize, _data: usize) -> LRESULT {
         if RECORDING.load(Ordering::Relaxed) && is_space_menu(msg, wparam.0, lparam.0) {
+            if let Some(app) = APP.get() {
+                let _ = app.emit("kairo:altspace", ());
+            }
             return LRESULT(0);
         }
         DefSubclassProc(hwnd, msg, wparam, lparam)
@@ -33,6 +40,7 @@ mod imp {
         if !on {
             return;
         }
+        let _ = APP.set(app.clone());
         let Ok(hwnd) = window.hwnd() else { return };
         let raw = hwnd.0 as isize;
         // A window is subclassed from the thread that made it. Asking again for the same hook is
