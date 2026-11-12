@@ -104,7 +104,8 @@ function draw(list?: Task[]) {
   // The panel slides over the list, which keeps its width.
   $("#view-tasks").classList.toggle("detail-open", !!t);
   if (!t) selected = null;
-  $("#count-tasks").textContent = String(visible.filter((x) => x.doneMs === null).length || "");
+  // Open tasks, whatever Find is showing: the sidebar says how many there are, not how many match.
+  $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null && !deletingTasks.has(x.id)).length || "");
   if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(visible);
 }
 
@@ -239,16 +240,23 @@ const actions: LedgerActions = {
 
 let notesView: NotesView | null = null;
 
+/// The sidebar's note count, read again: after a note is made, deleted or brought back here, so
+/// it's right at once rather than at the next refresh.
+async function showNoteCount() {
+  const all = await api.notes().catch(() => null);
+  if (all) $("#count-notes").textContent = String(all.length || "");
+}
+
 /// The Notes view, made the first time it's shown.
 function notes(): NotesView {
   notesView ??= mountNotes($("#view-notes"), {
     search: (q) => api.notes(q),
-    create: () => api.newNote(""),
+    create: () => api.newNote("").finally(showNoteCount),
     save: (id, body) => api.saveNote(id, body),
     pin: (id, pinned) => api.pinNote(id, pinned),
     setPaper: (id, paper) => api.setNotePaper(id, paper),
-    remove: (id) => api.removeNote(id),
-    hide: (id, waiting) => api.hideNote(id, waiting),
+    remove: (id) => api.removeNote(id).finally(showNoteCount),
+    hide: (id, waiting) => api.hideNote(id, waiting).finally(showNoteCount),
     openTask: (id) => openTask(id),
     popOut: (id) => void api.popOutNote(id),
     syncSoon: () => void api.syncSoon(),
