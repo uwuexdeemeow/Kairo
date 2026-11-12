@@ -419,6 +419,33 @@ meetings, a calendar address connected.
    have no due day" says what no cell can show.
 9. **Two computers.** Tag a task on one. *Expect:* the other shows the tags and project after a sync.
 
+## Ledger: calmer rows and a slimmer panel
+
+On Windows, a Mac and Linux, in a dark and a light theme, and once at the smallest window (720 × 520).
+None of this has been looked at on a real screen yet, so it is the first look.
+
+1. **Rows.** Open Tasks with a few tasks that have a project, tags, steps, a repeat and a reminder.
+   *Expect:* the marks on each row are plain quiet text, not pills; the due day is the one in
+   stronger ink (warm once overdue); only the first tag shows, with "+2" for the rest (hover shows all);
+   a repeating task says "weekly" (or daily, monthly…) beside its arrow; the "25m" button has no edge
+   until the row is pointed at or the keyboard is on it (always edged on a touch screen).
+2. **Scanning.** Without reading, find what's due soonest in each group. *Expect:* easy; nothing on a
+   row competes with the title.
+3. **The panel.** Open a plain task. *Expect:* only the title, Mark done, Focus, Due, Priority, an
+   "Add…" choice and, at the foot, focus time and Delete. Open a task with a tag, a project and steps:
+   those show as fields.
+4. **Add….** Choose Repeat, Project, Tags, Steps and Note in turn. *Expect:* each opens its field with
+   the keyboard in it and is no longer offered; Reminder makes one at 9 on the due day at once.
+5. **Delete stays in view.** Open the fullest task at the smallest window and scroll the panel.
+   *Expect:* the foot with Delete stays at the bottom of the panel the whole time.
+6. **Filters.** *Expect:* "Project" and "Tag" label their groups; a pressed chip is filled in the
+   amber accent, with Show all beside the chips.
+7. **Done.** *Expect:* each row ends "done 4:00 PM", with "1h 35m focused ·" before it when there was focus time.
+8. **Header.** *Expect:* no small line above "Tasks"; the date starts the summary under the title
+   ("Thursday 12 November · 3 due today…").
+9. **Contrast and size.** Group headers, panel labels and calendar weekday names are at least 11px;
+   the sidebar count and a selected row's day are readable in both themes.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*
