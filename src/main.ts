@@ -4,7 +4,7 @@ import { dayParts, watchSvg } from "./chrono-look";
 import { dialSvg, logo } from "./logos";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type AwayStretch, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type PomodoroStatus, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
+import { api, type AwayStretch, type PomodoroLengths, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type PomodoroStatus, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay, todayIso, weekdayIndex } from "./calendar";
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
@@ -212,6 +212,11 @@ function timelineHours(day0: number, times: number[]): [number, number] {
   return [from, to];
 }
 
+/// The hour the timeline's close-up is on, and the day that was, so a refresh doesn't move it.
+let zoomedHour: { day: string; hour: number } | null = null;
+/// The narrowest stretch in the close-up that gets its name written under it.
+const ZOOM_NAME_PX = 56;
+
 function renderTimeline(d: DaySummary, isToday: boolean) {
   const day0 = parseDate(shownDay()).getTime();
   const times = [...d.timeline.flatMap((s) => [s.start, s.end]), ...shownFocus.flatMap((b) => [b.start, b.end]), ...(isToday ? [Date.now()] : [])];
@@ -238,6 +243,58 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     strip.append(now);
   }
 
+  // One hour of it drawn the whole width underneath, where short stretches can be told apart and
+  // named: the hour pointed at or reached with the arrow keys, staying put until another is.
+  const zoom = h("div", { class: "zoom", "aria-hidden": "true" });
+  const zoomMark = h("span", { class: "zoom-window", "aria-hidden": "true" });
+  const showHour = (at: number) => {
+    const hour = Math.min(toHour - 1, Math.max(fromHour, Math.floor(at)));
+    if (zoom.dataset.hour === String(hour)) return;
+    zoom.dataset.hour = String(hour);
+    zoomedHour = { day: shownDay(), hour };
+    zoomMark.style.left = `${((hour - fromHour) / (toHour - fromHour)) * 100}%`;
+    zoomMark.style.width = `${100 / (toHour - fromHour)}%`;
+    const z0 = day0 + hour * HOUR_MS;
+    const wide = $("#today-timeline").clientWidth || 800;
+    const band = h("div", { class: "zoom-band" });
+    const names = h("div", { class: "zoom-names" });
+    let active = 0;
+    for (const seg of d.timeline) {
+      const [from, to] = [Math.max(seg.start, z0), Math.min(seg.end, z0 + HOUR_MS)];
+      if (to <= from) continue;
+      active += to - from;
+      const [left, width] = [((from - z0) / HOUR_MS) * 100, ((to - from) / HOUR_MS) * 100];
+      const el = h("span", { class: `seg ${seg.category}` });
+      el.style.left = `${left}%`;
+      el.style.width = `max(calc(${width}% - 2px), 2px)`;
+      tip(el, () => `<strong>${esc(seg.label)}</strong><div>${dotHtml(seg.category)}${LABELS[seg.category]}</div><div class="muted">${fmtClock(seg.start)}–${fmtClock(seg.end)} · ${fmtDur(seg.end - seg.start)}</div>`);
+      band.append(el);
+      // A name under each stretch with room for one.
+      if ((width / 100) * wide >= ZOOM_NAME_PX) {
+        const name = h("span", {}, seg.label);
+        name.style.left = `${left}%`;
+        name.style.width = `calc(${width}% - 8px)`;
+        names.append(name);
+      }
+    }
+    zoom.replaceChildren(
+      h("div", { class: "zoom-head" }, h("span", {}, `${clock(hour)}–${clock(hour + 1)}`), h("span", {}, active ? `${fmtDur(active)} on screen` : "Nothing tracked this hour")),
+      band,
+      names,
+    );
+  };
+  if (d.timeline.length) {
+    strip.prepend(zoomMark);
+    strip.addEventListener("pointermove", (e) => {
+      const box = strip.getBoundingClientRect();
+      showHour(fromHour + ((e.clientX - box.left) / box.width) * (toHour - fromHour));
+    });
+    d.timeline.forEach((seg, i) => segs[i].addEventListener("focus", () => showHour((seg.start - day0) / HOUR_MS)));
+    // It opens on the hour last looked at on this day; else now, or the last hour with anything in.
+    const last = d.timeline[d.timeline.length - 1];
+    showHour(zoomedHour?.day === shownDay() ? zoomedHour.hour : ((isToday ? Date.now() : last.end - 1) - day0) / HOUR_MS);
+  }
+
   // A mark every hour on a short day, every two or three on a longer one.
   const hours = toHour - fromHour;
   const step = hours <= 8 ? 1 : hours <= 14 ? 2 : 3;
@@ -247,7 +304,7 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     mark.style.left = `${((hour - fromHour) / hours) * 100}%`;
     axis.append(mark);
   }
-  const parts: Node[] = [strip, axis];
+  const parts: Node[] = d.timeline.length ? [strip, axis, zoom] : [strip, axis];
   // Focus sessions run as a thin lane above the activity they covered.
   if (shownFocus.length) {
     const lane = h("div", { class: "focus-lane", role: "group", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
@@ -1448,6 +1505,7 @@ function paintTimer() {
     time.classList.remove("paused");
     $("#timer-sub").textContent = "";
     $("#timer-minutes").textContent = `${timerMinutes} min`;
+    paintPomodoroPlan();
     const ring = $("#timer-ring");
     ring.innerHTML = watchSvg(1, 1, false);
     // A session that just ran out gives the watch one pulse.
@@ -1460,12 +1518,15 @@ function paintTimer() {
   }
   const left = focusLeft(running);
   const paused = running.pausedAt !== null;
-  const round = cycle && !cycle.onBreak ? ` · round ${cycle.round} of ${cycle.rounds}` : "";
-  $("#timer-eyebrow").textContent = (paused ? "Focus · paused" : "Focus · in progress") + round;
+  // The round is said on the watch itself, under the time, where the eye already is.
+  const round = cycle && !cycle.onBreak ? `Round ${cycle.round} of ${cycle.rounds}` : "";
+  $("#timer-eyebrow").textContent = paused ? "Focus · paused" : "Focus · in progress";
   $("#timer-title").textContent = running.label ?? "Focusing";
   setTimerTime(fmtElapsed(left));
   time.classList.toggle("paused", paused);
-  $("#timer-sub").textContent = paused ? "Paused. Distraction nudges are off until you resume." : `Ends at ${fmtClock(Date.now() + left)}`;
+  const sub = paused ? (round ? "Paused" : "Paused. Distraction nudges are off until you resume.") : `Ends at ${fmtClock(Date.now() + left)}`;
+  // On a line of its own (the watch's small text keeps line breaks).
+  $("#timer-sub").textContent = round ? `${round}\n${sub}` : sub;
   const ring = $("#timer-ring");
   ring.classList.remove("pulse");
   ring.innerHTML = watchSvg(left, running.plannedMs, paused);
@@ -1729,10 +1790,25 @@ window.setInterval(() => view === "focus" && cycle?.onBreak && paintBreak(), 10_
 /// itself is the length picked on the timer.
 const pomodoroFields = { breakMin: "#pomodoro-break-min", longMin: "#pomodoro-long-min", rounds: "#pomodoro-rounds" } as const;
 let pomodoroWorkMin = 25;
+/// The breaks and rounds as last read or saved, for the line that says what a cycle will run.
+let pomodoroLengths: PomodoroLengths | null = null;
+
+/// "Rounds of 50m with 5m breaks, and a 15m break after every 4, until you end it.": shown while
+/// "Rounds with breaks" is ticked, so what Start focus will run is said before it runs.
+function paintPomodoroPlan() {
+  const plan = $("#pomodoro-plan");
+  const l = pomodoroLengths;
+  plan.hidden = !($("#timer-pomodoro") as HTMLInputElement).checked || !l;
+  if (l) plan.textContent = `Rounds of ${timerMinutes}m with ${l.breakMin}m breaks, and a ${l.longMin}m break after every ${l.rounds}, until you end it.`;
+}
+$("#timer-pomodoro").addEventListener("change", paintPomodoroPlan);
+
 async function showPomodoroLengths() {
   try {
     const l = await api.pomodoroLengths();
     pomodoroWorkMin = l.workMin;
+    pomodoroLengths = l;
+    paintPomodoroPlan();
     for (const [key, sel] of Object.entries(pomodoroFields)) $<HTMLInputElement>(sel).value = String(l[key as keyof typeof pomodoroFields]);
   } catch {
     // The fields stay as they were.
@@ -1744,7 +1820,10 @@ for (const sel of Object.values(pomodoroFields)) {
     try {
       const saved = await api.setPomodoroLengths({ workMin: pomodoroWorkMin, breakMin: value("breakMin"), longMin: value("longMin"), rounds: value("rounds") });
       for (const [key, s] of Object.entries(pomodoroFields)) $<HTMLInputElement>(s).value = String(saved[key as keyof typeof pomodoroFields]);
-      $("#pomodoro-status").textContent = "Saved";
+      pomodoroLengths = saved;
+      paintPomodoroPlan();
+      // Saving starts nothing, and says where starting is.
+      $("#pomodoro-status").textContent = "Saved. Tick “Rounds with breaks” by Start focus to use them.";
     } catch {
       $("#pomodoro-status").textContent = "Couldn't save";
     }
@@ -1831,8 +1910,16 @@ listen("kairo:focus", () => refreshStatus());
 
 $("#timer-start").addEventListener("click", async () => {
   const label = $<HTMLInputElement>("#timer-label");
-  await startFocus(timerMinutes, label.value.trim() || undefined);
-  label.value = "";
+  const error = $("#timer-error");
+  error.hidden = true;
+  try {
+    await startFocus(timerMinutes, label.value.trim() || undefined);
+    label.value = "";
+  } catch (err) {
+    // A start that was refused (strict mode guarding a session, say) says so, the label kept.
+    error.textContent = `Couldn't start it. ${why(err)}`;
+    error.hidden = false;
+  }
 });
 $<HTMLInputElement>("#timer-label").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $<HTMLButtonElement>("#timer-start").click();

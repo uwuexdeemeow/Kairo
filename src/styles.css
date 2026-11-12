@@ -797,8 +797,13 @@ h2 {
   color: var(--muted);
 }
 
+/* Today stands out by its name, in the app's ink over a short rule of it; the bar stays on the
+   baseline it shares with the other days, so their heights still compare. */
 .wk-day.today .wk-label {
-  color: var(--ink);
+  padding-bottom: 2px;
+  border-bottom: 2px solid var(--app);
+  color: var(--app);
+  font-weight: 600;
 }
 
 .wk-goal {
@@ -1590,6 +1595,7 @@ html.palette-root {
 .timer-sub {
   position: relative;
   max-width: 200px;
+  white-space: pre-line;
   font-size: 12px;
   color: var(--muted);
 }
@@ -1931,6 +1937,19 @@ html.palette-root {
   font-size: 13px;
 }
 
+/* What a cycle will run, and a start that was refused: each on a line of its own under the
+   controls. */
+.pomodoro-plan,
+.timer-setup .focus-error {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 13px;
+}
+
+.pomodoro-plan[hidden] {
+  display: none;
+}
+
 .block-list {
   display: grid;
   gap: 8px;
@@ -2245,6 +2264,64 @@ html.palette-root {
   outline: 1px solid var(--ink);
   outline-offset: 2px;
   z-index: 1;
+}
+
+/* The hour the close-up below is on, marked on the day. */
+.zoom-window {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  pointer-events: none;
+  transition: left 160ms var(--ease);
+}
+
+/* The close-up: that hour the whole width, its stretches named where there's room. */
+.zoom {
+  margin-top: 20px;
+}
+
+.zoom-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--faint);
+}
+
+.zoom-band {
+  position: relative;
+  height: 22px;
+  border-radius: 3px;
+  background:
+    linear-gradient(to right, transparent calc(25% - 1px), var(--rule) 25%, transparent calc(25% + 1px), transparent calc(50% - 1px), var(--rule) 50%, transparent calc(50% + 1px), transparent calc(75% - 1px), var(--rule) 75%, transparent calc(75% + 1px)),
+    color-mix(in srgb, var(--track) 55%, transparent);
+}
+
+.zoom-names {
+  position: relative;
+  height: 16px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.zoom-names span {
+  position: absolute;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zoom-window {
+    transition: none;
+  }
 }
 
 .now {
