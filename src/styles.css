@@ -3949,21 +3949,30 @@ select,
   grid-column: 4;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 4px 12px;
 }
 
+/* A row's marks are plain quiet text, no pills: the one that matters when scanning, the due day,
+   is the only one in the stronger ink (and the warm one once it's past). */
 .chip {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--line) 45%, transparent);
   color: var(--muted);
   font-size: 11px;
   white-space: nowrap;
 }
 
-/* Start focus: "▶ 25m", always there but quiet, full strength under the pointer or the keyboard;
-   it is what ties a task to a focus session, so it can't hide until hovered. */
+.task-chips .task-day {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.task-chips .task-day.late {
+  color: var(--distracting-ink);
+}
+
+/* Start focus: "▶ 25m", always there but quiet (no edge until the row is pointed at or the
+   keyboard is in it); it is what ties a task to a focus session, so it can't hide until hovered. */
 .task-start {
   grid-column: 5;
   display: inline-flex;
@@ -3973,7 +3982,7 @@ select,
   min-width: 30px;
   height: 30px;
   padding: 0 7px;
-  border: 1px solid var(--edge);
+  border: 1px solid transparent;
   border-radius: 10px;
   background: none;
   color: var(--muted);
@@ -3985,7 +3994,15 @@ select,
 .task-card:hover .task-start,
 .task-card:focus-within .task-start,
 .task-start:focus-visible {
+  border-color: var(--edge);
   color: var(--ledger);
+}
+
+/* A touch screen has no pointer to reveal the edge: it's always there. */
+@media (hover: none) {
+  .task-start {
+    border-color: var(--edge);
+  }
 }
 
 .task-start:hover {

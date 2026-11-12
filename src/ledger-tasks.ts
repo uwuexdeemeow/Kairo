@@ -132,9 +132,14 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
     chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }
-  if (t.repeat) chips.append(h("span", { class: "task-repeat chip", title: repeatName(t.repeat) }, glyph("repeat"), h("span", { class: "sr-only" }, repeatName(t.repeat))));
+  // A repeat in a word ("weekly"), not just the arrow; the tooltip has it in full.
+  if (t.repeat) chips.append(h("span", { class: "task-repeat chip", title: repeatName(t.repeat) }, glyph("repeat"), REPEAT_WORD[t.repeat]));
   if (t.project) chips.append(h("span", { class: "task-project chip", title: "Project" }, h("span", { class: "sr-only" }, "Project "), t.project));
-  for (const tag of t.tags) chips.append(h("span", { class: "task-tag chip", title: "Tag" }, `#${tag}`));
+  // The first tag and how many more: the panel and the filter chips have them all.
+  if (t.tags.length) {
+    const [first, ...rest] = t.tags;
+    chips.append(h("span", { class: "task-tag chip", title: t.tags.map((x) => `#${x}`).join(" ") }, `#${first}`, rest.length ? ` +${rest.length}` : ""));
+  }
   if (t.steps.length) chips.append(h("span", { class: "task-steps chip", title: "Steps done" }, h("span", { class: "sr-only" }, "Steps done "), progress(t.steps)));
   if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
   if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
@@ -461,6 +466,9 @@ function noteRow(t: Task, act: LedgerActions, notes: NoteName[]): HTMLElement {
 }
 
 const REPEATS: Repeat[] = ["day", "weekday", "week", "month", "year"];
+
+/// How a task's repeat reads on its row: "weekly".
+const REPEAT_WORD: Record<Repeat, string> = { day: "daily", weekday: "weekdays", week: "weekly", month: "monthly", year: "yearly" };
 
 /// "Every week", as a task's repeat is said.
 export function repeatName(repeat: Repeat): string {

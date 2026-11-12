@@ -485,7 +485,8 @@ describe("the detail panel", () => {
   it("says on a task's row that it repeats, in words too", () => {
     renderTaskList(root, [task("a", "Water plants", { repeat: "month", group: "none" }), task("b", "Essay")], null, act as unknown as LedgerActions, null, "");
     const chip = root.querySelector('[data-task="a"] .task-repeat')!;
-    expect(chip.textContent).toContain("Every month");
+    expect(chip.textContent).toContain("monthly");
+    expect(chip.getAttribute("title")).toBe("Every month");
     expect(root.querySelector('[data-task="b"] .task-repeat')).toBeNull();
   });
 
@@ -493,7 +494,9 @@ describe("the detail panel", () => {
     const t = task("a", "Ship it", { project: "Kairo", tags: ["release", "urgent"] });
     renderTaskList(root, [t, task("b", "Plain")], null, act as unknown as LedgerActions, null, "");
     expect(root.querySelector('[data-task="a"] .task-project')?.textContent).toContain("Kairo");
-    expect([...root.querySelectorAll('[data-task="a"] .task-tag')].map((x) => x.textContent)).toEqual(["#release", "#urgent"]);
+    // The first tag and a count; the tooltip has them all.
+    expect([...root.querySelectorAll('[data-task="a"] .task-tag')].map((x) => x.textContent)).toEqual(["#release +1"]);
+    expect(root.querySelector('[data-task="a"] .task-tag')!.getAttribute("title")).toBe("#release #urgent");
     expect(root.querySelector('[data-task="b"] .task-project')).toBeNull();
     expect(root.querySelector('[data-task="b"] .task-tag')).toBeNull();
     renderDetail(panel(), t, act, [], null, ["Kairo", "Home"]);
