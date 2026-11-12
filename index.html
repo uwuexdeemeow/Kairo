@@ -48,12 +48,18 @@
         </nav>
         <section class="focus" aria-label="Focus session">
           <div class="focus-idle" id="focus-idle">
-            <span class="focus-label">Focus for</span>
+            <span class="focus-label">Start focus</span>
             <div class="focus-start" role="group" aria-label="Start a focus session">
-              <button data-focus="25" title="Start a 25-minute focus session now. Distracting apps and sites are blocked until it ends">25m</button>
-              <button data-focus="50" title="Start a 50-minute focus session now. Distracting apps and sites are blocked until it ends">50m</button>
-              <button data-focus="90" title="Start a 90-minute focus session now. Distracting apps and sites are blocked until it ends">90m</button>
+              <button data-focus="25" aria-label="Start a 25-minute focus session" title="Start a 25-minute focus session. Distracting apps and sites are blocked until it ends">25m</button>
+              <button data-focus="50" aria-label="Start a 50-minute focus session" title="Start a 50-minute focus session. Distracting apps and sites are blocked until it ends">50m</button>
+              <button data-focus="90" aria-label="Start a 90-minute focus session" title="Start a 90-minute focus session. Distracting apps and sites are blocked until it ends">90m</button>
             </div>
+            <p class="focus-error" id="focus-error" role="alert" hidden></p>
+          </div>
+          <!-- A few seconds to take a start back, before anything is blocked. -->
+          <div class="focus-pending" id="focus-pending" hidden>
+            <span class="focus-label" id="focus-pending-label" role="status"></span>
+            <button class="link-btn focus-stop" id="focus-undo" title="Don't start it (Esc)">Undo</button>
           </div>
           <div class="focus-active" id="focus-active" hidden>
             <span class="focus-label" id="focus-active-label">Focus session</span>

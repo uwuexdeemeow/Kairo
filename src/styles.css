@@ -366,6 +366,51 @@ h2 {
   border-right: 1px solid var(--rule);
 }
 
+/* A short window: the sidebar closes up so its foot (whose time is showing, what's being
+   recorded) stays in view, and scrolls rather than lose anything if it still can't fit. */
+@media (max-height: 700px) {
+  .sidebar {
+    gap: 16px;
+    padding-top: 20px;
+    padding-bottom: 16px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+
+  .sidebar .tabs button {
+    min-height: 34px;
+  }
+}
+
+@media (max-height: 600px) {
+  .sidebar {
+    gap: 8px;
+    padding-top: 14px;
+    padding-bottom: 12px;
+  }
+
+  .sidebar .tabs button {
+    min-height: 28px;
+  }
+
+  .sidebar .back-to-kairo {
+    margin-bottom: 0;
+  }
+
+  .sidebar .wordmark svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .sidebar .focus {
+    padding-top: 8px;
+  }
+
+  .sidebar .computer-pick {
+    margin-top: 0;
+  }
+}
+
 .wrap {
   width: 100%;
   max-width: 1040px;
@@ -469,6 +514,21 @@ h2 {
 .focus-start button:hover {
   border-color: var(--app);
   color: var(--ink);
+}
+
+/* "Starting 25m…" and its Undo take the buttons' place, at their height. */
+.focus-pending .focus-label {
+  color: var(--ink);
+}
+
+.focus-pending .focus-stop {
+  margin-top: 4px;
+}
+
+.focus-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--distracting-ink);
 }
 
 .focus-left {
@@ -1415,9 +1475,45 @@ html.palette-root {
 
 /* ---------- focus page ---------- */
 
+/* The watch with its controls beside it, so the page's one action is in view when it opens,
+   down to the smallest window. */
 .timer {
+  display: grid;
+  grid-template-columns: auto minmax(0, 360px);
+  align-items: center;
+  gap: 24px 48px;
   margin-top: 28px;
-  max-width: 560px;
+}
+
+.timer .timer-setup,
+.timer .timer-run {
+  margin-top: 0;
+}
+
+/* A narrow or short window: a smaller watch, in the type sizes the dashboard's dial uses. */
+@media (max-width: 900px), (max-height: 640px) {
+  .timer {
+    gap: 20px 28px;
+    margin-top: 16px;
+  }
+
+  .timer .timer-face {
+    width: 200px;
+    height: 200px;
+  }
+
+  .timer .timer-time {
+    font-size: 44px;
+  }
+
+  .timer .timer-time.hours {
+    font-size: 34px;
+  }
+
+  .timer .timer-sub {
+    max-width: 130px;
+    font-size: 11px;
+  }
 }
 
 /* The focus watch: the time in the middle of a ring that unwinds as the session runs. */
@@ -3325,7 +3421,8 @@ select,
 }
 
 /* Home's Today: what's due, each a way into Ledger, and the next reminder. */
-.today {
+/* Not ".today": Chrono's charts mark today's column with that. */
+.dash-today {
   margin-top: 28px;
   max-width: 640px;
 }

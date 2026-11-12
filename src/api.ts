@@ -277,8 +277,10 @@ export interface Period {
   /** The last day. */
   end: string;
   totals: WeekTotals;
-  /** Last week, or last month. */
+  /** Last week, or last month: as much of it as this one has had, while this one is under way. */
   previous: WeekTotals;
+  /** The last day of that stretch counted (to the same time of day), when it isn't all of it. */
+  previousEnd: string | null;
   days: { date: string; totals: WeekTotals; goalsMet: boolean | null }[];
   bestDay: string | null;
   goalDaysMet: number;

@@ -620,10 +620,12 @@ function renderPeriod(w: Period) {
     stat("Focus sessions", String(w.focusSessions), w.focusSessions ? fmtDur(w.focusMs) : ""),
   );
   const before = parseDate(year ? shiftMonthKeepDay(w.start, -12) : month ? shiftMonthKeepDay(w.start, -1) : shiftDate(w.start, -7));
-  const beforeEnd = parseDate(shiftDate(w.start, -1));
-  $("#week-compare").textContent = p.activeMs
-    ? `Changes compare with ${before.toLocaleDateString([], { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })} – ${beforeEnd.toLocaleDateString([], { day: "numeric", month: "long", ...(year ? { year: "numeric" } : {}) })}.`
-    : "";
+  // A stretch under way is compared with as much of the one before, and says so.
+  const beforeEnd = parseDate(w.previousEnd ?? shiftDate(w.start, -1));
+  const named = (d: Date, month = true) => d.toLocaleDateString([], { day: "numeric", ...(month ? { month: "long" } : {}), ...(month && year ? { year: "numeric" } : {}) });
+  const sameMonth = before.getMonth() === beforeEnd.getMonth() && before.getFullYear() === beforeEnd.getFullYear();
+  const stretch = before.getTime() === beforeEnd.getTime() ? named(before) : `${named(before, !sameMonth)} – ${named(beforeEnd)}`;
+  $("#week-compare").textContent = p.activeMs ? `Changes compare with ${stretch}${w.previousEnd ? ", up to the same time of day" : ""}.` : "";
   $("#week-chart-title").textContent = year ? "Each month" : "Each day";
   if (year) renderYearChart(w);
   else renderWeekChart(w);
@@ -810,7 +812,7 @@ function renderWeekApps(w: Period) {
           "div",
           { class: "usage-top" },
           h("span", { class: "usage-label" }, appIcon(a.key, a.label), a.label),
-          h("span", { class: "usage-delta", title: `Change from last ${unit}` }, delta),
+          h("span", { class: "usage-delta", title: w.previousEnd ? `Change from the same point last ${unit}` : `Change from last ${unit}` }, delta),
           h("span", { class: "usage-value" }, fmtDur(a.ms)),
         ),
         line,
@@ -1259,9 +1261,18 @@ let shownTaskSession: string | null | undefined;
 const runningFocus = () => (focusSession && (focusSession.pausedAt !== null || focusLeft(focusSession) > 0) ? focusSession : null);
 
 /// The sidebar's focus box: start buttons when idle, a countdown while a session runs.
+/// A session the sidebar was asked for and hasn't started yet (see `startSoon`).
+let pendingStart: { timer: number; from: HTMLButtonElement } | null = null;
+
 function paintFocus() {
   const running = runningFocus();
-  $("#focus-idle").hidden = !!running;
+  // A session started some other way while a start waits here takes its place.
+  if (running && pendingStart) {
+    window.clearTimeout(pendingStart.timer);
+    pendingStart = null;
+  }
+  $("#focus-idle").hidden = !!running || !!pendingStart;
+  $("#focus-pending").hidden = !pendingStart;
   $("#focus-active").hidden = !running;
   if (running) {
     const left = focusLeft(running);
@@ -1338,9 +1349,50 @@ async function endEarly(btn: HTMLButtonElement) {
   focusChanged(result.session);
 }
 
-for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
-  btn.addEventListener("click", () => startFocus(Number(btn.dataset.focus)));
+/// How long the sidebar waits before a session it was asked for begins: one click there starts
+/// blocking, and strict mode makes that hard to leave, so the click can be taken back first.
+const START_HOLD_MS = 4000;
+
+/// Calls off a start that's still waiting; the keyboard goes back to the button that asked.
+function undoStart() {
+  if (!pendingStart) return;
+  const { timer, from } = pendingStart;
+  window.clearTimeout(timer);
+  pendingStart = null;
+  const onUndo = document.activeElement === $("#focus-undo");
+  paintFocus();
+  if (onUndo) from.focus();
 }
+
+function startSoon(minutes: number, from: HTMLButtonElement) {
+  const error = $("#focus-error");
+  error.hidden = true;
+  const timer = window.setTimeout(async () => {
+    const onUndo = document.activeElement === $("#focus-undo");
+    pendingStart = null;
+    try {
+      await startFocus(minutes);
+      if (onUndo) $<HTMLButtonElement>("#focus-stop").focus();
+    } catch (err) {
+      paintFocus();
+      error.textContent = `Couldn't start it. ${why(err)}`;
+      error.hidden = false;
+      if (onUndo) from.focus();
+    }
+  }, START_HOLD_MS);
+  pendingStart = { timer, from };
+  $("#focus-pending-label").textContent = `Starting ${minutes}m…`;
+  paintFocus();
+  $<HTMLButtonElement>("#focus-undo").focus();
+}
+
+for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-focus]")) {
+  btn.addEventListener("click", () => startSoon(Number(btn.dataset.focus), btn));
+}
+$("#focus-undo").addEventListener("click", undoStart);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && pendingStart) undoStart();
+});
 $<HTMLButtonElement>("#focus-stop").addEventListener("click", (e) => endEarly(e.currentTarget as HTMLButtonElement));
 $("#focus-left").addEventListener("click", () => $<HTMLButtonElement>('[data-view="focus"]').click());
 

@@ -101,6 +101,9 @@ pub struct Period {
     totals: Totals,
     /// The stretch just before, of the same kind: last week or last month.
     previous: Totals,
+    /// The last day of that stretch counted, when this one is still under way and so is compared
+    /// with only as much of it (to the same time of that day); None against the whole of it.
+    previous_end: Option<String>,
     days: Vec<DayLine>,
     best_day: Option<String>,
     goal_days_met: u32,
@@ -164,7 +167,7 @@ pub fn year(conn: &Connection, first: NaiveDate, now_ms: i64) -> Result<Period> 
     year_of(conn, first, now_ms, analysis::ALL_COMPUTERS)
 }
 
-/// The year starting 1 January `first`, against the whole year before; whose time as in
+/// The year starting 1 January `first`, against the year before; whose time as in
 /// [`week_of`].
 pub fn year_of(conn: &Connection, first: NaiveDate, now_ms: i64, computer: &str) -> Result<Period> {
     let before = first.checked_sub_months(Months::new(12)).unwrap_or(first);
@@ -189,7 +192,7 @@ pub fn month(conn: &Connection, first: NaiveDate, now_ms: i64) -> Result<Period>
     month_of(conn, first, now_ms, analysis::ALL_COMPUTERS)
 }
 
-/// The month starting `first`, against the whole month before; whose time as in [`week_of`].
+/// The month starting `first`, against the month before; whose time as in [`week_of`].
 pub fn month_of(conn: &Connection, first: NaiveDate, now_ms: i64, computer: &str) -> Result<Period> {
     let before = first.checked_sub_months(Months::new(1)).unwrap_or(first);
     let span = Span { start: first, len: month_days(first), previous_start: before, previous_len: month_days(before), count_weeks: true };
@@ -204,6 +207,24 @@ struct Span {
     previous_len: u64,
     /// Whether to count how the weeks inside it did on the weekly goals.
     count_weeks: bool,
+}
+
+/// For a stretch `now_ms` falls inside: where the stretch before had got to at the same point,
+/// as (the moment, its day). The same day counted from the start and the same time of day; a
+/// shorter stretch before (February against March) stops at its end. None for a stretch that's
+/// over or hasn't begun.
+fn same_point_before(start: NaiveDate, len: u64, previous_start: NaiveDate, previous_len: u64, now_ms: i64) -> Option<(i64, NaiveDate)> {
+    let (day, into_day) = start.iter_days().take(len as usize).find_map(|d| {
+        let (from, to) = analysis::day_bounds(d)?;
+        (from <= now_ms && now_ms < to).then(|| ((d - start).num_days() as u64, now_ms - from))
+    })?;
+    if day >= previous_len {
+        let last = previous_start + Days::new(previous_len.saturating_sub(1));
+        return Some((analysis::day_bounds(last)?.1, last));
+    }
+    let then = previous_start + Days::new(day);
+    let (from, to) = analysis::day_bounds(then)?;
+    Some(((from + into_day).min(to), then))
 }
 
 fn period_of(conn: &Connection, span: Span, now_ms: i64, computer: &str) -> Result<Period> {
@@ -245,10 +266,17 @@ fn period_of(conn: &Connection, span: Span, now_ms: i64, computer: &str) -> Resu
         days.push(DayLine { date: date.to_string(), totals: day, goals_met });
     }
 
+    // A stretch still under way is compared with as much of the one before: to the same day and
+    // time of day, not the whole of it, which it could only fall short of.
+    let cut = same_point_before(start, len, previous_start, previous_len, now_ms);
+    let (previous_until, previous_end) = cut.map_or((now_ms, None), |(ms, day)| (ms, Some(day.to_string())));
     let mut previous = Totals::default();
     let mut previous_apps = AppTimes::new();
     for date in previous_start.iter_days().take(previous_len as usize) {
-        let rows = goals::rows_of(conn, date, now_ms, computer)?;
+        if analysis::day_bounds(date).is_some_and(|b| b.0 >= previous_until) {
+            break;
+        }
+        let rows = goals::rows_of(conn, date, previous_until, computer)?;
         previous.add(&rows);
         add_apps(&mut previous_apps, &rows);
     }
@@ -300,6 +328,7 @@ fn period_of(conn: &Connection, span: Span, now_ms: i64, computer: &str) -> Resu
         end: end.to_string(),
         totals,
         previous,
+        previous_end,
         days,
         best_day,
         goal_days_met,
@@ -510,6 +539,34 @@ mod tests {
     }
 
     #[test]
+    fn a_week_under_way_compares_with_as_much_of_the_one_before() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let monday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        // Last week: two hours on Monday, five from 10 on Thursday, more on Friday.
+        session(&conn, "cursor", "Cursor", monday - Days::new(7), 120);
+        session(&conn, "cursor", "Cursor", monday - Days::new(4), 300);
+        session(&conn, "cursor", "Cursor", monday - Days::new(3), 200);
+        session(&conn, "cursor", "Cursor", monday, 90);
+
+        // Thursday at 11: last week had its Monday and an hour of its Thursday by then.
+        let thursday_11 = analysis::day_bounds(monday + Days::new(3)).unwrap().0 + 11 * 60 * MIN_MS;
+        let w = week(&conn, monday, thursday_11).unwrap();
+        assert_eq!(w.previous.productive_ms, 180 * MIN_MS);
+        assert_eq!(w.previous_end.as_deref(), Some("2026-10-15"));
+        assert_eq!((w.top_apps[0].ms, w.top_apps[0].previous_ms), (90 * MIN_MS, 180 * MIN_MS));
+
+        // Once it's over, against the whole of it.
+        let after = analysis::day_bounds(monday + Days::new(7)).unwrap().0;
+        let w = week(&conn, monday, after).unwrap();
+        assert_eq!((w.previous.productive_ms, w.previous_end), (620 * MIN_MS, None));
+
+        // The 31st of a month has all of a shorter month before it to compare with.
+        let date = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        let noon = analysis::day_bounds(date(10, 31)).unwrap().0 + 12 * 60 * MIN_MS;
+        assert_eq!(same_point_before(date(10, 1), 31, date(9, 1), 30, noon), Some((analysis::day_bounds(date(9, 30)).unwrap().1, date(9, 30))));
+    }
+
+    #[test]
     fn month_spans_its_days_and_compares_with_the_month_before() {
         let conn = db::open(std::path::Path::new(":memory:")).unwrap();
         let date = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
@@ -520,7 +577,8 @@ mod tests {
         session(&conn, "cursor", "Cursor", date(10, 6), 600);
         session(&conn, "cursor", "Cursor", date(10, 14), 120);
         session(&conn, "cursor", "Cursor", date(10, 27), 60);
-        session(&conn, "cursor", "Cursor", date(9, 30), 500);
+        // Early in September, so it counts against an October seen on its 28th.
+        session(&conn, "cursor", "Cursor", date(9, 10), 500);
         session(&conn, "cursor", "Cursor", date(11, 1), 300);
         goals::set_named_goal(&conn, "week-productive", 300).unwrap();
 
