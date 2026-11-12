@@ -373,7 +373,7 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
       h("dd", {}, "Move between tasks, tick one, open it"),
       h("dt", {}, "F2  Delete  →"),
       h("dd", {}, "Rename, delete (Ctrl+Z brings it back), reach Start or Stop"),
-      h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3"),
+      h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3 4"),
       h("dd", {}, "New task, find, switch views"),
     ),
   );

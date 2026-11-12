@@ -53,7 +53,7 @@ describe("the add field's help", () => {
     expect(help.open).toBe(false);
     expect(help.querySelector("summary")!.textContent).toBe("Shorthand and keys");
     expect(help.textContent).toContain("!h  !m  !l");
-    expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3");
+    expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3 4");
     expect(root.querySelector(".task-preview")!.hasAttribute("aria-live")).toBe(false);
     expect(root.querySelector(".task-spoken")!.getAttribute("aria-live")).toBe("polite");
   });

@@ -321,11 +321,34 @@ On Windows, a Mac and Linux. No focus session involved.
    makes a waiting delete final; the keyboard lands on the next task or the search, never nowhere.
 2. **Panel.** Scroll down a long list and open a task. *Expect:* the panel opens beside it, the card
    lit, the keyboard in its title; Esc puts it back on the task.
-3. **Keys.** Ctrl+1/2/3 switch views; ↑/↓ move along the tabs; Ctrl+N focuses Add a task (in Notes,
+3. **Keys.** Ctrl+1/2/3/4 switch views (Tasks, Notes, Done, Settings); ↑/↓ move along the tabs; Ctrl+N focuses Add a task (in Notes,
    starts a note); / jumps to the add field or the notes' search.
 4. **Priority.** Ordinary tasks have no mark, High a filled amber dot, Low a faint ring.
 5. **A failing save** (hard to cause by hand; skip unless the database is busy): the footer turns
    orange, Copy text appears, and opening another note says why it's staying.
+
+## Ledger: the sidebar counts and the Done log
+
+On Windows, a Mac and Linux, in both themes. No focus session involved: don't press Start.
+
+1. **The counts follow what you do.** Note the Notes count. Press Ctrl+N in Notes. *Expect:* the
+   count goes up by one at once, not at the next refresh. Delete that note. *Expect:* it goes down
+   at once, while the Undo line is still showing, and back up if you press Undo.
+2. **The Tasks count ignores Find.** With 5 open tasks, type a word only one has in Find a task.
+   *Expect:* the sidebar still says 5.
+3. **Done.** Tick two tasks off, then open Done (Ctrl+3). *Expect:* both under Today, newest first,
+   each with the time it was done; "This week 2 done" above (with the focus time when a session
+   was run on them), and last week beside it.
+4. **Reopen.** Press Reopen on one. *Expect:* it leaves Done and is open again at the bottom of its
+   group in Tasks; the Tasks count goes up by one.
+5. **Delete and Undo.** Press Delete on a done task. *Expect:* it goes, the Undo line shows at the
+   foot, Undo brings it back; leaving Done makes the delete final.
+6. **Find, Show older, empty.** Type part of a title in Find. *Expect:* only those; nonsense says
+   "No done task matches." With old done tasks, Show older adds four weeks at a time. With none
+   done at all: "Nothing done yet. Tick a task off and it lands here."
+7. **Open a task from Done.** Click a title. *Expect:* Tasks opens with that task's panel.
+8. **Narrow window.** At the smallest window size, Find drops under the week line, rows don't
+   overflow, and on a touch screen Reopen and Delete are always visible.
 
 ## Ledger and dashboard, second critique round
 

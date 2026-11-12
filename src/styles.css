@@ -5952,6 +5952,102 @@ select,
   font-size: 13px;
 }
 
+/* The Done log: this week against last with Find beside it (wrapping under on a narrow window),
+   then the finished tasks under their days. A row's buttons stay quiet until it is pointed at or
+   the keyboard is in it, and always show on a touch screen. */
+.ledger-done {
+  max-width: 820px;
+}
+
+.done-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+
+.done-week {
+  margin: 0;
+  font-size: 14px;
+}
+
+.done-search {
+  width: min(220px, 100%);
+}
+
+.done-day {
+  margin: 20px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.done-row {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+}
+
+.done-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.done-meta {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.done-reopen,
+.done-delete {
+  padding: 3px 10px;
+  font-size: 12px;
+  opacity: 0;
+}
+
+.done-row:hover .done-reopen,
+.done-row:hover .done-delete,
+.done-row:focus-within .done-reopen,
+.done-row:focus-within .done-delete {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .done-reopen,
+  .done-delete {
+    opacity: 1;
+  }
+}
+
+.done-older {
+  margin-top: 12px;
+}
+
+.done-empty {
+  margin: 24px 0;
+}
+
 /* Ledger's drawn icons (src/glyphs.ts), sized to what they sit in. */
 .task-chips .icon,
 .rename-bubble .icon {

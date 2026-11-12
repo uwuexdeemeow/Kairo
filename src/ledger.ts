@@ -3,6 +3,7 @@ import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
 import { useDropdowns } from "./dropdown";
+import { mountDone, type DoneView } from "./ledger-done";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
@@ -31,7 +32,7 @@ let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
 /// The view showing: the summary line is the Tasks view's.
-let shown: "tasks" | "notes" | "settings" = "tasks";
+let shown: "tasks" | "notes" | "done" | "settings" = "tasks";
 
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
@@ -107,6 +108,20 @@ function draw(list?: Task[]) {
   // Open tasks, whatever Find is showing: the sidebar says how many there are, not how many match.
   $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null && !deletingTasks.has(x.id)).length || "");
   if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(visible);
+  if (shown === "done") drawDone();
+}
+
+let doneView: DoneView | null = null;
+
+/// The Done view, made the first time it's shown, drawn with the tasks as they are now: one
+/// waiting on its Undo is left out.
+function drawDone() {
+  doneView ??= mountDone($("#view-done"), {
+    reopen: (id) => actions.done(id, false),
+    remove: (id) => actions.remove(id),
+    openTask: (id) => openTask(id),
+  });
+  doneView.render(tasks.filter((t) => !deletingTasks.has(t.id)));
 }
 
 /// Draws the open panel again though it has the keyboard: for what was just done from it.
@@ -290,8 +305,8 @@ async function followOpen() {
   }
 }
 
-type View = "tasks" | "notes" | "settings";
-const VIEWS: View[] = ["tasks", "notes", "settings"];
+type View = "tasks" | "notes" | "done" | "settings";
+const VIEWS: View[] = ["tasks", "notes", "done", "settings"];
 
 /// The tabs as one Tab stop, the chosen one; the arrows move between them.
 function markTabs() {
@@ -304,15 +319,18 @@ function markTabs() {
 
 function show(view: View) {
   // Leaving a view makes a delete waiting on its Undo there final.
-  if (view !== "tasks") taskUndo.finish();
+  // (Done shares the tasks' Undo.)
+  if (view !== "tasks" && view !== "done") taskUndo.finish();
   if (view !== "notes") notesView?.finishDelete();
   shown = view;
   markTabs();
   $("#view-tasks").hidden = view !== "tasks";
   $("#view-notes").hidden = view !== "notes";
+  $("#view-done").hidden = view !== "done";
   $("#view-settings").hidden = view !== "settings";
   $("#task-find").hidden = view !== "tasks";
-  $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", settings: "Settings" }[view];
+  $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", done: "Done", settings: "Settings" }[view];
+  if (view === "done") drawDone();
   $("#ledger-summary").textContent = view === "tasks" ? taskSummary(tasks) : "";
   // A note typed in is kept before another view takes the window.
   if (view !== "notes") void notesView?.flush();
@@ -390,8 +408,8 @@ document.addEventListener("keydown", (e) => {
   // Esc closes a calendar or a dropdown open in the panel first, the panel only after.
   if (e.key === "Escape" && selected && !e.defaultPrevented && !document.querySelector('[aria-haspopup][aria-expanded="true"]')) return closePanel();
   const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-  // Ctrl+1 to 3: the views.
-  if (ctrl && ["1", "2", "3"].includes(e.key)) {
+  // Ctrl+1 to 4: the views.
+  if (ctrl && ["1", "2", "3", "4"].includes(e.key)) {
     e.preventDefault();
     return show(VIEWS[Number(e.key) - 1]);
   }

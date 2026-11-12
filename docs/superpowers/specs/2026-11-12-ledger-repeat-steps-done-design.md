@@ -43,7 +43,7 @@ kilobytes of page code, nothing running while Ledger is closed.
 - Ledger's sidebar: Tasks, Notes, **Done**, Settings. Done shows the tasks ticked off, newest
   first, under their day ("Today", "Yesterday", "Mon 9 Nov", the year after a year).
 - Top: **This week: 12 done · 6 h 20 min focused**, and "last week 9 · 5 h 05 min" beside it
-  (week by the dashboard's week start). Focus time counts the sessions on those tasks on this
+  (weeks start on Monday). Focus time counts the sessions on those tasks on this
   computer, as the task rows already do.
 - A row: title, the focus time on it, the time it was done, **Reopen** (puts it back at the
   bottom of the open ones). Delete is in the row's menu, with the same Undo as tasks.
