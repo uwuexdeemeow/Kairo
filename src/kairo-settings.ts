@@ -319,7 +319,17 @@ function wireFind() {
         const rows = [...block.querySelectorAll<HTMLElement>(".app-settings > li")];
         let match: boolean;
         if (rows.length) {
-          for (const row of rows) row.hidden = !!q && !wordsOf(row).includes(q);
+          for (const row of rows) {
+            // The app's own settings that match are named under it, each a way straight to it.
+            const finds = [...row.querySelectorAll<HTMLElement>("[data-finds]")];
+            for (const f of finds) f.hidden = !q || !f.dataset.finds!.includes(q);
+            const found = finds.some((f) => !f.hidden);
+            const list = row.querySelector<HTMLElement>(".app-finds");
+            if (list) list.hidden = !found;
+            // The row's own words, not those of finds that didn't match.
+            const own = `${row.querySelector("strong")?.textContent ?? ""} ${row.querySelector("p")?.textContent ?? row.textContent}`.toLowerCase();
+            row.hidden = !!q && !found && !own.includes(q);
+          }
           match = rows.some((row) => !row.hidden);
         } else match = !q || wordsOf(block).includes(q);
         block.hidden = !match;
@@ -496,8 +506,8 @@ export function wireKairoSettings(): void {
   });
   $("#sync-over").addEventListener("click", () =>
     ask(
-      "Start over? Every computer linked now stops combining with this one, including one that's lost or sold. Link the ones you still use again with a new code.",
-      "Start over",
+      "Unlink every computer? Each one linked now stops combining with this one, including one that's lost or sold. Link the ones you still use again with a new code.",
+      "Unlink every computer",
       "Keep them linked",
       async () => {
         await codeAction(api.startOver);

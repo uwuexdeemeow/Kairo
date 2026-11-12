@@ -153,7 +153,7 @@
             <button class="btn" id="ring-record">Change</button>
           </div>
           <p class="muted" id="ring-note" aria-live="polite">A dial of Kairo's apps at the pointer.</p>
-          <details class="settings-more">
+          <details class="settings-more more">
             <summary>How to turn it</summary>
             <p class="muted">Keep holding the first key and press the last one again to turn it, then let go to open. Or tap the shortcut and turn it with the arrows, the wheel or by dragging.</p>
           </details>
@@ -170,8 +170,12 @@
           <div class="row-buttons">
             <button class="link-btn" id="export-time">Export time as CSV</button>
             <button class="link-btn" id="backup-save">Back up everything</button>
-            <button class="link-btn danger-link" id="backup-restore">Restore a backup</button>
             <span class="muted" id="data-status" aria-live="polite"></span>
+          </div>
+          <!-- Apart from the two that only save a file: this one replaces what's here. -->
+          <div class="row-buttons data-restore">
+            <button class="link-btn danger-link" id="backup-restore" aria-describedby="backup-restore-note">Restore a backup</button>
+            <span class="muted" id="backup-restore-note">Replaces what's on this computer with the backup's. What's here now is saved to a file first.</span>
           </div>
         </section>
 
@@ -184,7 +188,7 @@
             <dt>A synced folder</dt>
             <dd>One your cloud drive already syncs (OneDrive, Dropbox, iCloud Drive, Syncthing), picked on each computer.</dd>
           </dl>
-          <details class="settings-more">
+          <details class="settings-more more">
             <summary>What's shared</summary>
             <p class="muted">Your tracked time, window titles included, and the categories, limits, goals and blocking rules you change. The latest change wins everywhere.</p>
           </details>
@@ -215,7 +219,7 @@
             <button class="link-btn" id="sync-enter">Enter a code</button>
             <button class="link-btn" id="sync-choose">Use a folder instead</button>
             <button class="link-btn" id="sync-stop" hidden>Stop combining</button>
-            <button class="link-btn" id="sync-over" hidden>Start over</button>
+            <button class="link-btn" id="sync-over" hidden>Unlink every computer</button>
             <span class="muted" id="sync-status" aria-live="polite"></span>
           </div>
         </section>

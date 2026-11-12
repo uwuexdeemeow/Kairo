@@ -220,6 +220,8 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 ### Named Rules
 **The Whose Window Rule.** Accent colour comes from `--app`, never a literal: the same component is blue in Chrono and amber in Ledger.
 
+**The Shown Rule.** What's shown (the sidebar's page, a range toggle, a length preset, the dashboard's tab) is the app's ink on a 14% tint of it. On paper the tint costs the ink its contrast, so there the ink is mixed 65/35 with the text ink to stay above 4.5:1.
+
 **The Fill Is Not Ink Rule.** A data colour used as small text takes its `-ink` variant; fills keep the original so charts read the same.
 
 ## Typography

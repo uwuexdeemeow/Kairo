@@ -126,7 +126,19 @@ describe("the grounds", () => {
       // The same floor as Paper's, whose pewter sits at 4.28 on its page.
       for (const t of ["chrono", "ledger", "palette", "kairo", "distracting-ink", "rec-ink", "ribbon-ink"]) expect(contrast(token(t), paper), t).toBeGreaterThanOrEqual(4.2);
     }
-    expect(contrast(token("faint"), token("raised")), "faint on a sheet").toBeGreaterThanOrEqual(4.5);
+    // Faint is small labels on the page as much as on a sheet.
+    for (const paper of [token("bg"), token("raised")]) expect(contrast(token("faint"), paper), "faint").toBeGreaterThanOrEqual(4.5);
+    // "Shown" is the app's ink on a 14% tint of it; on paper the ink is deepened with the text ink.
+    const mix = (a: string, b: string, share: number) => [0, 2, 4].map((i) => Math.round(parseInt(a.slice(i, i + 2), 16) * share + parseInt(b.slice(i, i + 2), 16) * (1 - share)).toString(16).padStart(2, "0")).join("");
+    for (const app of ["chrono", "ledger", "palette", "kairo"]) {
+      const shown = set === light ? mix(token(app), token("ink"), 0.65) : token(app);
+      expect(contrast(shown, mix(token(app), token("bg"), 0.14)), `${app} shown`).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("deepens the shown ink on paper, where its tint would cost it contrast", () => {
+    expect(css).toContain(':root[data-theme="light"] .tabs button[aria-current="page"]');
+    expect(css).toContain("color: color-mix(in srgb, var(--app) 65%, var(--ink));");
   });
 
   it.each(Object.entries(files).filter(([f]) => f.endsWith(".html")))("%s opens in the last ground before anything loads", (_, page) => {

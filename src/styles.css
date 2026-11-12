@@ -179,7 +179,7 @@
   --ink: #23262b;
   --ink-2: #41464e;
   --muted: #565c66;
-  --faint: #6b717b;
+  --faint: #686e78;
   --rule: #e1e4e8;
   --line: #cdd2d9;
   --track: #e1e4e8;
@@ -195,7 +195,7 @@
   --ink: #252b24;
   --ink-2: #424a40;
   --muted: #566053;
-  --faint: #6a7466;
+  --faint: #656f61;
   --rule: #dbe2d5;
   --line: #c6d0bf;
   --track: #dbe2d5;
@@ -1720,7 +1720,7 @@ html.palette-root {
    Remove or Add. */
 .project-row {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) 170px 76px;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) 170px minmax(76px, auto);
   align-items: center;
   gap: 8px 12px;
   margin-top: 8px;
@@ -1829,7 +1829,10 @@ html.palette-root {
 }
 
 .pomodoro-lengths input[type="number"] {
-  width: 64px;
+  width: 72px;
+  padding: 8px 6px 8px 10px;
+  font-family: var(--mono);
+  font-size: 13px;
 }
 
 .focus-target .section-head {
@@ -2212,6 +2215,9 @@ html.palette-root {
   position: relative;
   height: 4px;
   margin-bottom: 8px;
+  /* A session that began before midnight stops at the day's edge; room is left above and below
+     for a marker's focus ring. */
+  clip-path: inset(-6px 0);
 }
 
 .focus-block {
@@ -2606,11 +2612,13 @@ html.palette-root {
   color: var(--faint);
 }
 
-.insight h3 {
+.insight h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 500;
   letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
 }
 
 .insight p {
@@ -3250,18 +3258,76 @@ select,
 }
 
 /* Each app as what it is, side by side: Chrono's dial, Ledger's notebook, the palette's key, the
-   ring's arc. All four in a row; two by two in a narrow window, never three and one left over. */
+   ring's arc. All four in a row at every size, so Home is seen whole when it opens; a narrow or
+   short window draws the objects smaller rather than push two of them below the fold. */
 .app-tiles {
   margin-top: 36px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 28px 16px;
+  gap: 0 16px;
   align-items: start;
 }
 
-@media (max-width: 900px) {
+/* Each tile's object, name, what it is and today's line sit on rows shared across the four, so a
+   name that takes two lines ("Command palette") doesn't push its lines below its neighbours'. */
+@supports (grid-template-rows: subgrid) {
+  .app-tiles .app-tile {
+    display: grid;
+    grid-row: span 4;
+    grid-template-rows: subgrid;
+    justify-items: center;
+    align-items: start;
+  }
+}
+
+/* A short window: Home closes up so all four tiles and their lines are in view as it opens. */
+@media (max-height: 640px) {
+  .dash {
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+
+  .dash h1 {
+    font-size: 34px;
+  }
+
+  .dash .dash-today {
+    margin-top: 16px;
+  }
+
+  .dash .app-tiles {
+    margin-top: 16px;
+  }
+
+  .dash .app-tiles .app-object {
+    height: 92px;
+    margin-bottom: 8px;
+  }
+
+  .dash .app-tiles .app-object > * {
+    transform: scale(0.7);
+  }
+}
+
+@media (max-width: 900px), (max-height: 640px) {
   .app-tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 24px;
+    gap: 0 12px;
+  }
+
+  .app-tiles .app-object {
+    height: 104px;
+    margin-bottom: 10px;
+  }
+
+  /* The drawings keep their proportions, scaled from where they stand. */
+  .app-tiles .app-object > * {
+    transform: scale(0.78);
+    transform-origin: bottom center;
+  }
+
+  .app-tiles .app-tile h2 {
+    font-size: 18px;
   }
 }
 
@@ -3409,6 +3475,11 @@ select,
 }
 
 .app-tile-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 8px;
   margin: 8px 0 0;
   min-height: 22px;
   font-size: 13px;
@@ -3446,17 +3517,28 @@ select,
 }
 
 /* A Today task: a tick to finish it here, then its name to open it in Ledger. */
+/* One pill holds both, so a tick can't be read as belonging to the task beside it. */
 .today-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  max-width: 100%;
+  padding-left: 6px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--raised);
+  transition: border-color 140ms var(--ease);
+}
+
+.today-item:hover {
+  border-color: var(--ledger);
 }
 
 .today-tick {
+  flex: none;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   border: 1.5px solid var(--edge);
   border-radius: 50%;
   background: none;
@@ -3480,20 +3562,21 @@ select,
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   max-width: 280px;
   min-height: 34px;
-  padding: 4px 12px;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--raised);
+  padding: 4px 12px 4px 8px;
+  border: 0;
+  border-radius: 0 9px 9px 0;
+  background: none;
   color: var(--ink);
   font: 500 13px var(--sans);
   cursor: pointer;
-  transition: border-color 140ms var(--ease);
 }
 
-.today-task:hover {
-  border-color: var(--ledger);
+/* Its focus ring sits inside the pill it shares with the tick. */
+.today-task:focus-visible {
+  outline-offset: -2px;
 }
 
 .today-task-title {
@@ -3570,6 +3653,31 @@ select,
   flex: none;
 }
 
+/* An app's own settings that "Find a setting" turned up, each a link into the app. */
+.app-finds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-finds[hidden],
+.app-finds li[hidden] {
+  display: none;
+}
+
+.app-settings .app-finds li {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+
+.app-finds .link-btn {
+  min-height: 28px;
+}
+
 /* Tasks on the Focus page: a tick box, the title (a button that turns into a field), its focus
    time, Start or "Focusing now", and a delete cross. */
 .focus-tasks .task-add {
@@ -3629,7 +3737,7 @@ select,
 /* Ledger's head: the title with its count under it, Find on the right level with the count, and
    room before the list so neither crowds Add a task. As wide as the list it sits over. */
 .ledger .page-head {
-  max-width: 880px;
+  max-width: 820px;
   margin-bottom: 24px;
   gap: 12px 24px;
 }
@@ -3645,7 +3753,7 @@ select,
 
 .ledger-list {
   container-type: inline-size;
-  max-width: 880px;
+  max-width: 820px;
 }
 
 /* Add a task: a raised field with a + and the Enter it takes. */
@@ -5875,7 +5983,7 @@ select,
 /* ---------- Kairo's settings: four groups, and a way to find one ---------- */
 .settings-find {
   display: block;
-  margin: 8px 0 4px;
+  margin: 18px 0 4px;
 }
 
 .settings-find input {
@@ -6168,9 +6276,20 @@ select,
   color: var(--app);
 }
 
+/* On paper the tint takes contrast from the app's ink, so there it's deepened with the text ink
+   to stay above 4.5:1. */
+:root[data-theme="light"] .tabs button[aria-current="page"],
+:root[data-theme="light"] .tabs button[aria-selected="true"],
+:root[data-theme="light"] .range button[aria-pressed="true"],
+:root[data-theme="light"] .range button[aria-selected="true"],
+:root[data-theme="light"] .timer-presets button[aria-pressed="true"] {
+  color: color-mix(in srgb, var(--app) 65%, var(--ink));
+}
+
 /* Settings come in groups, each with a heading the eye can find. */
 .group-head {
-  margin: 44px 0 14px;
+  /* Far from the group before it, close to its own first section. */
+  margin: 72px 0 18px;
   font-family: var(--display);
   font-size: 22px;
   font-weight: 800;
@@ -6182,6 +6301,10 @@ select,
 .settings-first + .group-head,
 #settings-status + .group-head {
   margin-top: 20px;
+}
+
+.group-head + .block {
+  margin-top: 0;
 }
 
 .block-title {
@@ -6274,11 +6397,14 @@ summary:focus-visible {
   border-top: 1px solid var(--rule);
 }
 
-.setup-part h3 {
+.setup-part h2 {
   margin: 0 0 6px;
   font-family: var(--display);
   font-size: 16px;
   font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
 }
 
 /* The week's three figures lead; the rest follow smaller. */

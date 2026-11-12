@@ -97,10 +97,12 @@
           </section>
 
           <section class="summary" aria-label="Summary">
+            <!-- The page's heading for a screen reader, which also hears the day change here. -->
+            <h1 class="sr-only" id="today-heading" aria-live="polite"></h1>
             <nav class="day-nav" aria-label="Day">
               <button class="day-step" id="day-prev" aria-label="Previous day" title="Previous day (←)">‹</button>
               <span class="day-pick" id="today-date-pick">
-                <button class="eyebrow day-label" id="today-date" title="Pick a date" aria-haspopup="dialog" aria-live="polite"></button>
+                <button class="eyebrow day-label" id="today-date" title="Pick a date" aria-haspopup="dialog"></button>
               </span>
               <button class="day-step" id="day-next" aria-label="Next day" title="Next day (→)">›</button>
               <button class="link-btn day-today" id="day-today" title="Back to today (T)" hidden>Today</button>
@@ -288,18 +290,18 @@
             <summary>Set up focus: rounds, schedule and block lists</summary>
 
             <div class="setup-part" aria-label="Rounds and breaks">
-              <h3>Rounds and breaks</h3>
+              <h2>Rounds and breaks</h2>
               <p class="muted">Tick "Rounds with breaks" beside Start focus to work in rounds (a Pomodoro). Nothing is blocked during a break, and ending a session early ends the cycle. In the palette: <kbd>pomodoro 50 10 essay</kbd>.</p>
               <div class="row-buttons pomodoro-lengths">
-                <label class="field">Break <input type="number" id="pomodoro-break-min" min="1" max="30" step="1" aria-label="Break minutes" /> min</label>
-                <label class="field">Long break <input type="number" id="pomodoro-long-min" min="5" max="60" step="1" aria-label="Long break minutes" /> min</label>
-                <label class="field">Long break after <input type="number" id="pomodoro-rounds" min="2" max="8" step="1" aria-label="Rounds before the long break" /> rounds</label>
+                <label class="field">Break <input class="filter" type="number" id="pomodoro-break-min" min="1" max="30" step="1" aria-label="Break minutes" /> min</label>
+                <label class="field">Long break <input class="filter" type="number" id="pomodoro-long-min" min="5" max="60" step="1" aria-label="Long break minutes" /> min</label>
+                <label class="field">Long break after <input class="filter" type="number" id="pomodoro-rounds" min="2" max="8" step="1" aria-label="Rounds before the long break" /> rounds</label>
                 <span class="muted" id="pomodoro-status" aria-live="polite"></span>
               </div>
             </div>
 
             <div class="setup-part" aria-label="Schedule">
-              <h3>Schedule</h3>
+              <h2>Schedule</h2>
               <p class="muted">Start sessions on their own at set times, like weekdays 9 to 12, when you're at the computer. Ending one early keeps it off until its next day.</p>
               <div id="schedule-list"></div>
               <div class="row-buttons schedule-add">
@@ -319,7 +321,7 @@
             </div>
 
             <div class="setup-part" aria-label="Block lists">
-              <h3>Block lists</h3>
+              <h2>Block lists</h2>
               <p class="muted">Save a set of apps and sites, like Social or Games, to block instead of everything distracting. Name one when you start a session: <kbd>focus 50 social</kbd>.</p>
               <label class="field">
                 Sessions you start block

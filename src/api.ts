@@ -743,6 +743,7 @@ export const api = {
   openDashboard: (tab?: "settings") => invoke<void>("open_dashboard", { tab }),
   /** The tab a dashboard opened for before its page was ready to hear about it, once. */
   takeDashboardTab: () => invoke<string | null>("take_dashboard_tab"),
-  openChrono: (view?: string) => invoke<void>("open_chrono", { view }),
+  /** `target` is the id of a control on that view to land on. */
+  openChrono: (view?: string, target?: string) => invoke<void>("open_chrono", { view, target }),
   openPalette: () => invoke<void>("open_palette"),
 };

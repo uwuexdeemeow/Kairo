@@ -237,7 +237,7 @@ describe("Today", () => {
 describe("the app ring's tile", () => {
   it("shows its keys and how many are on it, and opens it", async () => {
     await open();
-    await vi.waitFor(() => expect(line("ring")).toBe("AltQ · 4 items"));
+    await vi.waitFor(() => expect(line("ring")).toBe("AltQ4 items"));
     expect([...document.querySelectorAll('[data-line="ring"] kbd')].map((k) => k.textContent)).toEqual(["Alt", "Q"]);
     // Its picture: the arc, as many segments as show.
     expect(document.querySelectorAll('[data-app="ring"] .arc-seg').length).toBe(4);
@@ -247,7 +247,7 @@ describe("the app ring's tile", () => {
 });
 
 describe("App settings", () => {
-  const rows = () => [...document.querySelectorAll("#app-settings li")].map((li) => [li.querySelector("strong")!.textContent, li.querySelector("button")!.textContent]);
+  const rows = () => [...document.querySelectorAll("#app-settings > li")].map((li) => [li.querySelector("strong")!.textContent, li.querySelector("[data-settings]")!.textContent]);
 
   it("lists the apps whose settings are on their own screen; the palette's and ring's are on this page", async () => {
     await open();
@@ -263,6 +263,15 @@ describe("App settings", () => {
     expect(api.openLedger).toHaveBeenCalledWith("settings");
     $<HTMLButtonElement>('[data-settings="chrono"]').click();
     expect(api.openChrono).toHaveBeenCalledWith("settings");
+  });
+
+  it("carries each of Chrono's own settings, out of sight until looked for, opening Chrono on it", async () => {
+    await open();
+    const erase = [...document.querySelectorAll<HTMLElement>("#app-settings [data-finds]")].find((f) => f.textContent === "Erase tracked time")!;
+    expect(erase.hidden).toBe(true);
+    expect(erase.dataset.finds).toContain("delete");
+    erase.querySelector("button")!.click();
+    expect(api.openChrono).toHaveBeenCalledWith("settings", "delete-range");
   });
 });
 

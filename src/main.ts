@@ -154,7 +154,9 @@ function renderDayNav() {
   const isToday = day === today;
   const date = parseDate(day);
   const sameYear = date.getFullYear() === new Date().getFullYear();
-  $("#today-date").textContent = date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }) });
+  const named = date.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }) });
+  $("#today-date").textContent = named;
+  $("#today-heading").textContent = isToday ? `Today, ${named}` : named;
   $<HTMLButtonElement>("#day-prev").disabled = !firstDay || day <= firstDay;
   $<HTMLButtonElement>("#day-next").disabled = isToday;
   $("#day-today").hidden = isToday;
@@ -391,8 +393,9 @@ function renderProjects(projects: Project[]) {
       for (const field of [name, words]) field.addEventListener("change", () => save(() => api.saveProject(p.id, name.value, words.value)));
       const target = minutesSelect(PROJECT_TARGET_CHOICES, p.weekTargetMin, `Weekly target for ${p.name}`, "No weekly target");
       target.addEventListener("change", () => save(() => api.setProjectTarget(p.id, Number(target.value))));
-      const remove = h("button", { class: "link-btn" }, "Remove");
-      remove.addEventListener("click", () => save(() => api.removeProject(p.id)));
+      // Its keywords and target go with it and can't be brought back: a second click, as for history.
+      const remove = h("button", { class: "link-btn", "aria-label": `Remove ${p.name}` }, "Remove") as HTMLButtonElement;
+      confirmTwice(remove, () => "Click again to remove", () => save(() => api.removeProject(p.id)));
       target.classList.add("project-target");
       return h("div", { class: "project-row" }, name, words, target, remove);
     }),
@@ -844,7 +847,7 @@ function renderPatterns(p: Patterns) {
         "article",
         { class: `insight ${i.kind}` },
         h("div", {}, h("div", { class: "insight-metric" }, i.metric), h("div", { class: "insight-unit" }, i.unit)),
-        h("div", {}, h("h3", {}, i.title), h("p", {}, i.detail)),
+        h("div", {}, h("h2", {}, i.title), h("p", {}, i.detail)),
       ),
     ),
   );
@@ -1536,8 +1539,8 @@ function renderSchedule(slots: FocusSlot[]) {
   }
   root.replaceChildren(
     ...slots.map((s) => {
-      const remove = h("button", { class: "link-btn" }, "Remove");
-      remove.addEventListener("click", async () => renderSchedule(await api.removeFocusSlot(s.id)));
+      const remove = h("button", { class: "link-btn" }, "Remove") as HTMLButtonElement;
+      confirmTwice(remove, () => "Click again to remove", async () => renderSchedule(await api.removeFocusSlot(s.id)));
       const change = h("button", { class: "link-btn", "aria-expanded": String(editingSlot === s.id) }, editingSlot === s.id ? "Done" : "Change");
       change.addEventListener("click", async () => {
         editingSlot = editingSlot === s.id ? null : s.id;
@@ -1650,8 +1653,8 @@ function renderBlockLists(b: BlockLists) {
     ...b.lists.map((l, i) => {
       const name = h("input", { class: "filter block-list-name", value: l.name, maxlength: "40", "aria-label": "List name" }) as HTMLInputElement;
       name.addEventListener("change", () => run(() => api.saveBlockList(l.name, name.value, l.keys)));
-      const remove = h("button", { class: "link-btn" }, "Remove");
-      remove.addEventListener("click", () => run(() => api.removeBlockList(l.name)));
+      const remove = h("button", { class: "link-btn" }, "Remove") as HTMLButtonElement;
+      confirmTwice(remove, () => "Click again to remove", () => run(() => api.removeBlockList(l.name)));
       const picker = keyPicker(l.keys, (keys) => run(() => api.saveBlockList(l.name, l.name, keys)), (t) => (status.textContent = t), `list-${i}`);
       return h(
         "div",

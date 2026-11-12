@@ -1330,11 +1330,11 @@ pub fn take_dashboard_tab(state: State<AppState>) -> CmdResult<Option<String>> {
     Ok(state.dashboard_tab.lock().map_err(err)?.take())
 }
 
-/// Opens Chrono, on `view` when one is given.
+/// Opens Chrono, on `view` when one is given, and on the control with id `target` there.
 #[tauri::command]
-pub fn open_chrono(app: AppHandle, view: Option<String>) {
+pub fn open_chrono(app: AppHandle, view: Option<String>, target: Option<String>) {
     match view {
-        Some(view) => crate::open_main_at(&app, &view, None),
+        Some(view) => crate::open_main_to(&app, &view, None, target.as_deref()),
         None => crate::show_main(&app),
     }
 }

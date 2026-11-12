@@ -551,7 +551,7 @@ Use two machines (any systems), both online, neither combining through a folder.
    the network is back.
 7. **Stop combining** on one. *Expect:* each shows only its own time after the other's next
    sync.
-8. **Start over.** Link both again, then on the first, Start over → Start over. *Expect:* a new
+8. **Unlink every computer.** Link both again, then on the first, Unlink every computer → Unlink every computer. *Expect:* a new
    code shows at once; at its next sync the second says "This computer was unlinked. Enter a
    new code to combine again." and only its own time shows.
 

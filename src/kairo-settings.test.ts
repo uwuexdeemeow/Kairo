@@ -370,6 +370,22 @@ describe("finding a setting", () => {
     find("reminder");
     expect([...document.querySelectorAll<HTMLElement>("#app-settings li")].map((li) => li.hidden)).toEqual([true, false]);
   });
+
+  it("finds a setting kept in an app's own window, and names it under the app", () => {
+    $("#app-settings").innerHTML = `<li><div><strong>Chrono</strong><p>Goals</p><ul class="app-finds" hidden><li data-finds="erase tracked time delete history" hidden><button>Erase tracked time</button></li><li data-finds="strict mode end early" hidden><button>Strict mode</button></li></ul></div></li><li><div><strong>Ledger</strong><p>Reminders</p></div></li>`;
+    const hidden = (s: string) => [...document.querySelectorAll<HTMLElement>(s)].map((e) => e.hidden);
+    find("delete");
+    expect(hidden("#app-settings > li")).toEqual([false, true]);
+    expect(hidden("#app-settings [data-finds]")).toEqual([false, true]);
+    expect($("#app-settings .app-finds").hidden).toBe(false);
+    expect($("#settings-none").hidden).toBe(true);
+    // Its own words still find the row, with none of its settings named.
+    find("goals");
+    expect(hidden("#app-settings > li")).toEqual([false, true]);
+    expect($("#app-settings .app-finds").hidden).toBe(true);
+    find("");
+    expect(hidden("#app-settings [data-finds]")).toEqual([true, true]);
+  });
 });
 
 describe("a section that can't be read", () => {

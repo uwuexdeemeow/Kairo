@@ -26,8 +26,40 @@ interface KairoApp {
   /** The app drawn as what it is; Chrono's dial redraws with its line. */
   object: () => HTMLElement;
   open: () => void;
-  settings?: { covers: string; open: () => void } | { covers: string; show: string };
+  settings?: { covers: string; open: () => void; finds?: Find[] } | { covers: string; show: string };
 }
+
+/// A setting kept in an app's own window, for "Find a setting" to find: its name as the app
+/// words it, other words it may be looked for by, and how to open the app on it.
+interface Find {
+  name: string;
+  words: string;
+  open: () => void;
+}
+
+/// Chrono's settings and where each is: the view it's on and the control to land on.
+const CHRONO_FINDS: Find[] = (
+  [
+    ["Daily and weekly goals", "goal target productive distracting cap week", "settings", "goal-productive"],
+    ["Daily focus target", "goal focus streak", "settings", "goal-focus"],
+    ["Projects", "project keywords weekly target", "settings", "project-name"],
+    ["Calendar", "meetings events ics address", "settings", "calendar-urls"],
+    ["Browser extension", "sites chrome brave edge firefox", "settings", "ext-open"],
+    ["Focus blocking", "block blocked distracting apps sites launchers", "settings", "block-enabled"],
+    ["Strict mode", "end early wait blocking", "settings", "block-strict"],
+    ["Breaks", "break reminder rest", "settings", "break-every"],
+    ["Focus nudges", "nudge notification distracted", "settings", "nudges-enabled"],
+    ["Evening summary", "notification daily recap", "settings", "evening-enabled"],
+    ["Keep history for", "retention privacy older days forever", "settings", "retention"],
+    ["Erase tracked time", "delete history clear remove privacy", "settings", "delete-range"],
+    ["Demo data", "sample made-up try", "settings", "demo-load"],
+    ["Keyboard", "arrow keys shortcuts days weeks", "settings", "day-keys"],
+    ["Rounds and breaks", "pomodoro long break rounds", "focus", "pomodoro-break-min"],
+    ["Focus schedule", "scheduled sessions weekly automatic", "focus", "schedule-start"],
+    ["Block lists", "blocking list apps sites", "focus", "block-list-name"],
+    ["Categories and limits", "category productive neutral distracting daily limit privacy hide title ignore", "categories", undefined],
+  ] as const
+).map(([name, words, view, target]) => ({ name, words, open: () => api.openChrono(view, target) }));
 
 /// Today's local date, as Kairo's commands take it ("2026-10-29").
 function today(): string {
@@ -62,6 +94,7 @@ const APPS: KairoApp[] = [
     settings: {
       covers: "Goals, privacy, projects, calendar, browser extension, nudges, evening summary, focus blocking, breaks and demo data",
       open: () => api.openChrono("settings"),
+      finds: CHRONO_FINDS,
     },
   },
   {
@@ -101,7 +134,8 @@ const APPS: KairoApp[] = [
     line: async () => {
       const ring = await api.ringSettings();
       document.querySelector('[data-app="ring"] .app-arc')?.replaceChildren(ringArc(ring.items.length));
-      return [h("span", { class: "shortcut-keys" }, ...shortcutKeys(ring.shortcut)), document.createTextNode(` · ${ring.items.length} items`)];
+      // Two pieces with a gap, not a dot between: a dot would start the second line when they wrap.
+      return [h("span", { class: "shortcut-keys" }, ...shortcutKeys(ring.shortcut)), h("span", {}, `${ring.items.length} items`)];
     },
     object: () => h("span", { class: "app-arc" }, ringArc(7)),
     open: () => api.openRing(),
@@ -272,7 +306,18 @@ function drawAppSettings() {
       // Said as where it takes you: into the app.
       const go = h("button", { class: "link-btn", "data-settings": app.id, "aria-label": `Open ${app.name}'s settings` }, `Open in ${app.name}`);
       go.addEventListener("click", () => "open" in s && s.open());
-      return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, s.covers)), go);
+      // What "Find a setting" turns up inside the app, each opening the app on it; shown only
+      // while it matches what's typed (kairo-settings' find).
+      const finds = h(
+        "ul",
+        { class: "app-finds", "aria-label": `Found in ${app.name}`, hidden: "" },
+        ...("finds" in s && s.finds ? s.finds : []).map((f) => {
+          const open = h("button", { class: "link-btn" }, f.name);
+          open.addEventListener("click", f.open);
+          return h("li", { "data-finds": `${f.name} ${f.words}`.toLowerCase(), hidden: "" }, open);
+        }),
+      );
+      return h("li", {}, h("div", {}, h("strong", {}, app.name), h("p", { class: "muted" }, s.covers), finds), go);
     }),
   );
 }
