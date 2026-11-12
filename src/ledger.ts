@@ -101,6 +101,13 @@ async function tried(what: string, run: () => Promise<void>) {
   }
 }
 
+/// The line under "Tasks": today's date, then how the list stands. (The date is part of this line,
+/// not a label above the title.)
+function tasksLine(list: Task[]): string {
+  const date = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
+  return [date, taskSummary(list)].filter(Boolean).join(" · ");
+}
+
 function draw(list?: Task[]) {
   if (list) tasks = list;
   const visible = shownTasks();
@@ -116,7 +123,7 @@ function draw(list?: Task[]) {
   // Open tasks, whatever Find is showing: the sidebar says how many there are, not how many match.
   $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null && !deletingTasks.has(x.id)).length || "");
   drawFilters();
-  if (shown === "tasks") $("#ledger-summary").textContent = filterSummary(tasks, filter) || taskSummary(visible);
+  if (shown === "tasks") $("#ledger-summary").textContent = filterSummary(tasks, filter) || tasksLine(visible);
   if (shown === "done") drawDone();
   if (shown === "calendar") drawCalendar();
 }
@@ -410,7 +417,7 @@ function show(view: View) {
   $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", settings: "Settings" }[view];
   if (view === "done") drawDone();
   if (view === "calendar") drawCalendar();
-  $("#ledger-summary").textContent = view === "tasks" ? taskSummary(tasks) : "";
+  $("#ledger-summary").textContent = view === "tasks" ? tasksLine(tasks) : "";
   // A note typed in is kept before another view takes the window.
   if (view !== "notes") void notesView?.flush();
   if (view === "notes") void notes().refresh();
@@ -451,7 +458,6 @@ useDropdowns();
 document.querySelector(".wordmark")?.insertAdjacentHTML("afterbegin", logo("ledger", 30));
 // Kairo is one window: this goes back to its dashboard.
 $("#back-to-kairo").addEventListener("click", () => api.openDashboard());
-$("#ledger-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-view]")) b.addEventListener("click", () => show(b.dataset.view as View));
 $("#ledger-reminders").addEventListener("change", () => {
   morningFollowsReminders();
