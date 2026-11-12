@@ -18,6 +18,8 @@ const task = (id: string, title: string, doneMs: number | null, focusedMs = 0): 
   remindMs: null,
   reminded: "",
   note: null,
+  steps: [],
+  repeat: null,
   group: doneMs === null ? "none" : "done",
 });
 

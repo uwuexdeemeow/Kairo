@@ -36,6 +36,12 @@ pub struct Task {
     /// The note it's attached to, by id (notebook.rs); shared as `tasknote:<id>`.
     #[serde(default)]
     pub note: Option<String>,
+    /// Its checklist; shared with `repeat` as `taskmore:<id>`.
+    #[serde(default)]
+    pub steps: Vec<Step>,
+    /// How it comes back once ticked: "day", "weekday", "week", "month" or "year"; None for never.
+    #[serde(default)]
+    pub repeat: Option<String>,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -59,9 +65,37 @@ impl Default for Task {
             remind_ms: None,
             reminded: String::new(),
             note: None,
+            steps: Vec::new(),
+            repeat: None,
             group: "none".into(),
         }
     }
+}
+
+/// One line of a task's checklist.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Step {
+    /// What to do.
+    pub t: String,
+    /// Whether it's ticked.
+    pub d: bool,
+}
+
+/// Steps a task may hold, and how long one may be.
+pub const MAX_STEPS: usize = 30;
+pub const MAX_STEP_CHARS: usize = 120;
+
+/// The ways a task can repeat.
+pub const REPEATS: [&str; 5] = ["day", "weekday", "week", "month", "year"];
+
+/// What a task has beyond its plan, which travels to combined computers as its own shared choice
+/// (`taskmore:<id>`), so a Kairo from before it can't wipe it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct More {
+    #[serde(default)]
+    pub repeat: Option<String>,
+    #[serde(default)]
+    pub steps: Vec<Step>,
 }
 
 pub const LOW: u8 = 0;
@@ -124,6 +158,8 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         remind_ms: None,
         reminded: String::new(),
         note: None,
+        steps: Vec::new(),
+        repeat: None,
         group: "none".into(),
     };
     conn.execute(
@@ -176,7 +212,7 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 /// order added; then done ones, newest first. Each with its focus time and group.
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
-    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note FROM tasks")?;
+    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -191,6 +227,8 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             remind_ms: r.get(7)?,
             reminded: r.get(8)?,
             note: r.get(9)?,
+            steps: parse_steps(&r.get::<_, String>(10)?),
+            repeat: r.get(11)?,
             group: String::new(),
         })
     })?;
@@ -278,6 +316,65 @@ pub fn apply_plan(conn: &Connection, id: &str, p: &Plan) -> Result<bool> {
         params![id, p.due, p.priority.min(HIGH), p.remind, p.sent],
     )?;
     Ok(n > 0)
+}
+
+/// A checklist as kept: each step trimmed and short, empty ones dropped, at most `MAX_STEPS`.
+pub fn clean_steps(steps: Vec<Step>) -> Vec<Step> {
+    steps
+        .into_iter()
+        .filter_map(|s| {
+            let t: String = s.t.trim().chars().take(MAX_STEP_CHARS).collect();
+            let t = t.trim_end().to_string();
+            (!t.is_empty()).then_some(Step { t, d: s.d })
+        })
+        .take(MAX_STEPS)
+        .collect()
+}
+
+/// A checklist read from its stored text; none for text that isn't one.
+fn parse_steps(text: &str) -> Vec<Step> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    serde_json::from_str(text).map(clean_steps).unwrap_or_default()
+}
+
+fn steps_text(steps: &[Step]) -> String {
+    if steps.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(steps).expect("plain data")
+    }
+}
+
+/// Gives a task its checklist (cleaned); false when there's no such task.
+pub fn set_steps(conn: &Connection, id: &str, steps: Vec<Step>) -> Result<bool> {
+    let text = steps_text(&clean_steps(steps));
+    Ok(conn.execute("UPDATE tasks SET steps = ?2 WHERE id = ?1", params![id, text])? > 0)
+}
+
+/// What a task has beyond its plan; None when there's no such task.
+pub fn more(conn: &Connection, id: &str) -> Result<Option<More>> {
+    conn.query_row("SELECT repeat, steps FROM tasks WHERE id = ?1", [id], |r| Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?) })).optional()
+}
+
+/// A task's repeat and steps as their shared choice carries them; None when there's no such task.
+pub fn more_json(conn: &Connection, id: &str) -> Result<Option<String>> {
+    Ok(more(conn, id)?.map(|m| serde_json::to_string(&m).expect("plain data")))
+}
+
+/// The tasks with a repeat or steps, with their shared text, for sharing when combining starts.
+pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != ''")?;
+    let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
+    ids.into_iter().filter_map(|id| more_json(conn, &id).transpose().map(|m| m.map(|m| (id, m)))).collect()
+}
+
+/// Takes another computer's repeat and steps for a task; false when the task isn't here (yet).
+pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
+    let text = steps_text(&clean_steps(m.steps.clone()));
+    let repeat = m.repeat.as_deref().filter(|r| REPEATS.contains(r));
+    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3 WHERE id = ?1", params![id, repeat, text])? > 0)
 }
 
 /// The whole list as text, for sharing with combined computers.
@@ -457,10 +554,73 @@ mod tests {
         let c = conn();
         let t = add(&c, "Essay", 1).unwrap().unwrap();
         set_plan(&c, &t.id, Some(TODAY), 2, Some(9)).unwrap();
+        set_steps(&c, &t.id, vec![Step { t: "Outline".into(), d: false }]).unwrap();
         let json = to_json(&c).unwrap();
-        for field in ["dueDay", "priority", "remindMs", "reminded", "group"] {
+        for field in ["dueDay", "priority", "remindMs", "reminded", "group", "steps", "repeat", "Outline"] {
             assert!(!json.contains(field), "{json}");
         }
+    }
+
+    fn step(t: &str, d: bool) -> Step {
+        Step { t: t.into(), d }
+    }
+
+    #[test]
+    fn steps_are_trimmed_short_and_at_most_thirty() {
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        let mut steps = vec![step("  Outline  ", true), step("   ", false), step(&"x".repeat(300), false)];
+        steps.extend((0..40).map(|i| step(&format!("step {i}"), false)));
+        assert!(set_steps(&c, &t.id, steps).unwrap());
+        let got = &list(&c, 1, TODAY).unwrap()[0].steps;
+        assert_eq!(got.len(), MAX_STEPS);
+        assert_eq!(got[0], step("Outline", true));
+        assert_eq!(got[1].t.chars().count(), MAX_STEP_CHARS);
+        assert_eq!(got[2], step("step 0", false));
+        // No such task: said, not made up.
+        assert!(!set_steps(&c, "elsewhere", vec![step("a", false)]).unwrap());
+    }
+
+    #[test]
+    fn no_steps_is_kept_as_nothing_and_a_task_starts_with_none() {
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        assert!(list(&c, 1, TODAY).unwrap()[0].steps.is_empty());
+        set_steps(&c, &t.id, vec![step("a", false)]).unwrap();
+        set_steps(&c, &t.id, vec![]).unwrap();
+        assert!(list(&c, 1, TODAY).unwrap()[0].steps.is_empty());
+        assert!(with_more(&c).unwrap().is_empty());
+    }
+
+    #[test]
+    fn repeat_and_steps_travel_as_their_own_choice_and_apply_only_to_a_task_here() {
+        let (here, there) = (conn(), conn());
+        let t = add(&there, "Essay", 1).unwrap().unwrap();
+        set_steps(&there, &t.id, vec![step("Outline", true), step("Draft", false)]).unwrap();
+        assert_eq!(with_more(&there).unwrap().len(), 1);
+        let json = more_json(&there, &t.id).unwrap().unwrap();
+        let m: More = serde_json::from_str(&json).unwrap();
+        // The task isn't here yet: it waits.
+        assert!(!apply_more(&here, &t.id, &m).unwrap());
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        assert_eq!(list(&here, 1, TODAY).unwrap()[0].steps, m.steps);
+        // Another computer's unknown repeat is not kept.
+        let odd = More { repeat: Some("fortnight".into()), steps: vec![] };
+        apply_more(&here, &t.id, &odd).unwrap();
+        let got = &list(&here, 1, TODAY).unwrap()[0];
+        assert_eq!((got.repeat.clone(), got.steps.len()), (None, 0));
+    }
+
+    #[test]
+    fn a_list_taken_from_another_computer_keeps_the_steps_here() {
+        let (here, there) = (conn(), conn());
+        let t = add(&there, "Essay", 1).unwrap().unwrap();
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        set_steps(&here, &t.id, vec![step("Outline", false)]).unwrap();
+        rename(&there, &t.id, "Essay draft").unwrap();
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        assert_eq!(list(&here, 1, TODAY).unwrap()[0].steps, vec![step("Outline", false)]);
     }
 
     #[test]

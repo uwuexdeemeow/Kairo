@@ -19,6 +19,7 @@ mod system;
 mod goals;
 mod ledger;
 mod lists;
+mod menukey;
 mod note_window;
 mod scan_window;
 mod small_window;
@@ -464,6 +465,7 @@ pub fn run() {
             commands::palette_glass,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
+            commands::recording_shortcut,
             commands::set_palette_suggestions,
             commands::set_palette_search_files,
             commands::set_palette_over_fullscreen,
@@ -492,6 +494,7 @@ pub fn run() {
             commands::remove_note,
             commands::hide_note,
             commands::set_task_note,
+            commands::set_task_steps,
             commands::sync_soon,
             commands::take_ledger_open,
             commands::pop_out_note,

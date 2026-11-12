@@ -4136,6 +4136,59 @@ select,
   justify-self: start;
 }
 
+/* A task's checklist: ticks, editable lines and a field to add the next, full width in the panel.
+   A ticked step's line is struck through and quieter. */
+.detail-steps .step-count {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.detail-steps > .step-list,
+.detail-steps > .step-add {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+
+.step-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-text {
+  width: 100%;
+  min-width: 0;
+}
+
+.step-text.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.step-del {
+  opacity: 0.55;
+}
+
+.step:hover .step-del,
+.step:focus-within .step-del {
+  opacity: 1;
+}
+
+.task-steps {
+  font-variant-numeric: tabular-nums;
+}
+
 .detail-field > input,
 .detail-field > .range,
 .detail-field > .note-pick,

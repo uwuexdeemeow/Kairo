@@ -60,6 +60,7 @@ function stopRecording(note: string) {
   const row = recording;
   if (!row) return;
   recording = null;
+  void api.recordingShortcut(false).catch(() => {});
   document.removeEventListener("keydown", recordKeys, true);
   $(row.keys).classList.remove("recording");
   $(row.button).textContent = "Change";
@@ -70,6 +71,7 @@ function stopRecording(note: string) {
 function startRecording(row: Recorder) {
   if (recording) stopRecording("Kept as it was.");
   recording = row;
+  void api.recordingShortcut(true).catch(() => {});
   $(row.keys).classList.add("recording");
   $(row.button).textContent = "Cancel";
   $(row.note).textContent = "Press the keys you want, or Esc to keep the current ones.";

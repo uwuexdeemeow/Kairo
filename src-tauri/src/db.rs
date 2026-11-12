@@ -198,6 +198,9 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("tasks", "reminded", "TEXT NOT NULL DEFAULT ''"),
         // The note a task is attached to, by its id (notebook.rs).
         ("tasks", "note", "TEXT"),
+        // A task's checklist as JSON text, and how it repeats once ticked (tasks.rs).
+        ("tasks", "steps", "TEXT NOT NULL DEFAULT ''"),
+        ("tasks", "repeat", "TEXT"),
         // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).

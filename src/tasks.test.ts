@@ -14,6 +14,8 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   remindMs: null,
   reminded: "",
   note: null,
+  steps: [],
+  repeat: null,
   group: "none",
   ...extra,
 });

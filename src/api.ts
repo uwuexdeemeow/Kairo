@@ -326,8 +326,20 @@ export interface Task {
   reminded: string;
   /** The note it's attached to, by id. */
   note: string | null;
+  /** Its checklist. */
+  steps: Step[];
+  /** How it comes back once ticked; null for never. */
+  repeat: Repeat | null;
   group: TaskGroup;
 }
+
+/** One line of a task's checklist. */
+export interface Step {
+  t: string;
+  d: boolean;
+}
+
+export type Repeat = "day" | "weekday" | "week" | "month" | "year";
 
 /** A note in Ledger; `title` is its first line with text, `tasks` the open ones attached. */
 export interface Note {
@@ -581,6 +593,8 @@ export const api = {
   /** A note deleted here but waiting on its Undo, out of every window's sight; false brings it back. */
   hideNote: (id: string, waiting: boolean) => invoke<void>("hide_note", { id, waiting }),
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
+  /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
+  setTaskSteps: (id: string, steps: Step[]) => invoke<Task[]>("set_task_steps", { id, steps }),
   syncSoon: () => invoke<void>("sync_soon"),
   /** Pops a note out into its own small window, or switches the open one to it; no id pops out the list of notes. */
   popOutNote: (id?: string) => invoke<void>("pop_out_note", { id }),
@@ -710,6 +724,8 @@ export const api = {
   setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
+  /** Settings is recording a shortcut (or has stopped); on Windows Alt+Space then isn't taken by the window menu. */
+  recordingShortcut: (on: boolean) => invoke<void>("recording_shortcut", { on }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
   setPaletteSearchFiles: (on: boolean) => invoke<void>("set_palette_search_files", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),

@@ -500,6 +500,9 @@ fn seed_choices(conn: &Connection) -> Result<()> {
     for (id, plan) in crate::tasks::planned(conn).map_err(err)? {
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES (?1, ?2, 1)", [format!("taskplan:{id}"), plan]).map_err(err)?;
     }
+    for (id, more) in crate::tasks::with_more(conn).map_err(err)? {
+        conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES (?1, ?2, 1)", [format!("taskmore:{id}"), more]).map_err(err)?;
+    }
     if !crate::schedule::list(conn).map_err(err)?.is_empty() {
         let schedule = crate::schedule::to_json(conn).map_err(err)?;
         conn.execute("INSERT OR IGNORE INTO shared_choices (item, value, changed_ms) VALUES ('schedule:focus', ?1, 1)", [schedule]).map_err(err)?;
@@ -545,7 +548,7 @@ fn read_choices(conn: &Connection, store: &dyn Store, listing: &store::Listing, 
         // A limit before whether it blocks, and the task list before the tasks' plans and notes:
         // each needs the other to be there.
         let mut theirs: Vec<(String, Choice)> = theirs.into_iter().collect();
-        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:") || item.starts_with("taskplan:") || item.starts_with("tasknote:"), item.clone()));
+        theirs.sort_by_key(|(item, _)| (item.starts_with("hardlimit:") || item.starts_with("taskplan:") || item.starts_with("tasknote:") || item.starts_with("taskmore:"), item.clone()));
         for (item, choice) in theirs {
             if ours.get(&item).is_some_and(|o| o.changed_ms >= choice.changed_ms) {
                 continue;
@@ -582,6 +585,11 @@ fn apply(conn: &Connection, item: &str, value: &str) -> Result<()> {
         "tasks" if key == "all" => crate::tasks::replace_from_json(conn, value),
         // A plan whose task hasn't arrived yet waits for it.
         "taskplan" => match crate::tasks::apply_plan(conn, key, &serde_json::from_str(value).map_err(err)?).map_err(err)? {
+            true => Ok(()),
+            false => Err("no such task yet".into()),
+        },
+        // A task's repeat and steps; waits for its task like a plan.
+        "taskmore" => match crate::tasks::apply_more(conn, key, &serde_json::from_str(value).map_err(err)?).map_err(err)? {
             true => Ok(()),
             false => Err("no such task yet".into()),
         },

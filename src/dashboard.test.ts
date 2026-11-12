@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   appearance: vi.fn(),
   setAppearance: vi.fn(),
   setPaletteShortcut: vi.fn(),
+  recordingShortcut: vi.fn(async () => {}),
   version: vi.fn(),
   sync: vi.fn(),
   autostart: vi.fn(),

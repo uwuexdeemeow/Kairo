@@ -324,6 +324,7 @@ pub fn remove_task(app: AppHandle, state: State<AppState>, id: String) -> CmdRes
     let conn = state.db.lock().map_err(err)?;
     tasks::remove(&conn, &id).map_err(err)?;
     sync::drop_choice(&conn, &format!("taskplan:{id}"))?;
+    sync::drop_choice(&conn, &format!("taskmore:{id}"))?;
     tasks_changed(&app, &conn)
 }
 
@@ -544,6 +545,23 @@ pub fn set_task_note(app: AppHandle, state: State<AppState>, task: String, note:
     let note = note.filter(|n| !n.is_empty());
     tasks::set_note(&conn, &task, note.as_deref()).map_err(err)?;
     sync::record(&conn, &format!("tasknote:{task}"), note.as_deref().unwrap_or(""))?;
+    tasks_changed(&app, &conn)
+}
+
+/// A task's repeat and steps travel as their own choice.
+fn more_changed(conn: &rusqlite::Connection, id: &str) -> CmdResult<()> {
+    match tasks::more_json(conn, id).map_err(err)? {
+        Some(more) => sync::record(conn, &format!("taskmore:{id}"), &more),
+        None => Ok(()),
+    }
+}
+
+/// Gives a task its checklist; it's cleaned (trimmed, short, at most 30) before it's kept.
+#[tauri::command]
+pub fn set_task_steps(app: AppHandle, state: State<AppState>, id: String, steps: Vec<tasks::Step>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::set_steps(&conn, &id, steps).map_err(err)?;
+    more_changed(&conn, &id)?;
     tasks_changed(&app, &conn)
 }
 
@@ -1562,6 +1580,13 @@ pub fn set_palette_over_fullscreen(state: State<AppState>, on: bool) -> CmdResul
 pub fn set_palette_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
     palette::change_shortcut(&app, &conn, &shortcut)
+}
+
+/// Settings is recording a shortcut (or has stopped): on Windows Alt+Space then isn't taken by
+/// the window's own menu, so it can be chosen.
+#[tauri::command]
+pub fn recording_shortcut(app: AppHandle, window: tauri::WebviewWindow, on: bool) {
+    crate::menukey::recording(&app, &window, on);
 }
 
 #[tauri::command]

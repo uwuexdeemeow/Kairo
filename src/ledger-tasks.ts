@@ -1,6 +1,7 @@
-import type { Task, TaskGroup } from "./api";
+import type { Step, Task, TaskGroup } from "./api";
 import { calendar, isoDate, parseDate, todayIso } from "./calendar";
 import { glyph } from "./glyphs";
+import { progress, stepsBlock, takeFocus } from "./ledger-steps";
 import { logo } from "./logos";
 import { timeSelect } from "./time-select";
 import { fmtDur, h } from "./ui";
@@ -28,6 +29,8 @@ export type LedgerActions = {
   openNote(id: string): void;
   /** Attaches a note to a task, or (null) detaches it. */
   attach(task: string, note: string | null): void;
+  /** Replaces a task's checklist. */
+  steps(task: string, steps: Step[]): void;
   /** A new note headed with the task's title, attached to it. */
   newNoteFor(task: string, title: string): void;
 };
@@ -126,6 +129,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
     chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }
+  if (t.steps.length) chips.append(h("span", { class: "task-steps chip", title: "Steps done" }, h("span", { class: "sr-only" }, "Steps done "), progress(t.steps)));
   if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
   if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
   el.append(chips);
@@ -543,9 +547,13 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     h("div", { class: "detail-field" }, h("span", {}, "Due"), ...dueParts),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
     h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
+    stepsBlock(t, (steps) => act.steps(t.id, steps)),
     noteRow(t, act, notes),
     h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
     remove,
   );
+  // A step just added, moved or removed says where the keyboard goes; otherwise it stays on the
+  // control it was on.
+  if (takeFocus(root, t.id)) return;
   if (at >= 0) controls()[Math.min(at, controls().length - 1)]?.focus();
 }

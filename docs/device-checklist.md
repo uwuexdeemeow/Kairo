@@ -350,6 +350,34 @@ On Windows, a Mac and Linux, in both themes. No focus session involved: don't pr
 8. **Narrow window.** At the smallest window size, Find drops under the week line, rows don't
    overflow, and on a touch screen Reopen and Delete are always visible.
 
+## Ledger: steps in a task
+
+On Windows, a Mac and Linux. No focus session involved.
+
+1. **Add steps.** Open a task. Under Remind me, type a step in "Add a step" and press Enter.
+   *Expect:* it joins the list, the keyboard stays in the field, the title says 1 step and the task's
+   row shows "0/1".
+2. **Tick.** Tick it. *Expect:* its line is struck through and quieter, the row says "1/1", and the
+   task can still be ticked off with steps left open.
+3. **Paste a list.** Copy three lines from a note (some starting `- `, `1.` or `- [ ]`) and paste
+   them in the field. *Expect:* three steps, bullets gone. Pasting one line just pastes text.
+4. **Edit, move, remove.** Change a step's text and press Tab. *Expect:* kept. Clear a step's text
+   and leave it: it goes. Alt+↑/↓ in a step moves it and the keyboard goes with it. Backspace in an
+   empty step removes it and lands on the step above.
+5. **Thirty.** With 30 steps the field is greyed and says "Up to 30 steps".
+6. **Two computers.** On two combined computers, add steps on one. *Expect:* the other shows them
+   within a sync round, ticks included; deleting the task removes them.
+
+## Windows: Alt+Space as the shortcut
+
+1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*
+   Windows' window menu (Restore, Move, Minimize…) does **not** open, the keys show Alt Space, and
+   it saves. Pressing Alt+Space afterwards, anywhere, opens the palette.
+2. Press Cancel, or Esc, and then Alt+Space in Kairo's own window. *Expect:* the window menu opens
+   as it always did (the hook is on only while recording).
+3. If another program already uses Alt+Space (PowerToys Run, Flow Launcher, Raycast…), saving says
+   so and the old shortcut stays.
+
 ## Ledger and dashboard, second critique round
 
 On Windows, a Mac and Linux, in both themes. No focus session involved: don't press Start.

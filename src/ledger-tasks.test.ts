@@ -14,6 +14,8 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   remindMs: null,
   reminded: "",
   note: null,
+  steps: [],
+  repeat: null,
   group: "none",
   ...extra,
 });
@@ -36,6 +38,7 @@ beforeEach(() => {
     remove: vi.fn(),
     openNote: vi.fn(),
     attach: vi.fn(),
+    steps: vi.fn(),
     newNoteFor: vi.fn(),
   };
 });

@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   clipboardHistory: vi.fn(),
   setClipboardHistory: vi.fn(),
   setPaletteShortcut: vi.fn(),
+  recordingShortcut: vi.fn(async () => {}),
   autostart: vi.fn(),
   setAutostart: vi.fn(),
   setPaletteSuggestions: vi.fn(),
@@ -219,6 +220,13 @@ describe("recording the palette shortcut", () => {
     await vi.waitFor(() => expect($("#palette-note").textContent).toBe("Saved. Ctrl+Shift+K opens the palette from anywhere."));
     expect(keys()).toEqual(["Ctrl", "Shift", "K"]);
     expect($("#palette-record").textContent).toBe("Change");
+  });
+
+  it("lets the window know while recording, so Windows' Alt+Space menu stays away, and when it stops", async () => {
+    expect(api.recordingShortcut).toHaveBeenLastCalledWith(true);
+    press(" ", "Space", { altKey: true });
+    await vi.waitFor(() => expect(api.setPaletteShortcut).toHaveBeenCalledWith("Alt+Space"));
+    await vi.waitFor(() => expect(api.recordingShortcut).toHaveBeenLastCalledWith(false));
   });
 
   it("asks for a modifier when a key comes alone", () => {
