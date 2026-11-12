@@ -5,6 +5,19 @@ use std::time::{Duration, Instant};
 
 /// How long one calculation may take, so an odd input can't stall the palette.
 const LIMIT: Duration = Duration::from_millis(100);
+
+/// The limit in force. Tests get far longer by default: on a busy CI runner a correct sum can
+/// take more than 100 ms, and the limit is about stalling the palette, not about speed.
+#[cfg(not(test))]
+fn limit() -> Duration {
+    LIMIT
+}
+#[cfg(test)]
+thread_local!(static TEST_LIMIT: std::cell::Cell<Duration> = const { std::cell::Cell::new(Duration::from_secs(10)) });
+#[cfg(test)]
+fn limit() -> Duration {
+    TEST_LIMIT.with(|l| l.get())
+}
 /// Significant digits an answer is rounded to.
 const DIGITS: i32 = 6;
 const OPERATORS: [char; 10] = ['+', '-', '*', '/', '×', '÷', '^', '%', '(', ')'];
@@ -142,7 +155,7 @@ pub fn evaluate(query: &str) -> Option<Answer> {
     if query.trim().is_empty() {
         return None;
     }
-    let deadline = Deadline(Instant::now() + LIMIT);
+    let deadline = Deadline(Instant::now() + limit());
     let ask = |q: &str| fend_core::evaluate_with_interrupt(&rewrite(q), &mut fend_core::Context::new(), &deadline).ok();
     let q = query.trim();
     // fend's units are lower case ("km"); typed in capitals, they're asked again in lower case.
@@ -248,6 +261,7 @@ mod tests {
     fn nothing_for_nonsense_repeats_or_slow_sums() {
         assert!(answer("abc + 1").is_none());
         assert!(answer("(5)").is_none());
+        TEST_LIMIT.with(|l| l.set(LIMIT));
         let start = std::time::Instant::now();
         assert!(answer("10^10^10").is_none());
         assert!(start.elapsed() < std::time::Duration::from_millis(500));
