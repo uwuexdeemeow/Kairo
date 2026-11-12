@@ -484,8 +484,33 @@ function repeatField(t: Task, act: LedgerActions): HTMLElement {
   return h("div", { class: "detail-field" }, h("span", {}, "Repeat"), select);
 }
 
-/// Draws the detail panel for `t`: title, due day, priority, exact reminder, note, focus time,
-/// Delete. `notes` names the notes it can be attached to.
+/// What a panel can show beyond its title, day and priority, each only once a task has it or it's
+/// been added from "Add…".
+type Optional = "repeat" | "project" | "tags" | "remind" | "steps" | "note";
+const OPTIONAL: [Optional, string][] = [
+  ["repeat", "Repeat"],
+  ["project", "Project"],
+  ["tags", "Tags"],
+  ["remind", "Reminder"],
+  ["steps", "Steps"],
+  ["note", "Note"],
+];
+/// The fields added from "Add…" for each task, so they stay while it's being filled in.
+const revealed = new Map<string, Set<Optional>>();
+
+/// Lets every task's panel start from only what it has again.
+export function forgetAddedDetails(): void {
+  revealed.clear();
+}
+let pendingFocus: Exclude<Optional, "remind"> | null = null;
+/// Where the keyboard goes in a field just added.
+const FOCUS_ON: Record<Exclude<Optional, "remind">, string> = { repeat: ".repeat-select", project: ".project-select", tags: ".tag-add", steps: ".step-add", note: ".attach-note" };
+
+const hasValue = (t: Task, k: Optional): boolean => ({ repeat: !!t.repeat, project: !!t.project, tags: t.tags.length > 0, remind: t.remindMs !== null, steps: t.steps.length > 0, note: !!t.note })[k];
+
+/// Draws the detail panel for `t`: title, due day and priority, then only the details it has
+/// (repeat, project, tags, reminder, steps, note), "Add…" for the rest, and focus time and
+/// Delete at the foot. `notes` names the notes it can be attached to.
 export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = [], session: RunningSession = null, projects: string[] = []): void {
   const title = h("input", { class: "filter detail-title", maxlength: "80", "aria-label": "Title" }) as HTMLInputElement;
   title.value = t.title;
@@ -538,17 +563,15 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     const at = new Date(`${day}T${time}`).getTime();
     if (!Number.isNaN(at)) act.plan(t.id, t.dueDay, t.priority, at);
   };
-  let remind: Node[];
-  if (t.remindMs === null) {
-    const add = h("button", { class: "link-btn add-remind" }, "+ Add a reminder");
-    // At 9 on the due day, or the next 9 o'clock: shown at once, to move from there.
-    add.addEventListener("click", () => {
-      const nine = new Date(`${t.dueDay ?? todayIso()}T09:00`);
-      if (!t.dueDay && nine.getTime() <= Date.now()) nine.setDate(nine.getDate() + 1);
-      act.plan(t.id, t.dueDay, t.priority, nine.getTime());
-    });
-    remind = [add];
-  } else {
+  // At 9 on the due day, or the next 9 o'clock: shown at once, to move from there.
+  const addReminder = () => {
+    const nine = new Date(`${t.dueDay ?? todayIso()}T09:00`);
+    if (!t.dueDay && nine.getTime() <= Date.now()) nine.setDate(nine.getDate() + 1);
+    act.plan(t.id, t.dueDay, t.priority, nine.getTime());
+  };
+  // (Shown only once there is one; "Add…" makes it.)
+  let remind: Node[] = [];
+  if (t.remindMs !== null) {
     const remindDay = isoDate(new Date(t.remindMs));
     const time = timeSelect(clock(t.remindMs), "Reminder time");
     time.classList.add("remind-time");
@@ -571,21 +594,50 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   // the same day button.
   const controls = () => [...root.querySelectorAll<HTMLElement>("button, input, select")];
   const at = controls().indexOf(document.activeElement as HTMLElement);
+
+  // Only what a task has is laid out. The rest is one "Add…" choice away: a task starts as a title,
+  // a day and a priority, and the panel grows as it's given more.
+  const open = revealed.get(t.id) ?? new Set<Optional>();
+  const shows = (k: Optional) => hasValue(t, k) || open.has(k);
+  const [projectField, tagField] = labelsBlock(t, projects, act);
+  const fields: Node[] = [];
+  if (shows("repeat")) fields.push(repeatField(t, act));
+  if (shows("project")) fields.push(projectField);
+  if (shows("tags")) fields.push(tagField);
+  if (shows("remind")) fields.push(h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind));
+  if (shows("steps")) fields.push(stepsBlock(t, (steps) => act.steps(t.id, steps)));
+  if (shows("note")) fields.push(noteRow(t, act, notes));
+  const missing = OPTIONAL.filter(([k]) => !shows(k));
+  if (missing.length) {
+    const add = h("select", { class: "filter add-detail", "aria-label": "Add a detail" }, h("option", { value: "" }, "Add…"), ...missing.map(([k, name]) => h("option", { value: k }, name))) as HTMLSelectElement;
+    add.addEventListener("change", () => {
+      const kind = add.value as Optional;
+      if (!kind) return;
+      // A reminder is made at once, with a time to move from; the others open their field.
+      if (kind === "remind") return addReminder();
+      revealed.set(t.id, new Set([...open, kind]));
+      pendingFocus = kind;
+      renderDetail(root, t, act, notes, session, projects);
+    });
+    fields.push(h("div", { class: "detail-field detail-add" }, add));
+  }
+
   root.replaceChildren(
     h("div", { class: "detail-head" }, title, close),
     h("div", { class: "detail-actions" }, ...actions),
     h("div", { class: "detail-field" }, h("span", {}, "Due"), ...dueParts),
-    repeatField(t, act),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
-    ...labelsBlock(t, projects, act),
-    h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
-    stepsBlock(t, (steps) => act.steps(t.id, steps)),
-    noteRow(t, act, notes),
-    h("p", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"),
-    remove,
+    ...fields,
+    // Kept in view as the panel scrolls, so Delete is never found by scrolling for it.
+    h("div", { class: "detail-foot" }, h("span", { class: "muted" }, t.focusedMs > 0 ? `${fmtDur(t.focusedMs)} focused` : "No focus time yet"), remove),
   );
-  // A step just added, moved or removed says where the keyboard goes; otherwise it stays on the
-  // control it was on.
+  // A field just added takes the keyboard; so does where a step or tag was just made; otherwise it
+  // stays on the control it was on.
+  if (pendingFocus) {
+    const target = root.querySelector<HTMLElement>(FOCUS_ON[pendingFocus]);
+    pendingFocus = null;
+    if (target) return target.focus();
+  }
   if (takeFocus(root, t.id) || takeLabelFocus(root, t.id)) return;
   if (at >= 0) controls()[Math.min(at, controls().length - 1)]?.focus();
 }

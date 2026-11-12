@@ -97,7 +97,7 @@ const NEW_PROJECT = "\u0000new";
 
 /// The panel's Project and Tags: a choice of the Chrono projects (or a new one), and the tags with
 /// a field to add the next. `projects` are the names Chrono has.
-export function labelsBlock(t: Task, projects: string[], act: LabelActions): HTMLElement[] {
+export function labelsBlock(t: Task, projects: string[], act: LabelActions): [HTMLElement, HTMLElement] {
   const select = h("select", { class: "filter project-select", "aria-label": "Project" }) as HTMLSelectElement;
   select.append(h("option", { value: "" }, "No project"), ...projects.map((p) => h("option", { value: p }, p)), h("option", { value: NEW_PROJECT }, "New project…"));
   select.value = t.project ?? "";

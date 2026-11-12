@@ -4153,6 +4153,32 @@ select,
   justify-self: start;
 }
 
+/* "Add…": the one way to more details, kept small so it doesn't read as another field. */
+.detail-add {
+  display: flex;
+}
+
+/* Focus time and Delete stay in view along the panel's foot as it scrolls, so Delete is never
+   found by scrolling for it. The panel's padding is pulled back so the bar runs edge to edge. */
+.detail-foot {
+  position: sticky;
+  bottom: -18px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -18px -18px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 12px 12px;
+  background: var(--raised);
+}
+
+.detail-foot .muted {
+  font-size: 12px;
+}
+
 /* A task's checklist: ticks, editable lines and a field to add the next, full width in the panel.
    A ticked step's line is struck through and quieter. */
 .detail-steps .step-count {

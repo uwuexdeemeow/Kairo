@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
-import { ledgerLine, renderDetail, renderTaskList, taskSummary, type LedgerActions } from "./ledger-tasks";
+import { forgetAddedDetails, ledgerLine, renderDetail, renderTaskList, taskSummary, type LedgerActions } from "./ledger-tasks";
+
+/// Adds a detail from the panel's "Add…" choice, as a person would.
+const addDetail = (host: HTMLElement, kind: string) => {
+  const choice = host.querySelector<HTMLSelectElement>(".add-detail")!;
+  choice.value = kind;
+  choice.dispatchEvent(new Event("change"));
+};
 
 const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   id,
@@ -28,6 +35,7 @@ let act: { [K in keyof LedgerActions]: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   document.body.innerHTML = `<div id="root"></div>`;
   root = document.getElementById("root")!;
+  forgetAddedDetails();
   act = {
     add: vi.fn(),
     preview: vi.fn(async () => "High · Fri 6 Nov"),
@@ -376,6 +384,7 @@ describe("a task's note", () => {
 
   it("attaches a note picked from a search, or a new one named after the task", () => {
     renderDetail(root, task("a", "Essay"), act, notes);
+    addDetail(root, "note");
     root.querySelector<HTMLButtonElement>(".attach-note")!.click();
     const options = () => [...root.querySelectorAll<HTMLButtonElement>(".note-pick button")];
     expect(options().map((b) => b.textContent)).toEqual(["New note: Essay", "Plan", "Shopping"]);
@@ -465,10 +474,44 @@ describe("the detail panel", () => {
     expect(act.plan).toHaveBeenLastCalledWith("a", null, 1, 99);
   });
 
+  it("shows only what a task has, with one Add… choice for the rest", () => {
+    renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06" }), act, [], null, ["Kairo"]);
+    // Always: title, Mark done, Focus, Due, Priority, and Delete in the foot.
+    for (const sel of [".detail-title", ".detail-done", ".detail-start", ".day-field", '[data-priority="2"]', ".detail-foot .detail-delete"]) expect(panel().querySelector(sel), sel).not.toBeNull();
+    // Not until it has them or they're added.
+    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".attach-note", ".remind-when"]) expect(panel().querySelector(sel), sel).toBeNull();
+    const choice = panel().querySelector<HTMLSelectElement>(".add-detail")!;
+    expect([...choice.options].map((o) => o.textContent)).toEqual(["Add…", "Repeat", "Project", "Tags", "Reminder", "Steps", "Note"]);
+  });
+
+  it("opens a field from Add… with the keyboard in it, and keeps it while the panel is redrawn", () => {
+    const t = task("a", "Essay");
+    renderDetail(panel(), t, act, [], null, ["Kairo"]);
+    addDetail(panel(), "tags");
+    expect(document.activeElement).toBe(panel().querySelector(".tag-add"));
+    // What's been added is no longer offered, and stays when the list refreshes.
+    expect([...panel().querySelectorAll<HTMLOptionElement>(".add-detail option")].map((o) => o.textContent)).not.toContain("Tags");
+    renderDetail(panel(), t, act, [], null, ["Kairo"]);
+    expect(panel().querySelector(".tag-add")).not.toBeNull();
+    addDetail(panel(), "project");
+    addDetail(panel(), "steps");
+    expect(document.activeElement).toBe(panel().querySelector(".step-add"));
+  });
+
+  it("shows the fields a task already has and offers only what's missing", () => {
+    renderDetail(panel(), task("a", "Essay", { tags: ["x"], project: "Kairo", steps: [{ t: "One", d: false }], repeat: "week", remindMs: 5, note: "n1" }), act, [{ id: "n1", title: "Plan" }], null, ["Kairo"]);
+    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".remind-when", ".detail-note"]) expect(panel().querySelector(sel), sel).not.toBeNull();
+    // Nothing missing: no Add… at all.
+    expect(panel().querySelector(".add-detail")).toBeNull();
+  });
+
   it("chooses how a task repeats, and never", () => {
     renderDetail(panel(), task("a", "Essay"), act);
+    addDetail(panel(), "repeat");
     const select = panel().querySelector<HTMLSelectElement>(".repeat-select")!;
     expect(select.getAttribute("aria-label")).toBe("Repeat");
+    // The keyboard is in the field just added.
+    expect(document.activeElement).toBe(select);
     expect([...select.options].map((o) => o.textContent)).toEqual(["Never", "Every day", "Every weekday", "Every week", "Every month", "Every year"]);
     expect(select.value).toBe("");
     select.value = "week";
@@ -534,7 +577,8 @@ describe("the detail panel", () => {
   it("offers a reminder rather than showing a time that looks set", () => {
     renderDetail(panel(), task("a", "Essay", { dueDay: "2026-11-06" }), act);
     expect(panel().querySelector("select.remind-time")).toBeNull();
-    panel().querySelector<HTMLButtonElement>(".add-remind")!.click();
+    // "Reminder" in Add… makes one at 9 on the due day, at once, to move from there.
+    addDetail(panel(), "remind");
     expect(act.plan).toHaveBeenCalledWith("a", "2026-11-06", 1, new Date(2026, 10, 6, 9, 0).getTime());
   });
 
