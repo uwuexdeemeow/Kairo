@@ -4189,6 +4189,340 @@ select,
   font-variant-numeric: tabular-nums;
 }
 
+/* Tags and projects: the chips that narrow a list (Tasks and Calendar), the Project and Tags in a
+   task's panel, and the labels on a row. */
+.label-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.label-filters[hidden] {
+  display: none;
+}
+
+.label-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.label-chip.project {
+  color: inherit;
+}
+
+.label-chip:hover {
+  border-color: var(--line);
+}
+
+.label-chip[aria-pressed="true"] {
+  border-color: var(--ledger);
+  background: color-mix(in srgb, var(--ledger) 14%, var(--raised));
+  color: inherit;
+}
+
+.label-clear {
+  font-size: 12px;
+}
+
+.detail-tags > .tag-list,
+.detail-tags > .tag-add,
+.detail-project > .project-select,
+.detail-project > .project-new {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-list:empty {
+  display: none;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--raised);
+  font-size: 12px;
+}
+
+.tag-del {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tag-del:hover {
+  color: inherit;
+}
+
+.tag-del .icon {
+  width: 10px;
+  height: 10px;
+}
+
+.task-project {
+  color: inherit;
+}
+
+.task-tag {
+  color: var(--muted);
+}
+
+/* ---------- Ledger: the Calendar ---------- */
+
+.ledger-calendar {
+  max-width: 1040px;
+}
+
+.cal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.cal-title {
+  min-width: 9ch;
+  margin: 0 4px;
+  font-size: 18px;
+  text-align: center;
+}
+
+.cal-step {
+  min-width: 34px;
+  padding: 3px 10px;
+}
+
+.cal-undated {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+/* The month and, beside it, the chosen day; the day drops underneath on a narrow window. */
+.cal-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 20px;
+  align-items: start;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.cal-name {
+  padding: 2px 6px;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cal-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  min-height: 86px;
+  padding: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--raised);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-cell:hover {
+  border-color: var(--line);
+}
+
+.cal-cell.other {
+  background: transparent;
+  color: var(--muted);
+}
+
+.cal-cell.today .cal-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ledger);
+  color: var(--on-app);
+}
+
+.cal-cell.selected {
+  border-color: var(--ledger);
+  box-shadow: inset 0 0 0 1px var(--ledger);
+}
+
+.cal-num {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cal-items {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cal-task,
+.cal-more,
+.cal-meet {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-task {
+  padding-left: 6px;
+  border-left: 2px solid var(--ledger);
+}
+
+.cal-cell.late .cal-task {
+  border-left-color: var(--ribbon);
+}
+
+.cal-more,
+.cal-meet {
+  color: var(--muted);
+}
+
+.cal-day {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--raised);
+}
+
+.cal-day-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.cal-sub {
+  margin: 14px 0 6px;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.cal-tasks,
+.cal-meetings {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cal-task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.cal-task-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cal-task-name.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.cal-task-meta {
+  grid-column: 2;
+  font-size: 11px;
+}
+
+.cal-meet-time {
+  margin-right: 8px;
+  font-size: 12px;
+}
+
+.cal-empty {
+  margin: 0 0 8px;
+}
+
+.cal-add {
+  width: 100%;
+  margin-top: 12px;
+}
+
+@media (max-width: 760px) {
+  .cal-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cal-cell {
+    min-height: 62px;
+    padding: 4px;
+  }
+
+  /* Cells are narrow here: the day's details are in its panel. */
+  .cal-items {
+    display: none;
+  }
+
+  .cal-cell:has(.cal-task, .cal-more) .cal-num::after {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: var(--ledger);
+    vertical-align: middle;
+  }
+}
+
 .detail-field > input,
 .detail-field > .range,
 .detail-field > .note-pick,

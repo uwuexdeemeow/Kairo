@@ -1,6 +1,7 @@
 import type { Repeat, Step, Task, TaskGroup } from "./api";
 import { calendar, isoDate, parseDate, todayIso } from "./calendar";
 import { glyph } from "./glyphs";
+import { labelsBlock, takeLabelFocus, type LabelActions } from "./ledger-labels";
 import { progress, stepsBlock, takeFocus } from "./ledger-steps";
 import { logo } from "./logos";
 import { timeSelect } from "./time-select";
@@ -11,7 +12,7 @@ const INK_MS = 280;
 const stillPlease = () => !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
 /// What Ledger's task list and detail panel ask the page to do.
-export type LedgerActions = {
+export type LedgerActions = LabelActions & {
   /** Quick-add text, shortcuts and all. */
   add(text: string): void | Promise<void>;
   /** What the field's text reads as, for under it. */
@@ -132,6 +133,8 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
     chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }
   if (t.repeat) chips.append(h("span", { class: "task-repeat chip", title: repeatName(t.repeat) }, glyph("repeat"), h("span", { class: "sr-only" }, repeatName(t.repeat))));
+  if (t.project) chips.append(h("span", { class: "task-project chip", title: "Project" }, h("span", { class: "sr-only" }, "Project "), t.project));
+  for (const tag of t.tags) chips.append(h("span", { class: "task-tag chip", title: "Tag" }, `#${tag}`));
   if (t.steps.length) chips.append(h("span", { class: "task-steps chip", title: "Steps done" }, h("span", { class: "sr-only" }, "Steps done "), progress(t.steps)));
   if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
   if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
@@ -380,7 +383,7 @@ function addField(root: HTMLElement, act: LedgerActions): { add: HTMLInputElemen
       h("dd", {}, "Move between tasks, tick one, open it"),
       h("dt", {}, "F2  Delete  →"),
       h("dd", {}, "Rename, delete (Ctrl+Z brings it back), reach Start or Stop"),
-      h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3 4"),
+      h("dt", {}, "Ctrl+N  /  Ctrl+1 2 3 4 5"),
       h("dd", {}, "New task, find, switch views"),
     ),
   );
@@ -475,7 +478,7 @@ function repeatField(t: Task, act: LedgerActions): HTMLElement {
 
 /// Draws the detail panel for `t`: title, due day, priority, exact reminder, note, focus time,
 /// Delete. `notes` names the notes it can be attached to.
-export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = [], session: RunningSession = null): void {
+export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, notes: NoteName[] = [], session: RunningSession = null, projects: string[] = []): void {
   const title = h("input", { class: "filter detail-title", maxlength: "80", "aria-label": "Title" }) as HTMLInputElement;
   title.value = t.title;
   const saveTitle = () => {
@@ -566,6 +569,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
     h("div", { class: "detail-field" }, h("span", {}, "Due"), ...dueParts),
     repeatField(t, act),
     h("div", { class: "detail-field" }, h("span", {}, "Priority"), priorities),
+    ...labelsBlock(t, projects, act),
     h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind),
     stepsBlock(t, (steps) => act.steps(t.id, steps)),
     noteRow(t, act, notes),
@@ -574,6 +578,6 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   );
   // A step just added, moved or removed says where the keyboard goes; otherwise it stays on the
   // control it was on.
-  if (takeFocus(root, t.id)) return;
+  if (takeFocus(root, t.id) || takeLabelFocus(root, t.id)) return;
   if (at >= 0) controls()[Math.min(at, controls().length - 1)]?.focus();
 }

@@ -16,6 +16,8 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   note: null,
   steps: [],
   repeat: null,
+  tags: [],
+  project: null,
   group: "none",
   ...extra,
 });
@@ -40,6 +42,8 @@ beforeEach(() => {
     attach: vi.fn(),
     steps: vi.fn(),
     repeat: vi.fn(),
+    labels: vi.fn(),
+    newProject: vi.fn(),
     newNoteFor: vi.fn(),
   };
 });
@@ -57,7 +61,7 @@ describe("the add field's help", () => {
     expect(help.open).toBe(false);
     expect(help.querySelector("summary")!.textContent).toBe("Shorthand and keys");
     expect(help.textContent).toContain("!h  !m  !l");
-    expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3 4");
+    expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3 4 5");
     expect(root.querySelector(".task-preview")!.hasAttribute("aria-live")).toBe(false);
     expect(root.querySelector(".task-spoken")!.getAttribute("aria-live")).toBe("polite");
   });
@@ -483,6 +487,18 @@ describe("the detail panel", () => {
     const chip = root.querySelector('[data-task="a"] .task-repeat')!;
     expect(chip.textContent).toContain("Every month");
     expect(root.querySelector('[data-task="b"] .task-repeat')).toBeNull();
+  });
+
+  it("shows a task's project and tags on its row, and offers them in the panel", () => {
+    const t = task("a", "Ship it", { project: "Kairo", tags: ["release", "urgent"] });
+    renderTaskList(root, [t, task("b", "Plain")], null, act as unknown as LedgerActions, null, "");
+    expect(root.querySelector('[data-task="a"] .task-project')?.textContent).toContain("Kairo");
+    expect([...root.querySelectorAll('[data-task="a"] .task-tag')].map((x) => x.textContent)).toEqual(["#release", "#urgent"]);
+    expect(root.querySelector('[data-task="b"] .task-project')).toBeNull();
+    expect(root.querySelector('[data-task="b"] .task-tag')).toBeNull();
+    renderDetail(panel(), t, act, [], null, ["Kairo", "Home"]);
+    expect(panel().querySelector<HTMLSelectElement>(".project-select")!.value).toBe("Kairo");
+    expect(panel().querySelectorAll(".tag-chip")).toHaveLength(2);
   });
 
   it("keeps the keyboard on the priority just chosen when it's redrawn", () => {

@@ -321,7 +321,7 @@ On Windows, a Mac and Linux. No focus session involved.
    makes a waiting delete final; the keyboard lands on the next task or the search, never nowhere.
 2. **Panel.** Scroll down a long list and open a task. *Expect:* the panel opens beside it, the card
    lit, the keyboard in its title; Esc puts it back on the task.
-3. **Keys.** Ctrl+1/2/3/4 switch views (Tasks, Notes, Done, Settings); ↑/↓ move along the tabs; Ctrl+N focuses Add a task (in Notes,
+3. **Keys.** Ctrl+1/2/3/4/5 switch views (Tasks, Calendar, Notes, Done, Settings); ↑/↓ move along the tabs; Ctrl+N focuses Add a task (in Notes,
    starts a note); / jumps to the add field or the notes' search.
 4. **Priority.** Ordinary tasks have no mark, High a filled amber dot, Low a faint ring.
 5. **A failing save** (hard to cause by hand; skip unless the database is busy): the footer turns
@@ -336,7 +336,7 @@ On Windows, a Mac and Linux, in both themes. No focus session involved: don't pr
    at once, while the Undo line is still showing, and back up if you press Undo.
 2. **The Tasks count ignores Find.** With 5 open tasks, type a word only one has in Find a task.
    *Expect:* the sidebar still says 5.
-3. **Done.** Tick two tasks off, then open Done (Ctrl+3). *Expect:* both under Today, newest first,
+3. **Done.** Tick two tasks off, then open Done (Ctrl+4). *Expect:* both under Today, newest first,
    each with the time it was done; "This week 2 done" above (with the focus time when a session
    was run on them), and last week beside it.
 4. **Reopen.** Press Reopen on one. *Expect:* it leaves Done and is open again at the bottom of its
@@ -389,6 +389,35 @@ On Windows, a Mac and Linux. No focus session involved.
 7. **Two computers.** On two combined computers, tick the same repeating task on both before they
    sync. *Expect:* one new task, not two.
 8. **Palette.** `task rent every month` adds it; Ctrl+Enter on it in `tasks` ticks it and adds the next.
+
+## Ledger: tags, projects and the Calendar
+
+On Windows, a Mac and Linux. Have a Chrono project (Chrono → Settings → Projects) and, to see
+meetings, a calendar address connected.
+
+1. **Tags.** Open a task. Under Priority, type `school, urgent` in "Add a tag" and press Enter.
+   *Expect:* two chips, the keyboard still in the field, and `#school #urgent` on the task's row.
+   Backspace in the empty field takes the last one back; × on a chip removes it.
+2. **Quick add.** Type `essay #school fri` in Add a task. *Expect:* under the field, "Fri 13 Nov ·
+   #school"; the task has the tag. `fix #42` keeps its `#42` in the title (a number isn't a tag).
+3. **Projects.** In a task's Project choice, pick a Chrono project. *Expect:* its name on the row.
+   Choose "New project…", type a name, Enter. *Expect:* the task is in it, and the project now
+   exists in Chrono (Settings → Projects) with the name as its keyword.
+4. **Rename in Chrono.** Rename that project in Chrono. *Expect:* the task in Ledger shows the new
+   name. Delete the project: the task shows no project (the name is kept, and comes back if a
+   project of that name is made again).
+5. **Narrowing.** With a few tasks tagged, press a `#tag` chip above the list. *Expect:* only those
+   tasks, the chip pressed, a line under the title like "Kairo #school · 3 open · 2h 10m focused",
+   and Show all to let go. A project and a tag together narrow to both. The sidebar count stays.
+6. **Calendar.** Open Calendar (Ctrl+2). *Expect:* this month, today ringed, each day with its due
+   tasks (two, then "+n more"), overdue days with an amber mark, meetings as "2 meetings" for the
+   two weeks either side of today. Arrow keys move the day, Page Up/Down the month, Today comes back.
+7. **A day.** Pick a day. *Expect:* its tasks and meetings listed beside the month (below it on a
+   narrow window); tick one off, click a title to open it in Tasks. Type `call Sam !h` in "Add a
+   task for this day" and press Enter: due that day.
+8. **Filter in Calendar.** Press a tag chip. *Expect:* only those tasks on the grid. "n open tasks
+   have no due day" says what no cell can show.
+9. **Two computers.** Tag a task on one. *Expect:* the other shows the tags and project after a sync.
 
 ## Windows: Alt+Space as the shortcut
 

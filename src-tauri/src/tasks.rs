@@ -43,6 +43,13 @@ pub struct Task {
     /// How it comes back once ticked: "day", "weekday", "week", "month" or "year"; None for never.
     #[serde(default)]
     pub repeat: Option<String>,
+    /// Its tags: lowercase words, at most `MAX_TAGS`.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// The Chrono project it belongs to, by name (ids differ between computers); None for none, or
+    /// when no project has that name here.
+    #[serde(default)]
+    pub project: Option<String>,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -68,6 +75,8 @@ impl Default for Task {
             note: None,
             steps: Vec::new(),
             repeat: None,
+            tags: Vec::new(),
+            project: None,
             group: "none".into(),
         }
     }
@@ -97,7 +106,15 @@ pub struct More {
     pub repeat: Option<String>,
     #[serde(default)]
     pub steps: Vec<Step>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub project: Option<String>,
 }
+
+/// Tags a task may carry, and the longest one.
+pub const MAX_TAGS: usize = 8;
+pub const MAX_TAG_CHARS: usize = 24;
 
 pub const LOW: u8 = 0;
 pub const MEDIUM: u8 = 1;
@@ -161,6 +178,8 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         note: None,
         steps: Vec::new(),
         repeat: None,
+        tags: Vec::new(),
+        project: None,
         group: "none".into(),
     };
     conn.execute(
@@ -213,7 +232,8 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 /// order added; then done ones, newest first. Each with its focus time and group.
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
-    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat FROM tasks")?;
+    let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat, tags,
+                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1) FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -230,6 +250,8 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             note: r.get(9)?,
             steps: parse_steps(&r.get::<_, String>(10)?),
             repeat: r.get(11)?,
+            tags: parse_tags(&r.get::<_, String>(12)?),
+            project: r.get(13)?,
             group: String::new(),
         })
     })?;
@@ -356,7 +378,60 @@ pub fn set_steps(conn: &Connection, id: &str, steps: Vec<Step>) -> Result<bool> 
 
 /// What a task has beyond its plan; None when there's no such task.
 pub fn more(conn: &Connection, id: &str) -> Result<Option<More>> {
-    conn.query_row("SELECT repeat, steps FROM tasks WHERE id = ?1", [id], |r| Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?) })).optional()
+    conn.query_row("SELECT repeat, steps, tags, project FROM tasks WHERE id = ?1", [id], |r| {
+        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)? })
+    })
+    .optional()
+}
+
+/// A tag as kept: lowercase letters, digits, `-` and `_`, up to `MAX_TAG_CHARS`; None when nothing
+/// is left of it. A leading `#` is dropped.
+pub fn clean_tag(tag: &str) -> Option<String> {
+    let tag: String = tag.trim().trim_start_matches('#').to_lowercase().chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').take(MAX_TAG_CHARS).collect();
+    (!tag.is_empty()).then_some(tag)
+}
+
+/// Tags as kept: each cleaned, none twice, at most `MAX_TAGS`.
+pub fn clean_tags(tags: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tag in tags.iter().filter_map(|t| clean_tag(t)) {
+        if !out.contains(&tag) && out.len() < MAX_TAGS {
+            out.push(tag);
+        }
+    }
+    out
+}
+
+/// Tags read from their stored text, space-separated.
+fn parse_tags(text: &str) -> Vec<String> {
+    clean_tags(&text.split_whitespace().map(String::from).collect::<Vec<_>>())
+}
+
+/// A project name as kept: trimmed and short; None for none. One that a Chrono project goes by
+/// (whatever its case) takes that project's spelling.
+fn clean_project(conn: &Connection, name: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else { return Ok(None) };
+    let known: Option<String> = conn.query_row("SELECT name FROM projects WHERE name = ?1 COLLATE NOCASE LIMIT 1", [name], |r| r.get(0)).optional()?;
+    Ok(Some(known.unwrap_or_else(|| name.chars().take(MAX_LABEL_CHARS).collect())))
+}
+
+/// Gives a task its tags and project; false when there's no such task.
+pub fn set_labels(conn: &Connection, id: &str, tags: &[String], project: Option<&str>) -> Result<bool> {
+    let project = clean_project(conn, project)?;
+    Ok(conn.execute("UPDATE tasks SET tags = ?2, project = ?3 WHERE id = ?1", params![id, clean_tags(tags).join(" "), project])? > 0)
+}
+
+/// The ids of the tasks that belong to the project called `name`, whatever the case.
+pub fn in_project(conn: &Connection, name: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE project = ?1 COLLATE NOCASE")?;
+    let ids = stmt.query_map([name], |r| r.get::<_, String>(0))?.collect();
+    ids
+}
+
+/// A project was renamed: its tasks follow.
+pub fn rename_project(conn: &Connection, from: &str, to: &str) -> Result<()> {
+    conn.execute("UPDATE tasks SET project = ?2 WHERE project = ?1 COLLATE NOCASE", params![from, to])?;
+    Ok(())
 }
 
 /// A task's repeat and steps as their shared choice carries them; None when there's no such task.
@@ -366,7 +441,7 @@ pub fn more_json(conn: &Connection, id: &str) -> Result<Option<String>> {
 
 /// The tasks with a repeat or steps, with their shared text, for sharing when combining starts.
 pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != ''")?;
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL")?;
     let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
     ids.into_iter().filter_map(|id| more_json(conn, &id).transpose().map(|m| m.map(|m| (id, m)))).collect()
 }
@@ -375,7 +450,9 @@ pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
 pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
     let text = steps_text(&clean_steps(m.steps.clone()));
     let repeat = m.repeat.as_deref().filter(|r| REPEATS.contains(r));
-    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3 WHERE id = ?1", params![id, repeat, text])? > 0)
+    // A project another computer names is kept as named, whether or not one has that name here yet.
+    let project = m.project.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(|p| p.chars().take(MAX_LABEL_CHARS).collect::<String>());
+    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5 WHERE id = ?1", params![id, repeat, text, clean_tags(&m.tags).join(" "), project])? > 0)
 }
 
 /// The first day a repeating task comes due again, after the later of its due day and `today`, so
@@ -475,6 +552,8 @@ pub fn tick(conn: &Connection, id: &str, done: bool, now: i64, today: NaiveDate)
             params![copy, title, now, next_position(conn)?, next.format("%Y-%m-%d").to_string(), priority, remind, note, steps, rule],
         )?;
         if added > 0 {
+            // Its tags and project come along.
+            conn.execute("UPDATE tasks SET tags = (SELECT tags FROM tasks WHERE id = ?2), project = (SELECT project FROM tasks WHERE id = ?2) WHERE id = ?1", params![copy, id])?;
             out.added = Some(copy);
         }
     } else if !done && done_ms.is_some() {
@@ -738,7 +817,7 @@ mod tests {
         assert!(apply_more(&here, &t.id, &m).unwrap());
         assert_eq!(list(&here, 1, TODAY).unwrap()[0].steps, m.steps);
         // Another computer's unknown repeat is not kept.
-        let odd = More { repeat: Some("fortnight".into()), steps: vec![] };
+        let odd = More { repeat: Some("fortnight".into()), ..Default::default() };
         apply_more(&here, &t.id, &odd).unwrap();
         let got = &list(&here, 1, TODAY).unwrap()[0];
         assert_eq!((got.repeat.clone(), got.steps.len()), (None, 0));
@@ -911,6 +990,93 @@ mod tests {
         // Never again: the day stays.
         assert!(set_repeat(&c, &t.id, None, TODAY).unwrap());
         assert_eq!(list(&c, 1, TODAY).unwrap()[0].repeat, None);
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn tags_are_lowercase_words_without_repeats_and_at_most_eight() {
+        assert_eq!(clean_tag("  #School "), Some("school".into()));
+        assert_eq!(clean_tag("a b!c"), Some("abc".into()));
+        assert_eq!(clean_tag("#"), None);
+        assert_eq!(clean_tag("!!!"), None);
+        assert_eq!(clean_tag(&"x".repeat(60)).unwrap().len(), MAX_TAG_CHARS);
+        let many: Vec<String> = (0..12).map(|i| format!("t{i}")).collect();
+        assert_eq!(clean_tags(&many).len(), MAX_TAGS);
+        assert_eq!(clean_tags(&strings(&["Work", "#work", "home", "", "WORK"])), strings(&["work", "home"]));
+    }
+
+    fn project(c: &Connection, name: &str) {
+        crate::projects::save(c, None, name, name).unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_task_keeps_its_tags_and_a_chrono_project_by_its_spelling() {
+        let c = conn();
+        project(&c, "Kairo");
+        let t = add(&c, "Ship it", 1).unwrap().unwrap();
+        assert!(set_labels(&c, &t.id, &strings(&["Release", "urgent"]), Some("  kairo ")).unwrap());
+        let got = &list(&c, 1, TODAY).unwrap()[0];
+        assert_eq!((got.tags.clone(), got.project.as_deref()), (strings(&["release", "urgent"]), Some("Kairo")));
+        assert!(!set_labels(&c, "elsewhere", &[], None).unwrap());
+        set_labels(&c, &t.id, &[], Some("  ")).unwrap();
+        let got = &list(&c, 1, TODAY).unwrap()[0];
+        assert!(got.tags.is_empty() && got.project.is_none());
+    }
+
+    #[test]
+    fn a_project_no_chrono_project_has_shows_as_none_here_but_is_kept_to_share() {
+        let c = conn();
+        let t = add(&c, "Ship it", 1).unwrap().unwrap();
+        set_labels(&c, &t.id, &[], Some("Elsewhere")).unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].project, None);
+        assert_eq!(more(&c, &t.id).unwrap().unwrap().project.as_deref(), Some("Elsewhere"));
+        // Once the project is here, the task is in it.
+        project(&c, "elsewhere");
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].project.as_deref(), Some("elsewhere"));
+    }
+
+    #[test]
+    fn renaming_a_chrono_project_takes_its_tasks_along() {
+        let c = conn();
+        project(&c, "Kairo");
+        let id: i64 = c.query_row("SELECT id FROM projects", [], |r| r.get(0)).unwrap();
+        let t = add(&c, "Ship it", 1).unwrap().unwrap();
+        set_labels(&c, &t.id, &[], Some("Kairo")).unwrap();
+        crate::projects::save(&c, Some(id), "Kairo app", "kairo").unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].project.as_deref(), Some("Kairo app"));
+        assert_eq!(in_project(&c, "kairo app").unwrap(), vec![t.id]);
+    }
+
+    #[test]
+    fn tags_and_project_travel_with_steps_and_repeat() {
+        let (here, there) = (conn(), conn());
+        project(&here, "Kairo");
+        project(&there, "Kairo");
+        let t = add(&there, "Ship it", 1).unwrap().unwrap();
+        set_labels(&there, &t.id, &strings(&["release"]), Some("Kairo")).unwrap();
+        assert_eq!(with_more(&there).unwrap().len(), 1);
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        let m: More = serde_json::from_str(&more_json(&there, &t.id).unwrap().unwrap()).unwrap();
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        let got = &list(&here, 1, TODAY).unwrap()[0];
+        assert_eq!((got.tags.clone(), got.project.as_deref()), (strings(&["release"]), Some("Kairo")));
+        // A Kairo from before tags shares only repeat and steps: still read.
+        let old: More = serde_json::from_str(r#"{"repeat":null,"steps":[]}"#).unwrap();
+        assert_eq!((old.tags.len(), old.project), (0, None));
+    }
+
+    #[test]
+    fn a_repeating_tasks_next_one_keeps_its_tags_and_project() {
+        let c = conn();
+        project(&c, "Home");
+        let t = repeating(&c, "Water plants", "week", "2026-11-12");
+        set_labels(&c, &t.id, &strings(&["chore"]), Some("Home")).unwrap();
+        let new = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap().added.unwrap();
+        let next = list(&c, 100, "2026-11-12").unwrap().into_iter().find(|x| x.id == new).unwrap();
+        assert_eq!((next.tags, next.project.as_deref()), (strings(&["chore"]), Some("Home")));
     }
 
     #[test]

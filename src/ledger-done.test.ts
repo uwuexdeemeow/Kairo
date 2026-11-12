@@ -20,6 +20,8 @@ const task = (id: string, title: string, doneMs: number | null, focusedMs = 0): 
   note: null,
   steps: [],
   repeat: null,
+  tags: [],
+  project: null,
   group: doneMs === null ? "none" : "done",
 });
 

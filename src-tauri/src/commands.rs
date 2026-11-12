@@ -265,6 +265,7 @@ pub struct ParsedTask {
     due: Option<String>,
     priority: Option<u8>,
     repeat: Option<String>,
+    tags: Vec<String>,
     shown: String,
 }
 
@@ -276,12 +277,20 @@ fn quick(text: &str) -> crate::quick_add::Quick {
 pub fn parse_task(text: String) -> ParsedTask {
     let q = quick(&text);
     let shown = crate::quick_add::describe(&q);
-    ParsedTask { title: q.title, due: q.due, priority: q.priority, repeat: q.repeat, shown }
+    ParsedTask { title: q.title, due: q.due, priority: q.priority, repeat: q.repeat, tags: q.tags, shown }
 }
 
 /// Adds a task from quick-add text: its title, and the day and priority it ends with.
 pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: &str) -> CmdResult<Vec<tasks::Task>> {
-    let q = quick(text);
+    add_task_on(app, conn, text, None)
+}
+
+/// As `add_task_from`, due on `day` ("2026-11-07") when the text names no day of its own.
+pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &str, day: Option<&str>) -> CmdResult<Vec<tasks::Task>> {
+    let mut q = quick(text);
+    if q.due.is_none() {
+        q.due = day.filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()).map(String::from);
+    }
     if let Some(t) = tasks::add(conn, &q.title, now_ms()).map_err(err)? {
         if q.due.is_some() || q.priority.is_some() {
             tasks::set_plan(conn, &t.id, q.due.as_deref(), q.priority.unwrap_or(tasks::MEDIUM), None).map_err(err)?;
@@ -289,6 +298,11 @@ pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: 
         }
         if q.repeat.is_some() {
             tasks::set_repeat(conn, &t.id, q.repeat.as_deref(), &tasks::today()).map_err(err)?;
+        }
+        if !q.tags.is_empty() {
+            tasks::set_labels(conn, &t.id, &q.tags, None).map_err(err)?;
+        }
+        if q.repeat.is_some() || !q.tags.is_empty() {
             more_changed(conn, &t.id)?;
         }
     }
@@ -299,6 +313,13 @@ pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: 
 pub fn add_task(app: AppHandle, state: State<AppState>, title: String) -> CmdResult<Vec<tasks::Task>> {
     let conn = state.db.lock().map_err(err)?;
     add_task_from(&app, &conn, &title)
+}
+
+/// Adds a task from quick-add text, due on `day` ("2026-11-07") unless the text names its own.
+#[tauri::command]
+pub fn add_task_on_day(app: AppHandle, state: State<AppState>, title: String, day: String) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    add_task_on(&app, &conn, &title, Some(&day))
 }
 
 #[tauri::command]
@@ -602,6 +623,15 @@ pub fn set_task_steps(app: AppHandle, state: State<AppState>, id: String, steps:
     tasks_changed(&app, &conn)
 }
 
+/// Gives a task its tags and Chrono project (by name; none for none); they're cleaned first.
+#[tauri::command]
+pub fn set_task_labels(app: AppHandle, state: State<AppState>, id: String, tags: Vec<String>, project: Option<String>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::set_labels(&conn, &id, &tags, project.as_deref()).map_err(err)?;
+    more_changed(&conn, &id)?;
+    tasks_changed(&app, &conn)
+}
+
 /// Asked by Ledger once typing in a note has stopped a while, so the edit reaches combined
 /// computers without waiting for the next round.
 #[tauri::command]
@@ -764,6 +794,12 @@ pub fn save_project(state: State<AppState>, id: Option<i64>, name: String, keywo
     let conn = state.db.lock().map_err(err)?;
     projects::save(&conn, id, &name, &keywords).map_err(err)?.ok_or("A project needs a name and at least one keyword.")?;
     sync::record(&conn, "projects:all", &projects::to_json(&conn).map_err(err)?)?;
+    // Tasks in a renamed project carry the new name to combined computers.
+    if id.is_some() {
+        for task in tasks::in_project(&conn, name.trim()).map_err(err)? {
+            more_changed(&conn, &task)?;
+        }
+    }
     projects::list(&conn).map_err(err)
 }
 
@@ -1004,6 +1040,24 @@ pub fn get_away(state: State<AppState>, date: Option<String>) -> CmdResult<Vec<a
 pub fn get_calendar(state: State<AppState>) -> CmdResult<calendar::Status> {
     let conn = state.db.lock().map_err(err)?;
     calendar::status(&conn).map_err(err)
+}
+
+/// One meeting, for Ledger's calendar.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarEvent {
+    start_ms: i64,
+    end_ms: i64,
+    title: String,
+}
+
+/// The meetings from the connected calendars between two times, earliest first. Only the days
+/// the calendar keeps (two weeks either side of now) have any.
+#[tauri::command]
+pub fn get_calendar_events(state: State<AppState>, from_ms: i64, to_ms: i64) -> CmdResult<Vec<CalendarEvent>> {
+    let conn = state.db.lock().map_err(err)?;
+    let events = calendar::between(&conn, from_ms, to_ms).map_err(err)?;
+    Ok(events.into_iter().map(|e| CalendarEvent { start_ms: e.start_ms, end_ms: e.end_ms, title: e.title }).collect())
 }
 
 /// Keeps the calendar addresses given, one per line, and reads them at once; it waits on the

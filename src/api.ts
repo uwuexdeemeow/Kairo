@@ -330,7 +330,18 @@ export interface Task {
   steps: Step[];
   /** How it comes back once ticked; null for never. */
   repeat: Repeat | null;
+  /** Lowercase tag words. */
+  tags: string[];
+  /** The Chrono project it belongs to, by name; null for none. */
+  project: string | null;
   group: TaskGroup;
+}
+
+/** A meeting from a connected calendar. */
+export interface CalendarEvent {
+  startMs: number;
+  endMs: number;
+  title: string;
 }
 
 /** One line of a task's checklist. */
@@ -362,6 +373,7 @@ export interface ParsedTask {
   due: string | null;
   priority: number | null;
   repeat: Repeat | null;
+  tags: string[];
   shown: string;
 }
 
@@ -575,6 +587,8 @@ export const api = {
   tasks: () => invoke<Task[]>("get_tasks"),
   /** Quick-add text: its day and priority shortcuts are read off its end. */
   addTask: (title: string) => invoke<Task[]>("add_task", { title }),
+  /** As addTask, due on `day` ("2026-11-07") unless the text names its own. */
+  addTaskOnDay: (title: string, day: string) => invoke<Task[]>("add_task_on_day", { title, day }),
   parseTask: (text: string) => invoke<ParsedTask>("parse_task", { text }),
   setTaskPlan: (id: string, due: string | null, priority: number, remind: number | null) =>
     invoke<Task[]>("set_task_plan", { id, due, priority, remind }),
@@ -596,6 +610,10 @@ export const api = {
   setTaskNote: (task: string, note: string | null) => invoke<Task[]>("set_task_note", { task, note }),
   /** How a task comes back once ticked; null for never. One made to repeat with no due day is due today. */
   setTaskRepeat: (id: string, repeat: Repeat | null) => invoke<Task[]>("set_task_repeat", { id, repeat }),
+  /** Gives a task its tags and Chrono project (by name); what's kept comes back in the list. */
+  setTaskLabels: (id: string, tags: string[], project: string | null) => invoke<Task[]>("set_task_labels", { id, tags, project }),
+  /** Meetings from the connected calendars between two times; only the days the calendar keeps have any. */
+  calendarEvents: (fromMs: number, toMs: number) => invoke<CalendarEvent[]>("get_calendar_events", { fromMs, toMs }),
   /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
   setTaskSteps: (id: string, steps: Step[]) => invoke<Task[]>("set_task_steps", { id, steps }),
   syncSoon: () => invoke<void>("sync_soon"),

@@ -201,6 +201,9 @@ pub fn open(path: &Path) -> Result<Connection> {
         // A task's checklist as JSON text, and how it repeats once ticked (tasks.rs).
         ("tasks", "steps", "TEXT NOT NULL DEFAULT ''"),
         ("tasks", "repeat", "TEXT"),
+        // A task's tags, space-separated, and the Chrono project it belongs to, by name (tasks.rs).
+        ("tasks", "tags", "TEXT NOT NULL DEFAULT ''"),
+        ("tasks", "project", "TEXT"),
         // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).

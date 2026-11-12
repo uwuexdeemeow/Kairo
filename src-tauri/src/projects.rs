@@ -3,7 +3,7 @@
 //! so "kairo" gathers VS Code's kairo folder, the kairo repository in a browser and a terminal
 //! titled kairo into one total. Titles hidden by a privacy rule can't match; their sites still can.
 
-use rusqlite::{params, Connection, Result};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -50,7 +50,12 @@ pub fn save(conn: &Connection, id: Option<i64>, name: &str, keyword_text: &str) 
     let joined = words.join(", ");
     match id {
         Some(id) => {
+            let old: Option<String> = conn.query_row("SELECT name FROM projects WHERE id = ?1", [id], |r| r.get(0)).optional()?;
             conn.execute("UPDATE projects SET name = ?1, keywords = ?2 WHERE id = ?3", params![name, joined, id])?;
+            // Ledger's tasks in it follow the new name.
+            if let Some(old) = old.filter(|o| o != name) {
+                crate::tasks::rename_project(conn, &old, name)?;
+            }
             Ok(Some(id))
         }
         None => {

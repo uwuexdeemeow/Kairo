@@ -4,6 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type Task } from "./api";
 import { useDropdowns } from "./dropdown";
 import { mountDone, type DoneView } from "./ledger-done";
+import { mountCalendar, type CalendarView } from "./ledger-calendar";
+import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
@@ -32,7 +34,7 @@ let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
 /// The view showing: the summary line is the Tasks view's.
-let shown: "tasks" | "notes" | "done" | "settings" = "tasks";
+let shown: "tasks" | "calendar" | "notes" | "done" | "settings" = "tasks";
 
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
@@ -64,10 +66,16 @@ const taskUndo = mountUndo($("#task-undo"));
 /// Tasks deleted but still waiting on their Undo.
 const deletingTasks = new Set<string>();
 
-/// The tasks as shown: one waiting on its Undo is left out.
+/// The Chrono projects' names, for a task's Project choice.
+let projects: string[] = [];
+/// What the lists are narrowed to, by tag or project.
+let filter: Filter = NO_FILTER;
+
+/// The tasks as shown: one waiting on its Undo is left out, and those not matching Find or the
+/// tag or project chosen.
 const shownTasks = () => {
   const q = taskQuery();
-  return tasks.filter((t) => !deletingTasks.has(t.id) && (!q || t.title.toLowerCase().includes(q)));
+  return tasks.filter((t) => !deletingTasks.has(t.id) && (!q || t.title.toLowerCase().includes(q)) && matches(t, filter));
 };
 
 /// What's typed in Find a task, as it's matched.
@@ -100,15 +108,42 @@ function draw(list?: Task[]) {
   const panel = $("#task-detail");
   const t = visible.find((x) => x.id === selected);
   // Typing in the panel isn't undone by a redraw from elsewhere.
-  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames, session);
+  if (t && !panel.contains(document.activeElement)) renderDetail(panel, t, actions, noteNames, session, projects);
   panel.hidden = !t;
   // The panel slides over the list, which keeps its width.
   $("#view-tasks").classList.toggle("detail-open", !!t);
   if (!t) selected = null;
   // Open tasks, whatever Find is showing: the sidebar says how many there are, not how many match.
   $("#count-tasks").textContent = String(tasks.filter((x) => x.doneMs === null && !deletingTasks.has(x.id)).length || "");
-  if (shown === "tasks") $("#ledger-summary").textContent = taskSummary(visible);
+  drawFilters();
+  if (shown === "tasks") $("#ledger-summary").textContent = filterSummary(tasks, filter) || taskSummary(visible);
   if (shown === "done") drawDone();
+  if (shown === "calendar") drawCalendar();
+}
+
+/// The chips that narrow the lists to a tag or project, in Tasks and in Calendar.
+function drawFilters() {
+  const change = (next: Filter) => {
+    filter = next;
+    draw();
+  };
+  for (const root of document.querySelectorAll<HTMLElement>(".label-filters")) filterBar(root, tasks.filter((t) => !deletingTasks.has(t.id)), filter, change);
+}
+
+let calendarView: CalendarView | null = null;
+
+/// The Calendar view, made the first time it's shown, drawn with the tasks as they are now: one
+/// waiting on its Undo is left out, and the tag or project chosen narrows it.
+function drawCalendar() {
+  calendarView ??= mountCalendar($("#calendar-body"), {
+    events: (from, to) => api.calendarEvents(from, to),
+    openTask: (id) => openTask(id),
+    done: (id, done) => void actions.done(id, done),
+    add: async (text, day) => {
+      draw(await api.addTaskOnDay(text, day));
+    },
+  });
+  calendarView.render(tasks.filter((t) => !deletingTasks.has(t.id) && matches(t, filter)));
 }
 
 let doneView: DoneView | null = null;
@@ -127,7 +162,7 @@ function drawDone() {
 /// Draws the open panel again though it has the keyboard: for what was just done from it.
 function redrawPanel() {
   const t = shownTasks().find((x) => x.id === selected);
-  if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+  if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
 }
 
 /// Strict mode's wait before Stop works again, counted down on the status line.
@@ -147,8 +182,9 @@ function sayStrictWait(until: number) {
 }
 
 async function refresh() {
-  const [list, running, notes] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null)]);
+  const [list, running, notes, chrono] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null), api.projects().catch(() => null)]);
   session = running ? { task: running.task, endsMs: running.startMs + running.plannedMs + running.pausedMs } : null;
+  if (chrono) projects = chrono.map((p) => p.name);
   if (notes) {
     noteNames = notes.map((n) => ({ id: n.id, title: n.title }));
     $("#count-notes").textContent = String(notes.length || "");
@@ -188,7 +224,7 @@ const actions: LedgerActions = {
       selected = id;
       tasks = list;
       const t = list.find((x) => x.id === id);
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
     }),
   remove: (id) => {
@@ -240,8 +276,29 @@ const actions: LedgerActions = {
       selected = task;
       tasks = list;
       const t = list.find((x) => x.id === task);
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
+    }),
+  labels: (task, tags, project) =>
+    tried("change its tags", async () => {
+      const list = await api.setTaskLabels(task, tags, project);
+      selected = task;
+      tasks = list;
+      const t = list.find((x) => x.id === task);
+      // The panel shows the new labels, though it has the keyboard.
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
+      draw();
+    }),
+  newProject: (task, name) =>
+    tried("make the project", async () => {
+      // A Chrono project needs a keyword to gather time by: its own name.
+      // (Not twice: one already called that, whatever the case, is used.)
+      if (!projects.some((p) => p.toLowerCase() === name.toLowerCase())) {
+        const made = await api.saveProject(null, name, name);
+        projects = made.map((p) => p.name);
+      }
+      const t = tasks.find((x) => x.id === task);
+      await actions.labels(task, t?.tags ?? [], name);
     }),
   repeat: (task, repeat) =>
     tried("change how it repeats", async () => {
@@ -250,7 +307,7 @@ const actions: LedgerActions = {
       tasks = list;
       const t = list.find((x) => x.id === task);
       // The panel shows the new rule and the due day it may have given, though it has the keyboard.
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
     }),
   steps: (task, steps) =>
@@ -260,7 +317,7 @@ const actions: LedgerActions = {
       tasks = list;
       const t = list.find((x) => x.id === task);
       // The panel shows the new list, though it has the keyboard.
-      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session);
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
     }),
   newNoteFor: async (task, title) => {
@@ -325,8 +382,8 @@ async function followOpen() {
   }
 }
 
-type View = "tasks" | "notes" | "done" | "settings";
-const VIEWS: View[] = ["tasks", "notes", "done", "settings"];
+type View = "tasks" | "calendar" | "notes" | "done" | "settings";
+const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "settings"];
 
 /// The tabs as one Tab stop, the chosen one; the arrows move between them.
 function markTabs() {
@@ -346,11 +403,13 @@ function show(view: View) {
   markTabs();
   $("#view-tasks").hidden = view !== "tasks";
   $("#view-notes").hidden = view !== "notes";
+  $("#view-calendar").hidden = view !== "calendar";
   $("#view-done").hidden = view !== "done";
   $("#view-settings").hidden = view !== "settings";
   $("#task-find").hidden = view !== "tasks";
-  $("#ledger-title").textContent = { tasks: "Tasks", notes: "Notes", done: "Done", settings: "Settings" }[view];
+  $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", settings: "Settings" }[view];
   if (view === "done") drawDone();
+  if (view === "calendar") drawCalendar();
   $("#ledger-summary").textContent = view === "tasks" ? taskSummary(tasks) : "";
   // A note typed in is kept before another view takes the window.
   if (view !== "notes") void notesView?.flush();
@@ -428,8 +487,8 @@ document.addEventListener("keydown", (e) => {
   // Esc closes a calendar or a dropdown open in the panel first, the panel only after.
   if (e.key === "Escape" && selected && !e.defaultPrevented && !document.querySelector('[aria-haspopup][aria-expanded="true"]')) return closePanel();
   const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-  // Ctrl+1 to 4: the views.
-  if (ctrl && ["1", "2", "3", "4"].includes(e.key)) {
+  // Ctrl+1 to 5: the views.
+  if (ctrl && ["1", "2", "3", "4", "5"].includes(e.key)) {
     e.preventDefault();
     return show(VIEWS[Number(e.key) - 1]);
   }

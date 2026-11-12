@@ -12,6 +12,8 @@ pub struct Quick {
     pub priority: Option<u8>,
     /// How it repeats: one of `tasks::REPEATS`.
     pub repeat: Option<String>,
+    /// `#tags` ended it with, cleaned, in the order typed.
+    pub tags: Vec<String>,
 }
 
 /// Reads `text`'s shortcuts as of `today`: whole words at its end, in any order, one priority and
@@ -23,9 +25,20 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     let (mut due, mut priority) = (None, None);
     // "every fri" repeats weekly and is due the next Friday, unless a day is given beside it.
     let (mut repeat, mut repeat_day): (Option<&str>, Option<NaiveDate>) = (None, None);
+    let mut tags: Vec<String> = Vec::new();
     let mut end = words.len();
     while end > 0 {
         let word = words[end - 1];
+        // "#school" is a tag, whole words only; a lone # is just a word.
+        if word.starts_with('#') && tags.len() < crate::tasks::MAX_TAGS {
+            if let Some(tag) = crate::tasks::clean_tag(word) {
+                if !tags.contains(&tag) {
+                    tags.push(tag);
+                }
+                end -= 1;
+                continue;
+            }
+        }
         if repeat.is_none() && end >= 2 && words[end - 2].eq_ignore_ascii_case("every") {
             if let Some((rule, day)) = repeat_of(word, today) {
                 (repeat, repeat_day) = (Some(rule), day);
@@ -61,14 +74,15 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     let title: Vec<String> = words[..end].iter().map(unquote).collect();
     if title.is_empty() {
         let all: Vec<String> = words.iter().map(unquote).collect();
-        return Quick { title: all.join(" "), due: None, priority: None, repeat: None };
+        return Quick { title: all.join(" "), due: None, priority: None, repeat: None, tags: Vec::new() };
     }
     // A repeating task always has a day: the one beside it, the weekday named, or today (the next
     // weekday, for "every weekday" on a weekend).
     if repeat.is_some() && due.is_none() {
         due = repeat_day.or_else(|| if repeat == Some("weekday") { crate::tasks::next_due("weekday", None, today.pred_opt().unwrap_or(today)) } else { Some(today) });
     }
-    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority, repeat: repeat.map(String::from) }
+    tags.reverse();
+    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority, repeat: repeat.map(String::from), tags }
 }
 
 /// What "every <word>" repeats: its rule, and for a weekday's name the next such day.
@@ -157,7 +171,8 @@ pub fn describe(q: &Quick) -> String {
     let priority = q.priority.map(|p| ["Low", "Medium", "High"][p.min(2) as usize].to_string());
     let due = q.due.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).map(|d| d.format("%a %-d %b").to_string());
     let repeat = q.repeat.as_deref().map(|r| format!("Every {r}"));
-    [priority, due, repeat].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    let tags = (!q.tags.is_empty()).then(|| q.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" "));
+    [priority, due, repeat, tags].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
 
 /// Whether the system writes dates day first: everywhere but the US.
@@ -272,6 +287,30 @@ mod tests {
         assert_eq!(repeats("call \"every\" day"), ("call every day".into(), None, None));
         assert_eq!(repeats("party every night"), ("party every night".into(), None, None));
         assert_eq!(repeats("do it every today"), ("do it every".into(), day("2026-11-03"), None));
+    }
+
+    fn tagged(text: &str) -> (String, Option<String>, Vec<String>) {
+        let q = parse(text, today(), true);
+        (q.title, q.due, q.tags)
+    }
+
+    #[test]
+    fn hash_words_at_the_end_are_tags_in_any_order_with_the_other_shortcuts() {
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(tagged("essay #school"), ("essay".into(), None, t(&["school"])));
+        assert_eq!(tagged("essay #school #urgent fri"), ("essay".into(), day("2026-11-06"), t(&["school", "urgent"])));
+        assert_eq!(tagged("essay fri #School #school"), ("essay".into(), day("2026-11-06"), t(&["school"])));
+        assert_eq!(read("essay #school !h"), ("essay".into(), None, Some(2)));
+        assert_eq!(repeats("water plants #home every day"), ("water plants".into(), day("2026-11-03"), Some("day".into())));
+    }
+
+    #[test]
+    fn a_hash_that_isnt_a_tag_stays_in_the_title() {
+        assert_eq!(tagged("fix #"), ("fix #".into(), None, vec![]));
+        assert_eq!(tagged("fix #42 now"), ("fix #42 now".into(), None, vec![]));
+        assert_eq!(tagged("call \"#home\""), ("call #home".into(), None, vec![]));
+        // Nothing but a tag: taken as typed.
+        assert_eq!(tagged("#school"), ("#school".into(), None, vec![]));
     }
 
     #[test]

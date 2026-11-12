@@ -16,6 +16,8 @@ const task = (steps: Step[]): Task => ({
   note: null,
   steps,
   repeat: null,
+  tags: [],
+  project: null,
   group: "none",
 });
 const s = (t: string, d = false): Step => ({ t, d });
