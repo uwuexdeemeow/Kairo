@@ -2312,7 +2312,7 @@ dependencies = [
 
 [[package]]
 name = "kairo"
-version = "1.31.40"
+version = "1.31.41"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
