@@ -78,6 +78,9 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
         let now = now_ms();
         if now.saturating_sub(pruned_ms) >= PRUNE_EVERY_MS {
             log(privacy::prune(conn, now));
+            log(privacy::scrub_titles(conn, now));
+            // What was deleted leaves the file as large as it was, so it's given back when enough is free.
+            log(privacy::compact(conn));
             pruned_ms = now;
         }
 

@@ -725,6 +725,10 @@ export const api = {
   applyPrivacyToPast: (key: string) => invoke<number>("apply_privacy_to_past", { key }),
   retention: () => invoke<number>("get_retention"),
   setRetention: (days: number) => invoke<number>("set_retention", { days }),
+  /** Days window titles are kept for; 0 means as long as the history itself. */
+  titleDays: () => invoke<number>("get_title_days"),
+  /** Saves it and blanks the titles already past it, keeping the time; returns the sessions changed. */
+  setTitleDays: (days: number) => invoke<number>("set_title_days", { days }),
   /** For "day", `date` is a local `YYYY-MM-DD`; omit it for today. */
   deleteHistory: (range: DeleteRange, date?: string) => invoke<number>("delete_history", { range, date }),
   status: () => invoke<Status>("get_status"),

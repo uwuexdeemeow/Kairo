@@ -1,5 +1,6 @@
 import { confirmTwice } from "./confirm";
 import { renderModes, setUpModeForm } from "./focus-modes";
+import { keepFor } from "./keep-for";
 import "./fonts";
 import { dayParts, watchSvg } from "./chrono-look";
 import { dialSvg, logo } from "./logos";
@@ -1186,45 +1187,30 @@ const disarmNotice = confirmTwice(
   },
 );
 
-let savedRetention = "0";
-
-function renderRetention(days: number) {
-  savedRetention = String(days);
-  $<HTMLSelectElement>("#retention").value = savedRetention;
-  $("#retention-apply").hidden = true;
-}
-
 /// Keeping history for less time deletes the overflow, so that waits for a confirmed click.
-$<HTMLSelectElement>("#retention").addEventListener("change", async (e) => {
-  const value = (e.target as HTMLSelectElement).value;
-  const shorter = value !== "0" && (savedRetention === "0" || Number(value) < Number(savedRetention));
-  const apply = $<HTMLButtonElement>("#retention-apply");
-  $("#retention-status").textContent = "";
-  disarmRetention();
-  if (shorter) {
-    apply.textContent = `Save and delete history older than ${RETENTION_LABELS[value]}`;
-    apply.hidden = false;
-    return;
-  }
-  await saveRetention(Number(value));
+const retention = keepFor({
+  select: $<HTMLSelectElement>("#retention"),
+  apply: $<HTMLButtonElement>("#retention-apply"),
+  status: $("#retention-status"),
+  labels: RETENTION_LABELS,
+  applyText: (label) => `Save and delete history older than ${label}`,
+  armedText: "Click again to delete older history",
+  changedText: "Saved. Older history deleted.",
+  save: api.setRetention,
 });
+const renderRetention = retention.render;
 
-async function saveRetention(days: number) {
-  const out = $("#retention-status");
-  try {
-    const n = await api.setRetention(days);
-    renderRetention(days);
-    out.textContent = n ? `Saved. Older history deleted.` : "Saved.";
-  } catch (err) {
-    out.textContent = `Couldn't save. ${why(err)}`;
-  }
-}
-
-const disarmRetention = confirmTwice(
-  $<HTMLButtonElement>("#retention-apply"),
-  () => "Click again to delete older history",
-  () => saveRetention(Number($<HTMLSelectElement>("#retention").value)),
-);
+/// Window titles are kept for less time than the history: older ones are blanked, the time kept.
+const titleDays = keepFor({
+  select: $<HTMLSelectElement>("#title-days"),
+  apply: $<HTMLButtonElement>("#title-days-apply"),
+  status: $("#title-days-status"),
+  labels: { "0": "as long as the history", "365": "1 year", "90": "90 days", "30": "30 days", "7": "7 days" },
+  applyText: (label) => `Save and clear titles older than ${label}`,
+  armedText: "Click again to clear older titles",
+  changedText: "Saved. Older titles cleared.",
+  save: api.setTitleDays,
+});
 
 function deleteTarget(): { range: DeleteRange; date?: string; what: string } | null {
   const choice = $<HTMLSelectElement>("#delete-range").value;
@@ -2020,6 +2006,7 @@ async function load(v: View = view) {
     if (v === "settings") {
       renderBrowsers(await api.browsers());
       renderRetention(await api.retention());
+      titleDays.render(await api.titleDays());
       renderGoalSettings(await api.goalSettings());
       renderCalendar(await api.calendar());
       renderProjects(await api.projects());

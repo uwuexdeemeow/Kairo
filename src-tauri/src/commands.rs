@@ -1280,6 +1280,26 @@ pub fn set_retention(state: State<AppState>, days: u32) -> CmdResult<usize> {
     let conn = state.db.lock().map_err(err)?;
     privacy::set_retention_days(&conn, days).map_err(err)?;
     let changed = privacy::prune(&conn, now_ms()).map_err(err)?;
+    // What was deleted leaves the file as large as it was: given back once enough is free.
+    privacy::compact(&conn).map_err(err)?;
+    nudge::invalidate(&state.window_cache);
+    Ok(changed)
+}
+
+/// Days window titles are kept for; 0 means as long as the history itself.
+#[tauri::command]
+pub fn get_title_days(state: State<AppState>) -> CmdResult<u32> {
+    let conn = state.db.lock().map_err(err)?;
+    privacy::title_days(&conn).map_err(err)
+}
+
+/// Saves the setting and blanks the titles already past it, keeping the time; returns sessions changed.
+#[tauri::command]
+pub fn set_title_days(state: State<AppState>, days: u32) -> CmdResult<usize> {
+    let conn = state.db.lock().map_err(err)?;
+    privacy::set_title_days(&conn, days).map_err(err)?;
+    let changed = privacy::scrub_titles(&conn, now_ms()).map_err(err)?;
+    privacy::compact(&conn).map_err(err)?;
     nudge::invalidate(&state.window_cache);
     Ok(changed)
 }
@@ -1301,6 +1321,7 @@ pub fn delete_history(state: State<AppState>, range: String, date: Option<String
         other => return Err(format!("unknown range: {other}")),
     }
     .map_err(err)?;
+    privacy::compact(&conn).map_err(err)?;
     nudge::invalidate(&state.window_cache);
     Ok(changed)
 }

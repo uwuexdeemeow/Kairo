@@ -586,6 +586,28 @@ for the mode on a task, since it starts a session.
    "Essay draft", and that task's focus time counts it. `study nothing` offers no row; `study` alone
    still runs it on no task.
 
+## Old titles, and giving back space
+
+On Windows, a Mac and Linux. Use a copy with some history in it (Chrono's demo data does), not your
+own: clearing titles can't be undone.
+
+1. **The setting.** Chrono → Settings → Privacy and data. *Expect:* "Keep window titles for" under
+   "Keep history for", set to "As long as the history", with a line saying the time stays and that
+   projects finding time by words in a title stop finding it before then.
+2. **Longer is free.** Change it to 1 year with nothing older. *Expect:* it saves at once ("Saved.").
+3. **Shorter asks first.** Choose 7 days. *Expect:* nothing changes yet; a button says "Save and clear
+   titles older than 7 days". Click it, then again. *Expect:* "Saved. Older titles cleared."
+4. **The time stays.** Look at an older day in Chrono. *Expect:* the same totals, apps and sites as
+   before, with no window titles in the timeline's detail; days inside the window keep theirs.
+5. **Projects.** A project that found its time by a word in a title no longer finds it for days older
+   than the window; ones that go by a site or app are unaffected.
+6. **History keeps its own setting.** "Keep history for" works as before (shorter asks to confirm and
+   deletes), and the two don't interfere: titles can be kept for less time than the history, not more.
+7. **Space.** Erase a lot (a long range), or set history to 30 days with months recorded. *Expect:* the
+   data folder's `kairo.db` gets smaller once a fifth or more of it was free (a moment's pause is
+   normal); small deletes leave it alone.
+8. **Backup.** Back up and restore: the title window setting comes back with the other settings.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

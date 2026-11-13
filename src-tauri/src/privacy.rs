@@ -141,6 +141,48 @@ pub fn prune(conn: &Connection, now_ms: i64) -> Result<usize> {
     }
 }
 
+const TITLE_KEY: &str = "title_days";
+
+/// Days window titles are kept for; 0 keeps them as long as the history itself.
+pub fn title_days(conn: &Connection) -> Result<u32> {
+    Ok(db::get_setting(conn, TITLE_KEY)?.and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+pub fn set_title_days(conn: &Connection, days: u32) -> Result<()> {
+    db::set_setting(conn, TITLE_KEY, &days.to_string())
+}
+
+/// Blanks the window titles older than the title window and keeps the time: each session still
+/// says which app or site it was, for how long. Titles are the most telling thing recorded, and
+/// the totals and patterns don't need them. Returns the sessions changed.
+pub fn scrub_titles(conn: &Connection, now_ms: i64) -> Result<usize> {
+    match title_days(conn)? {
+        0 => Ok(0),
+        days => conn.execute("UPDATE sessions SET title = '' WHERE title != '' AND end_ms < ?1", [now_ms - days as i64 * DAY_MS]),
+    }
+}
+
+/// Free space in the file worth giving back: at least this much, and at least a fifth of it.
+const COMPACT_MIN_FREE_BYTES: i64 = 1_000_000;
+const COMPACT_MIN_FREE_PERCENT: i64 = 20;
+
+/// Gives back the space deleted history leaves in the file (it doesn't shrink on its own) once
+/// there is enough to be worth it. Returns whether it did.
+pub fn compact(conn: &Connection) -> Result<bool> {
+    compact_when(conn, COMPACT_MIN_FREE_BYTES, COMPACT_MIN_FREE_PERCENT)
+}
+
+fn compact_when(conn: &Connection, min_free_bytes: i64, min_free_percent: i64) -> Result<bool> {
+    let page_size: i64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    let pages: i64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let free: i64 = conn.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+    if pages == 0 || free * page_size < min_free_bytes || free * 100 < pages * min_free_percent {
+        return Ok(false);
+    }
+    conn.execute_batch("VACUUM")?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +242,54 @@ mod tests {
         let left: Vec<(String, String)> =
             conn.prepare("SELECT exe, title FROM sessions").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
         assert_eq!(left, vec![("code".to_string(), String::new())]);
+    }
+
+    fn titles(conn: &Connection) -> Vec<String> {
+        conn.prepare("SELECT title FROM sessions ORDER BY start_ms").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+    }
+
+    #[test]
+    fn old_titles_are_blanked_and_their_time_kept() {
+        let now = 100 * DAY_MS;
+        let conn = conn_with(&[("chrome", Some("gmail"), "Inbox (3) - Gmail", 0, DAY_MS), ("code", None, "secret.rs", 95 * DAY_MS, 96 * DAY_MS)]);
+        // Kept as long as the history itself, until a window is set.
+        assert_eq!(title_days(&conn).unwrap(), 0);
+        assert_eq!(scrub_titles(&conn, now).unwrap(), 0);
+        set_title_days(&conn, 30).unwrap();
+        assert_eq!(scrub_titles(&conn, now).unwrap(), 1);
+        assert_eq!(titles(&conn), ["", "secret.rs"]);
+        // The session is still there, its app and site and span as they were.
+        let old: (String, Option<String>, i64, i64) = conn.query_row("SELECT exe, site, start_ms, end_ms FROM sessions WHERE start_ms = 0", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap();
+        assert_eq!(old, ("chrome".to_string(), Some("gmail".to_string()), 0, DAY_MS));
+        // Nothing left to blank the second time.
+        assert_eq!(scrub_titles(&conn, now).unwrap(), 0);
+    }
+
+    #[test]
+    fn titles_inside_the_window_are_left_alone() {
+        let now = 100 * DAY_MS;
+        let conn = conn_with(&[("code", None, "now.rs", 99 * DAY_MS, 100 * DAY_MS)]);
+        set_title_days(&conn, 7).unwrap();
+        assert_eq!(scrub_titles(&conn, now).unwrap(), 0);
+        assert_eq!(titles(&conn), ["now.rs"]);
+    }
+
+    #[test]
+    fn the_file_is_compacted_only_when_enough_of_it_is_free() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        for n in 0..3000 {
+            conn.execute("INSERT INTO sessions (app, exe, title, start_ms, end_ms, idle) VALUES ('a', 'a', ?1, ?2, ?2 + 1, 0)", params!["t".repeat(300), n]).unwrap();
+        }
+        let free = |c: &Connection| c.query_row::<i64, _, _>("PRAGMA freelist_count", [], |r| r.get(0)).unwrap();
+        // Nothing deleted: nothing free to give back.
+        assert!(!compact_when(&conn, 1, 1).unwrap());
+        conn.execute("DELETE FROM sessions", []).unwrap();
+        assert!(free(&conn) > 0);
+        // Free, but not as much as asked for: left as it is.
+        assert!(!compact_when(&conn, i64::MAX, 1).unwrap());
+        assert!(free(&conn) > 0);
+        assert!(compact_when(&conn, 1, 1).unwrap());
+        assert_eq!(free(&conn), 0);
     }
 
     #[test]

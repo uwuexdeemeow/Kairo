@@ -448,6 +448,8 @@ pub fn run() {
             commands::apply_privacy_to_past,
             commands::get_retention,
             commands::set_retention,
+            commands::get_title_days,
+            commands::set_title_days,
             commands::delete_history,
             commands::get_extension_status,
             commands::open_extension_folder,
