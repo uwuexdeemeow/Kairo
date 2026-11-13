@@ -4364,7 +4364,8 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--muted);
 }
 
-.cal-day {
+/* The side card for the selected day. (Not ".cal-day", which is the date picker's day button.) */
+.cal-side {
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--rule);

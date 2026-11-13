@@ -64,7 +64,8 @@ export function mountCalendar(root: HTMLElement, deps: CalendarDeps, today: () =
 
   const head = h("div", { class: "cal-head" });
   const grid = h("div", { class: "cal-grid", role: "grid" });
-  const side = h("section", { class: "cal-day", "aria-live": "polite" });
+  // Not "cal-day": that is the date picker's day button, with its own fixed height.
+  const side = h("section", { class: "cal-side", "aria-live": "polite" });
   root.replaceChildren(head, h("div", { class: "cal-body" }, grid, side));
 
   const loadEvents = async () => {

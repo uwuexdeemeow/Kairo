@@ -84,6 +84,16 @@ describe("the Calendar view", () => {
     expect(root.querySelectorAll(".cal-name")).toHaveLength(7);
   });
 
+  it("keeps the selected day's card apart from the date picker's day buttons", () => {
+    mount();
+    // ".cal-day" is the picker's fixed-height day button: on the card it squashed it to one line.
+    const card = root.querySelector(".cal-side")!;
+    expect(card).not.toBeNull();
+    expect(card.classList.contains("cal-day")).toBe(false);
+    expect(card.querySelector(".cal-day-title")).not.toBeNull();
+    expect(root.querySelector(".cal-day")).toBeNull();
+  });
+
   it("shows each day's open tasks, two a cell and the rest as +n more, marking late ones", () => {
     mount([], [task("a", TODAY), task("b", TODAY), task("c", TODAY), task("old", "2026-11-03"), task("done", TODAY, { doneMs: 1 })]);
     expect([...cell(TODAY).querySelectorAll(".cal-task")].map((t) => t.textContent)).toEqual(["a", "b"]);
