@@ -4488,6 +4488,37 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--muted);
 }
 
+/* A focus mode on Chrono's Focus page: its name, length and list in a row, its apps under them. */
+.mode-apps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 8px;
+}
+
+.mode-app {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 2px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.mode-app-remove {
+  min-height: 28px;
+  padding: 0 8px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.mode-app-add {
+  min-height: 32px;
+  font-size: 13px;
+}
+
 /* What has been spent against an estimate, and how that usually goes, under the choice. */
 .estimate-note {
   grid-column: 1 / -1;

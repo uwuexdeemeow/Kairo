@@ -58,6 +58,7 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, keys: Vec<String>)
         Some(was) => {
             conn.execute("UPDATE block_lists SET name = ?1, keys = ?2 WHERE name = ?3", params![name, keys, was.name])?;
             conn.execute("UPDATE focus_schedule SET list = ?1 WHERE list = ?2 COLLATE NOCASE", params![name, was.name])?;
+            crate::focus_modes::rename_list(conn, &was.name, &name)?;
             conn.execute("UPDATE focus_sessions SET list = ?1 WHERE list = ?2 COLLATE NOCASE AND end_ms IS NULL", params![name, was.name])?;
             if default_list(conn)?.is_some_and(|d| d.eq_ignore_ascii_case(&was.name)) {
                 db::set_setting(conn, DEFAULT_KEY, &name)?;
@@ -77,6 +78,7 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, keys: Vec<String>)
 pub fn remove(conn: &Connection, name: &str) -> Result<()> {
     conn.execute("DELETE FROM block_lists WHERE name = ?1 COLLATE NOCASE", [name])?;
     conn.execute("UPDATE focus_schedule SET list = NULL WHERE list = ?1 COLLATE NOCASE", [name])?;
+    crate::focus_modes::forget_list(conn, name)?;
     if default_list(conn)?.is_some_and(|d| d.eq_ignore_ascii_case(name)) {
         set_default(conn, None)?;
     }

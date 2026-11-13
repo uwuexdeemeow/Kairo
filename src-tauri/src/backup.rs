@@ -11,7 +11,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::analysis;
 
 /// What a restore brings back. Where programs live (`app_paths`) stays as it is on this computer.
-const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "week_notes", "tasks", "notebook"];
+const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "focus_modes", "week_notes", "tasks", "notebook"];
 /// Settings that belong to this computer rather than to you: the palette's keys differ between a
 /// Mac and the rest, and each computer combining its time with others has its own id.
 const LOCAL_SETTINGS: &[&str] = &[

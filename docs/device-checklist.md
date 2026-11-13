@@ -531,6 +531,36 @@ purpose: a figure from a few days is worse than none.
 7. **A repeating task.** Give a repeating task an estimate and tick it. *Expect:* the next one has the
    same estimate.
 
+## Focus modes
+
+On Windows, a Mac and Linux. None of this has been tried on a real machine yet, and it opens apps and
+blocks others, so use a copy that isn't your own and have a block list that's safe to switch on.
+Modes stay on the computer they were made on.
+
+1. **Make one.** Chrono → Focus → Modes. Type `Study`, press Add. *Expect:* a row with the name, 25m,
+   "What a session blocks", and "Add an app". Change the length to 1h and the list to one of yours.
+   *Expect:* each change is kept; leaving and coming back shows them. A name already used, or none,
+   says so beside Add.
+2. **Add apps.** Press "Add an app". *Expect:* a list of installed apps (a moment the first time),
+   the one chosen appears as a chip with ✕; "Add another app" doesn't offer it again. ✕ takes one
+   away.
+3. **The palette.** Open the palette and type `study`. *Expect:* one row, "Study", under Modes, saying
+   "1h · blocks Social · opens Word". `mode` or `modes` lists every mode. Enter. *Expect:* a focus
+   session of that length starts (Chrono's Focus page and the tray show it), labelled Study; the apps
+   open; and what's on the list is blocked while it runs.
+4. **Its own list.** With a default block list set under Block lists, run a mode that names another.
+   *Expect:* the mode's list blocks, not the default. A mode with no list blocks what any session
+   you start does.
+5. **Replacing a session.** Start one, then run a mode. *Expect:* the new one replaces it, as starting
+   one by hand does.
+6. **Strict mode.** With strict mode on and a session running, run a mode. *Expect:* it refuses and
+   says strict mode is on; nothing is started or opened.
+7. **An app that's gone.** Uninstall one a mode opens (or use a copy where it isn't), run the mode.
+   *Expect:* the session still starts, the other apps open, nothing breaks.
+8. **Block lists.** Rename the list a mode uses. *Expect:* the mode follows it. Remove the list:
+   the mode goes back to "What a session blocks".
+9. **Backup.** Back up and restore. *Expect:* the modes are back.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

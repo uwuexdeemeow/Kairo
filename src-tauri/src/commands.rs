@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, focus_modes, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -739,6 +739,43 @@ pub fn remove_block_list(state: State<AppState>, name: String) -> CmdResult<Bloc
     lists::remove(&conn, &name).map_err(err)?;
     record_lists(&conn)?;
     block_lists(&conn)
+}
+
+/// The saved focus modes.
+#[tauri::command]
+pub fn get_focus_modes(state: State<AppState>) -> CmdResult<Vec<focus_modes::FocusMode>> {
+    let conn = state.db.lock().map_err(err)?;
+    focus_modes::list(&conn).map_err(err)
+}
+
+/// Adds a focus mode, or with `old`, changes the mode of that name.
+#[tauri::command]
+pub fn save_focus_mode(state: State<AppState>, old: Option<String>, name: String, minutes: u32, list: Option<String>, apps: Vec<focus_modes::ModeApp>) -> CmdResult<Vec<focus_modes::FocusMode>> {
+    let conn = state.db.lock().map_err(err)?;
+    focus_modes::save(&conn, old.as_deref(), &name, minutes, list.as_deref(), apps).map_err(err)??;
+    focus_modes::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_focus_mode(state: State<AppState>, name: String) -> CmdResult<Vec<focus_modes::FocusMode>> {
+    let conn = state.db.lock().map_err(err)?;
+    focus_modes::remove(&conn, &name).map_err(err)?;
+    focus_modes::list(&conn).map_err(err)
+}
+
+/// An installed app a mode can open: its name and the path it's opened by.
+#[derive(Serialize)]
+pub struct InstalledApp {
+    name: String,
+    path: String,
+}
+
+/// The apps the palette can open, for a mode to choose from.
+#[tauri::command]
+pub fn get_installed_apps(index: State<palette::Index>) -> Vec<InstalledApp> {
+    let mut apps: Vec<InstalledApp> = index.get_or_list(palette::installed_apps).into_iter().map(|(name, path)| InstalledApp { name, path }).collect();
+    apps.sort_by_key(|a| a.name.to_lowercase());
+    apps
 }
 
 /// The list sessions started by hand block; None blocks as usual.

@@ -289,6 +289,8 @@ pub enum Action {
     Dashboard(Option<&'static str>),
     /// A focus session: minutes, label, and the task it's for, by id.
     StartFocus(u32, Option<String>, Option<String>),
+    /// A saved focus mode, by name: its session, its block list and its apps.
+    RunMode(String),
     /// A pomodoro cycle: minutes per round and per break (the saved ones when None), label, and
     /// the task it's for, by id.
     Pomodoro(Option<u32>, Option<u32>, Option<String>, Option<String>),
@@ -576,6 +578,8 @@ pub struct Context {
     pub week_goals: Option<String>,
     /// The saved block lists' names; "focus 50 social" blocks the one called Social.
     pub block_lists: Vec<String>,
+    /// The saved focus modes, in the order they were made.
+    pub modes: Vec<crate::focus_modes::FocusMode>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1253,6 +1257,7 @@ pub(super) mod tests {
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
+            modes: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

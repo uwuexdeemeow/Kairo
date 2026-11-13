@@ -555,6 +555,23 @@ export interface BlockList {
   keys: string[];
 }
 
+/** An app a mode opens: its name, and the path the palette opens it by. */
+export interface ModeApp {
+  name: string;
+  path: string;
+}
+
+/** A name for a way of working: how long to focus, which block list applies, and the apps to open. */
+export interface FocusMode {
+  name: string;
+  minutes: number;
+  /** The block list that applies, by name; null for what a session started by hand blocks. */
+  list: string | null;
+  apps: ModeApp[];
+}
+
+export type InstalledApp = ModeApp;
+
 export interface BlockLists {
   lists: BlockList[];
   /** The list sessions started by hand block; null blocks as usual. */
@@ -693,6 +710,12 @@ export const api = {
   /** Adds a list, or with `old`, changes the list of that name. Refused for a name in use. */
   saveBlockList: (old: string | null, name: string, keys: string[]) => invoke<BlockLists>("save_block_list", { old, name, keys }),
   removeBlockList: (name: string) => invoke<BlockLists>("remove_block_list", { name }),
+  focusModes: () => invoke<FocusMode[]>("get_focus_modes"),
+  /** Adds a mode, or with `old`, changes the mode of that name. Refused for a name in use or a length a session can't have. */
+  saveFocusMode: (old: string | null, name: string, minutes: number, list: string | null, apps: ModeApp[]) => invoke<FocusMode[]>("save_focus_mode", { old, name, minutes, list, apps }),
+  removeFocusMode: (name: string) => invoke<FocusMode[]>("remove_focus_mode", { name }),
+  /** The apps the palette can open, for a mode to choose from. */
+  installedApps: () => invoke<InstalledApp[]>("get_installed_apps"),
   setDefaultBlockList: (name: string | null) => invoke<BlockLists>("set_default_block_list", { name }),
   /** The weekly goals for the week containing `date`; the streak counts weeks. */
   weekGoals: (date?: string) => invoke<DayGoals>("get_week_goals", { date }),

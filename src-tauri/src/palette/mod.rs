@@ -385,6 +385,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
+        modes: crate::focus_modes::list(conn).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -498,6 +499,20 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         }
         Action::Pomodoro(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
+        }
+        Action::RunMode(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
+            Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
+        }
+        Action::RunMode(name) => {
+            use tauri::Emitter;
+            let mode = crate::focus_modes::find(conn, name).map_err(|e| e.to_string())?.ok_or_else(|| "That mode is gone.".to_string())?;
+            let apps = crate::focus_modes::start(conn, &mode, now_ms()).map_err(|e| e.to_string())?;
+            let _ = app.emit("kairo:focus", ());
+            // Best effort: an app that can't be opened doesn't undo the session.
+            for a in apps {
+                let _ = launch(index, &a.path);
+            }
+            Ok(())
         }
         Action::Power(power) | Action::PowerNow(power) => {
             tauri::Manager::state::<crate::system::PendingPower>(app).clear();
@@ -1268,6 +1283,7 @@ mod tests {
             limits: HashMap::new(),
             week_goals: None,
             block_lists: Vec::new(),
+            modes: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

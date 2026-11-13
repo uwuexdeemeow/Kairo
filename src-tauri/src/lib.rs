@@ -14,6 +14,7 @@ mod db;
 mod demo;
 mod evening;
 mod focus;
+mod focus_modes;
 mod pomodoro;
 mod system;
 mod goals;
@@ -499,6 +500,10 @@ pub fn run() {
             commands::set_task_labels,
             commands::set_task_when,
             commands::set_task_estimate,
+            commands::get_focus_modes,
+            commands::save_focus_mode,
+            commands::remove_focus_mode,
+            commands::get_installed_apps,
             commands::get_focus_usual,
             commands::get_calendar_events,
             commands::add_task_on_day,

@@ -137,6 +137,14 @@ pub fn open(path: &Path) -> Result<Connection> {
              keys     TEXT    NOT NULL,
              position INTEGER NOT NULL DEFAULT 0
          );
+         -- Focus modes (focus_modes.rs): a name for a length, a block list and some apps to open.
+         CREATE TABLE IF NOT EXISTS focus_modes (
+             name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+             minutes  INTEGER NOT NULL,
+             list     TEXT,
+             apps     TEXT    NOT NULL DEFAULT '[]',
+             position INTEGER NOT NULL DEFAULT 0
+         );
          -- Weekly review notes (notes.rs), by the week's Monday.
          CREATE TABLE IF NOT EXISTS week_notes (
              monday TEXT PRIMARY KEY,

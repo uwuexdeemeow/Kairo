@@ -1,4 +1,5 @@
 import { confirmTwice } from "./confirm";
+import { renderModes, setUpModeForm } from "./focus-modes";
 import "./fonts";
 import { dayParts, watchSvg } from "./chrono-look";
 import { dialSvg, logo } from "./logos";
@@ -1694,10 +1695,12 @@ function renderBlockLists(b: BlockLists) {
   const status = $("#block-list-status");
   const run = async (change: () => Promise<BlockLists>) => {
     try {
-      renderBlockLists(await change());
+      const next = await change();
+      renderBlockLists(next);
       status.textContent = "";
-      // A slot's summary names its list, which may have been renamed or removed.
+      // A slot's summary and a mode name their list, which may have been renamed or removed.
       renderSchedule(await api.focusSchedule());
+      renderModes(await api.focusModes(), next.lists.map((l) => l.name));
     } catch (err) {
       status.textContent = why(err);
     }
@@ -1765,6 +1768,7 @@ function setUpScheduleForm() {
   });
 }
 setUpScheduleForm();
+setUpModeForm(() => savedLists.map((l) => l.name));
 
 /// The pomodoro cycle as the Focus page last read it, and when that was, so a break's countdown can
 /// run on between reads.
@@ -2008,8 +2012,10 @@ async function load(v: View = view) {
       await drawTasks();
       // Slots name the apps, sites and saved lists they block, so those come first.
       await loadBlockChoices();
-      renderBlockLists(await api.blockLists());
+      const blocks = await api.blockLists();
+      renderBlockLists(blocks);
       renderSchedule(await api.focusSchedule());
+      renderModes(await api.focusModes(), blocks.lists.map((l) => l.name));
     }
     if (v === "settings") {
       renderBrowsers(await api.browsers());
