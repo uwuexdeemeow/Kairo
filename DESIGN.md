@@ -1,6 +1,6 @@
 ---
 name: Kairo
-description: A desktop hub of small tools, each drawn as the object it is, in ink on paper.
+description: A desktop hub of small tools, each with its own drawn mark, in ink on paper.
 colors:
   ink-deep: "#141a24"
   ink-sheet: "#1b2230"
@@ -186,6 +186,8 @@ components:
 
 Each of Kairo's apps is drawn as the thing it is: Chrono a watch dial, Ledger a cloth notebook with a gold ribbon, the command palette a keycap, Kairo itself a ring with one stretch of it lit gold, the moment. They sit on a sheet of cream paper by day, or on deep blue ink by night (the default), with a faint grain over the ground. Everything else is ruled lines, small capitals and quiet sheets, so the objects and the numbers carry the character.
 
+The dashboard's Home is the exception to showing them: it leads with the day, not the apps. Its title says what is left ("Two things left today."), a quiet strip names the focus session while one runs, the tasks due are plain rows, and the apps are small chips and a line of hints. The drawn objects stay in each app's own window, its mark and the ring.
+
 It is a tool used for seconds at a time, many times a day, so density is moderate and calm: one display face for titles and big numbers, one text face for everything you read and press, a mono face for keys and figures. Each window takes its app's ink as its accent, the same way a notebook and a watch keep their own colour on one desk; the data colours (productive, distracting, the blue ramp) mean the same thing everywhere.
 
 The look is defined by `src/styles.css` (tokens on `:root`, dark first, `[data-theme="light"]` for paper), the drawings in `src/logos.ts`, and the native Windows palette and ring, which copy the same values in Rust and must stay in step.
@@ -235,8 +237,8 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 ### Hierarchy
 - **Hero** (Fraunces 800, 84px): Today's total beside its dial.
 - **Figure** (Fraunces 800, 64px, tabular): the focus timer. With hours ("1:30:00") it steps down to **figure-hours** (48px) to stay inside its ring.
-- **Display** (Fraunces 800, 42px, 1.08): page titles and greetings; the aside in italic 400 in the app's ink ("Good evening, *nearly done.*").
-- **Headline** (Fraunces 800, 22px): wordmarks and app names on the dashboard.
+- **Display** (Fraunces 800, 42px, 1.08): page titles and Home's summary of the day ("Two things left today."); the greeting, its aside in italic 400 in the app's ink ("Good evening, *nearly done.*"), is only the fallback when the day can't be read.
+- **Headline** (Fraunces 800, 22px): wordmarks.
 - **Title** (Fraunces 800, 16px): the lit name on the ring, panel titles.
 - **Data** (Geist Mono, 30px and 18px): an insight's metric; stat values.
 - **Total** (Instrument Sans 300, 40px): an answer's total in the palette.
@@ -269,7 +271,7 @@ Mostly flat: depth comes from the ground and sheet tones and from a hairline rul
 
 ## Shapes
 
-Gently rounded: 10px for sheets, fields and buttons, 6 to 8px for small targets like calendar days and options, a full pill for chips, the palette's bubble and the "← Kairo" link, a hair (2 to 3px) for bars and timeline segments, 14px for the palette's floating panel, and 16px for the keycap the dashboard draws. Lines are hairlines (1px). Objects are drawn with round caps and joins.
+Gently rounded: 10px for sheets, fields and buttons, 6 to 8px for small targets like calendar days and options, a full pill for chips, the palette's bubble and the "← Kairo" link, a hair (2 to 3px) for bars and timeline segments, 14px for the palette's floating panel. Lines are hairlines (1px). Objects are drawn with round caps and joins.
 
 ## Components
 
