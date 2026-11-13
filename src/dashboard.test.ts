@@ -225,6 +225,31 @@ describe("Today", () => {
     await vi.waitFor(() => expect($("#dash-title").textContent).toMatch(/^(Good (morning|afternoon|evening),|Still up\?) /));
   });
 
+  it("offers the plan while something is due: planning the day, then wrapping it up from five", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(2026, 10, 5, 10, 0));
+      api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "today", remindMs: null }]);
+      await open();
+      await vi.waitFor(() => expect($<HTMLButtonElement>("#plan-day").hidden).toBe(false));
+      expect($("#plan-day").textContent).toBe("Plan the day");
+      $<HTMLButtonElement>("#plan-day").click();
+      expect(api.openLedger).toHaveBeenCalledWith("plan");
+      // From five o'clock it wraps the day up instead.
+      vi.setSystemTime(new Date(2026, 10, 5, 18, 0));
+      $<HTMLButtonElement>('[data-tab="settings"]').click();
+      $<HTMLButtonElement>('[data-tab="home"]').click();
+      await vi.waitFor(() => expect($("#plan-day").textContent).toBe("Wrap up the day"));
+      // Nothing due: nothing to plan.
+      api.tasks.mockResolvedValue([]);
+      $<HTMLButtonElement>('[data-tab="settings"]').click();
+      $<HTMLButtonElement>('[data-tab="home"]').click();
+      await vi.waitFor(() => expect($<HTMLButtonElement>("#plan-day").hidden).toBe(true));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows the focus session running, with a way to end it, and none when there isn't", async () => {
     api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "today", remindMs: null }]);
     await open();

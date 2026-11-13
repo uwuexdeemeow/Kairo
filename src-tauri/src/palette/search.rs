@@ -312,6 +312,8 @@ pub enum Action {
     AddTask(String),
     /// Opens Ledger.
     OpenLedger,
+    /// Opens Ledger's Plan view: the day planned, or wrapped up.
+    OpenPlan,
     /// Opens the app ring.
     OpenRing,
     /// Opens a note in Ledger, by id.
@@ -1117,13 +1119,16 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     }
     // A running session's own rows (pause, extend, end) are among the commands.
     let idle = ctx.live.session.is_none();
-    let actions: [(&str, String, Glyph, Action, bool); 10] = [
+    // Ledger's Plan view: planned in the day, wrapped up from five o'clock.
+    let plan_title = if chrono::Timelike::hour(&ctx.live.now) >= 17 { "Wrap up the day" } else { "Plan the day" };
+    let actions: [(&str, String, Glyph, Action, bool); 11] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
+        ("plan day plan my day wrap up shutdown review tomorrow carry over", plan_title.into(), Glyph::Day, Action::OpenPlan, true),
         ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
         ("virustotal vt virus malware", "Scan with VirusTotal".into(), Glyph::Search, Action::Scan(None), true),
@@ -1631,6 +1636,21 @@ pub(super) mod tests {
     fn ledger_opens_from_the_palette() {
         let c = ctx();
         assert_eq!(search(&c, "ledger")[0].action, Action::OpenLedger);
+    }
+
+    #[test]
+    fn the_plan_is_offered_as_planning_by_day_and_wrapping_up_from_five() {
+        use chrono::Timelike;
+        let mut c = ctx();
+        c.live.now = c.live.now.with_hour(10).unwrap();
+        let morning = search(&c, "plan");
+        assert_eq!((morning[0].title.as_str(), morning[0].action.clone()), ("Plan the day", Action::OpenPlan));
+        c.live.now = c.live.now.with_hour(18).unwrap();
+        let evening = search(&c, "plan");
+        assert_eq!((evening[0].title.as_str(), evening[0].action.clone()), ("Wrap up the day", Action::OpenPlan));
+        // Either way, either word finds it.
+        assert_eq!(search(&c, "wrap up")[0].action, Action::OpenPlan);
+        assert_eq!(search(&c, "carry over")[0].action, Action::OpenPlan);
     }
 
     #[test]

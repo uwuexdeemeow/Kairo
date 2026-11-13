@@ -543,6 +543,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::show_ledger(app);
             Ok(())
         }
+        Action::OpenPlan => {
+            crate::show_ledger_at(app, "plan");
+            Ok(())
+        }
         Action::OpenRing => {
             crate::ring::toggle(app);
             Ok(())

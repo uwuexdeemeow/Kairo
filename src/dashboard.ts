@@ -6,6 +6,7 @@ import { api, type FocusSession, type Task } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { loadLine, plannedMinutes } from "./ledger-cost";
+import { planTitle } from "./ledger-plan";
 import { ledgerLine } from "./ledger-tasks";
 import { greeting } from "./logos";
 import { glyph } from "./glyphs";
@@ -256,6 +257,10 @@ async function drawToday(running: Running) {
     .filter((t) => t.group !== "done" && t.remindMs !== null && t.remindMs > now && t.remindMs <= end.getTime())
     .sort((a, b) => a.remindMs! - b.remindMs!)[0];
   const nextReminder = reminder ? `Next reminder at ${new Date(reminder.remindMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${reminder.title}` : "";
+  // A way into Ledger's Plan view while there is something due: planning the day, or wrapping it up.
+  const plan = $<HTMLButtonElement>("#plan-day");
+  plan.hidden = !due.length;
+  plan.textContent = planTitle(Date.now());
   // The day's estimates against a usual day's focus, when any task due has one.
   next.textContent = [loadLine(plannedMinutes(tasks), usual), nextReminder].filter(Boolean).join(" · ");
 }
@@ -392,6 +397,7 @@ followTheme();
 useDropdowns();
 $("#dash-date").textContent = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 drawHome();
+$("#plan-day").addEventListener("click", () => api.openLedger("plan"));
 drawAppSettings();
 // Focus rings stay out of the way until a key is pressed: the keyboard starts on Home's first
 // control, which no one reached by keyboard yet, and a ring there reads as a stray highlight.

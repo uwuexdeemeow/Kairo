@@ -37,7 +37,11 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M8 12.5l2.7 2.7L16 9.5" /></svg>
             Done
           </button>
-          <button role="tab" data-view="settings" id="tab-settings" aria-selected="false" aria-controls="view-settings" class="tab-settings" title="Settings (Ctrl+5)">
+          <button role="tab" data-view="plan" id="tab-plan" aria-selected="false" aria-controls="view-plan" title="Plan the day (Ctrl+5)">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0110 0M12 6V3M5.5 9.5L4 8M18.5 9.5L20 8" /></svg>
+            Plan
+          </button>
+          <button role="tab" data-view="settings" id="tab-settings" aria-selected="false" aria-controls="view-settings" class="tab-settings" title="Settings (Ctrl+6)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
             Settings
           </button>
@@ -75,6 +79,8 @@
         <section id="view-notes" class="view" role="tabpanel" aria-labelledby="tab-notes" hidden></section>
 
         <section id="view-done" class="view ledger-done" role="tabpanel" aria-labelledby="tab-done" hidden></section>
+
+        <section id="view-plan" class="view ledger-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
 
         <section id="view-settings" class="view" role="tabpanel" aria-labelledby="tab-settings" hidden>
           <section class="block">

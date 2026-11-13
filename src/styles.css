@@ -3468,6 +3468,11 @@ select,
   display: none;
 }
 
+.plan-day {
+  min-height: 34px;
+  font-size: 13px;
+}
+
 /* The apps that keep count: a chip each, its name the way in and today's line beside it. */
 .app-chips {
   display: flex;
@@ -4499,6 +4504,145 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 
 .day-field.empty {
   color: var(--muted);
+}
+
+/* Ledger's Plan view: the day's tasks, each with its ways to move it, then what was done. */
+.ledger-plan {
+  max-width: 640px;
+}
+
+.plan-lead {
+  margin: 0 0 20px;
+  color: var(--ink-2);
+}
+
+.plan-head {
+  margin: 24px 0 8px;
+  color: var(--muted);
+  font: 600 11px var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.plan-list,
+.plan-done-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.plan-row:first-child {
+  border-top: 0;
+}
+
+.plan-tick,
+.plan-check {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--edge);
+  border-radius: 50%;
+  background: none;
+  color: transparent;
+}
+
+.plan-tick {
+  cursor: pointer;
+  transition: color 140ms var(--ease), border-color 140ms var(--ease);
+}
+
+.plan-tick:hover,
+.plan-tick:focus-visible {
+  border-color: var(--ledger);
+  color: var(--ledger);
+}
+
+.plan-check {
+  border-color: var(--ledger);
+  color: var(--ledger);
+}
+
+.plan-tick .icon,
+.plan-check .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.plan-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 4px 8px 4px 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 500 14px var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Its ring sits inside the row it shares with the tick. */
+.plan-title:focus-visible {
+  outline-offset: -2px;
+}
+
+.plan-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-late {
+  color: var(--distracting-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plan-cost {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-row-done .plan-title {
+  color: var(--muted);
+}
+
+.plan-act {
+  flex: none;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.plan-act:hover {
+  color: var(--ink);
+}
+
+.plan-all {
+  margin-top: 8px;
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.plan-tomorrow-line,
+.plan-focused,
+.plan-empty {
+  margin: 12px 0 0;
+  font-size: 13px;
 }
 
 /* A focus mode on Chrono's Focus page: its name, length and list in a row, its apps under them. */

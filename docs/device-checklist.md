@@ -608,6 +608,35 @@ own: clearing titles can't be undone.
    normal); small deletes leave it alone.
 8. **Backup.** Back up and restore: the title window setting comes back with the other settings.
 
+## Ledger: Plan the day
+
+On Windows, a Mac and Linux, in a dark and a light theme, once before five o'clock and once after (or
+change the computer's clock). None of this has been looked at on a real screen yet. Needs a few tasks:
+one overdue, two due today (one with an estimate), one due tomorrow.
+
+1. **The tab.** Ledger's sidebar has Plan between Done and Settings; Ctrl+5 opens it and Settings is
+   now Ctrl+6 (Ctrl+1 to 4 as before). The tab's title and the page title read "Plan the day" before
+   five and "Wrap up the day" after, under today's date.
+2. **The morning.** *Expect:* a line such as "3 to do · 2h planned today" (and "…, more than the 3h
+   you usually focus" once there's enough history), then "To do today" with the overdue and today's
+   tasks only, "Overdue" in warm text, an estimate or time spent beside each, and Tomorrow and Later at
+   the end of the row. Nothing upcoming, nothing done.
+3. **Tomorrow.** Press Tomorrow on one. *Expect:* it leaves the list, is due tomorrow in Tasks and
+   Calendar, and its reminder (if it had one) moved a day on at the same time. The line under the list
+   says what tomorrow already holds. The keyboard goes to the row that took its place.
+4. **Later.** Press Later. *Expect:* it has no due day any more (in Tasks it's among the undated), and a
+   reminder that had already passed is gone; one still to come stays.
+5. **Done and open.** The round tick marks a task done, as everywhere; its title opens it in Tasks.
+6. **Move all.** With two or more left, "Move all to tomorrow" asks for a second click, then moves them.
+7. **The evening.** After five: the line says "N done · Xm focused · M left", the list is "Left over",
+   and "Done today" lists what was finished with its focus time. With nothing left: "Nothing due today or
+   overdue." and everything due is done.
+8. **From elsewhere.** Home shows "Plan the day" (or "Wrap up the day") under today's tasks while
+   something is due; it opens Ledger on Plan. In the palette, `plan` (or `wrap up`, `carry over`) offers
+   the same, named for the hour.
+9. **Strict focus and sync.** Moving a task is an ordinary plan change: it reaches a combined computer
+   like one made in the task's panel.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

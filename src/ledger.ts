@@ -6,6 +6,7 @@ import { useDropdowns } from "./dropdown";
 import { mountDone, type DoneView } from "./ledger-done";
 import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
+import { mountPlan, planTitle, type PlanView } from "./ledger-plan";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -23,7 +24,7 @@ let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
 /// The view showing: the summary line is the Tasks view's.
-let shown: "tasks" | "calendar" | "notes" | "done" | "settings" = "tasks";
+let shown: "tasks" | "calendar" | "notes" | "done" | "plan" | "settings" = "tasks";
 
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
@@ -117,6 +118,7 @@ function draw(list?: Task[]) {
   drawFilters();
   if (shown === "tasks") $("#ledger-summary").textContent = filterSummary(tasks, filter) || tasksLine(visible);
   if (shown === "done") drawDone();
+  if (shown === "plan") drawPlan();
   if (shown === "calendar") drawCalendar();
 }
 
@@ -156,6 +158,28 @@ function drawDone() {
     openTask: (id) => openTask(id),
   });
   doneView.render(tasks.filter((t) => !deletingTasks.has(t.id)));
+}
+
+let planView: PlanView | null = null;
+
+/// The Plan view, made the first time it's shown, drawn with the tasks as they are now. Its title
+/// follows the hour: the day is planned until five, and wrapped up after.
+function drawPlan() {
+  planView ??= mountPlan(
+    $("#view-plan"),
+    {
+      move: (id, due, remind) =>
+        void tried("move it", async () => {
+          const t = tasks.find((x) => x.id === id);
+          if (t) draw(await api.setTaskPlan(id, due, t.priority, remind));
+        }),
+      done: (id, done) => void actions.done(id, done),
+      openTask: (id) => openTask(id),
+    },
+    () => usualFocusMs,
+  );
+  $("#ledger-title").textContent = planTitle(Date.now());
+  planView.render(tasks.filter((t) => !deletingTasks.has(t.id)));
 }
 
 /// Draws the open panel again though it has the keyboard: for what was just done from it.
@@ -396,6 +420,8 @@ async function followOpen() {
   if (kind === "task" && id) openTask(id);
   // Kairo's App settings: Ledger's own.
   if (kind === "settings") show("settings");
+  // Home's and the palette's Plan the day.
+  if (kind === "plan") show("plan");
   // The ring's New task: the Tasks view, ready to type.
   if (kind === "add") {
     show("tasks");
@@ -403,8 +429,8 @@ async function followOpen() {
   }
 }
 
-type View = "tasks" | "calendar" | "notes" | "done" | "settings";
-const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "settings"];
+type View = "tasks" | "calendar" | "notes" | "done" | "plan" | "settings";
+const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "plan", "settings"];
 
 /// The tabs as one Tab stop, the chosen one; the arrows move between them.
 function markTabs() {
@@ -426,12 +452,15 @@ function show(view: View) {
   $("#view-notes").hidden = view !== "notes";
   $("#view-calendar").hidden = view !== "calendar";
   $("#view-done").hidden = view !== "done";
+  $("#view-plan").hidden = view !== "plan";
   $("#view-settings").hidden = view !== "settings";
   $("#task-find").hidden = view !== "tasks";
-  $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", settings: "Settings" }[view];
+  $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", plan: planTitle(Date.now()), settings: "Settings" }[view];
   if (view === "done") drawDone();
+  if (view === "plan") drawPlan();
   if (view === "calendar") drawCalendar();
-  $("#ledger-summary").textContent = view === "tasks" ? tasksLine(tasks) : "";
+  // Under Plan, the date; under Tasks, the date and how the list stands.
+  $("#ledger-summary").textContent = view === "tasks" ? tasksLine(tasks) : view === "plan" ? new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) : "";
   // A note typed in is kept before another view takes the window.
   if (view !== "notes") void notesView?.flush();
   if (view === "notes") void notes().refresh();
@@ -507,8 +536,8 @@ document.addEventListener("keydown", (e) => {
   // Esc closes a calendar or a dropdown open in the panel first, the panel only after.
   if (e.key === "Escape" && selected && !e.defaultPrevented && !document.querySelector('[aria-haspopup][aria-expanded="true"]')) return closePanel();
   const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-  // Ctrl+1 to 5: the views.
-  if (ctrl && ["1", "2", "3", "4", "5"].includes(e.key)) {
+  // Ctrl+1 to 6: the views.
+  if (ctrl && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
     e.preventDefault();
     return show(VIEWS[Number(e.key) - 1]);
   }
