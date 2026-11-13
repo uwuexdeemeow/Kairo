@@ -4478,7 +4478,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 /* A day picked from Kairo's calendar, drawn like the fields around it. */
 .day-field {
   width: 100%;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 
