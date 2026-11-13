@@ -11,6 +11,7 @@ use rusqlite::Connection;
 
 use crate::browser::{self, SharedScripted, SharedTab};
 use crate::privacy::{self, Mode, Rules, SharedRules};
+use crate::reminders::{self, Front, Moment};
 use crate::{classify, db, platform};
 
 const TICK: Duration = Duration::from_secs(1);
@@ -112,6 +113,11 @@ fn run(conn: &Connection, paused: &AtomicBool, rules: &SharedRules, tab: &Shared
                 }
                 if !sample.idle && known_paths.insert(sample.exe.clone()) {
                     log(db::remember_path(conn, &sample.exe, &sample.path));
+                }
+                // Something new in front is a moment a task can be reminded at; not while away, and
+                // not over a game. What reaches here has already passed the user's privacy rules.
+                if !sample.idle && !sample.game {
+                    reminders::announce(Moment::Front(Front { app: sample.app.clone(), exe: sample.exe.clone(), title: sample.title.clone(), site: sample.site.clone() }));
                 }
                 let start = since.min(now);
                 let row = db::NewSession {

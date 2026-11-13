@@ -516,6 +516,9 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
     let completed = complete_if_due(conn, now)?;
     // A cycle starts its break when a round ends and its next round when the break does.
     let cycle_event = crate::pomodoro::tick(conn, now, platform::idle_ms())?;
+    if completed.is_some() {
+        crate::reminders::announce(crate::reminders::Moment::FocusEnded);
+    }
     if let Some(done) = &completed {
         // How it went, in a line; the whole wrap-up waits on the Focus page. In a cycle the break
         // is announced instead, and the wrap-up waits for the cycle to end.

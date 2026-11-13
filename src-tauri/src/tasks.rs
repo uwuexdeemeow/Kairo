@@ -50,6 +50,10 @@ pub struct Task {
     /// when no project has that name here.
     #[serde(default)]
     pub project: Option<String>,
+    /// A moment that reminds, not a clock time: `open:<words>` (an app or site named by the words
+    /// comes to the front) or `focus` (a focus session ends); None for none. Shared in `taskmore`.
+    #[serde(default)]
+    pub remind_when: Option<String>,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -77,6 +81,7 @@ impl Default for Task {
             repeat: None,
             tags: Vec::new(),
             project: None,
+            remind_when: None,
             group: "none".into(),
         }
     }
@@ -110,6 +115,8 @@ pub struct More {
     pub tags: Vec<String>,
     #[serde(default)]
     pub project: Option<String>,
+    #[serde(default)]
+    pub when: Option<String>,
 }
 
 /// Tags a task may carry, and the longest one.
@@ -180,6 +187,7 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         repeat: None,
         tags: Vec::new(),
         project: None,
+        remind_when: None,
         group: "none".into(),
     };
     conn.execute(
@@ -233,7 +241,7 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
     let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat, tags,
-                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1) FROM tasks")?;
+                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1), remind_when FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -252,6 +260,7 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             repeat: r.get(11)?,
             tags: parse_tags(&r.get::<_, String>(12)?),
             project: r.get(13)?,
+            remind_when: r.get(14)?,
             group: String::new(),
         })
     })?;
@@ -311,6 +320,14 @@ pub fn mark_sent(conn: &Connection, id: &str, mark: &str) -> Result<()> {
     }
     let sent = if p.sent.is_empty() { mark.to_string() } else { format!("{} {mark}", p.sent) };
     conn.execute("UPDATE tasks SET reminded = ?2 WHERE id = ?1", params![id, sent])?;
+    Ok(())
+}
+
+/// Forgets the moment reminders a task has sent, so a moment set again reminds again.
+pub fn clear_when_marks(conn: &Connection, id: &str) -> Result<()> {
+    let Some(p) = plan(conn, id)? else { return Ok(()) };
+    let kept: Vec<&str> = p.sent.split(' ').filter(|m| !m.is_empty() && !m.starts_with("when:")).collect();
+    conn.execute("UPDATE tasks SET reminded = ?2 WHERE id = ?1", params![id, kept.join(" ")])?;
     Ok(())
 }
 
@@ -378,10 +395,32 @@ pub fn set_steps(conn: &Connection, id: &str, steps: Vec<Step>) -> Result<bool> 
 
 /// What a task has beyond its plan; None when there's no such task.
 pub fn more(conn: &Connection, id: &str) -> Result<Option<More>> {
-    conn.query_row("SELECT repeat, steps, tags, project FROM tasks WHERE id = ?1", [id], |r| {
-        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)? })
+    conn.query_row("SELECT repeat, steps, tags, project, remind_when FROM tasks WHERE id = ?1", [id], |r| {
+        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)?, when: r.get(4)? })
     })
     .optional()
+}
+
+/// The longest run of words a moment reminder may watch for.
+pub const MAX_WHEN_CHARS: usize = 60;
+
+/// A moment as kept: `open:` with words (lowercase, trimmed, short) or `focus`; None for anything
+/// else, and for `open:` with no words.
+pub fn clean_when(when: &str) -> Option<String> {
+    let when = when.trim().to_lowercase();
+    if when == "focus" {
+        return Some(when);
+    }
+    let words: String = when.strip_prefix("open:")?.trim().chars().take(MAX_WHEN_CHARS).collect();
+    let words = words.trim_end();
+    (!words.is_empty()).then(|| format!("open:{words}"))
+}
+
+/// Gives a task a moment to be reminded at (None for none); false when there's no such task. The
+/// reminder marks stay: a changed moment is a different mark, so it reminds again.
+pub fn set_remind_when(conn: &Connection, id: &str, when: Option<&str>) -> Result<bool> {
+    let when = when.and_then(clean_when);
+    Ok(conn.execute("UPDATE tasks SET remind_when = ?2 WHERE id = ?1", params![id, when])? > 0)
 }
 
 /// A tag as kept: lowercase letters, digits, `-` and `_`, up to `MAX_TAG_CHARS`; None when nothing
@@ -441,7 +480,7 @@ pub fn more_json(conn: &Connection, id: &str) -> Result<Option<String>> {
 
 /// The tasks with a repeat or steps, with their shared text, for sharing when combining starts.
 pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL")?;
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL OR remind_when IS NOT NULL")?;
     let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
     ids.into_iter().filter_map(|id| more_json(conn, &id).transpose().map(|m| m.map(|m| (id, m)))).collect()
 }
@@ -452,7 +491,8 @@ pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
     let repeat = m.repeat.as_deref().filter(|r| REPEATS.contains(r));
     // A project another computer names is kept as named, whether or not one has that name here yet.
     let project = m.project.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(|p| p.chars().take(MAX_LABEL_CHARS).collect::<String>());
-    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5 WHERE id = ?1", params![id, repeat, text, clean_tags(&m.tags).join(" "), project])? > 0)
+    let when = m.when.as_deref().and_then(clean_when);
+    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5, remind_when = ?6 WHERE id = ?1", params![id, repeat, text, clean_tags(&m.tags).join(" "), project, when])? > 0)
 }
 
 /// The first day a repeating task comes due again, after the later of its due day and `today`, so
@@ -552,8 +592,12 @@ pub fn tick(conn: &Connection, id: &str, done: bool, now: i64, today: NaiveDate)
             params![copy, title, now, next_position(conn)?, next.format("%Y-%m-%d").to_string(), priority, remind, note, steps, rule],
         )?;
         if added > 0 {
-            // Its tags and project come along.
-            conn.execute("UPDATE tasks SET tags = (SELECT tags FROM tasks WHERE id = ?2), project = (SELECT project FROM tasks WHERE id = ?2) WHERE id = ?1", params![copy, id])?;
+            // Its tags, project and moment come along.
+            conn.execute(
+                "UPDATE tasks SET tags = (SELECT tags FROM tasks WHERE id = ?2), project = (SELECT project FROM tasks WHERE id = ?2),
+                     remind_when = (SELECT remind_when FROM tasks WHERE id = ?2) WHERE id = ?1",
+                params![copy, id],
+            )?;
             out.added = Some(copy);
         }
     } else if !done && done_ms.is_some() {
@@ -1077,6 +1121,62 @@ mod tests {
         let new = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap().added.unwrap();
         let next = list(&c, 100, "2026-11-12").unwrap().into_iter().find(|x| x.id == new).unwrap();
         assert_eq!((next.tags, next.project.as_deref()), (strings(&["chore"]), Some("Home")));
+    }
+
+    #[test]
+    fn a_moment_is_open_with_words_or_focus_and_nothing_else() {
+        assert_eq!(clean_when("  Open: Gradescope  ").as_deref(), Some("open:gradescope"));
+        assert_eq!(clean_when("FOCUS").as_deref(), Some("focus"));
+        assert_eq!(clean_when("open:"), None);
+        assert_eq!(clean_when("open:   "), None);
+        assert_eq!(clean_when("tomorrow"), None);
+        assert_eq!(clean_when(&format!("open:{}", "x".repeat(200))).unwrap().chars().count(), "open:".len() + MAX_WHEN_CHARS);
+    }
+
+    #[test]
+    fn a_moment_is_kept_cleaned_and_comes_back_when_cleared() {
+        let c = conn();
+        let t = add(&c, "Submit essay", 1).unwrap().unwrap();
+        assert!(set_remind_when(&c, &t.id, Some("Open:Gradescope")).unwrap());
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].remind_when.as_deref(), Some("open:gradescope"));
+        // Junk clears it rather than keeping something that can never fire.
+        set_remind_when(&c, &t.id, Some("whenever")).unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].remind_when, None);
+        assert!(!set_remind_when(&c, "nope", Some("focus")).unwrap());
+    }
+
+    #[test]
+    fn setting_a_moment_again_clears_only_its_marks() {
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        mark_sent(&c, &t.id, "due:2026-11-03").unwrap();
+        mark_sent(&c, &t.id, "when:open:word").unwrap();
+        clear_when_marks(&c, &t.id).unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].reminded, "due:2026-11-03");
+    }
+
+    #[test]
+    fn a_moment_travels_with_steps_and_repeat_and_a_kairo_from_before_it_reads_fine() {
+        let (here, there) = (conn(), conn());
+        let t = add(&there, "Ship it", 1).unwrap().unwrap();
+        set_remind_when(&there, &t.id, Some("focus")).unwrap();
+        assert_eq!(with_more(&there).unwrap().len(), 1);
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        let m: More = serde_json::from_str(&more_json(&there, &t.id).unwrap().unwrap()).unwrap();
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        assert_eq!(list(&here, 1, TODAY).unwrap()[0].remind_when.as_deref(), Some("focus"));
+        let old: More = serde_json::from_str(r#"{"repeat":null,"steps":[],"tags":[],"project":null}"#).unwrap();
+        assert_eq!(old.when, None);
+    }
+
+    #[test]
+    fn a_repeating_tasks_next_one_keeps_its_moment() {
+        let c = conn();
+        let t = repeating(&c, "Water plants", "week", "2026-11-12");
+        set_remind_when(&c, &t.id, Some("open:garden")).unwrap();
+        let new = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap().added.unwrap();
+        let next = list(&c, 100, "2026-11-12").unwrap().into_iter().find(|x| x.id == new).unwrap();
+        assert_eq!(next.remind_when.as_deref(), Some("open:garden"));
     }
 
     #[test]

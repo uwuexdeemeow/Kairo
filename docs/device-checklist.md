@@ -473,6 +473,37 @@ your own for the focus checks.
    or Tab: same.
 7. **Smallest window.** *Expect:* nothing is cut off or scrolls sideways; the chips and hints wrap.
 
+## Ledger: reminders at a moment
+
+On Windows, a Mac and Linux. None of this has been tried on a real machine yet. Needs notifications
+allowed for Kairo, and Ledger's reminders on (Ledger → Settings). Use a copy that isn't your own for
+the focus checks.
+
+1. **Add one.** Open a task, choose "Reminder when…" from "Add…". *Expect:* a field "Remind when"
+   with "I open…" and a box for words; the keyboard is in it; "A focus session ends" is the other
+   choice. With no words typed, leaving the box saves nothing and the field can be put away with ✕.
+2. **An app.** Type `notepad` (or any app you have) and press Enter, then open that app from another
+   window. *Expect:* one notification "Reminder: <task>" saying "You opened <app>", within a second or
+   two, not a minute. Switching away and back does not repeat it.
+3. **A site.** Set the words to a site's name (say `youtube`), open it in the browser. *Expect:* the
+   same, saying "You opened youtube.com". On a Mac and Linux this needs the browser extension (or, on
+   a Mac, Chrome, Safari or Arc's usual tab reading) as Chrono's sites do.
+4. **Several words.** Type `figma, notion`. *Expect:* either app brings the reminder.
+5. **A focus session.** Choose "A focus session ends", start a focus session of a minute from
+   somewhere else, and let it finish. *Expect:* "Your focus session ended" arrives with the session's
+   own notice. Ending a session early (Stop) brings it too.
+6. **Again.** Change the words or set the moment again. *Expect:* it reminds again; otherwise once.
+7. **Privacy.** Make the app one Chrono ignores (Settings → Categories and limits → Ignore). *Expect:*
+   opening it brings no reminder. Hiding its title instead: words found only in the title don't
+   match, words in the app's or site's name do. A private or incognito window never matches a site.
+8. **Games and away.** *Expect:* no reminder while a game is in front, or while you're away from the
+   computer; one comes when you're back and open the app again.
+9. **Quiet.** Switch Ledger's reminders off. *Expect:* no moment reminders either.
+10. **A repeating task.** Give a repeating task a moment, tick it. *Expect:* the next one has the same
+    moment and reminds again.
+11. **Two computers.** Set a moment on one. *Expect:* the other shows it after a sync, and only one of
+    them reminds when both are in use (the other's mark arrives with the sync).
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

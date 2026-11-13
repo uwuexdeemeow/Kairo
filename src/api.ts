@@ -334,6 +334,8 @@ export interface Task {
   tags: string[];
   /** The Chrono project it belongs to, by name; null for none. */
   project: string | null;
+  /** A moment that reminds it: `open:<words>` (an app or site comes to the front) or `focus` (a focus session ends); null for none. */
+  remindWhen: string | null;
   group: TaskGroup;
 }
 
@@ -615,6 +617,7 @@ export const api = {
   /** Meetings from the connected calendars between two times; only the days the calendar keeps have any. */
   calendarEvents: (fromMs: number, toMs: number) => invoke<CalendarEvent[]>("get_calendar_events", { fromMs, toMs }),
   /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
+  setTaskWhen: (id: string, when: string | null) => invoke<Task[]>("set_task_when", { id, when }),
   setTaskSteps: (id: string, steps: Step[]) => invoke<Task[]>("set_task_steps", { id, steps }),
   syncSoon: () => invoke<void>("sync_soon"),
   /** Pops a note out into its own small window, or switches the open one to it; no id pops out the list of notes. */

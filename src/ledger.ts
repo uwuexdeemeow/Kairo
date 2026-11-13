@@ -305,6 +305,16 @@ const actions: LedgerActions = {
       if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
     }),
+  when: (task, when) =>
+    tried("change when it reminds", async () => {
+      const list = await api.setTaskWhen(task, when);
+      selected = task;
+      tasks = list;
+      const t = list.find((x) => x.id === task);
+      // The panel shows the moment as kept (cleaned), though it has the keyboard.
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
+      draw();
+    }),
   steps: (task, steps) =>
     tried("change its steps", async () => {
       const list = await api.setTaskSteps(task, steps);

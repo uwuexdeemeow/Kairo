@@ -497,6 +497,7 @@ pub fn run() {
             commands::set_task_steps,
             commands::set_task_repeat,
             commands::set_task_labels,
+            commands::set_task_when,
             commands::get_calendar_events,
             commands::add_task_on_day,
             commands::sync_soon,

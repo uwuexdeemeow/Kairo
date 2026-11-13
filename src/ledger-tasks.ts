@@ -34,6 +34,8 @@ export type LedgerActions = LabelActions & {
   steps(task: string, steps: Step[]): void;
   /** How the task comes back once ticked; null for never. */
   repeat(task: string, repeat: Repeat | null): void;
+  /** A moment that reminds it: `open:<words>` or `focus`; null for none. */
+  when(task: string, when: string | null): void;
   /** A new note headed with the task's title, attached to it. */
   newNoteFor(task: string, title: string): void;
 };
@@ -484,14 +486,48 @@ function repeatField(t: Task, act: LedgerActions): HTMLElement {
   return h("div", { class: "detail-field" }, h("span", {}, "Repeat"), select);
 }
 
+/// A moment that reminds a task instead of a clock time: an app or site coming to the front, or a
+/// focus session ending. Chosen with a select, and the words to watch for typed beside it.
+function whenField(t: Task, act: LedgerActions): HTMLElement {
+  const watching = t.remindWhen?.startsWith("open:") ?? false;
+  const kind = h("select", { class: "filter when-kind", "aria-label": "Remind me when" }) as HTMLSelectElement;
+  kind.append(h("option", { value: "open" }, "I open…"), h("option", { value: "focus" }, "A focus session ends"));
+  kind.value = t.remindWhen === "focus" ? "focus" : "open";
+  const words = h("input", { class: "filter when-words", type: "text", maxlength: "60", placeholder: "An app or site, like gradescope", "aria-label": "App or site" }) as HTMLInputElement;
+  words.value = watching ? t.remindWhen!.slice("open:".length) : "";
+  const showWords = () => (words.hidden = kind.value !== "open");
+  showWords();
+  // Kept once there are words, on Enter or on leaving the field; no words is no reminder.
+  const save = () => {
+    const text = words.value.trim();
+    if (text && `open:${text.toLowerCase()}` !== t.remindWhen) act.when(t.id, `open:${text}`);
+  };
+  words.addEventListener("keydown", (e) => e.key === "Enter" && save());
+  words.addEventListener("blur", save);
+  kind.addEventListener("change", () => {
+    showWords();
+    if (kind.value === "focus") act.when(t.id, "focus");
+    else words.focus();
+  });
+  const field = h("div", { class: "detail-field detail-when" }, h("span", {}, "Remind when"), h("div", { class: "when-controls" }, kind, words));
+  // Clearing is offered only when there's a moment to clear; one still empty is put away by the ✕ of "Add…".
+  if (t.remindWhen) {
+    const clear = h("button", { class: "link-btn clear-when", "aria-label": "Clear the moment", title: "Clear the moment" }, glyph("close"));
+    clear.addEventListener("click", () => act.when(t.id, null));
+    field.append(clear);
+  }
+  return field;
+}
+
 /// What a panel can show beyond its title, day and priority, each only once a task has it or it's
 /// been added from "Add…".
-type Optional = "repeat" | "project" | "tags" | "remind" | "steps" | "note";
+type Optional = "repeat" | "project" | "tags" | "remind" | "when" | "steps" | "note";
 const OPTIONAL: [Optional, string][] = [
   ["repeat", "Repeat"],
   ["project", "Project"],
   ["tags", "Tags"],
   ["remind", "Reminder"],
+  ["when", "Reminder when…"],
   ["steps", "Steps"],
   ["note", "Note"],
 ];
@@ -504,9 +540,10 @@ export function forgetAddedDetails(): void {
 }
 let pendingFocus: Exclude<Optional, "remind"> | null = null;
 /// Where the keyboard goes in a field just added.
-const FOCUS_ON: Record<Exclude<Optional, "remind">, string> = { repeat: ".repeat-select", project: ".project-select", tags: ".tag-add", steps: ".step-add", note: ".attach-note" };
+const FOCUS_ON: Record<Exclude<Optional, "remind">, string> = { repeat: ".repeat-select", project: ".project-select", tags: ".tag-add", when: ".when-kind", steps: ".step-add", note: ".attach-note" };
 
-const hasValue = (t: Task, k: Optional): boolean => ({ repeat: !!t.repeat, project: !!t.project, tags: t.tags.length > 0, remind: t.remindMs !== null, steps: t.steps.length > 0, note: !!t.note })[k];
+const hasValue = (t: Task, k: Optional): boolean =>
+  ({ repeat: !!t.repeat, project: !!t.project, tags: t.tags.length > 0, remind: t.remindMs !== null, when: !!t.remindWhen, steps: t.steps.length > 0, note: !!t.note })[k];
 
 /// Draws the detail panel for `t`: title, due day and priority, then only the details it has
 /// (repeat, project, tags, reminder, steps, note), "Add…" for the rest, and focus time and
@@ -618,6 +655,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   if (shows("project")) field("project", projectField);
   if (shows("tags")) field("tags", tagField);
   if (shows("remind")) fields.push(h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind));
+  if (shows("when")) field("when", whenField(t, act));
   if (shows("steps")) field("steps", stepsBlock(t, (steps) => act.steps(t.id, steps)));
   if (shows("note")) field("note", noteRow(t, act, notes));
   const missing = OPTIONAL.filter(([k]) => !shows(k));

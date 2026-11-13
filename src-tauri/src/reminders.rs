@@ -1,16 +1,48 @@
 //! Task reminders: on a task's due day at the morning time, once more the morning after if it's
-//! still open, and at a task's exact reminder time. Only on a computer someone is using; each
-//! one sent is marked on its task, and the mark travels with the task's plan, so a combined
-//! computer doesn't send it again.
+//! still open, at a task's exact reminder time, and at a moment: when an app or site comes to the
+//! front, or a focus session ends. Only on a computer someone is using; each one sent is marked on
+//! its task, and the mark travels with the task's plan, so a combined computer doesn't send it
+//! again.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::OnceLock;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use tauri::AppHandle;
 
 use crate::tasks::Task;
+
+/// What is in front, as a moment reminder can name it. Only what the collector records: an app or
+/// site the user ignores never gets here, and a window whose title is hidden has none.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Front {
+    pub app: String,
+    pub exe: String,
+    pub title: String,
+    pub site: Option<String>,
+}
+
+/// A moment a task can be reminded at.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Moment {
+    /// An app or site came to the front.
+    Front(Front),
+    /// A focus session ended, on its own or early.
+    FocusEnded,
+}
+
+/// Where moments go: the reminders thread, once it has started.
+static MOMENTS: OnceLock<Sender<Moment>> = OnceLock::new();
+
+/// Tells the reminders thread a moment has come; nothing happens before it has started.
+pub fn announce(moment: Moment) {
+    if let Some(tx) = MOMENTS.get() {
+        let _ = tx.send(moment);
+    }
+}
 
 /// What to show, and the marks it leaves on its tasks.
 #[derive(Debug, Clone, PartialEq)]
@@ -88,10 +120,53 @@ pub fn due_now(tasks: &[Task], now_ms: i64, now_local: NaiveDateTime, morning: N
     due
 }
 
+/// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
+pub fn when_mark(when: &str) -> String {
+    format!("when:{}", when.replace(' ', "_"))
+}
+
+/// Whether `front` is what `trigger` (`open:<words>`) is waiting for: any of its comma-separated
+/// words in the app's name, its program, the site or the window's title, whatever the case.
+fn watching(trigger: &str, front: &Front) -> bool {
+    let Some(words) = trigger.strip_prefix("open:") else { return false };
+    let seen = [front.app.as_str(), front.exe.as_str(), front.site.as_deref().unwrap_or(""), front.title.as_str()].map(str::to_lowercase);
+    words.split(',').map(str::trim).filter(|w| !w.is_empty()).any(|w| seen.iter().any(|s| s.contains(&w.to_lowercase())))
+}
+
+/// The reminders a moment brings, one for each open task waiting for it that hasn't sent it yet.
+/// Pure: nothing is sent or marked.
+pub fn moment_due(tasks: &[Task], moment: &Moment) -> Vec<Reminder> {
+    tasks
+        .iter()
+        .filter(|t| t.done_ms.is_none())
+        .filter_map(|t| {
+            let when = t.remind_when.as_deref()?;
+            let mark = when_mark(when);
+            if sent(t, &mark) {
+                return None;
+            }
+            let body = match moment {
+                Moment::Front(front) if watching(when, front) => {
+                    let what = front.site.as_deref().filter(|s| !s.is_empty()).unwrap_or(front.app.as_str());
+                    format!("You opened {what}")
+                }
+                Moment::FocusEnded if when == "focus" => "Your focus session ended".to_string(),
+                _ => return None,
+            };
+            Some(Reminder { title: format!("Reminder: {}", t.title), body, marks: vec![(t.id.clone(), mark)] })
+        })
+        .collect()
+}
+
 /// A computer counts as in use with input in the last two minutes.
 const IN_USE_MS: i64 = 2 * 60_000;
 
+/// How often the clock-based reminders are looked at.
+const CHECK_EVERY: Duration = Duration::from_secs(60);
+
 pub fn spawn(app: AppHandle, db_path: PathBuf) {
+    let (tx, moments) = mpsc::channel();
+    let _ = MOMENTS.set(tx);
     thread::Builder::new()
         .name("kairo-reminders".into())
         .spawn(move || {
@@ -100,18 +175,31 @@ pub fn spawn(app: AppHandle, db_path: PathBuf) {
                 Ok(conn) => conn,
                 Err(e) => return eprintln!("reminders: cannot open the database: {e}"),
             };
+            // Waits for a moment, and looks at the clock-based ones every minute whatever comes.
+            let mut next_check = Instant::now();
             loop {
-                if let Err(e) = check(&app, &conn) {
-                    eprintln!("reminders: {e}");
+                let wait = next_check.saturating_duration_since(Instant::now());
+                match moments.recv_timeout(wait) {
+                    Ok(moment) => {
+                        if let Err(e) = on_moment(&app, &conn, &moment) {
+                            eprintln!("reminders: {e}");
+                        }
+                    }
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => thread::sleep(wait),
                 }
-                thread::sleep(Duration::from_secs(60));
+                if Instant::now() >= next_check {
+                    if let Err(e) = check(&app, &conn) {
+                        eprintln!("reminders: {e}");
+                    }
+                    next_check = Instant::now() + CHECK_EVERY;
+                }
             }
         })
         .expect("failed to start reminders thread");
 }
 
 fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
     let settings = crate::ledger::settings(conn).map_err(|e| e.to_string())?;
     if !settings.reminders {
         return Ok(());
@@ -120,14 +208,29 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
     let now = chrono::Local::now();
     let tasks = crate::tasks::list(conn, now.timestamp_millis(), &crate::tasks::today()).map_err(|e| e.to_string())?;
     let due = due_now(&tasks, now.timestamp_millis(), now.naive_local(), morning);
-    let mut marks = due.drop;
-    if crate::platform::idle_ms() < IN_USE_MS {
-        for r in due.show {
-            if let Err(e) = app.notification().builder().title(&r.title).body(&r.body).show() {
-                eprintln!("reminders: {e}");
-            }
-            marks.extend(r.marks);
+    let show = if crate::platform::idle_ms() < IN_USE_MS { due.show } else { Vec::new() };
+    send(app, conn, show, due.drop)
+}
+
+/// A moment has come: the reminders waiting for it, if reminders are on.
+fn on_moment(app: &AppHandle, conn: &rusqlite::Connection, moment: &Moment) -> Result<(), String> {
+    if !crate::ledger::settings(conn).map_err(|e| e.to_string())?.reminders {
+        return Ok(());
+    }
+    let now = chrono::Local::now();
+    let tasks = crate::tasks::list(conn, now.timestamp_millis(), &crate::tasks::today()).map_err(|e| e.to_string())?;
+    send(app, conn, moment_due(&tasks, moment), Vec::new())
+}
+
+/// Shows `show`, and marks it and `marks` sent on their tasks, sharing the marks with combined
+/// computers.
+fn send(app: &AppHandle, conn: &rusqlite::Connection, show: Vec<Reminder>, mut marks: Vec<(String, String)>) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+    for r in show {
+        if let Err(e) = app.notification().builder().title(&r.title).body(&r.body).show() {
+            eprintln!("reminders: {e}");
         }
+        marks.extend(r.marks);
     }
     for (id, mark) in &marks {
         crate::tasks::mark_sent(conn, id, mark).map_err(|e| e.to_string())?;
@@ -225,6 +328,62 @@ mod tests {
         done.done_ms = Some(5);
         done.remind_ms = Some(0);
         assert_eq!(due_now(&[sent_one, done], 10, at(9, 30), morning()), Due::default());
+    }
+
+    fn waiting(id: &str, title: &str, when: &str) -> Task {
+        Task { id: id.into(), title: title.into(), remind_when: Some(when.into()), ..Default::default() }
+    }
+
+    fn front(app: &str, site: Option<&str>, title: &str) -> Moment {
+        Moment::Front(Front { app: app.into(), exe: app.to_lowercase(), title: title.into(), site: site.map(Into::into) })
+    }
+
+    #[test]
+    fn a_site_coming_to_the_front_reminds_the_task_waiting_for_it() {
+        let tasks = [waiting("a", "Submit essay", "open:gradescope"), waiting("b", "Call", "open:slack")];
+        let r = moment_due(&tasks, &front("Chrome", Some("gradescope.com"), "Assignments"));
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].title, "Reminder: Submit essay");
+        assert_eq!(r[0].body, "You opened gradescope.com");
+        assert_eq!(r[0].marks, [("a".to_string(), "when:open:gradescope".to_string())]);
+        // Another site, or an app that isn't it, says nothing.
+        assert!(moment_due(&tasks, &front("Chrome", Some("youtube.com"), "Lofi")).is_empty());
+    }
+
+    #[test]
+    fn words_match_the_app_program_site_or_title_in_any_case_and_any_of_several() {
+        let t = |when| [waiting("a", "T", when)];
+        assert_eq!(moment_due(&t("open:WORD"), &front("Word", None, "")).len(), 1);
+        assert_eq!(moment_due(&t("open:code"), &front("Visual Studio Code", None, "")).len(), 1);
+        assert_eq!(moment_due(&t("open:thesis"), &front("Word", None, "Thesis draft.docx - Word")).len(), 1);
+        assert_eq!(moment_due(&t("open:figma, notion"), &front("Notion", None, "")).len(), 1);
+        // A hidden title gives nothing to match.
+        assert!(moment_due(&t("open:thesis"), &front("Word", None, "")).is_empty());
+        // No words, no match, and a focus reminder isn't waiting for the front.
+        assert!(moment_due(&t("open:"), &front("Word", None, "")).is_empty());
+        assert!(moment_due(&t("focus"), &front("Word", None, "")).is_empty());
+    }
+
+    #[test]
+    fn a_focus_session_ending_reminds_only_tasks_waiting_for_it() {
+        let tasks = [waiting("a", "Stretch", "focus"), waiting("b", "Essay", "open:word")];
+        let r = moment_due(&tasks, &Moment::FocusEnded);
+        assert_eq!(r.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), ["Reminder: Stretch"]);
+        assert_eq!(r[0].body, "Your focus session ended");
+    }
+
+    #[test]
+    fn a_moment_reminder_comes_once_and_never_for_a_done_task() {
+        let mut once = waiting("a", "Essay", "open:word");
+        once.reminded = "due:2026-11-03 when:open:word".into();
+        let mut done = waiting("b", "Done", "focus");
+        done.done_ms = Some(5);
+        assert!(moment_due(&[once, done], &front("Word", None, "")).is_empty());
+        // A moment with a space leaves a mark without one, so the marks stay separable.
+        assert_eq!(when_mark("open:google docs"), "when:open:google_docs");
+        let mut spaced = waiting("c", "Doc", "open:google docs");
+        spaced.reminded = when_mark("open:google docs");
+        assert!(moment_due(&[spaced], &front("Chrome", Some("docs.google.com"), "Google Docs")).is_empty());
     }
 
     #[test]

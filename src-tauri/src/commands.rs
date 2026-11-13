@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, schedule, startup, sync, tasks, updater, AppState, Navigation};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -632,6 +632,20 @@ pub fn set_task_labels(app: AppHandle, state: State<AppState>, id: String, tags:
     tasks_changed(&app, &conn)
 }
 
+/// Gives a task a moment to be reminded at (`open:<words>` or `focus`; none for none). Setting one
+/// lets it remind again, so the moment marks it had are cleared and shared.
+#[tauri::command]
+pub fn set_task_when(app: AppHandle, state: State<AppState>, id: String, when: Option<String>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::set_remind_when(&conn, &id, when.as_deref()).map_err(err)?;
+    tasks::clear_when_marks(&conn, &id).map_err(err)?;
+    more_changed(&conn, &id)?;
+    if let Some(plan) = tasks::plan_json(&conn, &id).map_err(err)? {
+        sync::record(&conn, &format!("taskplan:{id}"), &plan)?;
+    }
+    tasks_changed(&app, &conn)
+}
+
 /// Asked by Ledger once typing in a note has stopped a while, so the edit reaches combined
 /// computers without waiting for the next round.
 #[tauri::command]
@@ -747,7 +761,15 @@ pub fn control_focus(state: State<AppState>, action: String, minutes: Option<u32
         }
     }
     match action.as_str() {
-        "stop" => focus::stop(&conn, now),
+        "stop" => {
+            // Ending a session that is running is a moment a task can be reminded at.
+            let running = focus::active(&conn).map_err(err)?.is_some();
+            focus::stop(&conn, now).inspect(|_| {
+                if running {
+                    reminders::announce(reminders::Moment::FocusEnded);
+                }
+            })
+        }
         "pause" => focus::pause(&conn, now),
         "resume" => focus::resume(&conn, now),
         "extend" => focus::extend(&conn, minutes.unwrap_or(5)),

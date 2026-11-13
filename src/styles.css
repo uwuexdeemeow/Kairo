@@ -4470,6 +4470,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .detail-field > .range,
 .detail-field > .note-pick,
 .detail-field > .day-pick,
+.detail-field > .when-controls,
 .detail-field > .remind-when {
   width: 100%;
   min-width: 0;
@@ -4484,6 +4485,16 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 
 .day-field.empty {
   color: var(--muted);
+}
+
+/* A reminder at a moment: what it waits for, and the words to watch for under it. */
+.when-controls {
+  display: grid;
+  gap: 6px;
+}
+
+.when-controls .filter {
+  width: 100%;
 }
 
 /* The reminder's day and time side by side. */
@@ -6369,6 +6380,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .detail-close .icon,
 .clear-due .icon,
 .clear-remind .icon,
+.clear-when .icon,
 .dismiss-detail .icon,
 .detach-note .icon {
   width: 15px;

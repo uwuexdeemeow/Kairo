@@ -25,6 +25,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   repeat: null,
   tags: [],
   project: null,
+  remindWhen: null,
   group: "none",
   ...extra,
 });
@@ -50,6 +51,7 @@ beforeEach(() => {
     attach: vi.fn(),
     steps: vi.fn(),
     repeat: vi.fn(),
+    when: vi.fn(),
     labels: vi.fn(),
     newProject: vi.fn(),
     newNoteFor: vi.fn(),
@@ -481,7 +483,7 @@ describe("the detail panel", () => {
     // Not until it has them or they're added.
     for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".attach-note", ".remind-when"]) expect(panel().querySelector(sel), sel).toBeNull();
     const choice = panel().querySelector<HTMLSelectElement>(".add-detail")!;
-    expect([...choice.options].map((o) => o.textContent)).toEqual(["Add…", "Repeat", "Project", "Tags", "Reminder", "Steps", "Note"]);
+    expect([...choice.options].map((o) => o.textContent)).toEqual(["Add…", "Repeat", "Project", "Tags", "Reminder", "Reminder when…", "Steps", "Note"]);
   });
 
   it("opens a field from Add… with the keyboard in it, and keeps it while the panel is redrawn", () => {
@@ -499,8 +501,8 @@ describe("the detail panel", () => {
   });
 
   it("shows the fields a task already has and offers only what's missing", () => {
-    renderDetail(panel(), task("a", "Essay", { tags: ["x"], project: "Kairo", steps: [{ t: "One", d: false }], repeat: "week", remindMs: 5, note: "n1" }), act, [{ id: "n1", title: "Plan" }], null, ["Kairo"]);
-    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".remind-when", ".detail-note"]) expect(panel().querySelector(sel), sel).not.toBeNull();
+    renderDetail(panel(), task("a", "Essay", { tags: ["x"], project: "Kairo", steps: [{ t: "One", d: false }], repeat: "week", remindMs: 5, remindWhen: "focus", note: "n1" }), act, [{ id: "n1", title: "Plan" }], null, ["Kairo"]);
+    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".remind-when", ".detail-when", ".detail-note"]) expect(panel().querySelector(sel), sel).not.toBeNull();
     // Nothing missing: no Add… at all.
     expect(panel().querySelector(".add-detail")).toBeNull();
   });
@@ -523,6 +525,46 @@ describe("the detail panel", () => {
     again.value = "";
     again.dispatchEvent(new Event("change"));
     expect(act.repeat).toHaveBeenLastCalledWith("a", null);
+  });
+
+  it("reminds at a moment: when an app or site is opened, or a focus session ends", () => {
+    renderDetail(panel(), task("a", "Essay"), act);
+    addDetail(panel(), "when");
+    const kind = panel().querySelector<HTMLSelectElement>(".when-kind")!;
+    const words = panel().querySelector<HTMLInputElement>(".when-words")!;
+    // The keyboard is in the field just added; it starts on opening something, with nothing set.
+    expect(document.activeElement).toBe(kind);
+    expect([...kind.options].map((o) => o.textContent)).toEqual(["I open…", "A focus session ends"]);
+    expect(kind.value).toBe("open");
+    expect(words.hidden).toBe(false);
+    // No words, no reminder.
+    words.dispatchEvent(new Event("blur"));
+    expect(act.when).not.toHaveBeenCalled();
+    words.value = "  Gradescope ";
+    words.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    expect(act.when).toHaveBeenLastCalledWith("a", "open:Gradescope");
+    // A focus session ending needs no words.
+    kind.value = "focus";
+    kind.dispatchEvent(new Event("change"));
+    expect(words.hidden).toBe(true);
+    expect(act.when).toHaveBeenLastCalledWith("a", "focus");
+  });
+
+  it("shows a moment a task has, keeps its words as typed, and clears it", () => {
+    renderDetail(panel(), task("a", "Essay", { remindWhen: "open:gradescope" }), act);
+    expect(panel().querySelector<HTMLSelectElement>(".when-kind")!.value).toBe("open");
+    const words = panel().querySelector<HTMLInputElement>(".when-words")!;
+    expect(words.value).toBe("gradescope");
+    // Leaving the field unchanged says nothing.
+    words.dispatchEvent(new Event("blur"));
+    expect(act.when).not.toHaveBeenCalled();
+    // A moment has its ✕, and an empty one only the ✕ of Add….
+    expect(panel().querySelector(".dismiss-detail")).toBeNull();
+    panel().querySelector<HTMLButtonElement>(".clear-when")!.click();
+    expect(act.when).toHaveBeenLastCalledWith("a", null);
+    renderDetail(panel(), task("a", "Essay", { remindWhen: "focus" }), act);
+    expect(panel().querySelector<HTMLSelectElement>(".when-kind")!.value).toBe("focus");
+    expect(panel().querySelector<HTMLInputElement>(".when-words")!.hidden).toBe(true);
   });
 
   it("puts away a field opened from Add… while it is still empty, and only then", () => {

@@ -18,6 +18,7 @@ const task = (steps: Step[]): Task => ({
   repeat: null,
   tags: [],
   project: null,
+  remindWhen: null,
   group: "none",
 });
 const s = (t: string, d = false): Step => ({ t, d });

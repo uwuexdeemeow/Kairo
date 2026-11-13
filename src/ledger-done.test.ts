@@ -22,6 +22,7 @@ const task = (id: string, title: string, doneMs: number | null, focusedMs = 0): 
   repeat: null,
   tags: [],
   project: null,
+  remindWhen: null,
   group: doneMs === null ? "none" : "done",
 });
 

@@ -204,6 +204,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         // A task's tags, space-separated, and the Chrono project it belongs to, by name (tasks.rs).
         ("tasks", "tags", "TEXT NOT NULL DEFAULT ''"),
         ("tasks", "project", "TEXT"),
+        // A moment that reminds a task instead of a clock time: "open:<words>" or "focus" (tasks.rs).
+        ("tasks", "remind_when", "TEXT"),
         // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
