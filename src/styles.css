@@ -6509,6 +6509,7 @@ select,
 .detail-close .icon,
 .clear-due .icon,
 .clear-remind .icon,
+.dismiss-detail .icon,
 .detach-note .icon {
   width: 15px;
   height: 15px;

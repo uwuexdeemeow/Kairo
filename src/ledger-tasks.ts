@@ -601,12 +601,25 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   const shows = (k: Optional) => hasValue(t, k) || open.has(k);
   const [projectField, tagField] = labelsBlock(t, projects, act);
   const fields: Node[] = [];
-  if (shows("repeat")) fields.push(repeatField(t, act));
-  if (shows("project")) fields.push(projectField);
-  if (shows("tags")) fields.push(tagField);
+  // A field opened from "Add…" and still empty can be put away again with its ✕; once it has a
+  // value, that value's own clear control is the way out (and the field goes with it).
+  const field = (k: Optional, el: HTMLElement): void => {
+    if (open.has(k) && !hasValue(t, k)) {
+      const dismiss = h("button", { class: "link-btn dismiss-detail", "aria-label": "Remove this field", title: "Remove this field" }, glyph("close"));
+      dismiss.addEventListener("click", () => {
+        revealed.set(t.id, new Set([...open].filter((o) => o !== k)));
+        renderDetail(root, t, act, notes, session, projects);
+      });
+      el.append(dismiss);
+    }
+    fields.push(el);
+  };
+  if (shows("repeat")) field("repeat", repeatField(t, act));
+  if (shows("project")) field("project", projectField);
+  if (shows("tags")) field("tags", tagField);
   if (shows("remind")) fields.push(h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind));
-  if (shows("steps")) fields.push(stepsBlock(t, (steps) => act.steps(t.id, steps)));
-  if (shows("note")) fields.push(noteRow(t, act, notes));
+  if (shows("steps")) field("steps", stepsBlock(t, (steps) => act.steps(t.id, steps)));
+  if (shows("note")) field("note", noteRow(t, act, notes));
   const missing = OPTIONAL.filter(([k]) => !shows(k));
   if (missing.length) {
     const add = h("select", { class: "filter add-detail", "aria-label": "Add a detail" }, h("option", { value: "" }, "Add…"), ...missing.map(([k, name]) => h("option", { value: k }, name))) as HTMLSelectElement;

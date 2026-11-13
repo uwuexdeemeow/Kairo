@@ -525,6 +525,19 @@ describe("the detail panel", () => {
     expect(act.repeat).toHaveBeenLastCalledWith("a", null);
   });
 
+  it("puts away a field opened from Add… while it is still empty, and only then", () => {
+    renderDetail(panel(), task("a", "Essay"), act);
+    addDetail(panel(), "steps");
+    expect(panel().querySelector(".step-add")).not.toBeNull();
+    panel().querySelector<HTMLButtonElement>(".dismiss-detail")!.click();
+    expect(panel().querySelector(".step-add")).toBeNull();
+    // It is offered again from Add…
+    expect([...panel().querySelectorAll(".add-detail option")].map((o) => o.textContent)).toContain("Steps");
+    // A field a task already has isn't dismissable: its own clear control is the way out.
+    renderDetail(panel(), task("a", "Essay", { steps: [{ t: "One", d: false }] }), act);
+    expect(panel().querySelector(".dismiss-detail")).toBeNull();
+  });
+
   it("says on a task's row that it repeats, in words too", () => {
     renderTaskList(root, [task("a", "Water plants", { repeat: "month", group: "none" }), task("b", "Essay")], null, act as unknown as LedgerActions, null, "");
     const chip = root.querySelector('[data-task="a"] .task-repeat')!;
