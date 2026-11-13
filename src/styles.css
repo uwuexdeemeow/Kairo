@@ -4282,6 +4282,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 
 .cal-name {
   padding: 2px 6px;
+  text-align: center;
   color: var(--faint);
   font-size: 11px;
   font-weight: 600;
@@ -4301,8 +4302,16 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   background: var(--raised);
   color: inherit;
   font: inherit;
-  text-align: left;
+  /* The day's number floats in the middle of its cell, not on its edge. */
+  align-items: center;
+  text-align: center;
   cursor: pointer;
+}
+
+/* A day with nothing on it has its number in the middle; one with tasks has it at the top, the
+   tasks under it. */
+.cal-cell:not(:has(.cal-task, .cal-more, .cal-meet)) {
+  justify-content: center;
 }
 
 .cal-cell:hover {
@@ -4338,6 +4347,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   display: grid;
   gap: 2px;
   min-width: 0;
+  /* The tasks run the cell's width and read from the left, whatever the number does. */
+  align-self: stretch;
+  text-align: left;
 }
 
 .cal-task,
