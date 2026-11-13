@@ -74,6 +74,8 @@ describe("the add field's help", () => {
     expect(help.open).toBe(false);
     expect(help.querySelector("summary")!.textContent).toBe("Shorthand and keys");
     expect(help.textContent).toContain("!h  !m  !l");
+    expect(help.textContent).toContain("~2h  ~90m");
+    expect(help.textContent).toContain("when gradescope  when focus ends");
     expect(help.textContent).toContain("Ctrl+N  /  Ctrl+1 2 3 4 5");
     expect(root.querySelector(".task-preview")!.hasAttribute("aria-live")).toBe(false);
     expect(root.querySelector(".task-spoken")!.getAttribute("aria-live")).toBe("polite");

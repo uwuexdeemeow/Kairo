@@ -302,7 +302,13 @@ pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &s
         if !q.tags.is_empty() {
             tasks::set_labels(conn, &t.id, &q.tags, None).map_err(err)?;
         }
-        if q.repeat.is_some() || !q.tags.is_empty() {
+        if let Some(minutes) = q.estimate {
+            tasks::set_estimate(conn, &t.id, Some(minutes)).map_err(err)?;
+        }
+        if q.when.is_some() {
+            tasks::set_remind_when(conn, &t.id, q.when.as_deref()).map_err(err)?;
+        }
+        if q.repeat.is_some() || !q.tags.is_empty() || q.estimate.is_some() || q.when.is_some() {
             more_changed(conn, &t.id)?;
         }
     }

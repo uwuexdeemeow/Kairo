@@ -102,16 +102,25 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
 // ---------- focus modes ----------
 
 /// Each saved focus mode by its name, or all of them for `mode` or `modes`: Enter starts its
-/// session, applies its block list and opens its apps.
+/// session, applies its block list and opens its apps. With a task's name after the mode's
+/// (`study essay`) it runs on that task, so the time counts for it.
 fn mode_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
     ctx.modes
         .iter()
         .enumerate()
         .filter_map(|(i, mode)| {
+            // The mode's name, then a task: the best open task that name matches, as `focus 50 essay`.
+            if let Some(rest) = after(q, &format!("{} ", mode.name)).map(str::trim).filter(|r| !r.is_empty()) {
+                let task = task_for(&ctx.tasks, rest)?;
+                let at = fuzzy(q, &format!("{} · {}", mode.name, task.title)).map(|m| m.at).unwrap_or_default();
+                let sub = format!("{} · counts for the task", mode.says());
+                return Some(row(format!("{} · {}", mode.name, task.title), Glyph::Focus, "Modes", Action::RunMode(mode.name.clone(), Some(task.id.clone())), sub, (LEAD - i as f64 / 100.0, at)));
+            }
             let lead = [mode.name.as_str(), "mode", "modes"];
             let (score, at) = placed(query, &lead, &mode.name, "mode focus session")?;
             // Listed all together, in the order they were made.
-            Some(row(mode.name.clone(), Glyph::Focus, "Modes", Action::RunMode(mode.name.clone()), mode.says(), (score - i as f64 / 100.0, at)))
+            Some(row(mode.name.clone(), Glyph::Focus, "Modes", Action::RunMode(mode.name.clone(), None), mode.says(), (score - i as f64 / 100.0, at)))
         })
         .collect()
 }
@@ -679,13 +688,31 @@ mod tests {
     fn a_mode_is_found_by_its_name_and_runs_with_enter() {
         let c = with_modes();
         let found = search(&c, "study");
-        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("Study", Action::RunMode("Study".into())));
+        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("Study", Action::RunMode("Study".into(), None)));
         assert_eq!(found[0].sub.as_deref(), Some("50 min · blocks Social · opens Word"));
         assert_eq!(found[0].section, "Modes");
         // A few letters of it find it too, in any case.
-        assert_eq!(search(&c, "STU")[0].action, Action::RunMode("Study".into()));
+        assert_eq!(search(&c, "STU")[0].action, Action::RunMode("Study".into(), None));
         // A name that isn't one finds nothing of the kind.
-        assert!(!search(&c, "nothing").iter().any(|i| matches!(i.action, Action::RunMode(_))));
+        assert!(!search(&c, "nothing").iter().any(|i| matches!(i.action, Action::RunMode(..))));
+    }
+
+    #[test]
+    fn a_mode_then_a_task_runs_on_that_task() {
+        let task = |id: &str, title: &str| crate::tasks::Task { id: id.into(), title: title.into(), ..Default::default() };
+        let mut c = with_modes();
+        c.tasks = vec![task("t1", "Essay draft"), task("t2", "Call mum")];
+        let found = search(&c, "study essay");
+        assert_eq!(found[0].action, Action::RunMode("Study".into(), Some("t1".into())));
+        assert_eq!(found[0].title, "Study · Essay draft");
+        assert_eq!(found[0].sub.as_deref(), Some("50 min · blocks Social · opens Word · counts for the task"));
+        // Any case, and the start of a word of the title is enough.
+        assert_eq!(search(&c, "STUDY dra")[0].action, Action::RunMode("Study".into(), Some("t1".into())));
+        // No such task: no row of the kind. The mode's own name alone still runs it plain.
+        assert!(!search(&c, "study nothing").iter().any(|i| matches!(i.action, Action::RunMode(..))));
+        assert_eq!(search(&c, "study")[0].action, Action::RunMode("Study".into(), None));
+        // Another mode, another task.
+        assert_eq!(search(&c, "write call")[0].action, Action::RunMode("Write".into(), Some("t2".into())));
     }
 
     #[test]
@@ -693,12 +720,12 @@ mod tests {
         let c = with_modes();
         for word in ["mode", "modes"] {
             let all = search(&c, word);
-            let modes: Vec<&Item> = all.iter().filter(|i| matches!(i.action, Action::RunMode(_))).collect();
+            let modes: Vec<&Item> = all.iter().filter(|i| matches!(i.action, Action::RunMode(..))).collect();
             assert_eq!(modes.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["Study", "Write"]);
             assert_eq!(all[0].title, "Study");
         }
         // With none saved, the word offers none.
-        assert!(!search(&ctx(), "modes").iter().any(|i| matches!(i.action, Action::RunMode(_))));
+        assert!(!search(&ctx(), "modes").iter().any(|i| matches!(i.action, Action::RunMode(..))));
     }
 
     #[test]

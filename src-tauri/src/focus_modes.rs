@@ -119,9 +119,10 @@ pub fn forget_list(conn: &Connection, name: &str) -> Result<()> {
 
 /// Starts the session a mode asks for, blocking its list, and returns the apps it opens (for the
 /// caller to open, since it holds the palette's index of apps). Ends the session that runs, as
-/// starting one by hand does.
-pub fn start(conn: &Connection, mode: &FocusMode, now: i64) -> Result<Vec<ModeApp>> {
-    focus::start_by_hand(conn, mode.minutes, Some(&mode.name), None, now)?;
+/// starting one by hand does. With a task (by id) the time counts for it and its title is the
+/// session's label.
+pub fn start(conn: &Connection, mode: &FocusMode, task: Option<&str>, now: i64) -> Result<Vec<ModeApp>> {
+    focus::start_by_hand(conn, mode.minutes, Some(&mode.name), task, now)?;
     // The mode's own list wins over what its name or the default would pick.
     if let Some(list) = &mode.list {
         conn.execute("UPDATE focus_sessions SET list = ?1 WHERE end_ms IS NULL", [list])?;
@@ -191,7 +192,7 @@ mod tests {
         lists::set_default(&c, Some("Games")).unwrap();
         save(&c, None, "Study", 50, Some("Social"), vec![app("Word")]).unwrap().unwrap();
         let mode = find(&c, "study").unwrap().unwrap();
-        let apps = start(&c, &mode, 1_000).unwrap();
+        let apps = start(&c, &mode, None, 1_000).unwrap();
         assert_eq!(apps, [app("Word")]);
         let running = focus::active(&c).unwrap().unwrap();
         assert_eq!(running.label(), Some("Study"));
@@ -199,8 +200,26 @@ mod tests {
         assert_eq!(lists::of_session(&c).unwrap().as_deref(), Some("Social"));
         // With none of its own, a session by hand's usual choice applies.
         save(&c, None, "Write", 25, None, vec![]).unwrap().unwrap();
-        start(&c, &find(&c, "write").unwrap().unwrap(), 2_000).unwrap();
+        start(&c, &find(&c, "write").unwrap().unwrap(), None, 2_000).unwrap();
         assert_eq!(lists::of_session(&c).unwrap().as_deref(), Some("Games"));
+    }
+
+    #[test]
+    fn run_on_a_task_the_time_counts_for_it_and_its_title_is_the_label() {
+        let c = conn();
+        lists::save(&c, None, "Social", vec!["site:reddit".into()]).unwrap().unwrap();
+        save(&c, None, "Study", 50, Some("Social"), vec![]).unwrap().unwrap();
+        let task = crate::tasks::add(&c, "Essay", 1).unwrap().unwrap();
+        start(&c, &find(&c, "study").unwrap().unwrap(), Some(&task.id), 5_000).unwrap();
+        let running_task = |c: &Connection| c.query_row("SELECT task FROM focus_sessions WHERE end_ms IS NULL", [], |r| r.get::<_, Option<String>>(0)).unwrap();
+        let running = focus::active(&c).unwrap().unwrap();
+        assert_eq!((running.label(), running_task(&c)), (Some("Essay"), Some(task.id.clone())));
+        // Its list still applies.
+        assert_eq!(lists::of_session(&c).unwrap().as_deref(), Some("Social"));
+        // A task that isn't there is none: the session still starts, labelled by the mode.
+        start(&c, &find(&c, "study").unwrap().unwrap(), Some("gone"), 6_000).unwrap();
+        let again = focus::active(&c).unwrap().unwrap();
+        assert_eq!((again.label(), running_task(&c)), (Some("Study"), None));
     }
 
     #[test]

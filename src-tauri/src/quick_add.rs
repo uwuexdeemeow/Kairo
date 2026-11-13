@@ -1,6 +1,7 @@
 //! Quick add: the shortcuts a new task's text can end with, for its priority (`!h`, `!med`,
-//! `!low`) and due day (`today`, `fri`, `7 nov`, `11/7`), read the same way by Ledger's field and
-//! the palette's `task` command.
+//! `!low`), due day (`today`, `fri`, `7 nov`, `11/7`), repeat (`every fri`), tags (`#school`),
+//! estimate (`~2h`, `~90m`) and a moment to be reminded at (`when gradescope`, `when focus ends`),
+//! read the same way by Ledger's field and the palette's `task` command.
 
 use chrono::NaiveDate;
 
@@ -14,6 +15,10 @@ pub struct Quick {
     pub repeat: Option<String>,
     /// `#tags` ended it with, cleaned, in the order typed.
     pub tags: Vec<String>,
+    /// How long it's expected to take, in minutes (`~2h`).
+    pub estimate: Option<i64>,
+    /// A moment that reminds it, as `tasks::clean_when` keeps it: `open:<words>` or `focus`.
+    pub when: Option<String>,
 }
 
 /// Reads `text`'s shortcuts as of `today`: whole words at its end, in any order, one priority and
@@ -26,9 +31,34 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     // "every fri" repeats weekly and is due the next Friday, unless a day is given beside it.
     let (mut repeat, mut repeat_day): (Option<&str>, Option<NaiveDate>) = (None, None);
     let mut tags: Vec<String> = Vec::new();
+    let (mut estimate, mut when): (Option<i64>, Option<String>) = (None, None);
     let mut end = words.len();
     while end > 0 {
         let word = words[end - 1];
+        // "~2h", "~90m": how long it takes.
+        if estimate.is_none() {
+            if let Some(minutes) = estimate_of(word) {
+                estimate = Some(minutes);
+                end -= 1;
+                continue;
+            }
+        }
+        // "when focus ends", or "when gradescope": a moment to be reminded at, a single word
+        // (or comma-separated words) after "when".
+        if when.is_none() {
+            if end >= 3 && word.eq_ignore_ascii_case("ends") && words[end - 2].eq_ignore_ascii_case("focus") && words[end - 3].eq_ignore_ascii_case("when") {
+                when = Some("focus".into());
+                end -= 3;
+                continue;
+            }
+            if end >= 2 && words[end - 2].eq_ignore_ascii_case("when") {
+                if let Some(moment) = when_of(word, today, day_first) {
+                    when = Some(moment);
+                    end -= 2;
+                    continue;
+                }
+            }
+        }
         // "#school" is a tag, whole words only; a lone # is just a word.
         if word.starts_with('#') && tags.len() < crate::tasks::MAX_TAGS {
             if let Some(tag) = crate::tasks::clean_tag(word) {
@@ -74,7 +104,7 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
     let title: Vec<String> = words[..end].iter().map(unquote).collect();
     if title.is_empty() {
         let all: Vec<String> = words.iter().map(unquote).collect();
-        return Quick { title: all.join(" "), due: None, priority: None, repeat: None, tags: Vec::new() };
+        return Quick { title: all.join(" "), due: None, priority: None, repeat: None, tags: Vec::new(), estimate: None, when: None };
     }
     // A repeating task always has a day: the one beside it, the weekday named, or today (the next
     // weekday, for "every weekday" on a weekend).
@@ -82,7 +112,34 @@ pub fn parse(text: &str, today: NaiveDate, day_first: bool) -> Quick {
         due = repeat_day.or_else(|| if repeat == Some("weekday") { crate::tasks::next_due("weekday", None, today.pred_opt().unwrap_or(today)) } else { Some(today) });
     }
     tags.reverse();
-    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority, repeat: repeat.map(String::from), tags }
+    Quick { title: title.join(" "), due: due.map(|d| d.format("%Y-%m-%d").to_string()), priority, repeat: repeat.map(String::from), tags, estimate, when }
+}
+
+/// An estimate in minutes from `~2h`, `~90m`, `~1.5h` or `~1h30m`; None for anything else, and for
+/// a length a task can't have (under five minutes or over a day).
+fn estimate_of(word: &str) -> Option<i64> {
+    let w = word.strip_prefix('~')?.to_ascii_lowercase();
+    let minutes = match w.split_once('h') {
+        Some((hours, rest)) => {
+            let extra = if rest.is_empty() { 0.0 } else { rest.strip_suffix('m')?.parse::<f64>().ok()? };
+            hours.parse::<f64>().ok()? * 60.0 + extra
+        }
+        None => w.strip_suffix('m')?.parse::<f64>().ok()?,
+    };
+    crate::tasks::clean_estimate(minutes.round() as i64)
+}
+
+/// The moment "when <word>" names: `focus`, or an app or site (its words, as typed, cleaned as a
+/// task keeps them). A word that is a day or a shortcut of its own isn't one, so "when friday"
+/// stays a due day.
+fn when_of(word: &str, today: NaiveDate, day_first: bool) -> Option<String> {
+    if word.eq_ignore_ascii_case("focus") {
+        return Some("focus".into());
+    }
+    if word.starts_with(['!', '#', '~', '"']) || one_word_day(word, today, day_first).is_some() || priority_of(word).is_some() {
+        return None;
+    }
+    crate::tasks::clean_when(&format!("open:{word}"))
 }
 
 /// What "every <word>" repeats: its rule, and for a weekday's name the next such day.
@@ -171,8 +228,22 @@ pub fn describe(q: &Quick) -> String {
     let priority = q.priority.map(|p| ["Low", "Medium", "High"][p.min(2) as usize].to_string());
     let due = q.due.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).map(|d| d.format("%a %-d %b").to_string());
     let repeat = q.repeat.as_deref().map(|r| format!("Every {r}"));
+    let estimate = q.estimate.map(|m| format!("~{}", estimate_text(m)));
     let tags = (!q.tags.is_empty()).then(|| q.tags.iter().map(|t| format!("#{t}")).collect::<Vec<_>>().join(" "));
-    [priority, due, repeat, tags].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+    let when = q.when.as_deref().map(|w| match w.strip_prefix("open:") {
+        Some(words) => format!("Reminds when you open {words}"),
+        None => "Reminds when a focus session ends".to_string(),
+    });
+    [priority, due, repeat, estimate, tags, when].into_iter().flatten().collect::<Vec<_>>().join(" · ")
+}
+
+/// "45m", "2h", "1h 30m" for an estimate in minutes.
+fn estimate_text(min: i64) -> String {
+    match (min / 60, min % 60) {
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
+    }
 }
 
 /// Whether the system writes dates day first: everywhere but the US.
@@ -311,6 +382,72 @@ mod tests {
         assert_eq!(tagged("call \"#home\""), ("call #home".into(), None, vec![]));
         // Nothing but a tag: taken as typed.
         assert_eq!(tagged("#school"), ("#school".into(), None, vec![]));
+    }
+
+    fn costed(text: &str) -> (String, Option<i64>, Option<String>) {
+        let q = parse(text, today(), true);
+        (q.title, q.estimate, q.when)
+    }
+
+    #[test]
+    fn a_tilde_length_at_the_end_is_an_estimate() {
+        assert_eq!(costed("essay ~2h"), ("essay".into(), Some(120), None));
+        assert_eq!(costed("essay ~90m"), ("essay".into(), Some(90), None));
+        assert_eq!(costed("essay ~1.5h"), ("essay".into(), Some(90), None));
+        assert_eq!(costed("essay ~1h30m"), ("essay".into(), Some(90), None));
+        assert_eq!(costed("essay ~45M"), ("essay".into(), Some(45), None));
+        // With the other shortcuts, in any order.
+        let q = parse("essay ~2h fri !h #school", today(), true);
+        assert_eq!((q.title.as_str(), q.estimate, q.due.as_deref(), q.priority), ("essay", Some(120), Some("2026-11-06"), Some(2)));
+        assert_eq!(parse("essay fri ~25m", today(), true).estimate, Some(25));
+    }
+
+    #[test]
+    fn a_tilde_word_that_isnt_a_length_a_task_can_have_stays_in_the_title() {
+        for text in ["fix ~4m", "fix ~2d", "fix ~h", "fix ~", "fix ~25", "fix ~25hrs", "fix ~1500m", "fix ~nanh", "fix 2h"] {
+            let q = parse(text, today(), true);
+            assert_eq!((q.title.as_str(), q.estimate), (text, None), "{text}");
+        }
+        // Nothing but an estimate: taken as typed.
+        assert_eq!(costed("~2h"), ("~2h".into(), None, None));
+        // Only the last one counts.
+        assert_eq!(costed("essay ~1h ~2h"), ("essay ~1h".into(), Some(120), None));
+    }
+
+    #[test]
+    fn when_and_a_word_is_a_moment_to_be_reminded_at() {
+        assert_eq!(costed("submit essay when gradescope"), ("submit essay".into(), None, Some("open:gradescope".into())));
+        assert_eq!(costed("submit essay WHEN Gradescope"), ("submit essay".into(), None, Some("open:gradescope".into())));
+        assert_eq!(costed("stretch when focus"), ("stretch".into(), None, Some("focus".into())));
+        assert_eq!(costed("stretch when focus ends"), ("stretch".into(), None, Some("focus".into())));
+        assert_eq!(costed("design when figma,notion"), ("design".into(), None, Some("open:figma,notion".into())));
+        // With the other shortcuts.
+        let q = parse("essay when gradescope ~1h fri !h", today(), true);
+        assert_eq!((q.title.as_str(), q.when.as_deref(), q.estimate, q.due.as_deref(), q.priority), ("essay", Some("open:gradescope"), Some(60), Some("2026-11-06"), Some(2)));
+    }
+
+    #[test]
+    fn a_when_that_isnt_a_moment_stays_in_the_title() {
+        // Not at the end, or not a single word after it, or a shortcut of its own.
+        assert_eq!(costed("decide when to call mum"), ("decide when to call mum".into(), None, None));
+        assert_eq!(costed("plan when friday").0, "plan when");
+        assert_eq!(parse("plan when friday", today(), true).due.as_deref(), Some("2026-11-06"));
+        assert_eq!(costed("plan when !h"), ("plan when".into(), None, None));
+        assert_eq!(costed("plan when #home").2, None);
+        // A quoted "when" is a word.
+        assert_eq!(costed("call \"when\" gradescope"), ("call when gradescope".into(), None, None));
+        // Nothing but a moment: taken as typed.
+        assert_eq!(costed("when gradescope"), ("when gradescope".into(), None, None));
+        assert_eq!(costed("when focus ends"), ("when focus ends".into(), None, None));
+    }
+
+    #[test]
+    fn what_was_read_reads_back_with_an_estimate_and_a_moment() {
+        assert_eq!(describe(&parse("essay ~90m", today(), true)), "~1h 30m");
+        assert_eq!(describe(&parse("essay ~45m", today(), true)), "~45m");
+        assert_eq!(describe(&parse("essay ~2h", today(), true)), "~2h");
+        assert_eq!(describe(&parse("essay when gradescope", today(), true)), "Reminds when you open gradescope");
+        assert_eq!(describe(&parse("essay !h ~2h #school when focus ends", today(), true)), "High · ~2h · #school · Reminds when a focus session ends");
     }
 
     #[test]

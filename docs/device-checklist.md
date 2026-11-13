@@ -561,6 +561,31 @@ Modes stay on the computer they were made on.
    the mode goes back to "What a session blocks".
 9. **Backup.** Back up and restore. *Expect:* the modes are back.
 
+## Quick-add: estimates and moments, and a mode on a task
+
+On Windows, a Mac and Linux, in Ledger's add box and in the palette. Use a copy that isn't your own
+for the mode on a task, since it starts a session.
+
+1. **An estimate.** In Ledger's add box type `write essay ~2h`. *Expect:* under the box, "~2h" (with
+   anything else it read), and once added the task shows "~2h" on its row and an Estimate of 2h in its
+   panel. Try `~90m`, `~1.5h` and `~1h30m` (all 90 minutes). `~4m`, `~2d` and `~25` stay in the title.
+2. **A moment.** Type `submit essay when gradescope`. *Expect:* "Reminds when you open gradescope"
+   under the box; the task has "Reminder when… I open… gradescope" in its panel. `stretch when focus
+   ends` gives "Reminds when a focus session ends". `plan when friday` reads Friday as the due day
+   instead; `decide when to call mum` stays a plain title.
+3. **Both, with the rest.** `essay ~2h when word fri !h #school`. *Expect:* everything read, in the
+   line under the box, and every part on the task once added.
+4. **The palette.** Type `task submit essay when gradescope ~1h`. *Expect:* the row says "Add task
+   “submit essay”" with "~1h · Reminds when you open gradescope · In Ledger" under it, and Enter adds it
+   as above.
+5. **Help.** Under Ledger's add box, "Shorthand and keys" lists `~2h  ~90m` and `when gradescope  when
+   focus ends`.
+6. **A mode on a task.** With a mode called Study and a task "Essay draft", type `study essay` in the
+   palette. *Expect:* one row, "Study · Essay draft", saying what the mode does and "counts for the
+   task". Enter. *Expect:* the Study session starts (its length, its block list, its apps) labelled
+   "Essay draft", and that task's focus time counts it. `study nothing` offers no row; `study` alone
+   still runs it on no task.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

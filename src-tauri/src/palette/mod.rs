@@ -503,10 +503,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         Action::RunMode(..) if crate::blocking::strict_now(conn).unwrap_or(false) => {
             Err("Strict mode is on: end the current session from Chrono's Focus page first.".into())
         }
-        Action::RunMode(name) => {
+        Action::RunMode(name, task) => {
             use tauri::Emitter;
             let mode = crate::focus_modes::find(conn, name).map_err(|e| e.to_string())?.ok_or_else(|| "That mode is gone.".to_string())?;
-            let apps = crate::focus_modes::start(conn, &mode, now_ms()).map_err(|e| e.to_string())?;
+            let apps = crate::focus_modes::start(conn, &mode, task.as_deref(), now_ms()).map_err(|e| e.to_string())?;
             let _ = app.emit("kairo:focus", ());
             // Best effort: an app that can't be opened doesn't undo the session.
             for a in apps {

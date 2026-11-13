@@ -289,8 +289,9 @@ pub enum Action {
     Dashboard(Option<&'static str>),
     /// A focus session: minutes, label, and the task it's for, by id.
     StartFocus(u32, Option<String>, Option<String>),
-    /// A saved focus mode, by name: its session, its block list and its apps.
-    RunMode(String),
+    /// A saved focus mode, by name, and the task it's for by id if the query named one: its
+    /// session, its block list and its apps.
+    RunMode(String, Option<String>),
     /// A pomodoro cycle: minutes per round and per break (the saved ones when None), label, and
     /// the task it's for, by id.
     Pomodoro(Option<u32>, Option<u32>, Option<String>, Option<String>),
