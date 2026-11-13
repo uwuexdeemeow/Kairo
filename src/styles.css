@@ -4375,6 +4375,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .cal-day-title {
   margin: 0 0 10px;
   font-size: 15px;
+  text-align: center;
 }
 
 .cal-sub {
