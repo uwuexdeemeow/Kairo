@@ -17,6 +17,9 @@ const api = vi.hoisted(() => ({
   setTaskDone: vi.fn(async () => []),
   ringSettings: vi.fn(),
   tasks: vi.fn(),
+  focus: vi.fn(),
+  controlFocus: vi.fn(),
+  startFocus: vi.fn(async () => ({})),
   appearance: vi.fn(),
   setAppearance: vi.fn(),
   setPaletteShortcut: vi.fn(),
@@ -62,21 +65,34 @@ beforeEach(() => {
   api.sync.mockResolvedValue({ folder: null, name: "Tower", computers: [], shown: "all" });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.tasks.mockResolvedValue([{ id: "a", group: "today" }, { id: "b", group: "overdue" }]);
+  api.focus.mockResolvedValue(null);
   api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", items: ["chrono", "ledger", "notes", "week"], all: [], focusMinutes: 25 });
   document.body.innerHTML = markup;
 });
 
 describe("Home", () => {
-  it("shows a tile for each app, with today's line", async () => {
+  it("shows a chip for each app that keeps count, with today's line", async () => {
     await open();
-    // Each name is the tile's one button, read as "Open Chrono".
-    expect([...document.querySelectorAll(".app-tile h2")].map((t) => t.textContent)).toEqual(["Open Chrono", "Open Ledger", "Open Command palette", "Open App ring"]);
-    expect(document.querySelector(".app-tile[aria-label]")).toBeNull();
-    await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m on screen · 40% productive"));
-    expect(line("palette")).toMatch(/^Try “.+”$/);
+    // Each name is the chip's one button, read as "Open Chrono".
+    expect([...document.querySelectorAll(".app-chip .app-open")].map((t) => t.textContent)).toEqual(["Open Chrono", "Open Ledger"]);
+    await vi.waitFor(() => expect(line("chrono")).toBe("2h 05m today"));
     expect(line("ledger")).toBe("1 due today · 1 overdue");
     // Lines refresh every 30 seconds, so they aren't read out each time.
-    expect(document.querySelector("[aria-live]#app-tiles, #app-tiles [aria-live]")).toBeNull();
+    expect(document.querySelector("[aria-live]#app-tiles, #app-tiles [aria-live], #dash-hint [aria-live]")).toBeNull();
+  });
+
+  it("names the apps opened by their keys in a line beneath, with the keys", async () => {
+    await open();
+    await vi.waitFor(() => expect(line("palette")).toMatch(/^AltSpaceTry “.+”$/));
+    expect([...document.querySelectorAll('[data-line="palette"] kbd')].map((k) => k.textContent)).toEqual(["Alt", "Space"]);
+    await vi.waitFor(() => expect([...document.querySelectorAll('[data-line="ring"] kbd')].map((k) => k.textContent)).toEqual(["Alt", "Q"]));
+    expect([...document.querySelectorAll("#dash-hint .hint-open")].map((b) => b.textContent)).toEqual(["Command palette", "App ring"]);
+    $<HTMLButtonElement>('[data-app="palette"] .hint-open').click();
+    expect(api.openPalette).toHaveBeenCalled();
+    $<HTMLButtonElement>('[data-app="ring"] .hint-open').click();
+    expect(api.openRing).toHaveBeenCalled();
+    // No chip for either.
+    expect(document.querySelector('.app-chip[data-app="palette"], .app-chip[data-app="ring"]')).toBeNull();
   });
 
   it("starts the keyboard on the first tile when nothing is due", async () => {
@@ -134,32 +150,23 @@ describe("Home", () => {
 
   it("keeps a line it can't refresh", async () => {
     await open();
-    await vi.waitFor(() => expect(line("chrono")).toContain("on screen"));
+    await vi.waitFor(() => expect(line("chrono")).toContain("today"));
     api.dayTotals.mockRejectedValue("database busy");
     $<HTMLButtonElement>('[data-tab="settings"]').click();
     $<HTMLButtonElement>('[data-tab="home"]').click();
     await vi.waitFor(() => expect(api.dayTotals).toHaveBeenCalledTimes(2));
-    expect(line("chrono")).toBe("2h 05m on screen · 40% productive");
+    expect(line("chrono")).toBe("2h 05m today");
   });
 
-  it("draws each app as its object", async () => {
-    await open();
-    // Chrono's dial: today's time in its middle, its ring shared by productive and the rest.
-    await vi.waitFor(() => expect($('[data-app="chrono"] .dial-centre').textContent).toBe("2h 05"));
-    expect($('[data-app="chrono"] .dial-arc.productive')).not.toBeNull();
-    expect($('[data-app="ledger"] .app-object .logo-ledger')).not.toBeNull();
-    expect([...document.querySelectorAll('[data-app="palette"] .keycap kbd')].map((k) => k.textContent)).toEqual(["Alt", "Space"]);
-  });
-
-  it("opens an app from its tile", async () => {
+  it("opens an app from its chip", async () => {
     await open();
     $<HTMLButtonElement>('[data-app="ledger"] .app-open').click();
     expect(api.openLedger).toHaveBeenCalled();
     $<HTMLButtonElement>('[data-app="chrono"] .app-open').click();
     expect(api.openChrono).toHaveBeenCalledWith();
-    // The drawing is part of the tile's one button, not a second one.
-    expect(document.querySelector("#app-tiles .app-object")!.getAttribute("aria-hidden")).toBe("true");
-    // Tiles carry no settings of their own; those are on the Settings tab.
+    // The dot is part of the chip's one button, not a second one.
+    expect(document.querySelector("#app-tiles .app-dot")!.getAttribute("aria-hidden")).toBe("true");
+    // Chips carry no settings of their own; those are on the Settings tab.
     expect(document.querySelector("#app-tiles .link-btn")).toBeNull();
   });
 
@@ -202,17 +209,42 @@ describe("Today", () => {
     await vi.waitFor(() => expect($("#today-list").textContent).toBe("Nothing due today. Add a task"));
   });
 
-  it("lets the greeting say how the day stands", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 10, 5, 18, 0));
-    try {
-      api.tasks.mockResolvedValue([{ id: "b", title: "Bank", group: "overdue", remindMs: null }]);
-      await open();
-      // Not "nearly done." at six with something overdue.
-      await vi.waitFor(() => expect($("#dash-title em").textContent).toBe("1 overdue."));
-    } finally {
-      vi.useRealTimers();
-    }
+  it("says in the title how the day stands", async () => {
+    const { dayTitle } = await import("./dashboard");
+    expect([0, 1, 2, 10, 11].map(dayTitle)).toEqual(["Nothing due today.", "One thing left today.", "Two things left today.", "Ten things left today.", "11 things left today."]);
+    api.tasks.mockResolvedValue([{ id: "b", title: "Bank", group: "overdue", remindMs: null }, { id: "a", title: "Essay", group: "today", remindMs: null }]);
+    await open();
+    await vi.waitFor(() => expect($("#dash-title").textContent).toBe("Two things left today."));
+  });
+
+  it("falls back to the greeting when the day can't be read", async () => {
+    api.tasks.mockRejectedValue("database busy");
+    await open();
+    await vi.waitFor(() => expect($("#dash-title").textContent).toMatch(/^(Good (morning|afternoon|evening),|Still up\?) /));
+  });
+
+  it("shows the focus session running, with a way to end it, and none when there isn't", async () => {
+    api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "today", remindMs: null }]);
+    await open();
+    await vi.waitFor(() => expect(titles()).toEqual(["Essay"]));
+    expect($("#focus-strip").hidden).toBe(true);
+    // Not running: each task offers to start on it.
+    $<HTMLButtonElement>("#today-list .today-focus").click();
+    await vi.waitFor(() => expect(api.startFocus).toHaveBeenCalledWith(25, undefined, "a"));
+
+    api.focus.mockResolvedValue({ startMs: Date.now() - 10 * 60_000, plannedMs: 25 * 60_000, pausedMs: 0, pausedAt: null, label: null, task: "a" });
+    api.controlFocus.mockResolvedValue({ session: null, waitUntil: null });
+    $<HTMLButtonElement>('[data-tab="settings"]').click();
+    $<HTMLButtonElement>('[data-tab="home"]').click();
+    await vi.waitFor(() => expect($("#focus-strip").hidden).toBe(false));
+    expect($("#focus-text").textContent).toBe("Focusing on Essay · 15 min left");
+    // One session at a time: no Focus on the rows meanwhile.
+    expect(document.querySelector("#today-list .today-focus")).toBeNull();
+
+    api.focus.mockResolvedValue(null);
+    $<HTMLButtonElement>("#focus-stop").click();
+    expect(api.controlFocus).toHaveBeenCalledWith("stop");
+    await vi.waitFor(() => expect($("#focus-strip").hidden).toBe(true));
   });
 
   it("says when nothing is due, with a way to add something", async () => {
@@ -232,18 +264,6 @@ describe("Today", () => {
     await open();
     await vi.waitFor(() => expect(api.tasks).toHaveBeenCalled());
     await vi.waitFor(() => expect($("#today-next").textContent).toBe(today ? `Next reminder at ${soon.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: Call` : ""));
-  });
-});
-
-describe("the app ring's tile", () => {
-  it("shows its keys and how many are on it, and opens it", async () => {
-    await open();
-    await vi.waitFor(() => expect(line("ring")).toBe("AltQ4 items"));
-    expect([...document.querySelectorAll('[data-line="ring"] kbd')].map((k) => k.textContent)).toEqual(["Alt", "Q"]);
-    // Its picture: the arc, as many segments as show.
-    expect(document.querySelectorAll('[data-app="ring"] .arc-seg').length).toBe(4);
-    $<HTMLButtonElement>('[data-app="ring"] .app-open').click();
-    expect(api.openRing).toHaveBeenCalled();
   });
 });
 
@@ -280,9 +300,20 @@ describe("tabs", () => {
   it("opens on Home when nothing asks otherwise", async () => {
     await open();
     expect(onTab()).toBe("home");
-    // The greeting for the hour, its aside in italic.
-    expect($("#dash-title").textContent).toMatch(/^(Good (morning|afternoon|evening),|Still up\?) /);
-    expect($("#dash-title em")).not.toBeNull();
+    // The title says how the day stands (a task due and one overdue, by default).
+    await vi.waitFor(() => expect($("#dash-title").textContent).toBe("Two things left today."));
+    // Settings is left and Home comes back with its title at once.
+    $<HTMLButtonElement>('[data-tab="settings"]').click();
+    expect($("#dash-title").textContent).toBe("Settings");
+    $<HTMLButtonElement>('[data-tab="home"]').click();
+    expect($("#dash-title").textContent).toBe("Two things left today.");
+  });
+
+  it("keeps the focus ring off Home's first control until a key is pressed", async () => {
+    await open();
+    expect(document.body.classList.contains("keys")).toBe(false);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    expect(document.body.classList.contains("keys")).toBe(true);
   });
 
   it("opens on the tab it was asked for", async () => {

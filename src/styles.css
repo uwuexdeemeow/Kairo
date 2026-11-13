@@ -3334,280 +3334,55 @@ select,
   }
 }
 
-/* Each app as what it is, side by side: Chrono's dial, Ledger's notebook, the palette's key, the
-   ring's arc. All four in a row at every size, so Home is seen whole when it opens; a narrow or
-   short window draws the objects smaller rather than push two of them below the fold. */
-.app-tiles {
-  margin-top: 36px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 16px;
-  align-items: start;
-}
-
-/* Each tile's object, name, what it is and today's line sit on rows shared across the four, so a
-   name that takes two lines ("Command palette") doesn't push its lines below its neighbours'. */
-@supports (grid-template-rows: subgrid) {
-  .app-tiles .app-tile {
-    display: grid;
-    grid-row: span 4;
-    grid-template-rows: subgrid;
-    justify-items: center;
-    align-items: start;
-  }
-}
-
-/* A short window: Home closes up so all four tiles and their lines are in view as it opens. */
-@media (max-height: 640px) {
-  .dash {
-    padding-top: 20px;
-    padding-bottom: 20px;
-  }
-
-  .dash h1 {
-    font-size: 34px;
-  }
-
-  .dash .dash-today {
-    margin-top: 16px;
-  }
-
-  .dash .app-tiles {
-    margin-top: 16px;
-  }
-
-  .dash .app-tiles .app-object {
-    height: 92px;
-    margin-bottom: 8px;
-  }
-
-  .dash .app-tiles .app-object > * {
-    transform: scale(0.7);
-  }
-}
-
-@media (max-width: 900px), (max-height: 640px) {
-  .app-tiles {
-    margin-top: 24px;
-    gap: 0 12px;
-  }
-
-  .app-tiles .app-object {
-    height: 104px;
-    margin-bottom: 10px;
-  }
-
-  /* The drawings keep their proportions, scaled from where they stand. */
-  .app-tiles .app-object > * {
-    transform: scale(0.78);
-    transform-origin: bottom center;
-  }
-
-  .app-tiles .app-tile h2 {
-    font-size: 18px;
-  }
-}
-
-.app-tile:nth-child(4) {
-  animation-delay: 180ms;
-}
-
-.app-tile {
+/* A focus session running now, above the day; nothing at all when none is. */
+.focus-strip {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  animation: settle 320ms var(--ease) both;
-}
-
-.app-tile:nth-child(2) {
-  animation-delay: 60ms;
-}
-
-.app-tile:nth-child(3) {
-  animation-delay: 120ms;
-}
-
-/* The whole tile is the way in: the name's button stretches over it, and the object lifts under
-   the pointer or the keyboard. */
-.app-tile {
-  position: relative;
-}
-
-.app-object {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  height: 132px;
-  margin-bottom: 14px;
-  transition: transform 200ms var(--ease), filter 200ms var(--ease);
-}
-
-.app-tile:hover .app-object,
-.app-tile:focus-within .app-object {
-  transform: translateY(-3px);
-  filter: drop-shadow(0 10px 14px var(--shadow));
-}
-
-.app-open {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  cursor: pointer;
-}
-
-.app-open::after {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  border-radius: 16px;
-}
-
-.app-open:focus-visible {
-  outline: none;
-}
-
-.app-open:focus-visible::after {
-  outline: 2px solid var(--app);
-}
-
-/* A control in a tile's line sits above the stretched button. */
-.tile-resume {
-  position: relative;
-  z-index: 1;
-  min-height: 0;
-  font-size: inherit;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-object {
-    transition: none;
-  }
-}
-
-.app-dial,
-.app-dial .dial {
-  width: 124px;
-  height: 124px;
-}
-
-.app-book .logo {
-  filter: drop-shadow(0 8px 10px var(--shadow));
-}
-
-/* The palette's key, raised on its own edge. */
-.keycap {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  justify-content: center;
-  min-width: 132px;
-  height: 76px;
-  margin-bottom: 10px;
-  padding: 0 18px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--raised);
-  box-shadow: 0 7px 0 color-mix(in srgb, var(--palette) 40%, var(--bg)), 0 12px 18px -6px var(--shadow);
-}
-
-.keycap kbd {
-  border: 0;
-  background: none;
-  color: var(--palette);
-  font: 600 15px var(--sans);
-}
-
-.app-tile h2 {
-  margin: 0;
-  font-family: var(--display);
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  text-transform: none;
-}
-
-.app-tile[data-app="chrono"] h2 {
-  color: var(--chrono);
-}
-
-.app-tile[data-app="ledger"] h2 {
-  color: var(--ledger);
-}
-
-.app-tile[data-app="palette"] h2 {
-  color: var(--palette);
-}
-
-.app-tile[data-app="ring"] h2 {
-  color: var(--kairo);
-}
-
-.app-tile-what {
-  margin: 2px 0 0;
-  font-size: 12px;
-}
-
-.app-tile-line {
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 2px 8px;
-  margin: 8px 0 0;
-  min-height: 22px;
-  font-size: 13px;
-  color: var(--ink-2);
+  gap: 8px 12px;
+  margin-top: 24px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--raised);
 }
 
-/* Keys in a line sit on the page's colour so they still read as keys. */
-.app-tile .shortcut-keys kbd {
-  background: var(--raised);
+.focus-strip p {
+  flex: 1;
+  min-width: 160px;
+  margin: 0;
+  font-weight: 500;
+}
+
+/* Hidden by its own attribute; the flex above would otherwise show it. */
+.focus-strip[hidden] {
+  display: none;
 }
 
 /* Home's Today: what's due, each a way into Ledger, and the next reminder. */
 /* Not ".today": Chrono's charts mark today's column with that. */
 .dash-today {
-  margin-top: 28px;
+  margin-top: 24px;
   max-width: 640px;
 }
 
-/* As Ledger's group names: the small sans label. */
-.today-title {
-  margin: 0 0 8px;
-  font: 600 11px var(--sans);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
 .today-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* A Today task: a tick to finish it here, then its name to open it in Ledger. */
-/* One pill holds both, so a tick can't be read as belonging to the task beside it. */
+/* A Today task: a tick to finish it here, its name to open it in Ledger, and Focus to start on it. */
 .today-item {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  max-width: 100%;
-  padding-left: 6px;
-  border: 1px solid var(--edge);
-  border-radius: 10px;
-  background: var(--raised);
-  transition: border-color 140ms var(--ease);
+  gap: 4px;
+  padding: 2px 0;
+  border-top: 1px solid var(--rule);
 }
 
-.today-item:hover {
-  border-color: var(--ledger);
+.today-item:first-child {
+  border-top: 0;
 }
 
 .today-tick {
@@ -3636,22 +3411,22 @@ select,
 }
 
 .today-task {
-  display: inline-flex;
+  flex: 1;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  max-width: 280px;
-  min-height: 34px;
-  padding: 4px 12px 4px 8px;
+  min-height: 40px;
+  padding: 4px 8px 4px 10px;
   border: 0;
-  border-radius: 0 9px 9px 0;
   background: none;
   color: var(--ink);
-  font: 500 13px var(--sans);
+  font: 500 14px var(--sans);
+  text-align: left;
   cursor: pointer;
 }
 
-/* Its focus ring sits inside the pill it shares with the tick. */
+/* Its ring sits inside the row it shares with the tick. */
 .today-task:focus-visible {
   outline-offset: -2px;
 }
@@ -3664,11 +3439,18 @@ select,
 
 .today-late {
   color: var(--distracting-ink);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.today-focus {
+  flex: none;
+  min-height: 32px;
+  font-size: 13px;
 }
 
 .today-none {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .today-none .link-btn,
@@ -3686,22 +3468,127 @@ select,
   display: none;
 }
 
-@keyframes settle {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
+/* The apps that keep count: a chip each, its name the way in and today's line beside it. */
+.app-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .app-tile {
-    animation: none;
-  }
-  .app-object,
-  .app-object:hover {
-    transition: none;
-    transform: none;
-  }
+.app-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  transition: border-color 140ms var(--ease);
+}
+
+.app-chip:hover {
+  border-color: var(--app);
+}
+
+.app-chip[data-app="chrono"] {
+  --app: var(--chrono);
+}
+
+.app-chip[data-app="ledger"] {
+  --app: var(--ledger);
+}
+
+.app-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 500 14px var(--sans);
+  cursor: pointer;
+}
+
+.app-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--app);
+}
+
+/* The whole chip is the way in: the name's button stretches over it. */
+.app-open::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 8px;
+}
+
+.app-open:focus-visible {
+  outline: none;
+}
+
+.app-open:focus-visible::after {
+  outline: 2px solid var(--app);
+  outline-offset: 2px;
+}
+
+.app-chip-line {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A control in a chip's line sits above the stretched button. */
+.tile-resume {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  font-size: inherit;
+}
+
+/* The apps opened by their keys: named, with the keys, in a line of words. */
+.dash-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 14px 0 0;
+  font-size: 13px;
+}
+
+.hint-item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.hint-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+}
+
+.hint-open {
+  min-height: 32px;
+  font-size: inherit;
+}
+
+/* Keys in a line sit on the page's colour so they still read as keys. */
+.dash-hint .shortcut-keys kbd {
+  background: var(--raised);
+}
+
+/* Until a key is pressed, the ring stays off Home's first control: the keyboard starts there
+   without anyone having reached it, and a ring would read as a stray highlight. */
+body:not(.keys) .dash :focus-visible,
+body:not(.keys) .dash .app-open:focus-visible::after {
+  outline: none;
 }
 
 /* App settings: a row per app, what its settings cover, and the way there. */
@@ -6000,33 +5887,6 @@ select,
   flex: none;
   animation: none;
   pointer-events: none;
-}
-
-/* The app ring's tile: an arc of its segments, the middle one lit and proud. */
-.app-arc {
-  display: flex;
-  align-items: flex-end;
-  margin-bottom: 10px;
-}
-
-.app-arc-drawing svg {
-  display: block;
-  width: 156px;
-  height: auto;
-  overflow: visible;
-  filter: drop-shadow(0 8px 12px var(--shadow));
-}
-
-.app-arc .arc-seg {
-  fill: var(--raised);
-  stroke: var(--line);
-  stroke-width: 1.5;
-}
-
-.app-arc .arc-seg.lit {
-  fill: color-mix(in srgb, var(--raised) 88%, var(--ink));
-  stroke: var(--kairo);
-  stroke-width: 2.5;
 }
 
 /* ---------- The scan window: VirusTotal ---------- */

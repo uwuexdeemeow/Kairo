@@ -233,8 +233,8 @@ On Windows and a Mac (⌥ for Alt).
 
 On Windows, a Mac and Linux. Kairo's dashboard.
 
-1. **Tile.** Home. *Expect:* an App ring tile, its picture an arc of segments, its line the shortcut
-   as keys and "· 7 items". Clicking the picture opens the ring.
+1. **Hint.** Home. *Expect:* "App ring" in the line under the app chips, followed by its shortcut as
+   keys. Clicking its name opens the ring.
 2. **Arrange.** Settings → App ring → What's on it. Tick This week, All notes and Pause tracking;
    move All notes to the top with ↑. *Expect:* the preview redraws each time; the ring then opens
    with All notes first (if it was the last one used, on it) and the new ones drawn with their own
@@ -445,6 +445,33 @@ None of this has been looked at on a real screen yet, so it is the first look.
    ("Thursday 12 November · 3 due today…").
 9. **Contrast and size.** Group headers, panel labels and calendar weekday names are at least 11px;
    the sidebar count and a selected row's day are readable in both themes.
+10. **Putting a field away.** Open a plain task, choose Steps from "Add…" and leave it empty.
+    *Expect:* a small ✕ beside the field; clicking it hides the field, and Steps is offered in "Add…"
+    again. Type a step: the ✕ is gone (the step's own controls are the way out).
+
+## Home: the day first
+
+On Windows, a Mac and Linux, in a dark and a light theme, and once at the smallest window (720 × 520).
+None of this has been looked at in the real app yet, so it is the first look. Use a copy that isn't
+your own for the focus checks.
+
+1. **Title.** Open Home with two tasks due. *Expect:* the title says "Two things left today."; with
+   one, "One thing left today."; with none, "Nothing due today." (and "Add a task" under it). Go to
+   Settings and back: the title returns at once, with no flash of another one.
+2. **Tasks.** *Expect:* the due tasks as plain rows (a round tick, the name, "Overdue" in warm text,
+   and a quiet "Focus" button), not pills. The tick finishes a task; the name opens it in Ledger.
+3. **Focus strip.** Press Focus on a task. *Expect:* a strip above the tasks: "Focusing on <task> · 25
+   min left" and Stop; the rows lose their Focus buttons. Pause it from Chrono: the strip says
+   "paused". Stop ends it and the strip goes away. With none running, no strip at all.
+4. **Apps.** *Expect:* Chrono and Ledger as two small chips, each with a coloured dot and today's line
+   ("2h 05m today", "1 due today"); the whole chip opens the app. Paused tracking shows "Paused ·
+   Resume" in Chrono's chip, and Resume works.
+5. **Hints.** *Expect:* under the chips, "Command palette" with its keys and "Try “…”", and "App
+   ring" with its keys. Each name opens that app.
+6. **No stray ring.** Open the dashboard with the mouse. *Expect:* no outline on the first task or
+   chip. Press Tab: the ring appears on the focused control. Open it by shortcut and press an arrow
+   or Tab: same.
+7. **Smallest window.** *Expect:* nothing is cut off or scrolls sideways; the chips and hints wrap.
 
 ## Windows: Alt+Space as the shortcut
 

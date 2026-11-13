@@ -110,3 +110,16 @@ export function followTheme() {
   api.appearance().then(applyTheme, () => {});
   listen<Appearance>("kairo:appearance", (e) => applyTheme(e.payload));
 }
+
+/// Chrono's timer keeps the length picked for the next session here; Ledger and Home start focus with it.
+const TIMER_KEY = "kairo.timerMinutes";
+
+/// The length picked for the next focus session, 25 minutes if none is saved.
+export function savedTimerMinutes(): number {
+  try {
+    const saved = Number(localStorage.getItem(TIMER_KEY));
+    return saved >= 5 && saved <= 240 ? saved : 25;
+  } catch {
+    return 25;
+  }
+}

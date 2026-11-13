@@ -21,7 +21,7 @@
         <div>
           <p class="eyebrow" id="dash-date"></p>
           <p class="eyebrow" id="settings-version" hidden></p>
-          <h1 id="dash-title">Your apps</h1>
+          <h1 id="dash-title"></h1>
         </div>
         <div class="range dash-tabs" role="tablist" aria-label="Show">
           <button role="tab" data-tab="home" id="show-home" aria-selected="true" aria-controls="tab-home" title="Home (Ctrl+1)">Home</button>
@@ -30,12 +30,17 @@
       </section>
 
       <section id="tab-home" class="view" role="tabpanel" aria-labelledby="show-home">
+        <div class="focus-strip" id="focus-strip" hidden>
+          <p id="focus-text"></p>
+          <button class="btn" id="focus-stop">Stop</button>
+        </div>
         <section class="dash-today" id="today" aria-labelledby="today-title">
-          <h2 class="today-title" id="today-title">Today</h2>
+          <h2 class="sr-only" id="today-title">Today</h2>
           <ul class="today-list" id="today-list"></ul>
           <p class="muted today-next" id="today-next"></p>
         </section>
-        <div class="app-tiles" id="app-tiles"></div>
+        <div class="app-chips" id="app-tiles"></div>
+        <p class="dash-hint muted" id="dash-hint"></p>
       </section>
 
       <section id="tab-settings" class="view" role="tabpanel" aria-labelledby="show-settings" hidden>

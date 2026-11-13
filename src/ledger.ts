@@ -11,24 +11,12 @@ import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { replaceTimeInputs } from "./time-select";
-import { $, followTheme } from "./ui";
+import { $, followTheme, savedTimerMinutes } from "./ui";
 import { mountUndo } from "./undo";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
 replaceTimeInputs();
-
-/// Chrono's timer keeps the length picked for the next session here; Start focus uses it too.
-const TIMER_KEY = "kairo.timerMinutes";
-
-function sessionMinutes(): number {
-  try {
-    const saved = Number(localStorage.getItem(TIMER_KEY));
-    return saved >= 5 && saved <= 240 ? saved : 25;
-  } catch {
-    return 25;
-  }
-}
 
 let tasks: Task[] = [];
 let session: RunningSession = null;
@@ -213,7 +201,7 @@ const actions: LedgerActions = {
     }),
   start: (id) =>
     tried("start the focus session", async () => {
-      await api.startFocus(sessionMinutes(), undefined, id);
+      await api.startFocus(savedTimerMinutes(), undefined, id);
       await refresh();
       redrawPanel();
     }),
@@ -266,7 +254,7 @@ const actions: LedgerActions = {
     draw();
     if (hadFocus) ((neighbour && titleOf(neighbour.id)) || document.querySelector<HTMLElement>(".task-add"))?.focus();
   },
-  focusMinutes: () => sessionMinutes(),
+  focusMinutes: () => savedTimerMinutes(),
   stop: () =>
     tried("end the session", async () => {
       const r = await api.controlFocus("stop");
