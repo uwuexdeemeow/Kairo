@@ -336,6 +336,8 @@ export interface Task {
   project: string | null;
   /** A moment that reminds it: `open:<words>` (an app or site comes to the front) or `focus` (a focus session ends); null for none. */
   remindWhen: string | null;
+  /** How long it's expected to take, in minutes; null for no estimate. */
+  estimateMin: number | null;
   group: TaskGroup;
 }
 
@@ -618,6 +620,9 @@ export const api = {
   calendarEvents: (fromMs: number, toMs: number) => invoke<CalendarEvent[]>("get_calendar_events", { fromMs, toMs }),
   /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
   setTaskWhen: (id: string, when: string | null) => invoke<Task[]>("set_task_when", { id, when }),
+  setTaskEstimate: (id: string, minutes: number | null) => invoke<Task[]>("set_task_estimate", { id, minutes }),
+  /** What a usual day's focus holds, in milliseconds, from the last four weeks; null until there are enough days to say. */
+  focusUsual: () => invoke<number | null>("get_focus_usual"),
   setTaskSteps: (id: string, steps: Step[]) => invoke<Task[]>("set_task_steps", { id, steps }),
   syncSoon: () => invoke<void>("sync_soon"),
   /** Pops a note out into its own small window, or switches the open one to it; no id pops out the list of notes. */

@@ -504,6 +504,33 @@ the focus checks.
 11. **Two computers.** Set a moment on one. *Expect:* the other shows it after a sync, and only one of
     them reminds when both are in use (the other's mark arrives with the sync).
 
+## Ledger: what a task costs
+
+On Windows, a Mac and Linux, in a dark and a light theme. None of this has been looked at on a real
+screen yet. Some of it needs weeks of real focus sessions before it shows anything, which is on
+purpose: a figure from a few days is worse than none.
+
+1. **Estimate.** Open a task, choose Estimate from "Add…". *Expect:* a choice (No estimate, 15m, 30m,
+   45m, 1h, 1h 30m, 2h, 3h, 4h, 6h, 8h) with the keyboard in it. Pick 2h. *Expect:* the row says
+   "~2h" beside its other marks. "No estimate" takes it away again.
+2. **Spent.** Start a focus session on that task and let some of it run. *Expect:* the row says
+   "20m of ~2h" and the panel under the choice says "20m of ~2h spent on this computer".
+3. **Per computer.** On a combined computer, the estimate arrives after a sync but the time spent
+   there is that computer's own. *Expect:* the other one shows "~2h" with nothing spent, and says so
+   if it has its own focus time.
+4. **Day load.** Give two tasks due today estimates of 1h and 90m. *Expect:* under "Tasks" the line
+   ends "2h 30m planned today", and the same on the dashboard's Home under the tasks. Tasks with no
+   estimate add nothing; done ones don't count.
+5. **Past a usual day.** Only once there are five days in the last four weeks with at least ten
+   minutes of focus. *Expect:* before that, only "planned today"; after it, and when the planned time
+   is more than a usual day's focus, "…, more than the 3h you usually focus".
+6. **Pace.** Only after five finished tasks that had an estimate and at least ten minutes of focus.
+   *Expect:* in the panel of a task with an estimate, a line such as "You usually take about twice what
+   you estimate." appears only when that is clearly so (about 1.3 times or more, or about half or
+   less); otherwise nothing.
+7. **A repeating task.** Give a repeating task an estimate and tick it. *Expect:* the next one has the
+   same estimate.
+
 ## Windows: Alt+Space as the shortcut
 
 1. In Kairo's settings, press Change beside the palette's shortcut and press Alt+Space. *Expect:*

@@ -26,6 +26,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   tags: [],
   project: null,
   remindWhen: null,
+  estimateMin: null,
   group: "none",
   ...extra,
 });
@@ -52,6 +53,8 @@ beforeEach(() => {
     steps: vi.fn(),
     repeat: vi.fn(),
     when: vi.fn(),
+    estimate: vi.fn(),
+    pace: vi.fn(() => ""),
     labels: vi.fn(),
     newProject: vi.fn(),
     newNoteFor: vi.fn(),
@@ -483,7 +486,7 @@ describe("the detail panel", () => {
     // Not until it has them or they're added.
     for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".attach-note", ".remind-when"]) expect(panel().querySelector(sel), sel).toBeNull();
     const choice = panel().querySelector<HTMLSelectElement>(".add-detail")!;
-    expect([...choice.options].map((o) => o.textContent)).toEqual(["Add…", "Repeat", "Project", "Tags", "Reminder", "Reminder when…", "Steps", "Note"]);
+    expect([...choice.options].map((o) => o.textContent)).toEqual(["Add…", "Repeat", "Project", "Tags", "Reminder", "Reminder when…", "Estimate", "Steps", "Note"]);
   });
 
   it("opens a field from Add… with the keyboard in it, and keeps it while the panel is redrawn", () => {
@@ -501,8 +504,8 @@ describe("the detail panel", () => {
   });
 
   it("shows the fields a task already has and offers only what's missing", () => {
-    renderDetail(panel(), task("a", "Essay", { tags: ["x"], project: "Kairo", steps: [{ t: "One", d: false }], repeat: "week", remindMs: 5, remindWhen: "focus", note: "n1" }), act, [{ id: "n1", title: "Plan" }], null, ["Kairo"]);
-    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".remind-when", ".detail-when", ".detail-note"]) expect(panel().querySelector(sel), sel).not.toBeNull();
+    renderDetail(panel(), task("a", "Essay", { tags: ["x"], project: "Kairo", steps: [{ t: "One", d: false }], repeat: "week", remindMs: 5, remindWhen: "focus", estimateMin: 60, note: "n1" }), act, [{ id: "n1", title: "Plan" }], null, ["Kairo"]);
+    for (const sel of [".repeat-select", ".project-select", ".tag-add", ".step-add", ".remind-when", ".detail-when", ".estimate-select", ".detail-note"]) expect(panel().querySelector(sel), sel).not.toBeNull();
     // Nothing missing: no Add… at all.
     expect(panel().querySelector(".add-detail")).toBeNull();
   });
@@ -548,6 +551,45 @@ describe("the detail panel", () => {
     kind.dispatchEvent(new Event("change"));
     expect(words.hidden).toBe(true);
     expect(act.when).toHaveBeenLastCalledWith("a", "focus");
+  });
+
+  it("gives a task an estimate, shows what was spent against it, and says how that usually goes", () => {
+    renderDetail(panel(), task("a", "Essay"), act);
+    addDetail(panel(), "estimate");
+    const select = panel().querySelector<HTMLSelectElement>(".estimate-select")!;
+    expect(document.activeElement).toBe(select);
+    expect([...select.options].map((o) => o.textContent)).toEqual(["No estimate", "15m", "30m", "45m", "1h", "1h 30m", "2h", "3h", "4h", "6h", "8h"]);
+    select.value = "120";
+    select.dispatchEvent(new Event("change"));
+    expect(act.estimate).toHaveBeenLastCalledWith("a", 120);
+    // With an estimate and focus time: the spent time of it, said to be this computer's.
+    act.pace = vi.fn(() => "You usually take about twice what you estimate.");
+    renderDetail(panel(), task("a", "Essay", { estimateMin: 120, focusedMs: 95 * 60_000 }), act);
+    expect(panel().querySelector<HTMLSelectElement>(".estimate-select")!.value).toBe("120");
+    expect([...panel().querySelectorAll(".estimate-note")].map((n) => n.textContent)).toEqual(["1h 35m of ~2h spent on this computer", "You usually take about twice what you estimate."]);
+    // Back to none.
+    const again = panel().querySelector<HTMLSelectElement>(".estimate-select")!;
+    again.value = "";
+    again.dispatchEvent(new Event("change"));
+    expect(act.estimate).toHaveBeenLastCalledWith("a", null);
+  });
+
+  it("shows an estimate from another computer that isn't one of the usual lengths, and no pace without one", () => {
+    act.pace = vi.fn(() => "You usually take about twice what you estimate.");
+    renderDetail(panel(), task("a", "Essay", { estimateMin: 50 }), act);
+    const select = panel().querySelector<HTMLSelectElement>(".estimate-select")!;
+    expect(select.value).toBe("50");
+    expect([...select.options].map((o) => o.textContent)).toContain("50m");
+    // No time spent yet: nothing to say of it, and the pace line is for a task with an estimate.
+    expect([...panel().querySelectorAll(".estimate-note")].map((n) => n.textContent)).toEqual(["You usually take about twice what you estimate."]);
+    renderDetail(panel(), task("b", "Call"), act);
+    expect(panel().querySelector(".estimate-note")).toBeNull();
+  });
+
+  it("says a task's cost on its row: the estimate, the time spent, or both", () => {
+    renderTaskList(root, [task("a", "Essay", { estimateMin: 120 }), task("b", "Call", { focusedMs: 20 * 60_000 }), task("c", "Both", { estimateMin: 60, focusedMs: 95 * 60_000 }), task("d", "Neither")], null, act as unknown as LedgerActions, null, "");
+    const cost = (id: string) => root.querySelector(`[data-task="${id}"] .task-time`)?.textContent ?? null;
+    expect([cost("a"), cost("b"), cost("c"), cost("d")]).toEqual(["Estimate ~2h", "Focused 20m", "Focused 1h 35m of ~1h", null]);
   });
 
   it("shows a moment a task has, keeps its words as typed, and clears it", () => {

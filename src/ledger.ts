@@ -5,6 +5,7 @@ import { api, type Task } from "./api";
 import { useDropdowns } from "./dropdown";
 import { mountDone, type DoneView } from "./ledger-done";
 import { mountCalendar, type CalendarView } from "./ledger-calendar";
+import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -93,8 +94,11 @@ async function tried(what: string, run: () => Promise<void>) {
 /// not a label above the title.)
 function tasksLine(list: Task[]): string {
   const date = new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-  return [date, taskSummary(list)].filter(Boolean).join(" · ");
+  return [date, taskSummary(list), loadLine(plannedMinutes(list), usualFocusMs)].filter(Boolean).join(" · ");
 }
+
+/// What a usual day's focus holds, for the day's load; null until there are enough days to say.
+let usualFocusMs: number | null = null;
 
 function draw(list?: Task[]) {
   if (list) tasks = list;
@@ -177,7 +181,8 @@ function sayStrictWait(until: number) {
 }
 
 async function refresh() {
-  const [list, running, notes, chrono] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null), api.projects().catch(() => null)]);
+  const [list, running, notes, chrono, usual] = await Promise.all([api.tasks(), api.focus().catch(() => null), api.notes().catch(() => null), api.projects().catch(() => null), api.focusUsual().catch(() => null)]);
+  usualFocusMs = usual;
   session = running ? { task: running.task, endsMs: running.startMs + running.plannedMs + running.pausedMs } : null;
   if (chrono) projects = chrono.map((p) => p.name);
   if (notes) {
@@ -315,6 +320,17 @@ const actions: LedgerActions = {
       if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
       draw();
     }),
+  estimate: (task, minutes) =>
+    tried("change its estimate", async () => {
+      const list = await api.setTaskEstimate(task, minutes);
+      selected = task;
+      tasks = list;
+      const t = list.find((x) => x.id === task);
+      // The panel shows the estimate as kept, though it has the keyboard.
+      if (t) renderDetail($("#task-detail"), t, actions, noteNames, session, projects);
+      draw();
+    }),
+  pace: () => paceLine(paceRatio(tasks)),
   steps: (task, steps) =>
     tried("change its steps", async () => {
       const list = await api.setTaskSteps(task, steps);

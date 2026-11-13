@@ -19,6 +19,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   tags: [],
   project: null,
   remindWhen: null,
+  estimateMin: null,
   group: "none",
   ...extra,
 });

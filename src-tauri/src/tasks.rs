@@ -54,6 +54,10 @@ pub struct Task {
     /// comes to the front) or `focus` (a focus session ends); None for none. Shared in `taskmore`.
     #[serde(default)]
     pub remind_when: Option<String>,
+    /// How long it's expected to take, in minutes; None for no estimate. Shared in `taskmore`; the
+    /// time actually spent (`focused_ms`) stays on the computer it was spent on.
+    #[serde(default)]
+    pub estimate_min: Option<i64>,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -82,6 +86,7 @@ impl Default for Task {
             tags: Vec::new(),
             project: None,
             remind_when: None,
+            estimate_min: None,
             group: "none".into(),
         }
     }
@@ -117,6 +122,8 @@ pub struct More {
     pub project: Option<String>,
     #[serde(default)]
     pub when: Option<String>,
+    #[serde(default)]
+    pub estimate: Option<i64>,
 }
 
 /// Tags a task may carry, and the longest one.
@@ -188,6 +195,7 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         tags: Vec::new(),
         project: None,
         remind_when: None,
+        estimate_min: None,
         group: "none".into(),
     };
     conn.execute(
@@ -241,7 +249,7 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
     let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat, tags,
-                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1), remind_when FROM tasks")?;
+                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1), remind_when, estimate_min FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -261,6 +269,7 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             tags: parse_tags(&r.get::<_, String>(12)?),
             project: r.get(13)?,
             remind_when: r.get(14)?,
+            estimate_min: r.get(15)?,
             group: String::new(),
         })
     })?;
@@ -395,10 +404,26 @@ pub fn set_steps(conn: &Connection, id: &str, steps: Vec<Step>) -> Result<bool> 
 
 /// What a task has beyond its plan; None when there's no such task.
 pub fn more(conn: &Connection, id: &str) -> Result<Option<More>> {
-    conn.query_row("SELECT repeat, steps, tags, project, remind_when FROM tasks WHERE id = ?1", [id], |r| {
-        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)?, when: r.get(4)? })
+    conn.query_row("SELECT repeat, steps, tags, project, remind_when, estimate_min FROM tasks WHERE id = ?1", [id], |r| {
+        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)?, when: r.get(4)?, estimate: r.get(5)? })
     })
     .optional()
+}
+
+/// The shortest and longest estimate a task may have, in minutes: five minutes to a day.
+pub const MIN_ESTIMATE: i64 = 5;
+pub const MAX_ESTIMATE: i64 = 24 * 60;
+
+/// An estimate as kept: within the limits, or None for none (a number outside them is no estimate,
+/// not a clamped one).
+pub fn clean_estimate(minutes: i64) -> Option<i64> {
+    (MIN_ESTIMATE..=MAX_ESTIMATE).contains(&minutes).then_some(minutes)
+}
+
+/// Gives a task an estimate in minutes (None for none); false when there's no such task.
+pub fn set_estimate(conn: &Connection, id: &str, minutes: Option<i64>) -> Result<bool> {
+    let minutes = minutes.and_then(clean_estimate);
+    Ok(conn.execute("UPDATE tasks SET estimate_min = ?2 WHERE id = ?1", params![id, minutes])? > 0)
 }
 
 /// The longest run of words a moment reminder may watch for.
@@ -480,7 +505,7 @@ pub fn more_json(conn: &Connection, id: &str) -> Result<Option<String>> {
 
 /// The tasks with a repeat or steps, with their shared text, for sharing when combining starts.
 pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL OR remind_when IS NOT NULL")?;
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL OR remind_when IS NOT NULL OR estimate_min IS NOT NULL")?;
     let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
     ids.into_iter().filter_map(|id| more_json(conn, &id).transpose().map(|m| m.map(|m| (id, m)))).collect()
 }
@@ -492,7 +517,11 @@ pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
     // A project another computer names is kept as named, whether or not one has that name here yet.
     let project = m.project.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(|p| p.chars().take(MAX_LABEL_CHARS).collect::<String>());
     let when = m.when.as_deref().and_then(clean_when);
-    Ok(conn.execute("UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5, remind_when = ?6 WHERE id = ?1", params![id, repeat, text, clean_tags(&m.tags).join(" "), project, when])? > 0)
+    let estimate = m.estimate.and_then(clean_estimate);
+    Ok(conn.execute(
+        "UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5, remind_when = ?6, estimate_min = ?7 WHERE id = ?1",
+        params![id, repeat, text, clean_tags(&m.tags).join(" "), project, when, estimate],
+    )? > 0)
 }
 
 /// The first day a repeating task comes due again, after the later of its due day and `today`, so
@@ -592,10 +621,10 @@ pub fn tick(conn: &Connection, id: &str, done: bool, now: i64, today: NaiveDate)
             params![copy, title, now, next_position(conn)?, next.format("%Y-%m-%d").to_string(), priority, remind, note, steps, rule],
         )?;
         if added > 0 {
-            // Its tags, project and moment come along.
+            // Its tags, project, moment and estimate come along.
             conn.execute(
                 "UPDATE tasks SET tags = (SELECT tags FROM tasks WHERE id = ?2), project = (SELECT project FROM tasks WHERE id = ?2),
-                     remind_when = (SELECT remind_when FROM tasks WHERE id = ?2) WHERE id = ?1",
+                     remind_when = (SELECT remind_when FROM tasks WHERE id = ?2), estimate_min = (SELECT estimate_min FROM tasks WHERE id = ?2) WHERE id = ?1",
                 params![copy, id],
             )?;
             out.added = Some(copy);
@@ -1167,6 +1196,48 @@ mod tests {
         assert_eq!(list(&here, 1, TODAY).unwrap()[0].remind_when.as_deref(), Some("focus"));
         let old: More = serde_json::from_str(r#"{"repeat":null,"steps":[],"tags":[],"project":null}"#).unwrap();
         assert_eq!(old.when, None);
+    }
+
+    #[test]
+    fn an_estimate_is_five_minutes_to_a_day_and_nothing_outside_that() {
+        assert_eq!((clean_estimate(4), clean_estimate(5), clean_estimate(90), clean_estimate(1440), clean_estimate(1441)), (None, Some(5), Some(90), Some(1440), None));
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        assert!(set_estimate(&c, &t.id, Some(120)).unwrap());
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].estimate_min, Some(120));
+        // Out of range, or none, clears it rather than keeping a figure that can't be meant.
+        set_estimate(&c, &t.id, Some(0)).unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].estimate_min, None);
+        set_estimate(&c, &t.id, Some(60)).unwrap();
+        set_estimate(&c, &t.id, None).unwrap();
+        assert_eq!(list(&c, 1, TODAY).unwrap()[0].estimate_min, None);
+        assert!(!set_estimate(&c, "nope", Some(30)).unwrap());
+    }
+
+    #[test]
+    fn an_estimate_travels_but_the_time_spent_stays_where_it_was_spent() {
+        let (here, there) = (conn(), conn());
+        let t = add(&there, "Ship it", 1).unwrap().unwrap();
+        set_estimate(&there, &t.id, Some(45)).unwrap();
+        assert_eq!(with_more(&there).unwrap().len(), 1);
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        let m: More = serde_json::from_str(&more_json(&there, &t.id).unwrap().unwrap()).unwrap();
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        let got = &list(&here, 1, TODAY).unwrap()[0];
+        assert_eq!((got.estimate_min, got.focused_ms), (Some(45), 0));
+        // A Kairo from before estimates shares none: read as no estimate.
+        let old: More = serde_json::from_str(r#"{"repeat":null,"steps":[],"tags":[],"project":null}"#).unwrap();
+        assert_eq!(old.estimate, None);
+    }
+
+    #[test]
+    fn a_repeating_tasks_next_one_keeps_its_estimate() {
+        let c = conn();
+        let t = repeating(&c, "Water plants", "week", "2026-11-12");
+        set_estimate(&c, &t.id, Some(15)).unwrap();
+        let new = tick(&c, &t.id, true, 100, d("2026-11-12")).unwrap().added.unwrap();
+        let next = list(&c, 100, "2026-11-12").unwrap().into_iter().find(|x| x.id == new).unwrap();
+        assert_eq!(next.estimate_min, Some(15));
     }
 
     #[test]

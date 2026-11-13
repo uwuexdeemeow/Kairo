@@ -206,6 +206,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("tasks", "project", "TEXT"),
         // A moment that reminds a task instead of a clock time: "open:<words>" or "focus" (tasks.rs).
         ("tasks", "remind_when", "TEXT"),
+        // How long a task is expected to take, in minutes (tasks.rs).
+        ("tasks", "estimate_min", "INTEGER"),
         // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).

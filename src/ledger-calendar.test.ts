@@ -23,6 +23,7 @@ const task = (id: string, dueDay: string | null, extra: Partial<Task> = {}): Tas
   tags: [],
   project: null,
   remindWhen: null,
+  estimateMin: null,
   group: dueDay ? "upcoming" : "none",
   ...extra,
 });

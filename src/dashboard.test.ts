@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   ringSettings: vi.fn(),
   tasks: vi.fn(),
   focus: vi.fn(),
+  focusUsual: vi.fn(),
   controlFocus: vi.fn(),
   startFocus: vi.fn(async () => ({})),
   appearance: vi.fn(),
@@ -66,6 +67,7 @@ beforeEach(() => {
   api.autostart.mockResolvedValue({ enabled: false, available: true });
   api.tasks.mockResolvedValue([{ id: "a", group: "today" }, { id: "b", group: "overdue" }]);
   api.focus.mockResolvedValue(null);
+  api.focusUsual.mockResolvedValue(null);
   api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", items: ["chrono", "ledger", "notes", "week"], all: [], focusMinutes: 25 });
   document.body.innerHTML = markup;
 });

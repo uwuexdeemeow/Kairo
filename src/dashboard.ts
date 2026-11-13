@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, type FocusSession, type Task } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
+import { loadLine, plannedMinutes } from "./ledger-cost";
 import { ledgerLine } from "./ledger-tasks";
 import { greeting } from "./logos";
 import { glyph } from "./glyphs";
@@ -184,8 +185,9 @@ async function drawToday(running: Running) {
   const next = $("#today-next");
   let tasks: Task[];
   let busy: FocusSession | null;
+  let usual: number | null;
   try {
-    [tasks, busy] = await Promise.all([tasksNow(), running]);
+    [tasks, busy, usual] = await Promise.all([tasksNow(), running, api.focusUsual().catch(() => null)]);
   } catch {
     // What's shown stays; the next refresh tries again. A title still blank gets the greeting.
     if (current === "home" && !homeTitle) drawGreeting();
@@ -253,7 +255,9 @@ async function drawToday(running: Running) {
   const reminder = tasks
     .filter((t) => t.group !== "done" && t.remindMs !== null && t.remindMs > now && t.remindMs <= end.getTime())
     .sort((a, b) => a.remindMs! - b.remindMs!)[0];
-  next.textContent = reminder ? `Next reminder at ${new Date(reminder.remindMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${reminder.title}` : "";
+  const nextReminder = reminder ? `Next reminder at ${new Date(reminder.remindMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${reminder.title}` : "";
+  // The day's estimates against a usual day's focus, when any task due has one.
+  next.textContent = [loadLine(plannedMinutes(tasks), usual), nextReminder].filter(Boolean).join(" · ");
 }
 
 /// The greeting for this hour, for a day that can't be read.

@@ -646,6 +646,15 @@ pub fn set_task_when(app: AppHandle, state: State<AppState>, id: String, when: O
     tasks_changed(&app, &conn)
 }
 
+/// Gives a task an estimate in minutes (none for none); one outside five minutes to a day is none.
+#[tauri::command]
+pub fn set_task_estimate(app: AppHandle, state: State<AppState>, id: String, minutes: Option<i64>) -> CmdResult<Vec<tasks::Task>> {
+    let conn = state.db.lock().map_err(err)?;
+    tasks::set_estimate(&conn, &id, minutes).map_err(err)?;
+    more_changed(&conn, &id)?;
+    tasks_changed(&app, &conn)
+}
+
 /// Asked by Ledger once typing in a note has stopped a while, so the edit reaches combined
 /// computers without waiting for the next round.
 #[tauri::command]
@@ -939,6 +948,14 @@ pub fn get_focus_overview(state: State<AppState>) -> CmdResult<FocusOverview> {
         target: focus::target(&conn, today, now).map_err(err)?,
         cycle: crate::pomodoro::current(&conn, now).map_err(err)?,
     })
+}
+
+/// What a usual day's focus holds, in milliseconds, from the last four weeks; none until there are
+/// enough days to say.
+#[tauri::command]
+pub fn get_focus_usual(state: State<AppState>) -> CmdResult<Option<i64>> {
+    let conn = state.db.lock().map_err(err)?;
+    focus::usual_day_ms(&conn, Local::now().date_naive(), now_ms()).map_err(err)
 }
 
 /// Puts the last session's wrap-up away.

@@ -306,6 +306,39 @@ pub fn focused_started_in(conn: &Connection, from: i64, to: i64, now: i64) -> Re
     Ok(blocks(conn, from, to, now)?.iter().filter(|b| b.start >= from).map(Block::ms).sum())
 }
 
+/// Days a figure for a usual day takes, the least a day holds to count, and how far back to look.
+const USUAL_MIN_DAYS: usize = 5;
+const USUAL_MIN_DAY_MS: i64 = 10 * MIN_MS;
+const USUAL_LOOKBACK_DAYS: usize = 28;
+
+/// What a usual day of focus holds, from the focus of past days: the mean of those that held at
+/// least ten minutes, to the nearest five, once there are five of them. None before that: a figure
+/// from a few days says more about chance than habit.
+pub fn usual_of(days: &[i64]) -> Option<i64> {
+    let held: Vec<i64> = days.iter().copied().filter(|ms| *ms >= USUAL_MIN_DAY_MS).collect();
+    if held.len() < USUAL_MIN_DAYS {
+        return None;
+    }
+    let mean = held.iter().sum::<i64>() / held.len() as i64;
+    let step = 5 * MIN_MS;
+    Some(((mean + step / 2) / step * step).max(step))
+}
+
+/// A usual day's focus in milliseconds, from the four weeks before `today`; None until there is
+/// enough to say (`usual_of`).
+pub fn usual_day_ms(conn: &Connection, today: chrono::NaiveDate, now: i64) -> Result<Option<i64>> {
+    let mut days = Vec::new();
+    let mut day = today;
+    for _ in 0..USUAL_LOOKBACK_DAYS {
+        let Some(prev) = day.pred_opt() else { break };
+        day = prev;
+        if let Some((from, to)) = crate::analysis::day_bounds(day) {
+            days.push(focused_started_in(conn, from, to, now)?);
+        }
+    }
+    Ok(usual_of(&days))
+}
+
 /// How a day stands against the daily focus target.
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -600,6 +633,18 @@ mod tests {
     use super::*;
 
     const M: i64 = MIN_MS;
+
+    #[test]
+    fn a_usual_day_needs_five_days_of_focus_and_is_their_mean_to_the_nearest_five() {
+        // Four days is too few to say.
+        assert_eq!(usual_of(&[60 * M, 90 * M, 120 * M, 30 * M]), None);
+        // Days under ten minutes don't count as days of focus, and don't pull it down.
+        assert_eq!(usual_of(&[60 * M, 90 * M, 120 * M, 30 * M, 0, 3 * M, 9 * M]), None);
+        // 60, 90, 120, 30 and 60 average 72 minutes: 70 to the nearest five, the empty days left out.
+        assert_eq!(usual_of(&[60 * M, 90 * M, 120 * M, 30 * M, 60 * M, 0, 4 * M]), Some(70 * M));
+        // Never rounds down to nothing.
+        assert_eq!(usual_of(&[10 * M; 5]), Some(10 * M));
+    }
 
     #[test]
     fn scheduled_focus_waits_out_games_and_absence() {

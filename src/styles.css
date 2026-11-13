@@ -4488,6 +4488,13 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--muted);
 }
 
+/* What has been spent against an estimate, and how that usually goes, under the choice. */
+.estimate-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+}
+
 /* A reminder at a moment: what it waits for, and the words to watch for under it. */
 .when-controls {
   display: grid;

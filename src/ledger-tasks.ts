@@ -1,6 +1,7 @@
 import type { Repeat, Step, Task, TaskGroup } from "./api";
 import { calendar, isoDate, parseDate, todayIso } from "./calendar";
 import { glyph } from "./glyphs";
+import { costText, ESTIMATES, estimateName } from "./ledger-cost";
 import { labelsBlock, takeLabelFocus, type LabelActions } from "./ledger-labels";
 import { progress, stepsBlock, takeFocus } from "./ledger-steps";
 import { logo } from "./logos";
@@ -36,6 +37,10 @@ export type LedgerActions = LabelActions & {
   repeat(task: string, repeat: Repeat | null): void;
   /** A moment that reminds it: `open:<words>` or `focus`; null for none. */
   when(task: string, when: string | null): void;
+  /** How long it's expected to take, in minutes; null for no estimate. */
+  estimate(task: string, minutes: number | null): void;
+  /** How someone's finished tasks compare with their estimates, in a line; empty until it can say. */
+  pace?(): string;
   /** A new note headed with the task's title, attached to it. */
   newNoteFor(task: string, title: string): void;
 };
@@ -144,7 +149,9 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
   }
   if (t.steps.length) chips.append(h("span", { class: "task-steps chip", title: "Steps done" }, h("span", { class: "sr-only" }, "Steps done "), progress(t.steps)));
   if (t.note) chips.append(h("span", { class: "task-note chip", title: "Has a note" }, glyph("note"), h("span", { class: "sr-only" }, "Has a note")));
-  if (t.focusedMs > 0) chips.append(h("span", { class: "task-time chip", title: "Focused on it" }, h("span", { class: "sr-only" }, "Focused "), fmtDur(t.focusedMs)));
+  // What it costs: the time spent, of its estimate if it has one.
+  const cost = costText(t);
+  if (cost) chips.append(h("span", { class: "task-time chip", title: t.estimateMin !== null ? "Focus time spent on it, and its estimate" : "Focused on it" }, h("span", { class: "sr-only" }, t.focusedMs > 0 ? "Focused " : "Estimate "), cost));
   el.append(chips);
   if (!done) {
     // While a session runs, Start would end it, so only the running task's card says anything.
@@ -519,15 +526,34 @@ function whenField(t: Task, act: LedgerActions): HTMLElement {
   return field;
 }
 
+/// How long a task is expected to take: a choice of usual lengths, then what has been spent on it
+/// (on this computer: focus time isn't shared) and, once enough tasks are done to say, how that
+/// usually compares with estimates.
+function estimateField(t: Task, act: LedgerActions): HTMLElement {
+  const select = h("select", { class: "filter estimate-select", "aria-label": "Estimate" }) as HTMLSelectElement;
+  // An estimate from another computer that isn't one of the usual lengths is still shown.
+  const lengths = t.estimateMin !== null && !ESTIMATES.includes(t.estimateMin) ? [...ESTIMATES, t.estimateMin].sort((a, b) => a - b) : ESTIMATES;
+  select.append(h("option", { value: "" }, "No estimate"), ...lengths.map((m) => h("option", { value: String(m) }, estimateName(m))));
+  select.value = t.estimateMin === null ? "" : String(t.estimateMin);
+  select.addEventListener("change", () => act.estimate(t.id, select.value ? Number(select.value) : null));
+  const field = h("div", { class: "detail-field" }, h("span", {}, "Estimate"), select);
+  const spent = t.focusedMs > 0 ? costText(t) : "";
+  if (spent) field.append(h("p", { class: "muted estimate-note" }, `${spent} spent on this computer`));
+  const pace = t.estimateMin !== null ? act.pace?.() ?? "" : "";
+  if (pace) field.append(h("p", { class: "muted estimate-note" }, pace));
+  return field;
+}
+
 /// What a panel can show beyond its title, day and priority, each only once a task has it or it's
 /// been added from "Add…".
-type Optional = "repeat" | "project" | "tags" | "remind" | "when" | "steps" | "note";
+type Optional = "repeat" | "project" | "tags" | "remind" | "when" | "estimate" | "steps" | "note";
 const OPTIONAL: [Optional, string][] = [
   ["repeat", "Repeat"],
   ["project", "Project"],
   ["tags", "Tags"],
   ["remind", "Reminder"],
   ["when", "Reminder when…"],
+  ["estimate", "Estimate"],
   ["steps", "Steps"],
   ["note", "Note"],
 ];
@@ -540,10 +566,10 @@ export function forgetAddedDetails(): void {
 }
 let pendingFocus: Exclude<Optional, "remind"> | null = null;
 /// Where the keyboard goes in a field just added.
-const FOCUS_ON: Record<Exclude<Optional, "remind">, string> = { repeat: ".repeat-select", project: ".project-select", tags: ".tag-add", when: ".when-kind", steps: ".step-add", note: ".attach-note" };
+const FOCUS_ON: Record<Exclude<Optional, "remind">, string> = { repeat: ".repeat-select", project: ".project-select", tags: ".tag-add", when: ".when-kind", estimate: ".estimate-select", steps: ".step-add", note: ".attach-note" };
 
 const hasValue = (t: Task, k: Optional): boolean =>
-  ({ repeat: !!t.repeat, project: !!t.project, tags: t.tags.length > 0, remind: t.remindMs !== null, when: !!t.remindWhen, steps: t.steps.length > 0, note: !!t.note })[k];
+  ({ repeat: !!t.repeat, project: !!t.project, tags: t.tags.length > 0, remind: t.remindMs !== null, when: !!t.remindWhen, estimate: t.estimateMin !== null, steps: t.steps.length > 0, note: !!t.note })[k];
 
 /// Draws the detail panel for `t`: title, due day and priority, then only the details it has
 /// (repeat, project, tags, reminder, steps, note), "Add…" for the rest, and focus time and
@@ -656,6 +682,7 @@ export function renderDetail(root: HTMLElement, t: Task, act: LedgerActions, not
   if (shows("tags")) field("tags", tagField);
   if (shows("remind")) fields.push(h("div", { class: "detail-field" }, h("span", {}, "Remind me"), ...remind));
   if (shows("when")) field("when", whenField(t, act));
+  if (shows("estimate")) field("estimate", estimateField(t, act));
   if (shows("steps")) field("steps", stepsBlock(t, (steps) => act.steps(t.id, steps)));
   if (shows("note")) field("note", noteRow(t, act, notes));
   const missing = OPTIONAL.filter(([k]) => !shows(k));
