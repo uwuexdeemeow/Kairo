@@ -4632,6 +4632,23 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--ink);
 }
 
+.plan-put,
+.plan-put:hover {
+  color: var(--ledger);
+}
+
+.plan-at {
+  flex: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-free {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
 .plan-all {
   margin-top: 8px;
   min-height: 34px;

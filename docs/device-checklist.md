@@ -636,6 +636,14 @@ one overdue, two due today (one with an estimate), one due tomorrow.
    the same, named for the hour.
 9. **Strict focus and sync.** Moving a task is an ordinary plan change: it reaches a combined computer
    like one made in the task's panel.
+10. **Free time.** Before five, with a calendar connected, give two tasks due today an estimate (say
+    90 minutes and 2 hours) and have a meeting later today. *Expect:* under the lead line, "… free
+    today, next 11:00 am – 1:00 pm" (the hours between 9 and 6 that the meetings leave), and a "Put at
+    …" button on each task with an estimate that fits. Press one. *Expect:* the row shows that time
+    instead of the button, the task has that reminder (Ledger's panel shows it), and the free-time
+    line and the other task's suggestion move to what is left. With no calendar connected, the whole
+    working day counts as free. A task with no estimate never shows a button. After five, or with
+    nothing due, there is no free-time line.
 
 ## Windows: Alt+Space as the shortcut
 
@@ -830,6 +838,11 @@ On Windows, a Mac and Linux. Open the palette.
 3. **Shorthand.** `30 c in f` gives 86 °F; `2 gb in mb` gives 2000 MB.
 4. **Searches stay searches.** `focus 50`, `14 oct`, `2026-10-30` and `2026` show what they did
    before, with no Calculator row.
+5. **Stuck-on units and heights.** `5km in mi`, `72f in c`, `5'10 in cm` and `6ft 2 in cm` give
+   3.10686 mi, 22.2222 °C, 177.8 cm and 187.96 cm.
+6. **More periods.** `youtube last 7 days`, `youtube last 30 days` and `youtube this year` each show
+   an answer with a chart (months for the year) and a comparison with the stretch before.
+   `youtube this month vs last week` says "… vs last week"; its row reads "… this month vs last week".
 
 ## Two computers combined
 

@@ -1,8 +1,9 @@
-import type { Task } from "./api";
+import type { CalendarEvent, Task } from "./api";
 import { isoDate, parseDate, todayIso } from "./calendar";
 import { confirmTwice } from "./confirm";
 import { costText, estimateName, loadLine, plannedMinutes } from "./ledger-cost";
 import { totals, totalsLine } from "./ledger-done";
+import { busySpans, clockName, freeGaps, freeLine, placedSpan, suggest } from "./ledger-free";
 import { glyph } from "./glyphs";
 import { fmtDur, h } from "./ui";
 
@@ -23,8 +24,8 @@ export type PlanActions = {
 };
 
 export type PlanView = {
-  /** Draws the day for these tasks, as the list changed or the view opened. */
-  render(tasks: Task[]): void;
+  /** Draws the day for these tasks and today's meetings, as the list changed or the view opened. */
+  render(tasks: Task[], events?: CalendarEvent[]): void;
 };
 
 /// Whether the day is being wrapped up (from five o'clock) rather than planned.
@@ -84,6 +85,9 @@ export function leadLine(tasks: Task[], now: number, usualMs: number | null): st
 /// The Plan view.
 export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => number | null = () => null, now: () => number = Date.now): PlanView {
   let tasks: Task[] = [];
+  let events: CalendarEvent[] = [];
+  /// Where tasks with an estimate would fit in today's free time, by task; empty in the evening.
+  let places = new Map<string, number>();
   /// The row the keyboard goes to after the next draw: where an action left it.
   let refocus: number | null = null;
 
@@ -107,7 +111,22 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs)));
     const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, title: "No due day" }, "Later") as HTMLButtonElement;
     later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now())));
-    return h("li", { class: "plan-row", "data-task": t.id }, tick, open, tomorrow, later);
+    // Already set for a time today, or where it would fit among the meetings.
+    const placed = placedSpan(t, now());
+    const spot = places.get(t.id);
+    let when: HTMLElement | null = null;
+    if (placed) {
+      when = h("span", { class: "plan-at", title: "It reminds you at this time" }, clockName(placed.startMs));
+    } else if (spot !== undefined) {
+      const put = h(
+        "button",
+        { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)}, and remind me then`, title: `Fits at ${clockName(spot)}: sets its reminder then` },
+        `Put at ${clockName(spot)}`,
+      ) as HTMLButtonElement;
+      put.addEventListener("click", () => move(t, at, todayIso(), spot));
+      when = put;
+    }
+    return h("li", { class: "plan-row", "data-task": t.id }, tick, open, ...(when ? [when] : []), tomorrow, later);
   };
 
   const draw = () => {
@@ -116,6 +135,15 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     const left = toLookAt(tasks);
     const lead = h("p", { class: "plan-lead" }, leadLine(tasks, t0, usual()));
     const parts: Node[] = [lead];
+
+    // In the morning, how much of the day the meetings leave, and where the tasks would fit.
+    places = new Map();
+    if (!evening && left.length) {
+      const gaps = freeGaps(busySpans(events, tasks, t0), t0);
+      places = suggest(left.filter((t) => placedSpan(t, t0) === null), gaps);
+      const free = freeLine(gaps);
+      parts.push(h("p", { class: "muted plan-free" }, free || "No free time left today."));
+    }
 
     parts.push(h("h2", { class: "plan-head" }, evening ? "Left over" : "To do today"));
     if (left.length) {
@@ -172,8 +200,9 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
   };
 
   return {
-    render(next) {
+    render(next, meetings = events) {
       tasks = next;
+      events = meetings;
       draw();
     },
   };

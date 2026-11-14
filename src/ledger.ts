@@ -179,7 +179,19 @@ function drawPlan() {
     () => usualFocusMs,
   );
   $("#ledger-title").textContent = planTitle(Date.now());
-  planView.render(tasks.filter((t) => !deletingTasks.has(t.id)));
+  const open = () => tasks.filter((t) => !deletingTasks.has(t.id));
+  planView.render(open());
+  // Today's meetings, for the free time between them; the view draws again when they arrive. With
+  // no calendar connected there are none, and the whole day counts as free.
+  const day = new Date();
+  const from = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const view = planView;
+  void api
+    .calendarEvents(from, from + 86_400_000)
+    .then((events) => {
+      if (shown === "plan") view.render(open(), events);
+    })
+    .catch(() => {});
 }
 
 /// Draws the open panel again though it has the keyboard: for what was just done from it.

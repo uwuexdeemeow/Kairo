@@ -166,6 +166,32 @@ describe("the Plan view", () => {
     expect(root.querySelector(".plan-focused")!.textContent).toBe("50m focused on them.");
   });
 
+  it("offers a task with an estimate a spot among the meetings, and sets its reminder there", () => {
+    const essay = task("e", "Essay", { group: "today", dueDay: "2026-11-12", estimateMin: 90 });
+    const long = task("f", "Long one", { group: "today", dueDay: "2026-11-12", estimateMin: 120 });
+    const noEstimate = tasks[1];
+    // Class from ten to twelve, and "Overdue one" already set for three to four: free from twelve
+    // to three and from four to six.
+    mountPlan(root, act, () => null).render([tasks[0], essay, long, noEstimate], [{ startMs: at(10), endMs: at(12), title: "Class" }]);
+    expect(root.querySelector(".plan-free")!.textContent).toMatch(/^5h free today, next /);
+    expect(root.querySelector('[data-task="a"] .plan-at')).not.toBeNull();
+    expect(button("a", ".plan-put")).toBeNull();
+    expect(button("b", ".plan-put")).toBeNull();
+    button("e", ".plan-put").click();
+    expect(act.move).toHaveBeenLastCalledWith("e", "2026-11-12", at(12));
+    // The second no longer fits before three, so goes to the afternoon gap.
+    button("f", ".plan-put").click();
+    expect(act.move).toHaveBeenLastCalledWith("f", "2026-11-12", at(16));
+  });
+
+  it("has no free-time line in the evening, or with nothing to do", () => {
+    mountPlan(root, act, () => null).render([task("x", "Nothing due", { group: "upcoming" })]);
+    expect(root.querySelector(".plan-free")).toBeNull();
+    vi.setSystemTime(at(18));
+    mountPlan(root, act, () => null).render(tasks);
+    expect(root.querySelector(".plan-free")).toBeNull();
+  });
+
   it("says when nothing is due, and keeps the keyboard in the list as rows go", () => {
     const view = mountPlan(root, act, () => null);
     view.render([task("x", "Nothing due", { group: "upcoming" })]);
