@@ -139,10 +139,20 @@ pub enum Period {
     LastWeek,
     ThisMonth,
     LastMonth,
+    Last7Days,
+    Last30Days,
+    ThisYear,
 }
 
 /// Longest first, so "last week" isn't read as "week".
-const PERIODS: [(&str, Period); 8] = [
+const PERIODS: [(&str, Period); 15] = [
+    ("last 7 days", Period::Last7Days),
+    ("past 7 days", Period::Last7Days),
+    ("past week", Period::Last7Days),
+    ("last 30 days", Period::Last30Days),
+    ("past 30 days", Period::Last30Days),
+    ("past month", Period::Last30Days),
+    ("this year", Period::ThisYear),
     ("this month", Period::ThisMonth),
     ("last month", Period::LastMonth),
     ("this week", Period::ThisWeek),
@@ -163,6 +173,9 @@ impl Period {
             Period::LastWeek => "last week",
             Period::ThisMonth => "this month",
             Period::LastMonth => "last month",
+            Period::Last7Days => "last 7 days",
+            Period::Last30Days => "last 30 days",
+            Period::ThisYear => "this year",
         }
     }
 
@@ -175,6 +188,9 @@ impl Period {
             Period::LastWeek => "the week before",
             Period::ThisMonth => "last month",
             Period::LastMonth => "the month before",
+            Period::Last7Days => "the 7 days before",
+            Period::Last30Days => "the 30 days before",
+            Period::ThisYear => "last year",
         }
     }
 
@@ -195,6 +211,20 @@ impl Period {
                 let end = first_of(today) - Duration::days(1);
                 (first_of(end), end)
             }
+            Period::Last7Days => (today - Duration::days(6), today),
+            Period::Last30Days => (today - Duration::days(29), today),
+            Period::ThisYear => (NaiveDate::from_ymd_opt(today.year(), 1, 1).unwrap_or(today), NaiveDate::from_ymd_opt(today.year(), 12, 31).unwrap_or(today)),
+        }
+    }
+
+    /// The period that naturally comes before it, when it has a name of its own: what "this week
+    /// vs last week" asks, which the answer already compares with.
+    fn natural_before(self) -> Option<Period> {
+        match self {
+            Period::Today => Some(Period::Yesterday),
+            Period::ThisWeek => Some(Period::LastWeek),
+            Period::ThisMonth => Some(Period::LastMonth),
+            _ => None,
         }
     }
 
@@ -206,6 +236,10 @@ impl Period {
                 let end = first - Duration::days(1);
                 (end.with_day(1).unwrap_or(end), end)
             }
+            Period::ThisYear => (
+                NaiveDate::from_ymd_opt(first.year() - 1, 1, 1).unwrap_or(first),
+                NaiveDate::from_ymd_opt(first.year() - 1, 12, 31).unwrap_or(last),
+            ),
             _ => {
                 let len = (last - first).num_days() + 1;
                 (first - Duration::days(len), last - Duration::days(len))
@@ -227,6 +261,28 @@ pub fn split_period(query: &str) -> (String, Option<Period>) {
         }
     }
     (query.trim().to_string(), None)
+}
+
+/// A period named alone, like "last week".
+fn period_named(words: &str) -> Option<Period> {
+    let words = words.trim().to_lowercase();
+    PERIODS.iter().find(|(w, _)| *w == words).map(|&(_, p)| p)
+}
+
+/// A query like "youtube this month vs last week": what is asked about, its period, and the
+/// period to compare with. The comparison is None when none was given, or when it's the one
+/// the answer compares with anyway ("this week vs last week").
+pub fn split_compare(query: &str) -> (String, Option<Period>, Option<Period>) {
+    let q = query.trim().to_lowercase();
+    for sep in [" vs ", " vs. ", " versus ", " against ", " compared to "] {
+        let Some((left, right)) = q.split_once(sep) else { continue };
+        if let (Some(against), (asked, Some(period))) = (period_named(right), split_period(left)) {
+            let against = Some(against).filter(|a| *a != period && period.natural_before() != Some(*a));
+            return (asked, Some(period), against);
+        }
+    }
+    let (asked, period) = split_period(query);
+    (asked, period, None)
 }
 
 /// "tue" on a Tuesday is today; "last tue" is always one before today.
@@ -336,7 +392,7 @@ pub enum Action {
     CloseWindow(String),
     CheckUpdates,
     /// Puts an answer's line on the clipboard.
-    CopyAnswer(Subject, Period),
+    CopyAnswer(Subject, Period, Option<Period>),
     /// Puts this text on the clipboard.
     Copy(String),
     /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
@@ -420,7 +476,7 @@ pub enum Preview {
     /// How a day went.
     Day(NaiveDate),
     /// Time in something over a period, day by day.
-    Answer(Subject, Period),
+    Answer(Subject, Period, Option<Period>),
     /// What a focus session would do once started.
     Focus(u32, Option<String>),
 }
@@ -660,16 +716,20 @@ fn possessive(name: &str) -> String {
 
 /// How much time went to something over a period: the answer, which opens that stretch in
 /// Kairo, and when asked outright, rows to change its limit or copy the answer.
-fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, asked: bool) -> Vec<Item> {
+fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, against: Option<Period>, asked: bool) -> Vec<Item> {
     let (first, _) = period.days(ctx.today);
     let (go, place) = match period {
         Period::Today | Period::Yesterday => (Action::Go("today", Some(first)), period.label()),
         Period::ThisWeek | Period::LastWeek => (Action::Go("week", Some(first)), period.label()),
-        Period::ThisMonth | Period::LastMonth => (Action::Go("patterns", None), "Patterns"),
+        Period::ThisMonth | Period::LastMonth | Period::Last7Days | Period::Last30Days | Period::ThisYear => (Action::Go("patterns", None), "Patterns"),
     };
-    let preview = Some(Preview::Answer(subject.clone(), period));
+    let preview = Some(Preview::Answer(subject.clone(), period, against));
     let icon = Icon::App(subject.icon.clone().unwrap_or_else(|| subject.key.clone()));
-    let mut answer = Item::new(format!("{} {}", subject.name, period.label()), icon, "Answers", go);
+    let said = match against {
+        Some(a) => format!("{} {} vs {}", subject.name, period.label(), a.label()),
+        None => format!("{} {}", subject.name, period.label()),
+    };
+    let mut answer = Item::new(said, icon, "Answers", go);
     answer.at = m.at;
     answer.sub = Some(format!("Open {place} in Chrono"));
     answer.preview = preview.clone();
@@ -692,7 +752,7 @@ fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, aske
     change.detail = limit.map(fmt_dur);
     change.score = 949.0;
     change.preview = preview.clone();
-    let mut copy = Item::new("Copy the answer", Icon::Glyph(Glyph::Chart, Tone::Plain), "Answers", Action::CopyAnswer(subject.clone(), period));
+    let mut copy = Item::new("Copy the answer", Icon::Glyph(Glyph::Chart, Tone::Plain), "Answers", Action::CopyAnswer(subject.clone(), period, against));
     copy.score = 948.0;
     copy.preview = preview;
     vec![answer, change, copy]
@@ -1058,15 +1118,15 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(scan_item(query));
     items.extend(window_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
-    match split_period(query) {
-        (asked, Some(period)) => {
+    match split_compare(query) {
+        (asked, Some(period), against) => {
             if let Some((subject, m)) = best_subject(ctx, &asked) {
-                items.extend(answer_items(ctx, subject, m, period, true));
+                items.extend(answer_items(ctx, subject, m, period, against, true));
             }
         }
-        (_, None) => {
+        (_, None, _) => {
             if let Some((subject, m)) = best_subject(ctx, query).filter(|(_, m)| m.score >= 100.0) {
-                items.extend(answer_items(ctx, subject, m, Period::ThisWeek, false));
+                items.extend(answer_items(ctx, subject, m, Period::ThisWeek, None, false));
             }
         }
     }
@@ -1395,6 +1455,28 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn wider_periods_and_comparisons() {
+        assert_eq!(split_period("youtube last 7 days"), ("youtube".into(), Some(Period::Last7Days)));
+        assert_eq!(split_period("youtube past week"), ("youtube".into(), Some(Period::Last7Days)));
+        assert_eq!(split_period("youtube last 30 days"), ("youtube".into(), Some(Period::Last30Days)));
+        assert_eq!(split_period("youtube this year"), ("youtube".into(), Some(Period::ThisYear)));
+        let today = ctx().today;
+        let d = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        assert_eq!(Period::Last7Days.days(today), (d(10, 20), d(10, 26)));
+        assert_eq!(Period::Last7Days.previous_days(today), (d(10, 13), d(10, 19)));
+        assert_eq!(Period::Last30Days.days(today), (d(9, 27), d(10, 26)));
+        assert_eq!(Period::ThisYear.days(today), (d(1, 1), d(12, 31)));
+        assert_eq!(Period::ThisYear.previous_days(today), (NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(), NaiveDate::from_ymd_opt(2025, 12, 31).unwrap()));
+        // The comparison the answer makes anyway is left out; another one is kept.
+        assert_eq!(split_compare("youtube this week vs last week"), ("youtube".into(), Some(Period::ThisWeek), None));
+        assert_eq!(split_compare("youtube this month vs last week"), ("youtube".into(), Some(Period::ThisMonth), Some(Period::LastWeek)));
+        assert_eq!(split_compare("youtube today versus last week"), ("youtube".into(), Some(Period::Today), Some(Period::LastWeek)));
+        assert_eq!(split_compare("youtube this week vs this week"), ("youtube".into(), Some(Period::ThisWeek), None));
+        assert_eq!(split_compare("youtube last week"), ("youtube".into(), Some(Period::LastWeek), None));
+        assert_eq!(split_compare("youtube vs chrome"), ("youtube vs chrome".into(), None, None));
+    }
+
+    #[test]
     fn only_time_charts_wait_for_enter() {
         let c = ctx();
         let answer = search(&c, "finals this week").remove(0);
@@ -1412,7 +1494,7 @@ pub(super) mod tests {
         assert_eq!(titles(&found), ["THE FINALS this week", "Change THE FINALS’ daily limit", "Copy the answer"]);
         assert_eq!(found[0].action, Action::Go("week", NaiveDate::from_ymd_opt(2026, 10, 26)));
         assert_eq!(found[1].detail.as_deref(), Some("2h 00m"));
-        assert!(matches!(&found[2].preview, Some(Preview::Answer(s, Period::ThisWeek)) if s.key == "app:discovery"));
+        assert!(matches!(&found[2].preview, Some(Preview::Answer(s, Period::ThisWeek, None)) if s.key == "app:discovery"));
         assert_eq!(titles(&search(&c, "youtube today"))[1], "Set a daily limit for YouTube");
         // A name alone opens the app first; the answer comes after.
         let cursor = search(&c, "cursor");

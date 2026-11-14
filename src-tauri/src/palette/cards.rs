@@ -29,7 +29,7 @@ pub enum Card {
 pub fn card(conn: &Connection, preview: &Preview) -> Card {
     match preview {
         Preview::Day(day) => Card::Day(day_glance(conn, *day)),
-        Preview::Answer(subject, period) => Card::Answer(answer(conn, subject, *period)),
+        Preview::Answer(subject, period, against) => Card::Answer(answer(conn, subject, *period, *against)),
         Preview::Focus(minutes, label) => Card::Focus(focus_plan(conn, *minutes, label.as_deref())),
     }
 }
@@ -147,7 +147,8 @@ fn part_of_day(rows: &[Row], total: i64) -> Option<&'static str> {
     (total > 0 && most * 10 >= total * 6).then_some(["in the morning", "in the afternoon", "in the evening", "at night"][i])
 }
 
-pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
+/// `against` is the period to compare with when it isn't the one just before.
+pub fn answer(conn: &Connection, subject: &Subject, period: Period, against: Option<Period>) -> Answer {
     let now = now_ms();
     let today = Local::now().date_naive();
     let mine = |r: &Row| {
@@ -173,13 +174,16 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
     let total = within(&rows, from, to);
 
     // Against the period before, up to the same point when this one is still going.
-    let (before_first, before_last) = period.previous_days(today);
+    let (before_first, before_last) = against.map_or_else(|| period.previous_days(today), |a| a.days(today));
+    let versus = against.map_or(period.before(), Period::label);
     let (before_from, before_to) = (bounds(before_first).0, bounds(before_last).1);
-    let before_to = if to > now { (before_from + (now - from)).min(before_to) } else { before_to };
+    let before_to = if against.is_none() && to > now { (before_from + (now - from)).min(before_to) } else { before_to };
     let before = within(&load(before_from, before_to), before_from, before_to);
 
     let limit = limits(conn).get(&subject.key).copied();
     let hourly = first == last;
+    let yearly = period == Period::ThisYear;
+    let daily_labels = matches!(period, Period::ThisWeek | Period::LastWeek | Period::Last7Days);
     let mut bars = Vec::new();
     if hourly {
         for h in 0..24 {
@@ -193,12 +197,21 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
             };
             bars.push(Bar { label, ms: within(&rows, start, start + HOUR_MS), over: false });
         }
+    } else if yearly {
+        // A bar a month: a year of days is too many to draw.
+        for month in 1..=12u32 {
+            let start = NaiveDate::from_ymd_opt(first.year(), month, 1).unwrap_or(first);
+            let next = if month == 12 { NaiveDate::from_ymd_opt(first.year() + 1, 1, 1) } else { NaiveDate::from_ymd_opt(first.year(), month + 1, 1) }.unwrap_or(last);
+            let (a, b) = (bounds(start).0, bounds(next).0);
+            let label = if month % 3 == 1 { start.format("%b").to_string() } else { String::new() };
+            bars.push(Bar { label, ms: within(&rows, a, b), over: false });
+        }
     } else {
         let mut day = first;
         while day <= last {
             let (a, b) = bounds(day);
             let ms = within(&rows, a, b);
-            let label = if matches!(period, Period::ThisWeek | Period::LastWeek) {
+            let label = if daily_labels {
                 day.format("%a").to_string()
             } else if day.day() == 1 || day.day() % 7 == 1 {
                 day.day().to_string()
@@ -213,9 +226,9 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
     let change = (total > 0 || before > 0).then(|| {
         let delta = total - before;
         match delta {
-            0 => format!("Same as {}", period.before()),
-            d if d > 0 => format!("+{} vs {}", fmt_dur(d), period.before()),
-            d => format!("−{} vs {}", fmt_dur(-d), period.before()),
+            0 => format!("Same as {}", versus),
+            d if d > 0 => format!("+{} vs {}", fmt_dur(d), versus),
+            d => format!("−{} vs {}", fmt_dur(-d), versus),
         }
     });
     let better = match (subject.category, total - before) {
@@ -238,12 +251,15 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
             });
         }
     } else {
-        let week = matches!(period, Period::ThisWeek | Period::LastWeek);
         let name = |i: usize| {
+            if yearly {
+                return NaiveDate::from_ymd_opt(first.year(), i as u32 + 1, 1).unwrap_or(first).format("%B").to_string();
+            }
             let d = first + Duration::days(i as i64);
-            if week { d.format("%A").to_string() } else { d.format("%-d %b").to_string() }
+            if daily_labels { d.format("%A").to_string() } else { d.format("%-d %b").to_string() }
         };
-        match limit {
+        // A daily limit means nothing against months.
+        match limit.filter(|_| !yearly) {
             Some(l) => {
                 let over: Vec<String> = bars.iter().enumerate().filter(|(_, b)| b.over).map(|(i, _)| name(i)).collect();
                 note.push(match over.len() {
@@ -265,8 +281,9 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
 
     let range = match period {
         Period::Today | Period::Yesterday => first.format("%A %-d %B").to_string(),
-        Period::ThisWeek | Period::LastWeek if first.month() == last.month() => format!("{} – {}", first.format("%a %-d"), last.format("%a %-d %B")),
-        Period::ThisWeek | Period::LastWeek => format!("{} – {}", first.format("%a %-d %b"), last.format("%a %-d %b")),
+        Period::ThisYear => first.format("%Y").to_string(),
+        Period::ThisWeek | Period::LastWeek | Period::Last7Days | Period::Last30Days if first.month() == last.month() => format!("{} – {}", first.format("%a %-d"), last.format("%a %-d %B")),
+        Period::ThisWeek | Period::LastWeek | Period::Last7Days | Period::Last30Days => format!("{} – {}", first.format("%a %-d %b"), last.format("%a %-d %b")),
         Period::ThisMonth | Period::LastMonth => first.format("%B %Y").to_string(),
     };
     let category = match subject.category {
@@ -289,7 +306,7 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period) -> Answer {
         change,
         better,
         bars,
-        limit_ms: limit.filter(|_| !hourly),
+        limit_ms: limit.filter(|_| !hourly && !yearly),
         note: note.join(" "),
         text,
     }
@@ -385,7 +402,7 @@ mod tests {
         }
         let project = subjects(&conn, &[]).unwrap().into_iter().find(|s| s.key.starts_with("project:")).unwrap();
         assert_eq!(project.name, "Kairo");
-        let card = answer(&conn, &project, Period::Today);
+        let card = answer(&conn, &project, Period::Today, None);
         assert_eq!(card.title, "Kairo today");
         assert!(card.range.ends_with("· project"), "{}", card.range);
         assert!(card.total_ms > 0 && card.total_ms <= 30 * 60_000);

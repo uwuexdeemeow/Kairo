@@ -52,7 +52,8 @@ pub struct Answer {
 /// and a unit after, like "5 km in mi".
 fn conversion_at(words: &[&str]) -> Option<usize> {
     let starts_with_number = words.first()?.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-');
-    let has_letters = |side: &[&str]| side.iter().any(|w| w.chars().any(char::is_alphabetic));
+    // A height like 5'10 has its unit in the mark.
+    let has_letters = |side: &[&str]| side.iter().any(|w| w.chars().any(|c| c.is_alphabetic() || c == '\''));
     // The first that has a unit on both sides, so the `in` of "3 in to cm" stays inches.
     (1..words.len()).find(|&at| starts_with_number && CONVERSIONS.contains(&words[at].to_lowercase().as_str()) && has_letters(&words[..at]) && has_letters(&words[at + 1..]))
 }
@@ -110,6 +111,9 @@ fn unit(word: &str) -> Option<&'static str> {
 /// lone `in` for the conversion), and the lone letters of a temperature conversion as degrees
 /// ("30 c in f" → "30 °C in °F"; fend alone reads `c` as the speed of light).
 pub fn rewrite(query: &str) -> String {
+    if let Some(height) = height(query) {
+        return height;
+    }
     let mut words: Vec<String> = Vec::new();
     for word in query.split_whitespace() {
         let digits = word.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(word.len());
@@ -121,12 +125,54 @@ pub fn rewrite(query: &str) -> String {
     }
     let solid: Vec<&str> = words.iter().map(String::as_str).collect();
     let Some(at) = conversion_at(&solid) else { return words.join(" ") };
+    // "72f in c": the number stuck to its temperature (a bare `k` stuck to a number is thousands).
+    if let (3, 1, Some(to)) = (solid.len(), at, solid.get(2).and_then(|w| temperature(w))) {
+        let split = solid[0].find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(0);
+        let (number, unit) = solid[0].split_at(split);
+        if split > 0 && !unit.eq_ignore_ascii_case("k") {
+            if let Some(from) = temperature(unit) {
+                return format!("{number} {from} {} {to}", solid[1]);
+            }
+        }
+    }
     // Only "<number> <temperature> in <temperature>", so a lone letter elsewhere stays as typed.
-    if let (4, 2, Some(from), Some(to)) = (solid.len(), at, temperature(solid[1]), temperature(solid[3])) {
+    if let (4, 2, Some(from), Some(to)) = (solid.len(), at, temperature(solid[1]), solid.get(3).and_then(|w| temperature(w))) {
         return format!("{} {from} {} {to}", solid[0], solid[2]);
     }
     let inches = |(i, w): (usize, &str)| if i != at && w.eq_ignore_ascii_case("in") { "inches".to_string() } else { w.to_string() };
     solid.into_iter().enumerate().map(inches).collect::<Vec<_>>().join(" ")
+}
+
+/// A height written the way people say it, "5'10", "5'10\"", "6ft 2" or "6 ft 2in", followed by a
+/// conversion ("in cm"): written as a sum of feet and inches, which fend would otherwise read as
+/// 6 ft times 2. None for anything else.
+fn height(query: &str) -> Option<String> {
+    let q = query.trim().to_lowercase();
+    let number = |s: &str| -> Option<(String, usize)> {
+        let end = s.find(|c: char| !(c.is_ascii_digit() || c == '.')).unwrap_or(s.len());
+        (end > 0).then(|| (s[..end].to_string(), end))
+    };
+    let (feet, at) = number(&q)?;
+    let rest = q[at..].trim_start();
+    let rest = ["feet", "foot", "ft", "'", "\u{2019}"].iter().find_map(|m| rest.strip_prefix(m))?.trim_start();
+    let (inches, at) = number(rest)?;
+    let rest = rest[at..].trim_start();
+    // The inches' own mark, unless it is the conversion's `in` ("6ft 2 in cm").
+    let mut words: Vec<&str> = rest.split_whitespace().collect();
+    match words.as_slice() {
+        [first, second, ..] if *first == "in" && CONVERSIONS.contains(second) => {
+            words.remove(0);
+        }
+        [first, ..] if *first == "inches" || *first == "inch" => {
+            words.remove(0);
+        }
+        _ => {}
+    }
+    let quoted = words.first().is_some_and(|w| w.starts_with('"'));
+    let joined = words.join(" ");
+    let rest = if quoted { joined.trim_start_matches('"').trim_start() } else { joined.as_str() };
+    let (conversion, target) = rest.split_once(' ')?;
+    (CONVERSIONS.contains(&conversion) && !target.trim().is_empty()).then(|| format!("({feet} ft + {inches} inches) {conversion} {}", target.trim()))
 }
 
 /// Stops fend at a deadline.
@@ -285,6 +331,24 @@ mod tests {
         assert_eq!(text("3 in to cm").as_deref(), Some("7.62 cm"));
         assert_eq!(text("12 in to ft").as_deref(), Some("1 ft"));
         assert!(text("1 m in in").is_some_and(|t| t.starts_with("39.3701")));
+    }
+
+    #[test]
+    fn numbers_stuck_to_units_and_heights_are_read_right() {
+        let text = |q: &str| answer(q).map(|a| a.text);
+        assert_eq!(text("5km in mi").as_deref(), Some("3.10686 mi"));
+        assert_eq!(text("72f in c").as_deref(), Some("22.2222 °C"));
+        assert_eq!(text("30C to f").as_deref(), Some("86 °F"));
+        assert_eq!(text("5 km in miles").as_deref(), Some("3.10686 miles"));
+        assert_eq!(text("72 f in c").as_deref(), Some("22.2222 °C"));
+        // 5 ft 10 in is 177.8 cm, however it's typed; 6 ft 2 in is 187.96 cm.
+        for q in ["5'10 in cm", "5'10\" in cm", "5 ft 10 in cm", "5ft 10in to cm", "5 feet 10 inches in cm", "5ft 10 to cm"] {
+            assert_eq!(text(q).as_deref(), Some("177.8 cm"), "{q}");
+        }
+        assert_eq!(text("6ft 2 in cm").as_deref(), Some("187.96 cm"));
+        // A plain length is still just that.
+        assert_eq!(text("5 ft in cm").as_deref(), Some("152.4 cm"));
+        assert!(height("3 ft 2").is_none());
     }
 
     #[test]

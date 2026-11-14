@@ -594,9 +594,9 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });
             Ok(())
         }
-        Action::CopyAnswer(subject, period) => {
+        Action::CopyAnswer(subject, period, against) => {
             use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(cards::answer(conn, subject, *period).text).map_err(|e| e.to_string())
+            app.clipboard().write_text(cards::answer(conn, subject, *period, *against).text).map_err(|e| e.to_string())
         }
         Action::Copy(text) => {
             use tauri_plugin_clipboard_manager::ClipboardExt;
