@@ -39,6 +39,7 @@ const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
 const LOOK_KEY: &str = "palette_look";
 const SEARCH_FILES_KEY: &str = "palette_search_files";
+const MOMENT_TITLES_KEY: &str = "palette_moment_titles";
 const OVER_FULLSCREEN_KEY: &str = "palette_over_fullscreen";
 /// Whether the shortcut opens the palette over a game or full-screen app too, as saved; kept
 /// here so each key press needn't ask the database.
@@ -285,6 +286,15 @@ pub fn compact(conn: &Connection) -> Result<bool> {
 
 pub fn set_compact(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, LOOK_KEY, if on { "compact" } else { "full" })
+}
+
+/// Whether "what was I doing at 3 pm" shows window titles; off until the person turns it on.
+pub fn moment_titles(conn: &Connection) -> Result<bool> {
+    Ok(db::get_setting(conn, MOMENT_TITLES_KEY)?.as_deref() == Some("1"))
+}
+
+pub fn set_moment_titles(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, MOMENT_TITLES_KEY, if on { "1" } else { "0" })
 }
 
 /// Whether typing in the palette also looks for files; on unless turned off.

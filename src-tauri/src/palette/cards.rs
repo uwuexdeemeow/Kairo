@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, Duration, Local, NaiveDate, Timelike};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use rusqlite::{Connection, Result};
 use serde::Serialize;
 
@@ -23,11 +23,13 @@ const SUBJECTS_FOR_MS: i64 = 30 * DAY_MS;
 pub enum Card {
     Day(DayGlance),
     Answer(Answer),
+    Moment(MomentCard),
     Focus(FocusPlan),
 }
 
 pub fn card(conn: &Connection, preview: &Preview) -> Card {
     match preview {
+        Preview::Moment(at) => Card::Moment(moment(conn, *at, super::moment_titles(conn).unwrap_or(false))),
         Preview::Day(day) => Card::Day(day_glance(conn, *day)),
         Preview::Answer(subject, period, against) => Card::Answer(answer(conn, subject, *period, *against)),
         Preview::Focus(minutes, label) => Card::Focus(focus_plan(conn, *minutes, label.as_deref())),
@@ -385,9 +387,176 @@ pub fn focus_plan(conn: &Connection, minutes: u32, label: Option<&str>) -> Focus
     }
 }
 
+// ---------- a moment in the past ----------
+
+/// One stretch on a moment's card: what was on screen, when, and for how long.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MomentLine {
+    /// "2:15 pm – 2:40 pm".
+    pub when: String,
+    /// The app or site, or "Away".
+    pub what: String,
+    /// "25m", with the window title after it when titles are shown.
+    pub detail: String,
+    /// The stretch that holds the moment asked about.
+    pub here: bool,
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MomentCard {
+    /// "Yesterday at 3:00 pm".
+    pub title: String,
+    /// "In a focus session · In a meeting"; empty for neither.
+    pub sub: String,
+    /// The stretch around the moment, with up to two before and two after.
+    pub lines: Vec<MomentLine>,
+    pub note: String,
+}
+
+/// How far either side of a moment is looked at, for its neighbours.
+const AROUND_MS: i64 = 2 * 60 * 60_000;
+/// A neighbour shorter than this is a glance, not something that was being done.
+const GLANCE_MS: i64 = 60_000;
+
+struct Stretch {
+    what: String,
+    start: i64,
+    end: i64,
+    away: bool,
+    /// Time by window title, kept only when titles are shown.
+    titles: HashMap<String, i64>,
+}
+
+/// What was on screen around `at`, from the same history the days are drawn from, so ignored apps
+/// are absent and hidden titles empty. Window titles are left out unless `titles`.
+pub fn moment(conn: &Connection, at: NaiveDateTime, titles: bool) -> MomentCard {
+    let at_ms = Local.from_local_datetime(&at).earliest().map_or(0, |d| d.timestamp_millis());
+    let today = Local::now().date_naive();
+    let day = match (today - at.date()).num_days() {
+        0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        _ => at.format("%A %-d %B").to_string(),
+    };
+    let clock = |ms: i64| chrono::DateTime::from_timestamp_millis(ms).map_or_else(String::new, |d| d.with_timezone(&Local).format("%-I:%M %P").to_string());
+
+    let mut stretches: Vec<Stretch> = Vec::new();
+    let query = conn.prepare("SELECT app, site, title, idle, start_ms, end_ms FROM sessions WHERE end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms");
+    if let Ok(mut stmt) = query {
+        let rows = stmt.query_map([at_ms - AROUND_MS, at_ms + AROUND_MS], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?, r.get::<_, String>(2)?, r.get::<_, bool>(3)?, r.get::<_, i64>(4)?, r.get::<_, i64>(5)?))
+        });
+        for (app, site, title, idle, start, end) in rows.into_iter().flatten().flatten() {
+            let what = if idle { "Away".to_string() } else { site.unwrap_or(app) };
+            match stretches.last_mut() {
+                // The same thing again, give or take a moment: one stretch.
+                Some(last) if last.what == what && start - last.end <= GLANCE_MS => {
+                    last.end = last.end.max(end);
+                    if titles && !title.is_empty() {
+                        *last.titles.entry(title).or_default() += end - start;
+                    }
+                }
+                _ => {
+                    let mut kept = HashMap::new();
+                    if titles && !title.is_empty() {
+                        kept.insert(title, end - start);
+                    }
+                    stretches.push(Stretch { what, start, end, away: idle, titles: kept });
+                }
+            }
+        }
+    }
+    let here = stretches.iter().position(|s| s.start <= at_ms && at_ms < s.end);
+    // Brief glances elsewhere are left out of the neighbours.
+    let worth = |i: usize, s: &Stretch| Some(i) == here || s.end - s.start > GLANCE_MS;
+    let before: Vec<usize> = stretches.iter().enumerate().filter(|&(i, s)| worth(i, s) && Some(i) != here && s.end <= at_ms).map(|(i, _)| i).collect();
+    let after: Vec<usize> = stretches.iter().enumerate().filter(|&(i, s)| worth(i, s) && Some(i) != here && s.start > at_ms).map(|(i, _)| i).collect();
+    let picked: Vec<usize> = before.iter().rev().take(2).rev().copied().chain(here).chain(after.iter().take(2).copied()).collect();
+
+    let lines: Vec<MomentLine> = picked
+        .iter()
+        .map(|&i| {
+            let s = &stretches[i];
+            let mut detail = fmt_dur(s.end - s.start);
+            if let Some((title, _)) = s.titles.iter().max_by_key(|(_, ms)| **ms) {
+                detail = format!("{detail} · {title}");
+            }
+            MomentLine { when: format!("{} – {}", clock(s.start), clock(s.end)), what: s.what.clone(), detail, here: Some(i) == here }
+        })
+        .collect();
+
+    let mut sub = Vec::new();
+    if focus::blocks(conn, at_ms, at_ms + 1, now_ms()).is_ok_and(|b| !b.is_empty()) {
+        sub.push("In a focus session".to_string());
+    }
+    if let Ok(Some(event)) = crate::calendar::busy_at(conn, at_ms) {
+        // A meeting's name is as private as a window title.
+        sub.push(if titles && !event.title.is_empty() { format!("In a meeting: {}", event.title) } else { "In a meeting".into() });
+    }
+    let note = match (&here, lines.is_empty(), titles) {
+        (_, true, _) => "Nothing was recorded then.".to_string(),
+        (None, _, _) => "Nothing was recorded at that moment; these are the nearest stretches.".to_string(),
+        (Some(i), _, _) if stretches[*i].away => "You were away from the computer.".to_string(),
+        (_, _, false) => "Window titles are hidden. Show them in Kairo’s settings.".to_string(),
+        _ => String::new(),
+    };
+    MomentCard { title: format!("{day} at {}", at.format("%-I:%M %P")), sub: sub.join(" · "), lines, note }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn session(conn: &Connection, app: &str, title: &str, site: Option<&str>, idle: bool, from: NaiveDateTime, minutes: i64) {
+        let start = Local.from_local_datetime(&from).earliest().unwrap().timestamp_millis();
+        let s = db::NewSession { app, exe: app, title, site, start_ms: start, end_ms: start + minutes * 60_000, idle, demo: false };
+        db::insert_session(conn, &s).unwrap();
+    }
+
+    #[test]
+    fn a_moment_shows_what_was_open_with_its_neighbours_and_hides_titles_by_default() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let day = Local::now().date_naive() - Duration::days(1);
+        let t = |h, m| day.and_hms_opt(h, m, 0).unwrap();
+        session(&conn, "Slack", "#general", None, false, t(14, 0), 20);
+        session(&conn, "Code", "main.rs - kairo", None, false, t(14, 20), 40);
+        // A glance at something else inside the stretch, then the same again.
+        session(&conn, "Code", "lib.rs - kairo", None, false, t(15, 0), 10);
+        session(&conn, "Chrome", "Video", Some("youtube.com"), false, t(15, 10), 20);
+        session(&conn, "Mail", "Inbox", None, false, t(15, 30), 1);
+        session(&conn, "Code", "x", None, false, t(15, 31), 29);
+
+        let plain = moment(&conn, t(15, 15), false);
+        assert_eq!(plain.title, "Yesterday at 3:15 pm");
+        let names: Vec<(&str, bool)> = plain.lines.iter().map(|l| (l.what.as_str(), l.here)).collect();
+        assert_eq!(names, [("Slack", false), ("Code", false), ("youtube.com", true), ("Code", false)]);
+        // The stretch asked about, and no window title anywhere.
+        assert_eq!(plain.lines[2].detail, "20m");
+        assert!(plain.lines.iter().all(|l| !l.detail.contains('·')));
+        assert!(plain.note.contains("hidden"));
+
+        let shown = moment(&conn, t(15, 15), true);
+        assert_eq!(shown.lines[2].detail, "20m · Video");
+        assert_eq!(shown.lines[1].detail.split(" · ").nth(1), Some("main.rs - kairo"));
+        assert!(shown.note.is_empty());
+    }
+
+    #[test]
+    fn a_moment_with_nothing_recorded_or_away_says_so() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let day = Local::now().date_naive() - Duration::days(2);
+        let t = |h, m| day.and_hms_opt(h, m, 0).unwrap();
+        assert_eq!(moment(&conn, t(9, 0), false).note, "Nothing was recorded then.");
+        session(&conn, "Code", "", None, false, t(8, 0), 20);
+        session(&conn, "Code", "", None, true, t(8, 20), 60);
+        let away = moment(&conn, t(9, 0), true);
+        assert_eq!(away.note, "You were away from the computer.");
+        assert_eq!(away.lines.iter().find(|l| l.here).map(|l| l.what.as_str()), Some("Away"));
+        // Between recordings: the nearest are shown, and it says so.
+        let gap = moment(&conn, t(9, 40), true);
+        assert!(gap.lines.iter().any(|l| !l.here) && gap.note.contains("nearest"), "{gap:?}");
+    }
 
     #[test]
     fn projects_can_be_asked_about_like_apps() {

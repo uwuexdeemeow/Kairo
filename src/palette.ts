@@ -347,6 +347,15 @@ function answerCard(a: Extract<PaletteCard, { kind: "answer" }>): Node[] {
   return [head, h("div", { class: "palette-answer-body" }, total, chart), h("p", { class: "palette-note" }, a.note)];
 }
 
+/// What was on screen around a moment: the stretch it fell in, marked, among its neighbours.
+function momentCard(m: Extract<PaletteCard, { kind: "moment" }>): Node[] {
+  const head = h("div", { class: "palette-answer-head" }, strokeIcon("search", "accent"), h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, m.title), m.sub ? h("span", { class: "palette-sub" }, m.sub) : ""));
+  const lines = m.lines.map((l) => h("li", { class: l.here ? "palette-moment-line here" : "palette-moment-line", ...(l.here ? { "aria-current": "true" } : {}) }, h("span", { class: "when" }, l.when), h("span", { class: "what" }, l.what), h("span", { class: "detail" }, l.detail)));
+  const out: Node[] = [head, h("ul", { class: "palette-moment" }, ...lines)];
+  if (m.note) out.push(h("p", { class: "palette-note" }, m.note));
+  return out;
+}
+
 /// What a focus session would do once started.
 function focusCard(f: Extract<PaletteCard, { kind: "focus" }>): Node[] {
   const head = h("div", { class: "palette-answer-head" }, strokeIcon("focus", "accent"), h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, f.title), h("span", { class: "palette-sub" }, f.sub)));
@@ -371,7 +380,7 @@ async function renderPreview() {
   const card = await api.paletteCard(results.seq, selected).catch(() => null);
   if (token !== previewToken || !card) return;
   box.className = `palette-preview ${card.kind}`;
-  box.replaceChildren(...(card.kind === "day" ? dayCard(card) : card.kind === "answer" ? answerCard(card) : focusCard(card)));
+  box.replaceChildren(...(card.kind === "day" ? dayCard(card) : card.kind === "answer" ? answerCard(card) : card.kind === "moment" ? momentCard(card) : focusCard(card)));
   box.hidden = false;
   loadIcons();
   fit();

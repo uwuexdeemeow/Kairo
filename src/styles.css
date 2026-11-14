@@ -1222,6 +1222,42 @@ html.palette-root {
   color: var(--warm-ink);
 }
 
+.palette-moment {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.palette-moment-line {
+  display: grid;
+  grid-template-columns: 170px 150px minmax(0, 1fr);
+  gap: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.palette-moment-line .when {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.palette-moment-line .what,
+.palette-moment-line .detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-moment-line.here {
+  background: var(--line);
+  color: var(--ink);
+}
+
 .palette-plan {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

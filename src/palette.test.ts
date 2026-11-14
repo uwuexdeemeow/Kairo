@@ -449,6 +449,37 @@ describe("note rows", () => {
   });
 });
 
+describe("what was on screen at a moment", () => {
+  const row = item("What was I doing yesterday at 3:00 pm?", { section: "Answers", sub: "Open that day in Chrono", preview: true, again: "Enter again to open that day in Chrono" });
+  const card = {
+    kind: "moment",
+    title: "Yesterday at 3:00 pm",
+    sub: "In a focus session",
+    lines: [
+      { when: "2:15 pm – 2:40 pm", what: "Slack", detail: "25m", here: false },
+      { when: "2:40 pm – 3:30 pm", what: "Code", detail: "50m", here: true },
+    ],
+    note: "Window titles are hidden. Show them in Kairo’s settings.",
+  };
+
+  it("waits for Enter, then shows the stretches with the one asked about marked, and says titles are hidden", async () => {
+    api.paletteCard.mockResolvedValue(card);
+    await open(results(1, [item("Plain"), row]));
+    key("ArrowDown");
+    await Promise.resolve();
+    expect(api.paletteCard).not.toHaveBeenCalled();
+    key("Enter");
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    const lines = [...document.querySelectorAll(".palette-moment-line")];
+    expect(lines.map((l) => l.querySelector(".what")!.textContent)).toEqual(["Slack", "Code"]);
+    expect(lines.map((l) => l.classList.contains("here"))).toEqual([false, true]);
+    expect(lines[1].querySelector(".detail")!.textContent).toBe("50m");
+    expect($("#palette-preview").textContent).toContain("In a focus session");
+    expect(document.querySelector(".palette-note")!.textContent).toContain("hidden");
+    expect(api.paletteRun).not.toHaveBeenCalled();
+  });
+});
+
 describe("a time chart", () => {
   const answer = item("THE FINALS this week", { section: "Answers", sub: "Open this week in Chrono", preview: true, again: "Enter again to open this week in Chrono" });
   const card = {

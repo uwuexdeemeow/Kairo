@@ -844,6 +844,32 @@ On Windows, a Mac and Linux. Open the palette.
    an answer with a chart (months for the year) and a comparison with the stretch before.
    `youtube this month vs last week` says "… vs last week"; its row reads "… this month vs last week".
 
+## Palette: what was I doing at a time
+
+On Windows, a Mac and Linux, with some hours of history from yesterday or today.
+
+1. **The row.** Open the palette and type `3pm` (or a time earlier today or yesterday). *Expect:* a
+   row "What was I doing … at 3:00 pm?" and nothing about which apps were open. Type `yesterday 3pm`,
+   `friday morning` and `what was I doing at 2pm yesterday?`. *Expect:* the same kind of row for each.
+   A time still to come today (say `11pm` in the morning) means last night's.
+2. **The card waits.** Select the row. *Expect:* no card yet. Press Enter. *Expect:* a card with the
+   moment's date and time, then a line for the stretch it fell in (marked) and up to two stretches
+   before and after, each with a time range and a length. Press Enter again. *Expect:* Chrono opens
+   on that day.
+3. **Titles hidden.** *Expect:* only app and site names and lengths, and the note "Window titles are
+   hidden. Show them in Kairo's settings."
+4. **Titles shown.** In Kairo's settings, under the palette, turn on "Show window titles when I ask
+   what I was doing at a time". Ask again. *Expect:* each line carries its window title after the
+   length, and the note is gone. In a focus session or a meeting, the card says so (a meeting's name
+   only with titles on). Turn it off and ask again. *Expect:* titles gone.
+5. **Privacy rules.** A moment when an Ignored app was in front shows nothing of it. One in an
+   app set to Hide title shows the app and its time with no title, even with titles on. Titles older
+   than the "keep titles for" setting are blank.
+6. **Away and nothing.** A moment when you were away says so; a time before Kairo started says
+   "Nothing was recorded then."
+7. **Searches stay searches.** `focus 25`, `timer 3pm`, `night`, `2026` and `chrome` don't give the
+   row. `14 oct` and `yesterday` still give their day.
+
 ## Two computers combined
 
 Use two machines (any systems) with the same cloud drive.

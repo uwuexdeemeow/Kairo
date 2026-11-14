@@ -1735,6 +1735,7 @@ pub struct PaletteSettings {
     suggestions: bool,
     over_fullscreen: bool,
     search_files: bool,
+    moment_titles: bool,
     /// "full" or "compact".
     look: &'static str,
 }
@@ -1747,6 +1748,7 @@ pub fn get_palette_settings(state: State<AppState>) -> CmdResult<PaletteSettings
         suggestions: palette::suggestions(&conn).map_err(err)?,
         over_fullscreen: palette::over_fullscreen(&conn).map_err(err)?,
         search_files: palette::search_files(&conn).map_err(err)?,
+        moment_titles: palette::moment_titles(&conn).map_err(err)?,
         look: if palette::compact(&conn).map_err(err)? { "compact" } else { "full" },
     })
 }
@@ -1787,6 +1789,12 @@ pub fn recording_shortcut(app: AppHandle, window: tauri::WebviewWindow, on: bool
 pub fn set_palette_search_files(state: State<AppState>, on: bool) -> CmdResult<()> {
     let conn = state.db.lock().map_err(err)?;
     palette::set_search_files(&conn, on).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_palette_moment_titles(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_moment_titles(&conn, on).map_err(err)
 }
 
 #[tauri::command]

@@ -227,6 +227,16 @@ export type PaletteCard =
       text: string;
     }
   | {
+      kind: "moment";
+      /** "Yesterday at 3:00 pm". */
+      title: string;
+      /** "In a focus session · In a meeting"; empty for neither. */
+      sub: string;
+      /** The stretch around the moment, with up to two before and two after. */
+      lines: { when: string; what: string; detail: string; here: boolean }[];
+      note: string;
+    }
+  | {
       kind: "focus";
       title: string;
       /** "Labelled “essay” · ends at 4:20 pm". */
@@ -776,7 +786,7 @@ export const api = {
   /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
    *  frosted glass there. */
   paletteGlass: (room: { left: number; top: number; right: number; bottom: number }) => invoke<void>("palette_glass", room),
-  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean; look: PaletteLook }>("get_palette_settings"),
+  paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean; momentTitles: boolean; look: PaletteLook }>("get_palette_settings"),
   setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
@@ -784,6 +794,8 @@ export const api = {
   recordingShortcut: (on: boolean) => invoke<void>("recording_shortcut", { on }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
   setPaletteSearchFiles: (on: boolean) => invoke<void>("set_palette_search_files", { on }),
+  /** Whether "what was I doing at 3 pm" shows window titles (off by default). */
+  setPaletteMomentTitles: (on: boolean) => invoke<void>("set_palette_moment_titles", { on }),
   setPaletteOverFullscreen: (on: boolean) => invoke<void>("set_palette_over_fullscreen", { on }),
   /** Each asks where with the system's file dialog; null when it was closed. */
   exportTime: () => invoke<number | null>("export_time"),

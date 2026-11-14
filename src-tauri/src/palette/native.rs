@@ -59,7 +59,7 @@ use super::mode::Mode;
 use windows::Win32::UI::Accessibility::NotifyWinEvent;
 use super::search::{self, fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 use super::settings::{self, Switch};
-use super::cards::{self, Answer, Card, FocusPlan};
+use super::cards::{self, Answer, Card, FocusPlan, MomentCard};
 use super::search::Preview;
 use super::{DayGlance, Segment};
 use crate::analysis::Category;
@@ -102,6 +102,8 @@ const LABEL_H: f32 = 26.0;
 const DAY_CARD_H: f32 = 92.0;
 const ANSWER_CARD_H: f32 = 200.0;
 const FOCUS_CARD_H: f32 = 140.0;
+/// A moment's card: its header, then a line for each stretch around it.
+const MOMENT_LINE_H: f32 = 24.0;
 /// From the top of the screen to the palette, as a share of the screen's height.
 const FROM_TOP: f32 = 0.16;
 
@@ -170,6 +172,11 @@ pub(crate) fn color(hex: u32, alpha: f32) -> D2D1_COLOR_F {
 
 fn colorref(hex: u32) -> COLORREF {
     COLORREF(((hex & 255) << 16) | (hex & 0xff00) | ((hex >> 16) & 255))
+}
+
+/// How tall a moment's card is: its header, a line for each stretch, and the note under them.
+fn moment_card_h(m: &MomentCard) -> f32 {
+    72.0 + m.lines.len() as f32 * MOMENT_LINE_H + if m.note.is_empty() { 0.0 } else { 26.0 }
 }
 
 fn rect(l: f32, t: f32, r: f32, b: f32) -> D2D_RECT_F {
@@ -760,6 +767,7 @@ impl Palette {
             Some((_, Card::Day(_))) => DAY_CARD_H,
             Some((_, Card::Answer(_))) => ANSWER_CARD_H,
             Some((_, Card::Focus(f))) => FOCUS_CARD_H + if f.replaces { 20.0 } else { 0.0 },
+            Some((_, Card::Moment(m))) => moment_card_h(m),
         }
     }
 
@@ -1643,6 +1651,7 @@ impl Palette {
             Some(Card::Day(day)) => self.draw_day(rt, day),
             Some(Card::Answer(answer)) => self.draw_answer(rt, answer),
             Some(Card::Focus(plan)) => self.draw_focus(rt, plan),
+            Some(Card::Moment(m)) => self.draw_moment(rt, m),
             None => Ok(()),
         };
         self.preview = preview;
@@ -1788,6 +1797,34 @@ impl Palette {
         }
         if f.replaces {
             self.text(rt, "Starting it ends the session that's running.", &self.formats.chip, x, top + 122.0, W - 2.0 * x, t.warm, &[], false)?;
+        }
+        Ok(())
+    }
+
+    /// What was on screen around a moment: the stretch it fell in, marked, with its neighbours.
+    fn draw_moment(&mut self, rt: &ID2D1RenderTarget, m: &MomentCard) -> Result<()> {
+        let t = self.theme;
+        self.card(rt, moment_card_h(m))?;
+        let top = HEADER + 10.0;
+        let x = 30.0;
+        self.icon(rt, &Icon::Glyph(Glyph::Search, Tone::Accent), "", x, top + 34.0, 28.0)?;
+        self.text(rt, &m.title, &self.formats.title, x + 42.0, top + 17.0, W - 72.0 - x, t.ink, &[], false)?;
+        if !m.sub.is_empty() {
+            self.text(rt, &m.sub, &self.formats.sub, x + 42.0, top + 36.0, W - 72.0 - x, t.muted, &[], false)?;
+        }
+        for (i, line) in m.lines.iter().enumerate() {
+            let y = top + 62.0 + i as f32 * MOMENT_LINE_H;
+            if line.here {
+                let mark = D2D1_ROUNDED_RECT { rect: rect(x - 10.0, y - 1.0, W - x + 10.0 - 10.0, y + MOMENT_LINE_H - 3.0), radiusX: 6.0, radiusY: 6.0 };
+                unsafe { rt.FillRoundedRectangle(&mark, &self.brush(rt, t.accent, 0.18)?) };
+            }
+            self.text(rt, &line.when, &self.formats.mono, x, y + 3.0, 170.0, t.muted, &[], false)?;
+            self.text(rt, &line.what, &self.formats.chip, x + 180.0, y + 3.0, 150.0, t.ink, &[], false)?;
+            self.text(rt, &line.detail, &self.formats.sub, x + 335.0, y + 2.0, W - 30.0 - (x + 335.0), t.muted, &[], false)?;
+        }
+        if !m.note.is_empty() {
+            let y = top + 62.0 + m.lines.len() as f32 * MOMENT_LINE_H + 6.0;
+            self.text(rt, &m.note, &self.formats.chip, x, y, W - 2.0 * x, t.muted, &[], false)?;
         }
         Ok(())
     }

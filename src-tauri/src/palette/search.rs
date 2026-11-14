@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Weekday};
+use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
 use super::calc;
 use super::commands;
@@ -128,6 +128,105 @@ pub fn parse_day(query: &str, today: NaiveDate) -> Option<NaiveDate> {
         }
         _ => None,
     }
+}
+
+/// Parts of a day as the hour they stand for.
+const PARTS: [(&str, u32); 4] = [("morning", 10), ("afternoon", 15), ("evening", 19), ("night", 22)];
+
+/// A time of day at the start of `words`, and how many words it took: "3pm", "3:30 pm", "15:00",
+/// "noon". A bare number is no time, and 24-hour times need their colon.
+fn clock_at(words: &[&str]) -> Option<(NaiveTime, usize)> {
+    let word = *words.first()?;
+    match word {
+        "noon" => return Some((NaiveTime::from_hms_opt(12, 0, 0)?, 1)),
+        "midnight" => return Some((NaiveTime::from_hms_opt(0, 0, 0)?, 1)),
+        _ => {}
+    }
+    let meridiem = |w: &str| match w {
+        "am" => Some(false),
+        "pm" => Some(true),
+        _ => None,
+    };
+    let (digits, pm, used) = match (word.strip_suffix("am").map(|d| (d, false)).or_else(|| word.strip_suffix("pm").map(|d| (d, true))), words.get(1).and_then(|w| meridiem(w))) {
+        (Some((digits, pm)), _) => (digits, Some(pm), 1),
+        (None, Some(pm)) => (word, Some(pm), 2),
+        (None, None) => (word, None, 1),
+    };
+    let (h, m) = match digits.split_once(':') {
+        Some((h, m)) => (h, m),
+        None if pm.is_some() => (digits, "0"),
+        None => return None,
+    };
+    if ![h, m].iter().all(|p| !p.is_empty() && p.len() <= 2 && p.chars().all(|c| c.is_ascii_digit())) {
+        return None;
+    }
+    let (h, m) = (h.parse::<u32>().ok()?, m.parse::<u32>().ok()?);
+    let hour = match pm {
+        Some(pm) if (1..=12).contains(&h) => h % 12 + if pm { 12 } else { 0 },
+        Some(_) => return None,
+        None => h,
+    };
+    Some((NaiveTime::from_hms_opt(hour, m, 0)?, used))
+}
+
+/// A moment in the past asked about: "3pm", "yesterday 3pm", "tue 3:30 pm", "friday morning",
+/// "what was I doing at 15:00". A time with no day is today's, or yesterday's when today's hasn't
+/// come yet. None when the words aren't a time, or the moment is still ahead.
+pub fn parse_moment(query: &str, today: NaiveDate, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    let q = query.trim().to_lowercase().replace('?', "");
+    let mut q = q.as_str();
+    for lead in ["what was i doing", "what was i up to", "what did i do", "what was i on"] {
+        if let Some(rest) = q.strip_prefix(lead) {
+            q = rest;
+            break;
+        }
+    }
+    let words: Vec<&str> = q.split_whitespace().filter(|w| !matches!(*w, "at" | "on" | "around" | "about")).collect();
+    // Where a time of day starts, and what it is; a part of day ("morning") needs a day or
+    // "this" beside it, so a lone word like "night" stays a search.
+    let mut found = None;
+    for i in 0..words.len() {
+        if let Some((time, used)) = clock_at(&words[i..]) {
+            found = Some((time, i..i + used, true));
+            break;
+        }
+        if let Some(&(_, hour)) = PARTS.iter().find(|(name, _)| *name == words[i]) {
+            found = Some((NaiveTime::from_hms_opt(hour, 0, 0)?, i..i + 1, false));
+            break;
+        }
+        if words[i] == "tonight" {
+            found = Some((NaiveTime::from_hms_opt(22, 0, 0)?, i..i + 1, true));
+            break;
+        }
+    }
+    let (time, span, exact) = found?;
+    let mut rest: Vec<&str> = words.iter().enumerate().filter(|(i, _)| !span.contains(i)).map(|(_, w)| *w).collect();
+    let (mut explicit, mut day) = (exact, None);
+    // "this morning" is today; "last night" is the night before.
+    if let Some(at) = rest.iter().position(|w| *w == "this") {
+        rest.remove(at);
+        explicit = true;
+    }
+    if rest == ["last"] && words[span.start] == "night" {
+        rest.clear();
+        day = Some(today - Duration::days(1));
+        explicit = true;
+    }
+    if !rest.is_empty() {
+        day = Some(parse_day(&rest.join(" "), today)?);
+        explicit = true;
+    }
+    if !explicit {
+        return None;
+    }
+    let at = |d: NaiveDate| d.and_time(time);
+    let moment = match day {
+        Some(d) => at(d),
+        // Today's, unless it hasn't come yet.
+        None if now.date() == today && at(today) > now => at(today - Duration::days(1)),
+        None => at(today),
+    };
+    (moment <= now || now.date() != today).then_some(moment)
 }
 
 /// A stretch of time an answer covers, the way people ask for it.
@@ -477,6 +576,8 @@ pub enum Preview {
     Day(NaiveDate),
     /// Time in something over a period, day by day.
     Answer(Subject, Period, Option<Period>),
+    /// What was on screen around a moment in the past, in local time.
+    Moment(NaiveDateTime),
     /// What a focus session would do once started.
     Focus(u32, Option<String>),
 }
@@ -486,7 +587,7 @@ impl Preview {
     /// is selected: a time chart is tall, and coming and going under the pointer it pushed the
     /// rows away from it.
     pub fn on_enter(&self) -> bool {
-        matches!(self, Preview::Answer(..))
+        matches!(self, Preview::Answer(..) | Preview::Moment(..))
     }
 }
 
@@ -667,6 +768,27 @@ pub fn fmt_dur(ms: i64) -> String {
 
 fn long_date(d: NaiveDate) -> String {
     d.format("%A %-d %B").to_string()
+}
+
+/// "What was I doing yesterday at 3:00 pm?": the row for a moment asked about. It says nothing of
+/// what was on screen; that is on its card, which waits for Enter.
+fn moment_item(ctx: &Context, at: NaiveDateTime) -> Item {
+    let day = at.date();
+    let when = match (ctx.today - day).num_days() {
+        0 => "today".to_string(),
+        1 => "yesterday".to_string(),
+        _ => format!("on {}", day.format("%a %-d %b")),
+    };
+    let mut item = Item::new(
+        format!("What was I doing {when} at {}?", at.format("%-I:%M %P")),
+        Icon::Glyph(Glyph::Search, Tone::Accent),
+        "Answers",
+        Action::Go("today", Some(day)),
+    );
+    item.sub = Some("Open that day in Chrono".into());
+    item.score = 960.0;
+    item.preview = Some(Preview::Moment(at));
+    item
 }
 
 const PAGES: [(&str, &str, &str, Glyph, i64); 8] = [
@@ -1133,6 +1255,9 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     if let Some(d) = parse_day(query, ctx.today) {
         items.push(day_item(ctx, d, 900.0));
     }
+    if let Some(at) = parse_moment(query, ctx.today, ctx.live.now) {
+        items.push(moment_item(ctx, at));
+    }
     for app in &ctx.apps {
         let Some(m) = fuzzy(query, &app.name) else { continue };
         let mut item = Item::new(app.name.clone(), Icon::App(app.path.clone()), "Apps", Action::Launch(app.path.clone()));
@@ -1452,6 +1577,55 @@ pub(super) mod tests {
         assert_eq!(Period::LastMonth.days(today), (d(9, 1), d(9, 30)));
         assert_eq!(Period::ThisMonth.previous_days(today), (d(9, 1), d(9, 30)));
         assert_eq!(Period::Today.previous_days(today), (d(10, 25), d(10, 25)));
+    }
+
+    #[test]
+    fn moments_are_asked_by_time_with_or_without_a_day() {
+        // Monday 26 October 2026, a quarter past ten in the morning.
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        let now = today.and_hms_opt(10, 15, 0).unwrap();
+        let at = |q: &str| parse_moment(q, today, now).map(|m| m.format("%a %d %H:%M").to_string());
+        assert_eq!(at("9am").as_deref(), Some("Mon 26 09:00"));
+        assert_eq!(at("at 9:30 am").as_deref(), Some("Mon 26 09:30"));
+        assert_eq!(at("9:30 pm").as_deref(), Some("Sun 25 21:30"), "tonight's hasn't come: last night's");
+        assert_eq!(at("3pm").as_deref(), Some("Sun 25 15:00"));
+        assert_eq!(at("15:05").as_deref(), Some("Sun 25 15:05"));
+        assert_eq!(at("12am").as_deref(), Some("Mon 26 00:00"));
+        assert_eq!(at("12 pm").as_deref(), Some("Sun 25 12:00"), "noon today hasn't come");
+        assert_eq!(at("9:30").as_deref(), Some("Mon 26 09:30"));
+        assert_eq!(at("yesterday 3pm").as_deref(), Some("Sun 25 15:00"));
+        assert_eq!(at("3pm yesterday").as_deref(), Some("Sun 25 15:00"));
+        assert_eq!(at("tue 3:30 pm").as_deref(), Some("Tue 20 15:30"));
+        assert_eq!(at("friday morning").as_deref(), Some("Fri 23 10:00"));
+        assert_eq!(at("yesterday evening").as_deref(), Some("Sun 25 19:00"));
+        assert_eq!(at("last night").as_deref(), Some("Sun 25 22:00"));
+        assert_eq!(at("this morning").as_deref(), Some("Mon 26 10:00"));
+        assert_eq!(at("what was I doing at 2pm yesterday?").as_deref(), Some("Sun 25 14:00"));
+        assert_eq!(at("noon yesterday").as_deref(), Some("Sun 25 12:00"));
+        assert_eq!(at("14 oct 9am").as_deref(), Some("Wed 14 09:00"));
+    }
+
+    #[test]
+    fn other_searches_are_not_taken_for_moments() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        let now = today.and_hms_opt(10, 15, 0).unwrap();
+        for q in ["3", "night", "morning", "evening", "pm", "timer 3pm", "focus 25", "13:75", "13pm", "0pm", "2026", "chrome 3pm", "12:30:15", "yesterday", "tomorrow 3pm", "3pm tomorrow"] {
+            assert_eq!(parse_moment(q, today, now), None, "{q}");
+        }
+    }
+
+    #[test]
+    fn a_moment_row_waits_for_enter_and_says_nothing_of_what_was_open() {
+        let mut c = ctx();
+        c.live.now = c.today.and_hms_opt(10, 15, 0).unwrap();
+        let found = search(&c, "yesterday 3pm");
+        let row = found.iter().find(|i| matches!(i.preview, Some(Preview::Moment(_)))).unwrap();
+        assert_eq!(row.title, "What was I doing yesterday at 3:00 pm?");
+        assert_eq!(row.action, Action::Go("today", Some(c.today - Duration::days(1))));
+        assert!(row.preview.as_ref().is_some_and(Preview::on_enter));
+        // A day alone is still a day, and a bare time with no meaning isn't a row.
+        assert!(!search(&c, "yesterday").iter().any(|i| matches!(i.preview, Some(Preview::Moment(_)))));
+        assert!(!search(&c, "cursor").iter().any(|i| matches!(i.preview, Some(Preview::Moment(_)))));
     }
 
     #[test]
