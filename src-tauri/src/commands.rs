@@ -698,11 +698,13 @@ pub fn take_ledger_open(state: State<AppState>) -> CmdResult<Option<String>> {
 }
 
 #[tauri::command]
-pub fn set_ledger_settings(state: State<AppState>, reminders: bool, morning: String) -> CmdResult<crate::ledger::Settings> {
+pub fn set_ledger_settings(state: State<AppState>, reminders: bool, morning: String, day_from: String, day_to: String) -> CmdResult<crate::ledger::Settings> {
     let conn = state.db.lock().map_err(err)?;
-    let s = crate::ledger::set(&conn, reminders, &morning)?;
+    let s = crate::ledger::set(&conn, reminders, &morning, &day_from, &day_to)?;
     sync::record(&conn, "ledger:reminders", if s.reminders { "1" } else { "0" })?;
     sync::record(&conn, "ledger:morning", &s.morning)?;
+    sync::record(&conn, "ledger:day_from", &s.day_from)?;
+    sync::record(&conn, "ledger:day_to", &s.day_to)?;
     Ok(s)
 }
 

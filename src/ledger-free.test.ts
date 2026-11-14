@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { busySpans, freeGaps, freeLine, placedSpan, suggest } from "./ledger-free";
+import { busySpans, dayHours, freeGaps, freeLine, placedSpan, suggest, USUAL_DAY } from "./ledger-free";
 
 const at = (h: number, m = 0) => new Date(2026, 10, 12, h, m).getTime();
 const meeting = (from: number, to: number) => ({ startMs: from, endMs: to, title: "m" });
@@ -35,6 +35,26 @@ describe("free gaps", () => {
 
   it("skips what has already ended", () => {
     expect(hours(freeGaps([meeting(at(9), at(10))], at(13)))).toEqual([[13, 18]]);
+  });
+});
+
+describe("the working day", () => {
+  it("reads Ledger's hours, and keeps the usual day for ones that make no day", () => {
+    expect(dayHours("08:30", "16:00")).toEqual({ fromMin: 510, toMin: 960 });
+    expect(dayHours("18:00", "09:00")).toEqual(USUAL_DAY);
+    expect(dayHours("9", "late")).toEqual(USUAL_DAY);
+  });
+
+  it("looks for gaps, and counts placed tasks, inside the hours it is given", () => {
+    const early = dayHours("07:00", "12:30");
+    expect(hours(freeGaps([meeting(at(8), at(9))], at(6), early))).toEqual([
+      [7, 8],
+      [9, 12.5],
+    ]);
+    expect(freeGaps([], at(13), early)).toEqual([]);
+    // A reminder at four is outside a day that ends at half past twelve, so it takes no time.
+    expect(placedSpan({ doneMs: null, remindMs: at(16), estimateMin: 30 }, at(6), early)).toBeNull();
+    expect(placedSpan({ doneMs: null, remindMs: at(8), estimateMin: 30 }, at(6), early)).toEqual({ startMs: at(8), endMs: at(8, 30) });
   });
 });
 

@@ -3,7 +3,7 @@ import { isoDate, parseDate, todayIso } from "./calendar";
 import { confirmTwice } from "./confirm";
 import { costText, estimateName, loadLine, plannedMinutes } from "./ledger-cost";
 import { totals, totalsLine } from "./ledger-done";
-import { busySpans, clockName, freeGaps, freeLine, placedSpan, suggest } from "./ledger-free";
+import { busySpans, clockName, freeGaps, freeLine, placedSpan, suggest, USUAL_DAY, type Hours } from "./ledger-free";
 import { glyph } from "./glyphs";
 import { fmtDur, h } from "./ui";
 
@@ -83,7 +83,7 @@ export function leadLine(tasks: Task[], now: number, usualMs: number | null): st
 }
 
 /// The Plan view.
-export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => number | null = () => null, now: () => number = Date.now): PlanView {
+export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => number | null = () => null, now: () => number = Date.now, hours: () => Hours = () => USUAL_DAY): PlanView {
   let tasks: Task[] = [];
   let events: CalendarEvent[] = [];
   /// Where tasks with an estimate would fit in today's free time, by task; empty in the evening.
@@ -112,7 +112,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, title: "No due day" }, "Later") as HTMLButtonElement;
     later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now())));
     // Already set for a time today, or where it would fit among the meetings.
-    const placed = placedSpan(t, now());
+    const placed = placedSpan(t, now(), hours());
     const spot = places.get(t.id);
     let when: HTMLElement | null = null;
     if (placed) {
@@ -139,8 +139,8 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     // In the morning, how much of the day the meetings leave, and where the tasks would fit.
     places = new Map();
     if (!evening && left.length) {
-      const gaps = freeGaps(busySpans(events, tasks, t0), t0);
-      places = suggest(left.filter((t) => placedSpan(t, t0) === null), gaps);
+      const gaps = freeGaps(busySpans(events, tasks, t0, hours()), t0, hours());
+      places = suggest(left.filter((t) => placedSpan(t, t0, hours()) === null), gaps);
       const free = freeLine(gaps);
       parts.push(h("p", { class: "muted plan-free" }, free || "No free time left today."));
     }

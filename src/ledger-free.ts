@@ -6,9 +6,19 @@ import { estimateName } from "./ledger-cost";
 // is stored: it is all drawn again from the calendar and the tasks as they stand.
 
 const MIN = 60_000;
-/// The working day gaps are looked for in, as hours.
-export const DAY_FROM = 9;
-export const DAY_TO = 18;
+/// The working day gaps are looked for in, in minutes into the day.
+export type Hours = { fromMin: number; toMin: number };
+export const USUAL_DAY: Hours = { fromMin: 9 * 60, toMin: 18 * 60 };
+
+/// Hours from Ledger's settings, "09:00" and "18:00"; the usual day for anything that isn't one.
+export function dayHours(from: string, to: string): Hours {
+  const minutes = (t: string): number | null => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+    return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : null;
+  };
+  const [a, b] = [minutes(from), minutes(to)];
+  return a !== null && b !== null && b > a ? { fromMin: a, toMin: b } : USUAL_DAY;
+}
 /// A gap shorter than this isn't worth planning into, in minutes.
 export const MIN_GAP = 15;
 /// Starts are put on a multiple of this many minutes, so "2:35 pm" is never offered.
@@ -22,29 +32,30 @@ export type Span = { startMs: number; endMs: number };
 const roundUp = (ms: number): number => Math.ceil(ms / (ROUND * MIN)) * ROUND * MIN;
 
 /// The day's working hours, for the day `ms` falls in.
-function workday(ms: number): Span {
+function workday(ms: number, hours: Hours): Span {
   const d = new Date(ms);
-  return { startMs: new Date(d.getFullYear(), d.getMonth(), d.getDate(), DAY_FROM).getTime(), endMs: new Date(d.getFullYear(), d.getMonth(), d.getDate(), DAY_TO).getTime() };
+  const at = (min: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(min / 60), min % 60).getTime();
+  return { startMs: at(hours.fromMin), endMs: at(hours.toMin) };
 }
 
 /// A task already placed in today's hours: it has an estimate and a reminder still to come inside
 /// the working day. Its time is taken, whatever else is free around it.
-export function placedSpan(t: Pick<Task, "doneMs" | "remindMs" | "estimateMin">, now: number): Span | null {
+export function placedSpan(t: Pick<Task, "doneMs" | "remindMs" | "estimateMin">, now: number, hours: Hours = USUAL_DAY): Span | null {
   if (t.doneMs !== null || t.remindMs === null || t.estimateMin === null || t.remindMs <= now) return null;
-  const day = workday(now);
+  const day = workday(now, hours);
   if (t.remindMs < day.startMs || t.remindMs >= day.endMs) return null;
   return { startMs: t.remindMs, endMs: t.remindMs + t.estimateMin * MIN };
 }
 
 /// What takes today's time: meetings (not all-day ones), and tasks already placed.
-export function busySpans(events: CalendarEvent[], tasks: Task[], now: number): Span[] {
-  const placed = tasks.map((t) => placedSpan(t, now)).filter((s): s is Span => s !== null);
+export function busySpans(events: CalendarEvent[], tasks: Task[], now: number, hours: Hours = USUAL_DAY): Span[] {
+  const placed = tasks.map((t) => placedSpan(t, now, hours)).filter((s): s is Span => s !== null);
   return [...events.filter((e) => e.endMs - e.startMs < ALL_DAY_MS).map((e) => ({ startMs: e.startMs, endMs: e.endMs })), ...placed];
 }
 
 /// The stretches of today's working hours that are free from now on, at least `MIN_GAP` long.
-export function freeGaps(busy: Span[], now: number): Span[] {
-  const day = workday(now);
+export function freeGaps(busy: Span[], now: number, hours: Hours = USUAL_DAY): Span[] {
+  const day = workday(now, hours);
   let from = Math.max(day.startMs, roundUp(now));
   const gaps: Span[] = [];
   const keep = (startMs: number, endMs: number) => {

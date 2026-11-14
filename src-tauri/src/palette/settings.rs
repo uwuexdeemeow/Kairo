@@ -17,6 +17,7 @@ pub enum Switch {
     Suggestions,
     OverFullscreen,
     SearchFiles,
+    MomentTitles,
     Autostart,
 }
 
@@ -94,6 +95,7 @@ pub fn entries() -> Vec<Entry> {
         kairo("Open over full screen", "fullscreen games palette", "palette-over-fullscreen", Some(OverFullscreen), None),
         kairo("Clipboard history", "copy paste clip remember copied text privacy", "clipboard-history", None, None),
         kairo("Search files", "documents folders index palette", "palette-search-files", Some(SearchFiles), None),
+        kairo("Window titles in “what was I doing”", "show hide titles time moment history privacy ask what was i doing at 3pm", "palette-moment-titles", Some(MomentTitles), None),
         kairo(AUTOSTART_TITLE, "start at login open at login start with windows startup boot sign in", "autostart-enabled", Some(Autostart), None),
         kairo("Export time as CSV", "export spreadsheet data download time", "export-time", None, Some(Action::ExportTime)),
         kairo("Back up everything", "backup back up save data copy", "backup-save", None, Some(Action::Backup)),
@@ -143,11 +145,12 @@ fn stored(conn: &Connection, switch: Switch) -> rusqlite::Result<bool> {
         Switch::Suggestions => super::suggestions(conn)?,
         Switch::OverFullscreen => super::over_fullscreen(conn)?,
         Switch::SearchFiles => super::search_files(conn)?,
+        Switch::MomentTitles => super::moment_titles(conn)?,
         Switch::Autostart => false,
     })
 }
 
-const STORED: [Switch; 7] = [Switch::Nudges, Switch::Evening, Switch::Blocking, Switch::Launchers, Switch::Suggestions, Switch::OverFullscreen, Switch::SearchFiles];
+const STORED: [Switch; 8] = [Switch::Nudges, Switch::Evening, Switch::Blocking, Switch::Launchers, Switch::Suggestions, Switch::OverFullscreen, Switch::SearchFiles, Switch::MomentTitles];
 
 /// Every switch except Start at login, from what's saved.
 fn read_stored(conn: &Connection) -> Vec<(Switch, bool)> {
@@ -175,6 +178,7 @@ pub(super) fn flip_stored(conn: &Connection, switch: Switch) -> Result<bool, Str
         Switch::Suggestions => super::set_suggestions(conn, on).map_err(err)?,
         Switch::OverFullscreen => super::set_over_fullscreen(conn, on).map_err(err)?,
         Switch::SearchFiles => super::set_search_files(conn, on).map_err(err)?,
+        Switch::MomentTitles => super::set_moment_titles(conn, on).map_err(err)?,
         Switch::Autostart => return Err("Start at login is the system's to change.".into()),
     }
     Ok(on)
@@ -277,7 +281,7 @@ mod tests {
 
     #[test]
     fn every_switch_has_exactly_one_entry() {
-        for s in [Switch::Nudges, Switch::Evening, Switch::Blocking, Switch::Launchers, Switch::Suggestions, Switch::OverFullscreen, Switch::SearchFiles, Switch::Autostart] {
+        for s in [Switch::Nudges, Switch::Evening, Switch::Blocking, Switch::Launchers, Switch::Suggestions, Switch::OverFullscreen, Switch::SearchFiles, Switch::MomentTitles, Switch::Autostart] {
             assert_eq!(entries().iter().filter(|e| e.switch == Some(s)).count(), 1, "{s:?}");
         }
     }
@@ -290,6 +294,9 @@ mod tests {
         assert_eq!(flip_stored(&conn, Switch::Nudges), Ok(true));
         assert_eq!(flip_stored(&conn, Switch::SearchFiles), Ok(false));
         assert!(!crate::palette::search_files(&conn).unwrap());
+        // Window titles in the time card start off, so the first flip turns them on.
+        assert_eq!(flip_stored(&conn, Switch::MomentTitles), Ok(true));
+        assert!(crate::palette::moment_titles(&conn).unwrap());
         assert_eq!(flip_stored(&conn, Switch::Suggestions), Ok(false));
         assert_eq!(flip_stored(&conn, Switch::OverFullscreen), Ok(true));
         assert_eq!(flip_stored(&conn, Switch::Launchers), Ok(false));

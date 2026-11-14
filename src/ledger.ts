@@ -6,6 +6,7 @@ import { useDropdowns } from "./dropdown";
 import { mountDone, type DoneView } from "./ledger-done";
 import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
+import { dayHours, USUAL_DAY, type Hours } from "./ledger-free";
 import { mountPlan, planTitle, type PlanView } from "./ledger-plan";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
@@ -161,6 +162,8 @@ function drawDone() {
 }
 
 let planView: PlanView | null = null;
+/// The working day the Plan view plans in, from Ledger's settings (the usual one until they're read).
+let dayHoursNow: Hours = USUAL_DAY;
 
 /// The Plan view, made the first time it's shown, drawn with the tasks as they are now. Its title
 /// follows the hour: the day is planned until five, and wrapped up after.
@@ -177,6 +180,8 @@ function drawPlan() {
       openTask: (id) => openTask(id),
     },
     () => usualFocusMs,
+    Date.now,
+    () => dayHoursNow,
   );
   $("#ledger-title").textContent = planTitle(Date.now());
   const open = () => tasks.filter((t) => !deletingTasks.has(t.id));
@@ -190,6 +195,16 @@ function drawPlan() {
     .calendarEvents(from, from + 86_400_000)
     .then((events) => {
       if (shown === "plan") view.render(open(), events);
+    })
+    .catch(() => {});
+  // The working day it plans in, which may have been changed on another computer.
+  void api
+    .ledgerSettings()
+    .then((s) => {
+      const hours = dayHours(s.dayFrom, s.dayTo);
+      if (hours.fromMin === dayHoursNow.fromMin && hours.toMin === dayHoursNow.toMin) return;
+      dayHoursNow = hours;
+      if (shown === "plan") view.render(open());
     })
     .catch(() => {});
 }
@@ -483,6 +498,9 @@ async function loadSettings() {
   const s = await api.ledgerSettings();
   $<HTMLInputElement>("#ledger-reminders").checked = s.reminders;
   $<HTMLInputElement>("#ledger-morning").value = s.morning;
+  $<HTMLInputElement>("#ledger-day-from").value = s.dayFrom;
+  $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
+  dayHoursNow = dayHours(s.dayFrom, s.dayTo);
   morningFollowsReminders();
 }
 
@@ -498,8 +516,16 @@ async function saveSettings() {
   const note = $("#ledger-settings-note");
   window.clearTimeout(savedFade);
   try {
-    const s = await api.setLedgerSettings($<HTMLInputElement>("#ledger-reminders").checked, $<HTMLInputElement>("#ledger-morning").value);
+    const s = await api.setLedgerSettings(
+      $<HTMLInputElement>("#ledger-reminders").checked,
+      $<HTMLInputElement>("#ledger-morning").value,
+      $<HTMLInputElement>("#ledger-day-from").value,
+      $<HTMLInputElement>("#ledger-day-to").value,
+    );
     $<HTMLInputElement>("#ledger-morning").value = s.morning;
+    $<HTMLInputElement>("#ledger-day-from").value = s.dayFrom;
+    $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
+    dayHoursNow = dayHours(s.dayFrom, s.dayTo);
     note.textContent = "Saved";
     savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
   } catch {
@@ -519,6 +545,8 @@ $("#ledger-reminders").addEventListener("change", () => {
   void saveSettings();
 });
 $("#ledger-morning").addEventListener("change", saveSettings);
+$("#ledger-day-from").addEventListener("change", saveSettings);
+$("#ledger-day-to").addEventListener("change", saveSettings);
 markTabs();
 // Find a task: the list narrows as it's typed; Esc clears it, then leaves it.
 $("#task-search").addEventListener("input", () => draw());

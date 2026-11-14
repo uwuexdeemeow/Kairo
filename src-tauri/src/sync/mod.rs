@@ -1123,8 +1123,18 @@ mod tests {
         let laptop = Computer::new("laptop-ledger");
         apply(&laptop.conn, "ledger:reminders", "0").unwrap();
         apply(&laptop.conn, "ledger:morning", "07:30").unwrap();
-        assert_eq!(crate::ledger::settings(&laptop.conn).unwrap(), crate::ledger::Settings { reminders: false, morning: "07:30".into() });
+        apply(&laptop.conn, "ledger:day_from", "08:00").unwrap();
+        apply(&laptop.conn, "ledger:day_to", "16:30").unwrap();
+        assert_eq!(
+            crate::ledger::settings(&laptop.conn).unwrap(),
+            crate::ledger::Settings { reminders: false, morning: "07:30".into(), day_from: "08:00".into(), day_to: "16:30".into() }
+        );
         assert!(apply(&laptop.conn, "ledger:morning", "25:00").is_err());
+        assert!(apply(&laptop.conn, "ledger:day_to", "late").is_err());
+        // An end before its start (two computers caught mid-change) falls back to the usual day.
+        apply(&laptop.conn, "ledger:day_to", "07:00").unwrap();
+        let usual = crate::ledger::settings(&laptop.conn).unwrap();
+        assert_eq!((usual.day_from.as_str(), usual.day_to.as_str()), ("09:00", "18:00"));
         assert!(apply(&laptop.conn, "ledger:colour", "red").is_err());
     }
 

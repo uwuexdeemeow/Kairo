@@ -644,6 +644,10 @@ one overdue, two due today (one with an estimate), one due tomorrow.
     line and the other task's suggestion move to what is left. With no calendar connected, the whole
     working day counts as free. A task with no estimate never shows a button. After five, or with
     nothing due, there is no free-time line.
+11. **Working day.** In Ledger's settings, under Planning, set the working day to 13:00–15:00 (with
+    nothing planned in it). *Expect:* the Plan view's free time shrinks to that window, and a task
+    is only offered a slot inside it. Set the end before the start, or under an hour after it.
+    *Expect:* it won't save and says why. With two computers combined, the other follows.
 
 ## Windows: Alt+Space as the shortcut
 
@@ -869,6 +873,8 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    "Nothing was recorded then."
 7. **Searches stay searches.** `focus 25`, `timer 3pm`, `night`, `2026` and `chrome` don't give the
    row. `14 oct` and `yesterday` still give their day.
+8. **From the palette.** Type `window titles`. *Expect:* a settings row "Window titles in “what was I
+   doing”" showing On or Off; Enter flips it, and asking about a time again shows or hides titles.
 
 ## Two computers combined
 
