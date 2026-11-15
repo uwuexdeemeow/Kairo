@@ -92,6 +92,9 @@ pub fn change_shortcut(app: &AppHandle, conn: &rusqlite::Connection, new: &str) 
     if new.eq_ignore_ascii_case(&palette) {
         return Err(format!("{new} opens the command palette."));
     }
+    if crate::capture::shortcut(conn).is_ok_and(|keys| keys.eq_ignore_ascii_case(new)) {
+        return Err(format!("{new} captures what you copied."));
+    }
     if !crate::platform::desktop_ring_shortcut(new) {
         let keys = app.global_shortcut();
         let _ = keys.unregister(old.as_str());

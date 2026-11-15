@@ -9,11 +9,14 @@ import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
 // palette, starting at login, your data, combining computers and updates. Only the dashboard
 // includes this markup; it calls wireKairoSettings once.
 
-/// A shortcut row: where its keys show, its Change button, its note, and how it's saved.
-type Recorder = { keys: string; button: string; note: string; saved: string; save(shortcut: string): Promise<unknown>; opens: string };
+/// A shortcut row: where its keys show, its Change button, its note, how it's saved, and what the
+/// keys do, as "Saved. Alt+Q opens the app ring from anywhere." says it.
+type Recorder = { keys: string; button: string; note: string; saved: string; save(shortcut: string): Promise<unknown>; does: string };
 
-const PALETTE: Recorder = { keys: "#palette-keys", button: "#palette-record", note: "#palette-note", saved: "", save: (s) => api.setPaletteShortcut(s), opens: "the palette" };
-const RING: Recorder = { keys: "#ring-keys", button: "#ring-record", note: "#ring-note", saved: "", save: (s) => api.setRingShortcut(s), opens: "the app ring" };
+const PALETTE: Recorder = { keys: "#palette-keys", button: "#palette-record", note: "#palette-note", saved: "", save: (s) => api.setPaletteShortcut(s), does: "opens the palette" };
+const RING: Recorder = { keys: "#ring-keys", button: "#ring-record", note: "#ring-note", saved: "", save: (s) => api.setRingShortcut(s), does: "opens the app ring" };
+/// Capture has no keys until they're set: a shortcut taken by default would take them from every app.
+const CAPTURE: Recorder = { keys: "#capture-keys", button: "#capture-record", note: "#capture-note", saved: "", save: (s) => api.setCaptureShortcut(s), does: "captures what you copied" };
 /// An error as the page says it: Kairo's own messages are sentences and show as they are; a
 /// system's raw one says what didn't work first, its detail after.
 export function plain(err: unknown, what: string): string {
@@ -43,7 +46,10 @@ export function shortcutKeys(shortcut: string): HTMLElement[] {
 
 function showShortcut(row: Recorder, shortcut: string) {
   row.saved = shortcut;
-  $(row.keys).replaceChildren(...shortcutKeys(shortcut));
+  $(row.keys).replaceChildren(...(shortcut ? shortcutKeys(shortcut) : [h("span", { class: "muted" }, "No keys")]));
+  if (recording !== row) $(row.button).textContent = shortcut ? "Change" : "Set keys";
+  // Capture's keys can be taken away again; the others always have some.
+  if (row === CAPTURE) $("#capture-clear").hidden = !shortcut;
 }
 
 /// The key a shortcut names, in the spelling Kairo's shortcut parser knows; modifiers on their
@@ -63,7 +69,6 @@ function stopRecording(note: string) {
   void api.recordingShortcut(false).catch(() => {});
   document.removeEventListener("keydown", recordKeys, true);
   $(row.keys).classList.remove("recording");
-  $(row.button).textContent = "Change";
   showShortcut(row, row.saved);
   $(row.note).textContent = note;
 }
@@ -172,7 +177,7 @@ async function choose(row: Recorder, mods: string[], key: string) {
   try {
     await row.save(shortcut);
     row.saved = shortcut;
-    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} opens ${row.opens} from anywhere.`);
+    stopRecording(`Saved. ${[...mods, key].map(keyName).join("+")} ${row.does} from anywhere.`);
   } catch (err) {
     stopRecording(plain(err, "save that shortcut"));
   }
@@ -403,7 +408,23 @@ export function wireKairoSettings(): void {
       "Works everywhere, even with Kairo's windows closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
   }
 
-  for (const row of [PALETTE, RING]) {
+  if (IS_LINUX) {
+    $("#capture-note").textContent =
+      "Set keys to capture from any window. On Wayland, where apps can't listen for keys, add a shortcut in the keyboard settings that runs kairo --capture.";
+  }
+  $("#capture-clear").addEventListener("click", async () => {
+    if (recording === CAPTURE) stopRecording("Kept as it was.");
+    try {
+      await api.setCaptureShortcut("");
+      showShortcut(CAPTURE, "");
+      $(CAPTURE.note).textContent = "Turned off. The palette's Capture what I copied still works.";
+      $(CAPTURE.button).focus();
+    } catch (err) {
+      $(CAPTURE.note).textContent = plain(err, "turn it off");
+    }
+  });
+
+  for (const row of [PALETTE, RING, CAPTURE]) {
     $(row.button).addEventListener("click", () => {
       if (recording === row) stopRecording("Kept as it was.");
       else startRecording(row);
@@ -613,6 +634,14 @@ export async function loadKairoSettings(): Promise<void> {
       $<HTMLInputElement>("#palette-search-files").checked = palette.searchFiles;
       $<HTMLInputElement>("#palette-moment-titles").checked = palette.momentTitles;
       $<HTMLInputElement>("#clipboard-history").checked = await api.clipboardHistory();
+    }),
+    fill("#capture-keys", async () => {
+      const keys = await api.captureShortcut();
+      showShortcut(CAPTURE, keys);
+      // Linux keeps its note: Wayland's way in stands whether or not keys are set.
+      if (!IS_LINUX && recording !== CAPTURE) {
+        $(CAPTURE.note).textContent = keys ? "Works from any window, even with Kairo's windows closed." : "Set keys to capture from any window. Without them, type capture in the palette.";
+      }
     }),
     fill("#vt-key", async () => {
       // The key itself never comes back to the page: only whether one is saved.

@@ -197,7 +197,7 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 
 /// The extra a notification carries to say where a click on it goes: the Plan nudge's opens
 /// Ledger on Plan.
-const OPENS: &str = "kairoOpens";
+pub const OPENS: &str = "kairoOpens";
 
 /// Where a click on one of Kairo's notifications goes in Ledger ("plan"), if it says; a click on
 /// one of its buttons, or on a notification that says nothing, goes nowhere.

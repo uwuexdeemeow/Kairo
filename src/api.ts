@@ -794,6 +794,10 @@ export const api = {
   /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
    *  frosted glass there. */
   paletteGlass: (room: { left: number; top: number; right: number; bottom: number }) => invoke<void>("palette_glass", room),
+  /** Capture's keys: empty while there are none. */
+  captureShortcut: () => invoke<string>("capture_shortcut"),
+  /** Sets capture's keys, or with "" takes them away; returns them as they now are. */
+  setCaptureShortcut: (shortcut: string) => invoke<string>("set_capture_shortcut", { shortcut }),
   paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean; momentTitles: boolean; look: PaletteLook }>("get_palette_settings"),
   setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */

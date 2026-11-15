@@ -332,6 +332,9 @@ pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::re
     if crate::ring::shortcut(conn).is_ok_and(|ring| ring.eq_ignore_ascii_case(new)) {
         return Err(format!("{new} opens the app ring."));
     }
+    if crate::capture::shortcut(conn).is_ok_and(|keys| keys.eq_ignore_ascii_case(new)) {
+        return Err(format!("{new} captures what you copied."));
+    }
     if !crate::platform::desktop_palette_shortcut(new) {
         let keys = app.global_shortcut();
         let _ = keys.unregister(old.as_str());
@@ -562,6 +565,13 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         }
         Action::OpenRing => {
             crate::ring::toggle(app);
+            Ok(())
+        }
+        // Said as a notification, which opens what was kept; nothing copied is said on its row.
+        Action::Capture => {
+            let text = crate::capture::read(app)?;
+            let kept = crate::capture::keep(Some(app), conn, &text, now_ms())?;
+            crate::capture::tell(app, &kept.title, &kept.body, Some(&kept.opens));
             Ok(())
         }
         Action::OpenNote(id) => {
