@@ -6202,6 +6202,15 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   margin-top: 8px;
 }
 
+/* The same box as Kairo's other switches, not the system's smaller one. */
+.ring-choice input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--app);
+}
+
 .ring-choice-name {
   display: flex;
   flex: 1;
