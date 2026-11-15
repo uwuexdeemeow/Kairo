@@ -4647,19 +4647,28 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .plan-late {
+  flex: none;
   color: var(--distracting-ink);
   font-size: 12px;
   font-weight: 600;
 }
 
+/* "~1h 30m" stays one piece; the name gives way first. */
 .plan-cost {
+  flex: none;
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .plan-row-done .plan-title {
   color: var(--muted);
+}
+
+/* Tomorrow's rows have no tick, but their names line up with today's above them. */
+.plan-next .plan-title {
+  padding-left: 38px;
 }
 
 .plan-act {
@@ -4726,13 +4735,19 @@ body:not(.keys) .dash .app-open:focus-visible::after {
     flex-basis: calc(100% - 32px);
   }
 
+  /* Under the name, starting where its text does (tick, gap and the name's own padding). */
   .plan-act,
   .plan-at {
-    margin-left: 28px;
+    margin-left: 36px;
   }
 
-  .plan-act + .plan-act {
+  .plan-act + .plan-act,
+  .plan-at + .plan-act {
     margin-left: 0;
+  }
+
+  .plan-at {
+    margin-left: 38px;
   }
 }
 
