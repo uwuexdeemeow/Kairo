@@ -398,6 +398,8 @@ export interface LedgerSettings {
   /** The working day the Plan view looks for free time in: "09:00" to "18:00". */
   dayFrom: string;
   dayTo: string;
+  /** Whether the morning reminder time also asks "Plan the day?" when something is due. */
+  planNudge: boolean;
 }
 
 export interface FocusBlock {
@@ -630,6 +632,7 @@ export const api = {
   openLedger: (at?: string) => invoke<void>("open_ledger", { at }),
   ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
   setLedgerSettings: (reminders: boolean, morning: string, dayFrom: string, dayTo: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning, dayFrom, dayTo }),
+  setPlanNudge: (on: boolean) => invoke<LedgerSettings>("set_plan_nudge", { on }),
   /** Pinned first, then newest edited; with a query, those whose title or text has it. */
   notes: (query?: string) => invoke<Note[]>("get_notes", { query }),
   note: (id: string) => invoke<Note | null>("get_note", { id }),

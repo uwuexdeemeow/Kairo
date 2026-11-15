@@ -107,9 +107,9 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     if (t.group === "overdue") open.append(h("span", { class: "plan-late" }, "Overdue"));
     const cost = costText(t);
     if (cost) open.append(h("span", { class: "plan-cost", title: "Time spent on it, and its estimate" }, cost));
-    const tomorrow = h("button", { class: "link-btn plan-act plan-tomorrow", "aria-label": `Move “${t.title}” to tomorrow`, title: "Due tomorrow" }, "Tomorrow") as HTMLButtonElement;
+    const tomorrow = h("button", { class: "link-btn plan-act plan-tomorrow", "aria-label": `Move “${t.title}” to tomorrow`, "aria-keyshortcuts": "T", title: "Due tomorrow (T)" }, "Tomorrow") as HTMLButtonElement;
     tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs)));
-    const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, title: "No due day" }, "Later") as HTMLButtonElement;
+    const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, "aria-keyshortcuts": "L", title: "No due day (L)" }, "Later") as HTMLButtonElement;
     later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now())));
     // Already set for a time today, or where it would fit among the meetings.
     const placed = placedSpan(t, now(), hours());
@@ -128,6 +128,17 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     }
     return h("li", { class: "plan-row", "data-task": t.id }, tick, open, ...(when ? [when] : []), tomorrow, later);
   };
+
+  // T and L on a task in the list do what their buttons do, so the day can be planned with the
+  // keys alone: the one that took its place is focused next.
+  root.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if ((key !== "t" && key !== "l") || e.ctrlKey || e.metaKey || e.altKey) return;
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".plan-list .plan-row");
+    if (!row) return;
+    e.preventDefault();
+    row.querySelector<HTMLButtonElement>(key === "t" ? ".plan-tomorrow" : ".plan-later")?.click();
+  });
 
   const draw = () => {
     const t0 = now();
@@ -148,6 +159,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     parts.push(h("h2", { class: "plan-head" }, evening ? "Left over" : "To do today"));
     if (left.length) {
       parts.push(h("ul", { class: "plan-list" }, ...left.map(row)));
+      parts.push(h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later"));
       if (left.length > 1) {
         const all = h("button", { class: "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
         confirmTwice(all, () => "Click again to move them all", async () => {

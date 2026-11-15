@@ -648,6 +648,14 @@ one overdue, two due today (one with an estimate), one due tomorrow.
     nothing planned in it). *Expect:* the Plan view's free time shrinks to that window, and a task
     is only offered a slot inside it. Set the end before the start, or under an hour after it.
     *Expect:* it won't save and says why. With two computers combined, the other follows.
+12. **Plan nudge.** In Ledger's settings, turn on "Ask me to plan the day", with a task due today and
+    the morning reminder time a minute away. *Expect:* a notification "Plan the day?" with "N to do
+    today" (and how much is planned, if estimates are set), once; none again that day, even after
+    restarting Kairo. None with nothing due, from five o'clock on, or with reminders off (the switch
+    greys out). With two computers combined, only one of them asks.
+13. **T and L.** On the Plan view, focus a task (Tab or the arrow keys) and press T. *Expect:* it moves
+    to tomorrow, and focus lands on the next task. L puts it off with no day. Ctrl+T and other keys do
+    nothing; the line under the list says "On a task: T tomorrow · L later".
 
 ## Windows: Alt+Space as the shortcut
 

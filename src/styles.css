@@ -4680,6 +4680,19 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-variant-numeric: tabular-nums;
 }
 
+.plan-keys {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.plan-keys kbd {
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11px;
+}
+
 .plan-free {
   margin: 0 0 8px;
   font-size: 13px;

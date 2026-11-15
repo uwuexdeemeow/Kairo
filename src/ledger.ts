@@ -500,13 +500,16 @@ async function loadSettings() {
   $<HTMLInputElement>("#ledger-morning").value = s.morning;
   $<HTMLInputElement>("#ledger-day-from").value = s.dayFrom;
   $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
+  $<HTMLInputElement>("#ledger-plan-nudge").checked = s.planNudge;
   dayHoursNow = dayHours(s.dayFrom, s.dayTo);
   morningFollowsReminders();
 }
 
-/// The morning reminder's time means nothing with reminders off.
+/// The morning reminder's time, and the plan nudge that rides on it, mean nothing with reminders off.
 function morningFollowsReminders() {
-  $<HTMLInputElement>("#ledger-morning").disabled = !$<HTMLInputElement>("#ledger-reminders").checked;
+  const on = $<HTMLInputElement>("#ledger-reminders").checked;
+  $<HTMLInputElement>("#ledger-morning").disabled = !on;
+  $<HTMLInputElement>("#ledger-plan-nudge").disabled = !on;
 }
 
 let savedFade = 0;
@@ -545,6 +548,17 @@ $("#ledger-reminders").addEventListener("change", () => {
   void saveSettings();
 });
 $("#ledger-morning").addEventListener("change", saveSettings);
+$("#ledger-plan-nudge").addEventListener("change", async () => {
+  const note = $("#ledger-settings-note");
+  window.clearTimeout(savedFade);
+  try {
+    await api.setPlanNudge($<HTMLInputElement>("#ledger-plan-nudge").checked);
+    note.textContent = "Saved";
+    savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
+  } catch {
+    note.textContent = "Couldn't save this. Try again in a moment.";
+  }
+});
 $("#ledger-day-from").addEventListener("change", saveSettings);
 $("#ledger-day-to").addEventListener("change", saveSettings);
 markTabs();

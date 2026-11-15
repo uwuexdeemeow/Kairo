@@ -122,6 +122,23 @@ describe("the Plan view", () => {
     expect(act.move).toHaveBeenLastCalledWith("a", null, at(15));
   });
 
+  it("moves the focused task with T for tomorrow and L for later, and ignores other keys and other places", () => {
+    mountPlan(root, act, () => null).render(tasks);
+    const press = (target: Element, key: string, init: KeyboardEventInit = {}) => target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
+    const title = (id: string) => root.querySelector(`[data-task="${id}"] .plan-title`)!;
+    press(title("a"), "t");
+    expect(act.move).toHaveBeenLastCalledWith("a", "2026-11-13", new Date(2026, 10, 13, 15, 0).getTime());
+    press(title("b"), "L");
+    expect(act.move).toHaveBeenLastCalledWith("b", null, null);
+    const calls = act.move.mock.calls.length;
+    press(title("a"), "t", { ctrlKey: true });
+    press(title("a"), "x");
+    press(root.querySelector(".plan-lead")!, "t");
+    expect(act.move.mock.calls.length).toBe(calls);
+    expect(root.querySelector(".plan-keys")!.textContent).toBe("On a task: T tomorrow · L later");
+    expect(button("a", ".plan-tomorrow").getAttribute("aria-keyshortcuts")).toBe("T");
+  });
+
   it("ticks a task off, and opens one", () => {
     mountPlan(root, act, () => null).render(tasks);
     button("b", ".plan-tick").click();

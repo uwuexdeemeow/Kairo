@@ -120,6 +120,37 @@ pub fn due_now(tasks: &[Task], now_ms: i64, now_local: NaiveDateTime, morning: N
     due
 }
 
+/// The hour from which the day is wrapped up, not planned: the nudge stops then.
+const EVENING_FROM_HOUR: u32 = 17;
+
+/// "2h 30m" for minutes.
+fn minutes_name(min: i64) -> String {
+    match (min / 60, min % 60) {
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
+    }
+}
+
+/// The "Plan the day?" nudge: its title and body, when it is time. From the morning time until
+/// five, once a day (`last` is the day it last came), when something is due today or overdue.
+/// Pure: nothing is shown or marked.
+pub fn plan_nudge(tasks: &[Task], now_local: NaiveDateTime, morning: NaiveTime, last: Option<&str>) -> Option<(String, String)> {
+    use chrono::Timelike;
+    let today = now_local.date().format("%Y-%m-%d").to_string();
+    if now_local.time() < morning || now_local.hour() >= EVENING_FROM_HOUR || last == Some(today.as_str()) {
+        return None;
+    }
+    let left: Vec<&Task> = tasks.iter().filter(|t| t.done_ms.is_none() && matches!(t.group.as_str(), "overdue" | "today")).collect();
+    if left.is_empty() {
+        return None;
+    }
+    let planned: i64 = left.iter().filter_map(|t| t.estimate_min).sum();
+    let count = format!("{} to do today", left.len());
+    let body = if planned > 0 { format!("{count} · {} planned", minutes_name(planned)) } else { count };
+    Some(("Plan the day?".into(), body))
+}
+
 /// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
 pub fn when_mark(when: &str) -> String {
     format!("when:{}", when.replace(' ', "_"))
@@ -208,7 +239,21 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
     let now = chrono::Local::now();
     let tasks = crate::tasks::list(conn, now.timestamp_millis(), &crate::tasks::today()).map_err(|e| e.to_string())?;
     let due = due_now(&tasks, now.timestamp_millis(), now.naive_local(), morning);
-    let show = if crate::platform::idle_ms() < IN_USE_MS { due.show } else { Vec::new() };
+    let in_use = crate::platform::idle_ms() < IN_USE_MS;
+    let show = if in_use { due.show } else { Vec::new() };
+    if settings.plan_nudge && in_use {
+        let last = crate::ledger::plan_nudged(conn).map_err(|e| e.to_string())?;
+        if let Some((title, body)) = plan_nudge(&tasks, now.naive_local(), morning, last.as_deref()) {
+            use tauri_plugin_notification::NotificationExt;
+            if let Err(e) = app.notification().builder().title(&title).body(&body).show() {
+                eprintln!("reminders: {e}");
+            }
+            // Marked for every computer, so a combined one doesn't ask twice.
+            let today = now.format("%Y-%m-%d").to_string();
+            crate::ledger::set_plan_nudged(conn, &today).map_err(|e| e.to_string())?;
+            crate::sync::record(conn, "ledger:plan_nudged", &today)?;
+        }
+    }
     send(app, conn, show, due.drop)
 }
 
@@ -265,6 +310,31 @@ mod tests {
 
     fn titles(d: &Due) -> Vec<&str> {
         d.show.iter().map(|r| r.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_plan_nudge_comes_once_a_day_between_the_morning_and_five_when_something_is_due() {
+        let mut today = task("a", "Essay", Some(NOW_DAY), 1);
+        today.group = "today".into();
+        today.estimate_min = Some(90);
+        let mut late = task("b", "Call", Some("2026-11-02"), 1);
+        late.group = "overdue".into();
+        let mut later = task("c", "Someday", Some("2026-11-20"), 1);
+        later.group = "upcoming".into();
+        let tasks = [today.clone(), late, later];
+        let nudge = |h, m, last: Option<&str>| plan_nudge(&tasks, at(h, m), morning(), last);
+        assert_eq!(nudge(9, 0, None), Some(("Plan the day?".to_string(), "2 to do today · 1h 30m planned".to_string())));
+        assert_eq!(nudge(8, 59, None), None);
+        // Opened late in the morning, it still comes; from five on the day is wrapped up instead.
+        assert!(nudge(13, 0, None).is_some());
+        assert_eq!(nudge(17, 0, None), None);
+        // Once a day, whichever computer it came on.
+        assert_eq!(nudge(10, 0, Some("2026-11-03")), None);
+        assert!(nudge(10, 0, Some("2026-11-02")).is_some());
+        // Nothing due, or all done: nothing to plan.
+        assert_eq!(plan_nudge(&[tasks[2].clone()], at(10, 0), morning(), None), None);
+        today.done_ms = Some(1);
+        assert_eq!(plan_nudge(&[today], at(10, 0), morning(), None), None);
     }
 
     #[test]

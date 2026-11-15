@@ -708,6 +708,14 @@ pub fn set_ledger_settings(state: State<AppState>, reminders: bool, morning: Str
     Ok(s)
 }
 
+#[tauri::command]
+pub fn set_plan_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    let s = crate::ledger::set_plan_nudge(&conn, on)?;
+    sync::record(&conn, "ledger:plan_nudge", if s.plan_nudge { "1" } else { "0" })?;
+    Ok(s)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockLists {
