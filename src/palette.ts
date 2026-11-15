@@ -270,6 +270,20 @@ function putAwayAsked() {
   if (asked === null) return;
   setSub(asked, shown[asked]?.sub ?? null);
   asked = null;
+  // Emptied, so asking for the same card again is heard again.
+  $("#palette-said").textContent = "";
+}
+
+/// A card asked for, in a line a screen reader can say: the answer and how it changed, or the
+/// moment and what was in front then.
+export function cardSaid(card: PaletteCard): string {
+  if (card.kind === "answer") return `${card.title}: ${fmtDur(card.totalMs)}${card.change ? `, ${card.change}` : ""}. ${card.range}.`;
+  if (card.kind === "moment") {
+    const line = card.lines.find((l) => l.here) ?? card.lines[0];
+    const head = card.sub ? `${card.title}, ${card.sub}` : card.title;
+    return line ? `${head}: ${line.what}, ${line.when}.${card.note ? ` ${card.note}` : ""}` : `${head}.${card.note ? ` ${card.note}` : ""}`;
+  }
+  return "";
 }
 
 /// Sets a row's second line, adding it to a row without one, or taking it away for none.
@@ -312,7 +326,9 @@ function dayCard(day: Extract<PaletteCard, { kind: "day" }>): Node[] {
     strip.append(el);
   }
   const focus = day.focusCount ? `${day.focusCount} · ${fmtDur(day.focusMs)}` : "0";
-  return [h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus)), strip];
+  // Ledger's side of the day, on a day something was ticked off; none says nothing.
+  const done = day.tasksDone ? [stat("Tasks done", String(day.tasksDone))] : [];
+  return [h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus), ...done), strip];
 }
 
 /// Time in an app or site over a period: the total and its change, a bar a day (or an hour)
@@ -382,6 +398,7 @@ async function renderPreview() {
   box.className = `palette-preview ${card.kind}`;
   box.replaceChildren(...(card.kind === "day" ? dayCard(card) : card.kind === "answer" ? answerCard(card) : card.kind === "moment" ? momentCard(card) : focusCard(card)));
   box.hidden = false;
+  if (asked === selected) $("#palette-said").textContent = cardSaid(card);
   loadIcons();
   fit();
 }
@@ -550,6 +567,7 @@ let compact = false;
 /// Every opening starts fresh: an empty box, today's suggestions, the chosen theme.
 async function open() {
   input.value = "";
+  $("#palette-said").textContent = "";
   selected = 0;
   setMode(null);
   // Files' icons aren't kept from one opening to the next; apps' come back from Kairo's cache.

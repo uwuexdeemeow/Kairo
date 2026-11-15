@@ -514,10 +514,13 @@ function morningFollowsReminders() {
 
 let savedFade = 0;
 
-/// Saves Ledger's settings, saying "Saved" for a moment as the dashboard's switches do.
-async function saveSettings() {
-  const note = $("#ledger-settings-note");
+/// Saves Ledger's settings, saying "Saved" for a moment as the dashboard's switches do, beside
+/// what was changed: the reminders' line, or the working day's.
+async function saveSettings(where = "#ledger-settings-note") {
+  const note = $(where);
   window.clearTimeout(savedFade);
+  // One "Saved" at a time: the other line's goes with the timer that would have faded it.
+  for (const other of document.querySelectorAll("#ledger-settings-note, #ledger-planning-note")) other.textContent = "";
   try {
     const s = await api.setLedgerSettings(
       $<HTMLInputElement>("#ledger-reminders").checked,
@@ -547,7 +550,7 @@ $("#ledger-reminders").addEventListener("change", () => {
   morningFollowsReminders();
   void saveSettings();
 });
-$("#ledger-morning").addEventListener("change", saveSettings);
+$("#ledger-morning").addEventListener("change", () => saveSettings());
 $("#ledger-plan-nudge").addEventListener("change", async () => {
   const note = $("#ledger-settings-note");
   window.clearTimeout(savedFade);
@@ -559,8 +562,8 @@ $("#ledger-plan-nudge").addEventListener("change", async () => {
     note.textContent = "Couldn't save this. Try again in a moment.";
   }
 });
-$("#ledger-day-from").addEventListener("change", saveSettings);
-$("#ledger-day-to").addEventListener("change", saveSettings);
+$("#ledger-day-from").addEventListener("change", () => saveSettings("#ledger-planning-note"));
+$("#ledger-day-to").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 markTabs();
 // Find a task: the list narrows as it's typed; Esc clears it, then leaves it.
 $("#task-search").addEventListener("input", () => draw());

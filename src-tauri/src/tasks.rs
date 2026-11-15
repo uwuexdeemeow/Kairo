@@ -223,6 +223,12 @@ pub fn set_done(conn: &Connection, id: &str, done: bool, now: i64) -> Result<()>
     Ok(())
 }
 
+/// How many tasks were ticked off from `from` to just before `to` (a day's bounds, in ms). A
+/// repeating task counts each time: the one ticked stays done as the next takes its place.
+pub fn done_between(conn: &Connection, from: i64, to: i64) -> Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM tasks WHERE done_ms >= ?1 AND done_ms < ?2", params![from, to], |r| r.get(0))
+}
+
 /// Takes a task away. Its sessions stay as they are, counting for nothing.
 pub fn remove(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM tasks WHERE id = ?1", [id])?;
@@ -725,6 +731,19 @@ mod tests {
         assert_eq!(title(&c, &t.id).unwrap().as_deref(), Some("Essay"));
         rename(&c, &t.id, "Essay draft").unwrap();
         assert_eq!(title(&c, &t.id).unwrap().as_deref(), Some("Essay draft"));
+    }
+
+    #[test]
+    fn counts_the_tasks_ticked_off_in_a_stretch_and_not_reopened_ones() {
+        let c = conn();
+        let [a, b, d] = ["A", "B", "D"].map(|n| add(&c, n, 1).unwrap().unwrap());
+        set_done(&c, &a.id, true, 100).unwrap();
+        set_done(&c, &b.id, true, 199).unwrap();
+        set_done(&c, &d.id, true, 200).unwrap();
+        assert_eq!(done_between(&c, 100, 200).unwrap(), 2);
+        set_done(&c, &a.id, false, 250).unwrap();
+        assert_eq!(done_between(&c, 100, 200).unwrap(), 1);
+        assert_eq!(done_between(&c, 0, 100).unwrap(), 0);
     }
 
     #[test]

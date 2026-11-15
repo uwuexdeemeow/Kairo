@@ -438,6 +438,21 @@ pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
     ring_settings_of(&conn)
 }
 
+/// Capture's keys: empty while there are none.
+#[tauri::command]
+pub fn capture_shortcut(state: State<AppState>) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::shortcut(&conn).map_err(err)
+}
+
+/// Sets capture's keys, or with "" takes them away; returns them as they now are.
+#[tauri::command]
+pub fn set_capture_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::change_shortcut(&app, &conn, &shortcut)?;
+    crate::capture::shortcut(&conn).map_err(err)
+}
+
 #[tauri::command]
 pub fn set_ring_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;

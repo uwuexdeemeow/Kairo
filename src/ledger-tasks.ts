@@ -135,7 +135,7 @@ function row(t: Task, session: RunningSession, act: LedgerActions, selected: str
   const chips = h("div", { class: "task-chips" });
   if (t.dueDay && t.group !== "today") chips.append(h("span", { class: `task-day chip${t.group === "overdue" ? " late" : ""}` }, h("span", { class: "sr-only" }, "Due "), dayText(t.dueDay)));
   if (t.remindMs !== null) {
-    const at = new Date(t.remindMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const at = new Date(t.remindMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     // What each chip means is in words too, unseen: a screen reader reads a span's text, not a label on it.
     chips.append(h("span", { class: "task-bell chip", title: `Reminder at ${at}` }, h("span", { class: "sr-only" }, "Reminder at "), glyph("bell"), at));
   }

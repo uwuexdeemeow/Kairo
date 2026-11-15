@@ -22,6 +22,10 @@ pub const PALETTE_ARG: &str = "--palette";
 /// on Wayland). A running Kairo gets it too.
 pub const RING_ARG: &str = "--ring";
 
+/// Keeps what's on the clipboard in Ledger, for a desktop shortcut where apps can't listen for
+/// keys themselves (Linux on Wayland). A running Kairo gets it too.
+pub const CAPTURE_ARG: &str = "--capture";
+
 /// Opens Chrono, the screen time tracker's window, rather than the palette; Chrono's own Start
 /// menu and app menu entry passes it.
 pub const CHRONO_ARG: &str = "--chrono";
@@ -67,6 +71,7 @@ pub fn search_files_query(args: &[String]) -> Option<String> {
 pub enum Launch {
     Palette,
     Ring,
+    Capture,
     Chrono,
     Dashboard,
     Quiet,
@@ -80,6 +85,8 @@ pub fn launch_for(args: &[String]) -> Launch {
         Launch::Palette
     } else if has(RING_ARG) {
         Launch::Ring
+    } else if has(CAPTURE_ARG) {
+        Launch::Capture
     } else if has(DASHBOARD_ARG) {
         Launch::Dashboard
     } else if has(CHRONO_ARG) {
@@ -131,6 +138,7 @@ mod tests {
         assert_eq!(run(&["kairo", DASHBOARD_ARG]), Launch::Dashboard);
         assert_eq!(run(&["kairo", MINIMIZED_ARG]), Launch::Quiet);
         assert_eq!(run(&["kairo", RING_ARG]), Launch::Ring);
+        assert_eq!(run(&["kairo", CAPTURE_ARG]), Launch::Capture);
     }
 
     #[test]

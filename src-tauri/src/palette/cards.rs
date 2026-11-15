@@ -582,6 +582,19 @@ mod tests {
     }
 
     #[test]
+    fn a_days_glance_counts_the_tasks_ticked_off_that_day() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let day = Local::now().date_naive() - Duration::days(1);
+        let ms = |d: NaiveDate, h| Local.from_local_datetime(&d.and_hms_opt(h, 0, 0).unwrap()).earliest().unwrap().timestamp_millis();
+        let [a, b, c] = ["Essay", "Call", "Later"].map(|n| crate::tasks::add(&conn, n, 1).unwrap().unwrap());
+        crate::tasks::set_done(&conn, &a.id, true, ms(day, 9)).unwrap();
+        crate::tasks::set_done(&conn, &b.id, true, ms(day, 23)).unwrap();
+        crate::tasks::set_done(&conn, &c.id, true, ms(day + Duration::days(1), 0)).unwrap();
+        assert_eq!(day_glance(&conn, day).tasks_done, 2);
+        assert_eq!(day_glance(&conn, day - Duration::days(1)).tasks_done, 0);
+    }
+
+    #[test]
     fn a_moment_shows_what_was_open_with_its_neighbours_and_hides_titles_by_default() {
         let conn = db::open(std::path::Path::new(":memory:")).unwrap();
         let day = Local::now().date_naive() - Duration::days(1);

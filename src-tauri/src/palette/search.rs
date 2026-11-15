@@ -508,6 +508,8 @@ pub enum Action {
     OpenPlan,
     /// Opens the app ring.
     OpenRing,
+    /// Keeps what's on the clipboard in Ledger: a short line as a task, anything else a note.
+    Capture,
     /// Opens a note in Ledger, by id.
     OpenNote(String),
     /// Starts a note with this text and opens it in the pop-out window.
@@ -1376,7 +1378,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let idle = ctx.live.session.is_none();
     // Ledger's Plan view: planned in the day, wrapped up from five o'clock.
     let plan_title = if chrono::Timelike::hour(&ctx.live.now) >= 17 { "Wrap up the day" } else { "Plan the day" };
-    let actions: [(&str, String, Glyph, Action, bool); 11] = [
+    let actions: [(&str, String, Glyph, Action, bool); 12] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
@@ -1385,6 +1387,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
         ("plan day plan my day wrap up shutdown review tomorrow carry over", plan_title.into(), Glyph::Day, Action::OpenPlan, true),
         ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
+        ("capture copied clipboard paste save keep inbox task note", "Capture what I copied".into(), Glyph::Tag, Action::Capture, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
         ("virustotal vt virus malware", "Scan with VirusTotal".into(), Glyph::Search, Action::Scan(None), true),
         ("speed test speedtest internet speed bandwidth wifi", "Test internet speed".into(), Glyph::Chart, Action::SpeedTest, true),
@@ -1994,6 +1997,14 @@ pub(super) mod tests {
     fn the_ring_opens_from_the_palette() {
         let c = ctx();
         assert_eq!(search(&c, "ring")[0].action, Action::OpenRing);
+    }
+
+    #[test]
+    fn what_was_copied_is_captured_from_the_palette() {
+        let c = ctx();
+        for q in ["capture", "capture what I copied", "capt"] {
+            assert_eq!(search(&c, q)[0].action, Action::Capture, "{q}");
+        }
     }
 
     #[test]

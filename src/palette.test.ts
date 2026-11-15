@@ -477,6 +477,10 @@ describe("what was on screen at a moment", () => {
     expect($("#palette-preview").textContent).toContain("In a focus session");
     expect(document.querySelector(".palette-note")!.textContent).toContain("hidden");
     expect(api.paletteRun).not.toHaveBeenCalled();
+    // The keyboard stays in the box, so the card is said in a line.
+    expect($("#palette-said").textContent).toBe("Yesterday at 3:00 pm, In a focus session: Code, 2:40 pm – 3:30 pm. Window titles are hidden. Show them in Kairo’s settings.");
+    key("ArrowUp");
+    await vi.waitFor(() => expect($("#palette-said").textContent).toBe(""));
   });
 });
 
@@ -555,9 +559,35 @@ describe("a time chart", () => {
     await vi.waitFor(() => expect(subs()).not.toContain("Enter again to open it"));
   });
 
+  const glance = { kind: "day", title: "Yesterday", activeMs: 3_600_000, productivePct: 50, focusCount: 0, focusMs: 0, segments: [] };
+  const statNames = () => [...document.querySelectorAll(".palette-stat span")].map((s) => s.textContent);
+
+  it("adds the tasks ticked off to a day's glance", async () => {
+    api.paletteCard.mockResolvedValue({ ...glance, tasksDone: 3 });
+    await open(results(1, [item("Yesterday", { preview: true })]));
+    await vi.waitFor(() => expect(statNames()).toEqual(["On screen", "Productive", "Focus sessions", "Tasks done"]));
+    expect(document.querySelector(".palette-stat:last-child strong")!.textContent).toBe("3");
+  });
+
+  it("leaves tasks out of a day's glance on a day none were ticked off", async () => {
+    api.paletteCard.mockResolvedValue({ ...glance, tasksDone: 0 });
+    await open(results(1, [item("Yesterday", { preview: true })]));
+    await vi.waitFor(() => expect(statNames()).toEqual(["On screen", "Productive", "Focus sessions"]));
+  });
+
   it("shows a day's glance as the row is selected, as before", async () => {
     api.paletteCard.mockResolvedValue({ kind: "day", title: "Yesterday", activeMs: 0, productivePct: 0, focusCount: 0, focusMs: 0, segments: [] });
     await open(results(1, [item("Yesterday", { preview: true })]));
     await vi.waitFor(() => expect(api.paletteCard).toHaveBeenCalledWith(1, 0));
+    // Moving along the rows stays quiet: only a card asked for is said.
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    expect($("#palette-said").textContent).toBe("");
+  });
+
+  it("says a chart asked for with its total and change", async () => {
+    api.paletteCard.mockResolvedValue({ ...card, change: "−1h 30m vs last week" });
+    await open(results(1, [answer]));
+    key("Enter");
+    await vi.waitFor(() => expect($("#palette-said").textContent).toBe("THE FINALS this week: 2h 00m, −1h 30m vs last week. Mon 26 Oct – Sun 1 Nov."));
   });
 });

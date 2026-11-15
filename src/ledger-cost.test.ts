@@ -32,6 +32,7 @@ describe("a day's load", () => {
     expect(loadLine(120, 3 * 60 * MIN)).toBe("2h planned today");
     expect(loadLine(180, 3 * 60 * MIN)).toBe("3h planned today");
     expect(loadLine(240, 3 * 60 * MIN)).toBe("4h planned today, more than the 3h you usually focus");
+    expect(loadLine(30, 0)).toBe("30m planned today");
   });
 });
 

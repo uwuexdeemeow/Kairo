@@ -454,7 +454,7 @@ function renderProjects(projects: Project[]) {
       target.addEventListener("change", () => save(() => api.setProjectTarget(p.id, Number(target.value))));
       // Its keywords and target go with it and can't be brought back: a second click, as for history.
       const remove = h("button", { class: "link-btn", "aria-label": `Remove ${p.name}` }, "Remove") as HTMLButtonElement;
-      confirmTwice(remove, () => "Click again to remove", () => save(() => api.removeProject(p.id)));
+      confirmTwice(remove, () => "Press again to remove", () => save(() => api.removeProject(p.id)));
       target.classList.add("project-target");
       return h("div", { class: "project-row" }, name, words, target, remove);
     }),
@@ -1173,7 +1173,7 @@ function showPrivacyNotice(e: CategoryEntry, mode: PrivacyMode) {
 
 const disarmNotice = confirmTwice(
   $<HTMLButtonElement>("#privacy-notice-apply"),
-  () => "Click again to confirm",
+  () => "Press again to confirm",
   async () => {
     const text = $("#privacy-notice-text");
     try {
@@ -1194,7 +1194,7 @@ const retention = keepFor({
   status: $("#retention-status"),
   labels: RETENTION_LABELS,
   applyText: (label) => `Save and delete history older than ${label}`,
-  armedText: "Click again to delete older history",
+  armedText: "Press again to delete older history",
   changedText: "Saved. Older history deleted.",
   save: api.setRetention,
 });
@@ -1207,7 +1207,7 @@ const titleDays = keepFor({
   status: $("#title-days-status"),
   labels: { "0": "as long as the history", "365": "1 year", "90": "90 days", "30": "30 days", "7": "7 days" },
   applyText: (label) => `Save and clear titles older than ${label}`,
-  armedText: "Click again to clear older titles",
+  armedText: "Press again to clear older titles",
   changedText: "Saved. Older titles cleared.",
   save: api.setTitleDays,
 });
@@ -1256,7 +1256,7 @@ $<HTMLSelectElement>("#delete-range").addEventListener("change", (e) => {
 
 const disarmDelete = confirmTwice(
   $<HTMLButtonElement>("#delete-run"),
-  () => `Click again to delete ${deleteTarget()?.what ?? "it"}`,
+  () => `Press again to delete ${deleteTarget()?.what ?? "it"}`,
   async () => {
     const out = $("#delete-status");
     const target = deleteTarget();
@@ -1588,7 +1588,7 @@ function renderSchedule(slots: FocusSlot[]) {
   root.replaceChildren(
     ...slots.map((s) => {
       const remove = h("button", { class: "link-btn" }, "Remove") as HTMLButtonElement;
-      confirmTwice(remove, () => "Click again to remove", async () => renderSchedule(await api.removeFocusSlot(s.id)));
+      confirmTwice(remove, () => "Press again to remove", async () => renderSchedule(await api.removeFocusSlot(s.id)));
       const change = h("button", { class: "link-btn", "aria-expanded": String(editingSlot === s.id) }, editingSlot === s.id ? "Done" : "Change");
       change.addEventListener("click", async () => {
         editingSlot = editingSlot === s.id ? null : s.id;
@@ -1704,7 +1704,7 @@ function renderBlockLists(b: BlockLists) {
       const name = h("input", { class: "filter block-list-name", value: l.name, maxlength: "40", "aria-label": "List name" }) as HTMLInputElement;
       name.addEventListener("change", () => run(() => api.saveBlockList(l.name, name.value, l.keys)));
       const remove = h("button", { class: "link-btn" }, "Remove") as HTMLButtonElement;
-      confirmTwice(remove, () => "Click again to remove", () => run(() => api.removeBlockList(l.name)));
+      confirmTwice(remove, () => "Press again to remove", () => run(() => api.removeBlockList(l.name)));
       const picker = keyPicker(l.keys, (keys) => run(() => api.saveBlockList(l.name, l.name, keys)), (t) => (status.textContent = t), `list-${i}`);
       return h(
         "div",

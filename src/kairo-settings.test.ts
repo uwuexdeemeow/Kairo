@@ -6,6 +6,8 @@ const api = vi.hoisted(() => ({
   setRingShortcut: vi.fn(),
   setRingItems: vi.fn(),
   setRingFocusMinutes: vi.fn(),
+  captureShortcut: vi.fn(),
+  setCaptureShortcut: vi.fn(),
   version: vi.fn(),
   sync: vi.fn(),
   stopSync: vi.fn(),
@@ -83,6 +85,8 @@ beforeEach(async () => {
   const ring = { items: ["chrono", "ledger", "palette"], all: [["chrono", "Chrono"], ["ledger", "Ledger"], ["palette", "Palette"], ["week", "This week"]], focusMinutes: 25 };
   api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", ...ring });
   api.setRingShortcut.mockResolvedValue({ shortcut: "Alt+R", ...ring });
+  api.captureShortcut.mockResolvedValue("");
+  api.setCaptureShortcut.mockImplementation(async (s: string) => s);
   document.body.innerHTML = markup;
   settings = await import("./kairo-settings");
   settings.wireKairoSettings();
@@ -97,7 +101,7 @@ describe("loading", () => {
     expect($<HTMLInputElement>("#palette-suggestions").checked).toBe(true);
     expect($<HTMLInputElement>("#palette-search-files").checked).toBe(true);
     expect($<HTMLInputElement>("#clipboard-history").checked).toBe(true);
-    expect($("#sync-where").textContent).toBe("Off. This computer would show up as Tower.");
+    expect($("#sync-where").textContent).toBe("Not combined yet. Your other computers would see this one as Tower.");
     expect($("#sync-stop").hidden).toBe(true);
   });
 
@@ -188,6 +192,43 @@ describe("the app ring's shortcut", () => {
     $("#ring-record").click();
     expect($("#palette-record").textContent).toBe("Change");
     expect($("#ring-record").textContent).toBe("Cancel");
+  });
+});
+
+describe("the capture shortcut", () => {
+  const captureKeys = () => [...document.querySelectorAll("#capture-keys kbd")].map((k) => k.textContent);
+
+  it("has no keys until they're set, and says how to capture meanwhile", () => {
+    expect($("#capture-keys").textContent).toBe("No keys");
+    expect($("#capture-record").textContent).toBe("Set keys");
+    expect($("#capture-clear").hidden).toBe(true);
+    expect($("#capture-note").textContent).toContain("type capture in the palette");
+  });
+
+  it("records keys, then can turn them off again", async () => {
+    $("#capture-record").click();
+    expect($("#capture-record").textContent).toBe("Cancel");
+    press("C", "KeyC", { altKey: true, shiftKey: true });
+    await vi.waitFor(() => expect(api.setCaptureShortcut).toHaveBeenCalledWith("Alt+Shift+C"));
+    await vi.waitFor(() => expect($("#capture-note").textContent).toBe("Saved. Alt+Shift+C captures what you copied from anywhere."));
+    expect(captureKeys()).toEqual(["Alt", "Shift", "C"]);
+    expect($("#capture-record").textContent).toBe("Change");
+    expect($("#capture-clear").hidden).toBe(false);
+
+    $("#capture-clear").click();
+    await vi.waitFor(() => expect(api.setCaptureShortcut).toHaveBeenLastCalledWith(""));
+    await vi.waitFor(() => expect($("#capture-keys").textContent).toBe("No keys"));
+    expect($("#capture-note").textContent).toBe("Turned off. The palette's Capture what I copied still works.");
+    expect($("#capture-clear").hidden).toBe(true);
+    expect(document.activeElement).toBe($("#capture-record"));
+  });
+
+  it("shows keys saved before", async () => {
+    api.captureShortcut.mockResolvedValue("Ctrl+Alt+K");
+    await settings.loadKairoSettings();
+    expect(captureKeys()).toEqual(["Ctrl", "Alt", "K"]);
+    expect($("#capture-clear").hidden).toBe(false);
+    expect($("#capture-note").textContent).toBe("Works from any window, even with Kairo's windows closed.");
   });
 });
 
@@ -392,7 +433,12 @@ describe("finding a setting", () => {
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(field.value).toBe("");
     expect($("#settings-none").hidden).toBe(true);
-    expect(visibleSections().length).toBe(9);
+    expect(visibleSections().length).toBe(10);
+  });
+
+  it("finds capture by what it does", () => {
+    find("clipboard");
+    expect(visibleSections()).toContain("Capture");
   });
 
   it("goes to the first match's control on Enter", () => {
