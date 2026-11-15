@@ -139,6 +139,27 @@ describe("the Plan view", () => {
     expect(button("a", ".plan-tomorrow").getAttribute("aria-keyshortcuts")).toBe("T");
   });
 
+  it("tells a screen reader what a move did once the list shows it, and says nothing for one that didn't happen", () => {
+    const view = mountPlan(root, act, () => null);
+    view.render(tasks);
+    const said = () => root.querySelector('[role="status"]')!.textContent;
+    button("a", ".plan-tomorrow").click();
+    // Not yet: the list hasn't changed.
+    expect(said()).toBe("");
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
+    expect(said()).toBe("Moved “Overdue one” to tomorrow");
+    // The line stays put across draws, so it is heard.
+    const line = root.querySelector('[role="status"]');
+    button("b", ".plan-later").click();
+    // The move failed: the task is still due today, and the list redraws with it.
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
+    expect(said()).toBe("Moved “Overdue one” to tomorrow");
+    expect(root.querySelector('[role="status"]')).toBe(line);
+    button("b", ".plan-tick").click();
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, { ...tasks[1], group: "done", doneMs: at(10) }, tasks[2]]);
+    expect(said()).toBe("Done: “Today one”");
+  });
+
   it("ticks a task off, and opens one", () => {
     mountPlan(root, act, () => null).render(tasks);
     button("b", ".plan-tick").click();

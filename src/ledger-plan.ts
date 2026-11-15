@@ -92,9 +92,22 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
   let nextPlaces = new Map<string, number>();
   /// The row the keyboard goes to after the next draw: where an action left it.
   let refocus: number | null = null;
+  /// What an action did, said to a screen reader once the list redrawn shows it happened (a move
+  /// that failed says nothing): someone who sees the row go needs no word, someone who hears the
+  /// next title does.
+  let toSay: { text: string; done: (tasks: Task[]) => boolean } | null = null;
+  /// The task has left today's list: done, or moved off today.
+  const gone = (id: string) => (list: Task[]) => !toLookAt(list).some((x) => x.id === id);
+  /// The task's reminder is now at `ms`.
+  const setAt = (id: string, ms: number) => (list: Task[]) => list.some((x) => x.id === id && x.remindMs === ms);
+  // The view is redrawn whole; the line that speaks stays put beside it, so it's heard.
+  const body = h("div", { class: "plan-body" });
+  const said = h("p", { class: "sr-only", role: "status" });
+  root.replaceChildren(body, said);
 
-  const move = (t: Task, at: number, due: string | null, remind: number | null) => {
+  const move = (t: Task, at: number, due: string | null, remind: number | null, text: string, done = gone(t.id)) => {
     refocus = at;
+    toSay = { text, done };
     act.move(t.id, due, remind);
   };
 
@@ -102,6 +115,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     const tick = h("button", { class: "plan-tick", "aria-label": `Mark “${t.title}” done`, title: "Mark done" }, glyph("check")) as HTMLButtonElement;
     tick.addEventListener("click", () => {
       refocus = at;
+      toSay = { text: `Done: “${t.title}”`, done: gone(t.id) };
       act.done(t.id, true);
     });
     const open = h("button", { class: "plan-title", title: `Open “${t.title}”` }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
@@ -110,9 +124,9 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     const cost = costText(t);
     if (cost) open.append(h("span", { class: "plan-cost", title: "Time spent on it, and its estimate" }, cost));
     const tomorrow = h("button", { class: "link-btn plan-act plan-tomorrow", "aria-label": `Move “${t.title}” to tomorrow`, "aria-keyshortcuts": "T", title: "Due tomorrow (T)" }, "Tomorrow") as HTMLButtonElement;
-    tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs)));
+    tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs), `Moved “${t.title}” to tomorrow`));
     const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, "aria-keyshortcuts": "L", title: "No due day (L)" }, "Later") as HTMLButtonElement;
-    later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now())));
+    later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now()), `Put “${t.title}” off, with no day`));
     // Already set for a time today, or where it would fit among the meetings.
     const placed = placedSpan(t, now(), hours());
     const spot = places.get(t.id);
@@ -125,7 +139,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
         { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)}, and remind me then`, title: `Fits at ${clockName(spot)}: sets its reminder then` },
         `Put at ${clockName(spot)}`,
       ) as HTMLButtonElement;
-      put.addEventListener("click", () => move(t, at, todayIso(), spot));
+      put.addEventListener("click", () => move(t, at, todayIso(), spot, `Put “${t.title}” at ${clockName(spot)}`, setAt(t.id, spot)));
       when = put;
     }
     return h("li", { class: "plan-row", "data-task": t.id }, tick, open, ...(when ? [when] : []), tomorrow, later);
@@ -159,7 +173,10 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
         { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)} tomorrow, and remind me then`, title: `Fits at ${clockName(spot)} tomorrow: sets its reminder then` },
         `Put at ${clockName(spot)}`,
       ) as HTMLButtonElement;
-      put.addEventListener("click", () => act.move(t.id, t.dueDay, spot));
+      put.addEventListener("click", () => {
+        toSay = { text: `Put “${t.title}” at ${clockName(spot)} tomorrow`, done: setAt(t.id, spot) };
+        act.move(t.id, t.dueDay, spot);
+      });
       parts.push(put);
     }
     return h("li", { class: "plan-row plan-next", "data-task": t.id }, ...parts);
@@ -189,6 +206,8 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
         const all = h("button", { class: "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
         confirmTwice(all, () => "Press again to move them all", async () => {
           const due = dayAfter(todayIso());
+          const ids = left.map((t) => t.id);
+          toSay = { text: `Moved ${left.length} tasks to tomorrow`, done: (list) => ids.every((id) => gone(id)(list)) };
           for (const t of left) act.move(t.id, due, remindTomorrow(t.remindMs));
         });
         parts.push(all);
@@ -236,9 +255,13 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
       if (focused >= 60_000) parts.push(h("p", { class: "muted plan-focused" }, `${fmtDur(focused)} focused on them.`));
     }
 
-    root.replaceChildren(...parts);
+    body.replaceChildren(...parts);
+    if (toSay?.done(tasks)) {
+      said.textContent = toSay.text;
+      toSay = null;
+    }
     if (refocus !== null) {
-      const rows = root.querySelectorAll<HTMLElement>(".plan-list .plan-row");
+      const rows = body.querySelectorAll<HTMLElement>(".plan-list .plan-row");
       // Where the keyboard was, or the last one now: ready for the next.
       const target = rows[Math.min(refocus, rows.length - 1)];
       refocus = null;
