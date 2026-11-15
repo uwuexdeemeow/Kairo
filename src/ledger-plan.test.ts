@@ -153,7 +153,7 @@ describe("the Plan view", () => {
     const all = root.querySelector<HTMLButtonElement>(".plan-all")!;
     all.click();
     expect(act.move).not.toHaveBeenCalled();
-    expect(all.textContent).toBe("Click again to move them all");
+    expect(all.textContent).toBe("Press again to move them all");
     all.click();
     expect(act.move.mock.calls.map((c) => [c[0], c[1]])).toEqual([
       ["a", "2026-11-13"],

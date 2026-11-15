@@ -105,7 +105,7 @@ describe("Modes on the Focus page", () => {
     const remove = $<HTMLButtonElement>(".mode .link-btn:not(.mode-app-remove):not(.mode-app-add)");
     remove.click();
     expect(api.removeFocusMode).not.toHaveBeenCalled();
-    expect(remove.textContent).toBe("Click again to remove");
+    expect(remove.textContent).toBe("Press again to remove");
     remove.click();
     expect(api.removeFocusMode).toHaveBeenCalledWith("Study");
     await vi.waitFor(() => expect(document.querySelectorAll(".mode").length).toBe(0));

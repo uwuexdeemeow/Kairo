@@ -187,7 +187,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
       parts.push(h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later"));
       if (left.length > 1) {
         const all = h("button", { class: "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
-        confirmTwice(all, () => "Click again to move them all", async () => {
+        confirmTwice(all, () => "Press again to move them all", async () => {
           const due = dayAfter(todayIso());
           for (const t of left) act.move(t.id, due, remindTomorrow(t.remindMs));
         });
