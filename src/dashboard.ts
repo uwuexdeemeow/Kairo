@@ -6,6 +6,7 @@ import { api, type FocusSession, type Task } from "./api";
 import { cancelShortcutRecording, loadKairoSettings, shortcutKeys, wireKairoSettings } from "./kairo-settings";
 import { useDropdowns } from "./dropdown";
 import { loadLine, plannedMinutes } from "./ledger-cost";
+import { clockName } from "./ledger-free";
 import { planTitle } from "./ledger-plan";
 import { ledgerLine } from "./ledger-tasks";
 import { greeting } from "./logos";
@@ -102,7 +103,7 @@ const APPS: KairoApp[] = [
     line: async () => ledgerLine(await tasksNow()),
     open: () => api.openLedger(),
     settings: {
-      covers: "Reminders and the morning reminder",
+      covers: "Reminders, the morning reminder and your working day",
       open: () => api.openLedger("settings"),
     },
   },
@@ -256,7 +257,7 @@ async function drawToday(running: Running) {
   const reminder = tasks
     .filter((t) => t.group !== "done" && t.remindMs !== null && t.remindMs > now && t.remindMs <= end.getTime())
     .sort((a, b) => a.remindMs! - b.remindMs!)[0];
-  const nextReminder = reminder ? `Next reminder at ${new Date(reminder.remindMs!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: ${reminder.title}` : "";
+  const nextReminder = reminder ? `Next reminder at ${clockName(reminder.remindMs!)}: ${reminder.title}` : "";
   // A way into Ledger's Plan view while there is something due: planning the day, or wrapping it up.
   const plan = $<HTMLButtonElement>("#plan-day");
   plan.hidden = !due.length;

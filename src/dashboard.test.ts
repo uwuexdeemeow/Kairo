@@ -290,7 +290,7 @@ describe("Today", () => {
     api.tasks.mockResolvedValue([{ id: "a", title: "Call", group: "upcoming", remindMs: soon.getTime() }]);
     await open();
     await vi.waitFor(() => expect(api.tasks).toHaveBeenCalled());
-    await vi.waitFor(() => expect($("#today-next").textContent).toBe(today ? `Next reminder at ${soon.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}: Call` : ""));
+    await vi.waitFor(() => expect($("#today-next").textContent).toBe(today ? `Next reminder at ${soon.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}: Call` : ""));
   });
 });
 
