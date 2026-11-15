@@ -175,6 +175,9 @@ describe("the Plan view", () => {
     all.click();
     expect(act.move).not.toHaveBeenCalled();
     expect(all.textContent).toBe("Press again to move them all");
+    // In the morning it's a link after the keys.
+    expect(all.classList.contains("link-btn")).toBe(true);
+    expect(all.previousElementSibling!.classList.contains("plan-keys")).toBe(true);
     all.click();
     expect(act.move.mock.calls.map((c) => [c[0], c[1]])).toEqual([
       ["a", "2026-11-13"],
@@ -198,6 +201,10 @@ describe("the Plan view", () => {
     mountPlan(root, act, () => null).render([...tasks, done, old]);
     expect(root.querySelector(".plan-lead")!.textContent).toBe("1 done · 50m focused · 2 left");
     expect([...root.querySelectorAll(".plan-head")].map((h) => h.textContent)).toEqual(["Left over", "Done today"]);
+    // Carrying what's left is the evening's thing to do: a button, under the list.
+    const all = root.querySelector(".plan-all")!;
+    expect(all.classList.contains("btn")).toBe(true);
+    expect(all.nextElementSibling!.classList.contains("plan-keys")).toBe(true);
     const finished = [...root.querySelectorAll(".plan-done-list .plan-row")];
     expect(finished.map((r) => r.querySelector(".plan-name")!.textContent)).toEqual(["Finished"]);
     expect(finished[0].querySelector(".plan-cost")!.textContent).toBe("50m");

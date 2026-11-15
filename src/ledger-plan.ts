@@ -201,16 +201,20 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     parts.push(h("h2", { class: "plan-head" }, evening ? "Left over" : "To do today"));
     if (left.length) {
       parts.push(h("ul", { class: "plan-list" }, ...left.map(row)));
-      parts.push(h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later"));
+      const keys = h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later");
       if (left.length > 1) {
-        const all = h("button", { class: "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
+        // In the evening carrying what's left over is the thing to do, so it's a button under the
+        // list; in the morning, when most is kept, a link after the keys.
+        const all = h("button", { class: evening ? "btn plan-all" : "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
         confirmTwice(all, () => "Press again to move them all", async () => {
           const due = dayAfter(todayIso());
           const ids = left.map((t) => t.id);
           toSay = { text: `Moved ${left.length} tasks to tomorrow`, done: (list) => ids.every((id) => gone(id)(list)) };
           for (const t of left) act.move(t.id, due, remindTomorrow(t.remindMs));
         });
-        parts.push(all);
+        parts.push(...(evening ? [all, keys] : [keys, all]));
+      } else {
+        parts.push(keys);
       }
     } else {
       parts.push(h("p", { class: "muted plan-empty" }, "Tasks due today, and any overdue, show up here."));

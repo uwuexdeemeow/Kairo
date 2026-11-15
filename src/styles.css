@@ -4745,6 +4745,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 13px;
 }
 
+/* The evening's way to carry what's left: a button of the usual size under the list. */
+.plan-all.btn {
+  display: block;
+  margin: 14px 0 4px;
+  min-height: 36px;
+  font-size: 14px;
+}
+
 .plan-tomorrow-line,
 .plan-focused,
 .plan-empty {
