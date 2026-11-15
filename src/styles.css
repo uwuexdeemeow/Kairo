@@ -1254,10 +1254,16 @@ html.palette-root {
   white-space: nowrap;
 }
 
-/* The stretch asked about: a bar and weight as well as a tint, so it shows without colour. */
+/* What was in front, in ink as the native palette draws it; the times and details stay muted. */
+.palette-moment-line .what {
+  color: var(--ink);
+}
+
+/* The stretch asked about: the palette's ink at 18%, as the native palette fills it, with a bar
+   and weight as well, so it shows without colour. */
 .palette-moment-line.here {
-  background: var(--line);
-  box-shadow: inset 3px 0 0 var(--ink);
+  background: color-mix(in srgb, var(--app) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--app);
   color: var(--ink);
   font-weight: 600;
 }
