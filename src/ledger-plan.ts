@@ -88,6 +88,8 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
   let events: CalendarEvent[] = [];
   /// Where tasks with an estimate would fit in today's free time, by task; empty in the evening.
   let places = new Map<string, number>();
+  /// The same for tomorrow's tasks, in tomorrow's free time.
+  let nextPlaces = new Map<string, number>();
   /// The row the keyboard goes to after the next draw: where an action left it.
   let refocus: number | null = null;
 
@@ -140,6 +142,29 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     row.querySelector<HTMLButtonElement>(key === "t" ? ".plan-tomorrow" : ".plan-later")?.click();
   });
 
+  /// One of tomorrow's tasks: its name and cost, and the time it's set for or where it would fit.
+  const nextRow = (t: Task, start: number): HTMLElement => {
+    const open = h("button", { class: "plan-title", title: "Open it" }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
+    open.addEventListener("click", () => act.openTask(t.id));
+    const cost = costText(t);
+    if (cost) open.append(h("span", { class: "plan-cost", title: "Time spent on it, and its estimate" }, cost));
+    const parts: Node[] = [open];
+    const placed = placedSpan(t, start, hours());
+    const spot = nextPlaces.get(t.id);
+    if (placed) {
+      parts.push(h("span", { class: "plan-at", title: "It reminds you at this time" }, clockName(placed.startMs)));
+    } else if (spot !== undefined) {
+      const put = h(
+        "button",
+        { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)} tomorrow, and remind me then`, title: `Fits at ${clockName(spot)} tomorrow: sets its reminder then` },
+        `Put at ${clockName(spot)}`,
+      ) as HTMLButtonElement;
+      put.addEventListener("click", () => act.move(t.id, t.dueDay, spot));
+      parts.push(put);
+    }
+    return h("li", { class: "plan-row plan-next", "data-task": t.id }, ...parts);
+  };
+
   const draw = () => {
     const t0 = now();
     const evening = isEvening(t0);
@@ -175,9 +200,19 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     // What tomorrow already holds, so moving things there is no surprise.
     const tomorrow = dayAfter(todayIso());
     const next = tasks.filter((t) => t.doneMs === null && t.dueDay === tomorrow);
+    nextPlaces = new Map();
     if (next.length) {
       const planned = plannedMinutes(next.map((t) => ({ ...t, group: "today" as const })));
       parts.push(h("p", { class: "muted plan-tomorrow-line" }, `Tomorrow already has ${next.length} ${next.length === 1 ? "task" : "tasks"}${planned ? ` · ${estimateName(planned)} planned` : ""}.`));
+      // Tomorrow's free time between its meetings, and where each of its tasks would go: the
+      // functions look at the day of the moment they're given, so midnight starts tomorrow.
+      const d = new Date(t0);
+      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+      const gaps = freeGaps(busySpans(events, tasks, start, hours()), start, hours());
+      nextPlaces = suggest(next.filter((t) => placedSpan(t, start, hours()) === null), gaps);
+      const free = freeLine(gaps, "tomorrow");
+      if (free) parts.push(h("p", { class: "muted plan-free" }, free));
+      parts.push(h("ul", { class: "plan-next-list" }, ...next.map((t) => nextRow(t, start))));
     }
 
     // What was done today, however the day is framed.

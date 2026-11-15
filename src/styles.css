@@ -4561,6 +4561,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .plan-list,
+.plan-next-list,
 .plan-done-list {
   margin: 0;
   padding: 0;

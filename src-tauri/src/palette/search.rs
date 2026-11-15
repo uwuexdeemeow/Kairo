@@ -229,6 +229,43 @@ pub fn parse_moment(query: &str, today: NaiveDate, now: NaiveDateTime) -> Option
     (moment <= now || now.date() != today).then_some(moment)
 }
 
+/// A day asked about as a recap: "recap", "how was my day", "how was yesterday", "recap tue",
+/// "tue recap". None for anything else.
+pub fn parse_recap(query: &str, today: NaiveDate) -> Option<NaiveDate> {
+    let q = query.trim().to_lowercase().replace('?', "");
+    let q = q.trim();
+    if matches!(q, "recap" | "day recap" | "daily recap" | "my day" | "how was my day" | "how was the day") {
+        return Some(today);
+    }
+    if let Some(day) = q.strip_suffix(" recap") {
+        return parse_day(day, today);
+    }
+    ["how was my ", "how was ", "recap of ", "recap for ", "recap "].iter().find_map(|p| q.strip_prefix(p)).and_then(|day| parse_day(day, today))
+}
+
+/// What a "when did I last use X" question names, as typed: "figma" for "when did I last use figma".
+pub fn parse_last_used(query: &str) -> Option<String> {
+    let q = query.trim().to_lowercase().replace('?', "");
+    let rest = [
+        "when did i last use ",
+        "when did i last open ",
+        "when did i last play ",
+        "when did i last visit ",
+        "when did i last watch ",
+        "when did i last have ",
+        "when was the last time i used ",
+        "when was the last time i opened ",
+        "last time i used ",
+        "last time i opened ",
+        "last used ",
+        "last opened ",
+    ]
+    .iter()
+    .find_map(|p| q.strip_prefix(p))?
+    .trim();
+    (!rest.is_empty()).then(|| rest.to_string())
+}
+
 /// A stretch of time an answer covers, the way people ask for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Period {
@@ -578,6 +615,8 @@ pub enum Preview {
     Answer(Subject, Period, Option<Period>),
     /// What was on screen around a moment in the past, in local time.
     Moment(NaiveDateTime),
+    /// The last times an app or site was used.
+    LastUsed(Subject),
     /// What a focus session would do once started.
     Focus(u32, Option<String>),
 }
@@ -587,7 +626,7 @@ impl Preview {
     /// is selected: a time chart is tall, and coming and going under the pointer it pushed the
     /// rows away from it.
     pub fn on_enter(&self) -> bool {
-        matches!(self, Preview::Answer(..) | Preview::Moment(..))
+        matches!(self, Preview::Answer(..) | Preview::Moment(..) | Preview::LastUsed(..))
     }
 }
 
@@ -788,6 +827,30 @@ fn moment_item(ctx: &Context, at: NaiveDateTime) -> Item {
     item.sub = Some("Open that day in Chrono".into());
     item.score = 960.0;
     item.preview = Some(Preview::Moment(at));
+    item
+}
+
+/// "How was yesterday?": the day as a card, and Enter opens it in Chrono.
+fn recap_item(ctx: &Context, day: NaiveDate) -> Item {
+    let said = match (ctx.today - day).num_days() {
+        0 => "today".to_string(),
+        1 => "yesterday".to_string(),
+        _ => long_date(day),
+    };
+    let mut item = Item::new(format!("How was {said}?"), Icon::Glyph(Glyph::Chart, Tone::Accent), "Answers", Action::Go("today", Some(day)));
+    item.sub = Some("Open that day in Chrono".into());
+    item.score = 970.0;
+    item.preview = Some(Preview::Day(day));
+    item
+}
+
+/// "When did I last use Figma?": the card waits for Enter and lists the latest times.
+fn last_used_item(subject: &Subject) -> Item {
+    let icon = Icon::App(subject.icon.clone().unwrap_or_else(|| subject.key.clone()));
+    let mut item = Item::new(format!("When did I last use {}?", subject.name), icon, "Answers", Action::Go("patterns", None));
+    item.sub = Some("Open Patterns in Chrono".into());
+    item.score = 955.0;
+    item.preview = Some(Preview::LastUsed(subject.clone()));
     item
 }
 
@@ -1258,6 +1321,13 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     if let Some(at) = parse_moment(query, ctx.today, ctx.live.now) {
         items.push(moment_item(ctx, at));
     }
+    if let Some(day) = parse_recap(query, ctx.today) {
+        items.push(recap_item(ctx, day));
+    }
+    // Projects are time across several apps, with no one thing that was last used.
+    if let Some((subject, _)) = parse_last_used(query).and_then(|asked| best_subject(ctx, &asked)).filter(|(s, _)| !s.key.starts_with("project:")) {
+        items.push(last_used_item(subject));
+    }
     for app in &ctx.apps {
         let Some(m) = fuzzy(query, &app.name) else { continue };
         let mut item = Item::new(app.name.clone(), Icon::App(app.path.clone()), "Apps", Action::Launch(app.path.clone()));
@@ -1626,6 +1696,44 @@ pub(super) mod tests {
         // A day alone is still a day, and a bare time with no meaning isn't a row.
         assert!(!search(&c, "yesterday").iter().any(|i| matches!(i.preview, Some(Preview::Moment(_)))));
         assert!(!search(&c, "cursor").iter().any(|i| matches!(i.preview, Some(Preview::Moment(_)))));
+    }
+
+    #[test]
+    fn recaps_and_last_used_questions_are_read() {
+        let today = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap();
+        let yesterday = today - Duration::days(1);
+        for q in ["recap", "how was my day", "How was today?", "my day", "daily recap"] {
+            assert_eq!(parse_recap(q, today), Some(today), "{q}");
+        }
+        for q in ["how was yesterday", "recap yesterday", "yesterday recap", "how was my yesterday"] {
+            assert_eq!(parse_recap(q, today), Some(yesterday), "{q}");
+        }
+        assert_eq!(parse_recap("recap tue", today), Some(today - Duration::days(6)));
+        for q in ["how", "recapping", "how was it", "summary", "recap soon", "cursor"] {
+            assert_eq!(parse_recap(q, today), None, "{q}");
+        }
+        assert_eq!(parse_last_used("when did I last use figma?").as_deref(), Some("figma"));
+        assert_eq!(parse_last_used("last time I opened Brave").as_deref(), Some("brave"));
+        assert_eq!(parse_last_used("last used youtube").as_deref(), Some("youtube"));
+        for q in ["last week", "last tue", "when did i last use ", "last", "figma"] {
+            assert_eq!(parse_last_used(q), None, "{q}");
+        }
+    }
+
+    #[test]
+    fn the_rows_for_a_recap_and_for_last_used() {
+        let c = ctx();
+        let found = search(&c, "how was yesterday");
+        let recap = found.iter().find(|i| i.title == "How was yesterday?").unwrap();
+        assert_eq!(recap.action, Action::Go("today", Some(c.today - Duration::days(1))));
+        assert!(matches!(recap.preview, Some(Preview::Day(d)) if d == c.today - Duration::days(1)));
+        // A recap card shows as the row is selected, like a day's; a last-used card waits for Enter.
+        assert!(!recap.preview.as_ref().unwrap().on_enter());
+        let last = search(&c, "when did I last use youtube");
+        let row = last.iter().find(|i| matches!(i.preview, Some(Preview::LastUsed(_)))).unwrap();
+        assert_eq!(row.title, "When did I last use YouTube?");
+        assert!(row.preview.as_ref().unwrap().on_enter());
+        assert!(!search(&c, "when did I last use zzzz").iter().any(|i| matches!(i.preview, Some(Preview::LastUsed(_)))));
     }
 
     #[test]

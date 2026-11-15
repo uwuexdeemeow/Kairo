@@ -656,6 +656,11 @@ one overdue, two due today (one with an estimate), one due tomorrow.
 13. **T and L.** On the Plan view, focus a task (Tab or the arrow keys) and press T. *Expect:* it moves
     to tomorrow, and focus lands on the next task. L puts it off with no day. Ctrl+T and other keys do
     nothing; the line under the list says "On a task: T tomorrow · L later".
+14. **Tomorrow's free time.** With a task due tomorrow that has an estimate (and a meeting tomorrow, if
+    you can), open Plan, before or after five. *Expect:* under "Tomorrow already has …", a line "…
+    free tomorrow, next 9:00 am – …" and tomorrow's tasks listed, each with "Put at …" (the first gap
+    it fits) or, once set, the time. Press one. *Expect:* its reminder is that time tomorrow and the
+    other tasks' times move to what is left.
 
 ## Windows: Alt+Space as the shortcut
 
@@ -883,6 +888,18 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    row. `14 oct` and `yesterday` still give their day.
 8. **From the palette.** Type `window titles`. *Expect:* a settings row "Window titles in “what was I
    doing”" showing On or Off; Enter flips it, and asking about a time again shows or hides titles.
+
+## Palette: recap and last used
+
+1. **Recap.** Type `recap`, `how was my day`, `how was yesterday` and `recap tue`. *Expect:* a row
+   "How was today?" (and so on) with that day's card (time on screen, productive share, focus
+   sessions, the day as a strip) shown as the row is selected; Enter opens that day in Chrono.
+2. **Last used.** Type `when did I last use` and the name of an app or site you use (for example
+   `when did I last use chrome`), or `last used youtube`. *Expect:* a row "When did I last use …?"
+   with nothing about when; press Enter. *Expect:* a card titled with the app, "Last used: Yesterday,
+   3:45 pm", and up to four stretches, newest first, each with its day and time and how long; a
+   minute of glancing isn't counted as a use. Window titles show only with the setting on.
+3. **Not a search.** `last week`, `last tue`, `recapping` and plain app names don't give these rows.
 
 ## Two computers combined
 

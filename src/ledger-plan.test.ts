@@ -201,6 +201,20 @@ describe("the Plan view", () => {
     expect(act.move).toHaveBeenLastCalledWith("f", "2026-11-12", at(16));
   });
 
+  it("offers tomorrow's tasks a spot in tomorrow's free time, and sets their reminder there", () => {
+    const next = task("n", "Read", { group: "upcoming", dueDay: "2026-11-13", estimateMin: 60 });
+    const tomorrow = (h: number) => new Date(2026, 10, 13, h).getTime();
+    mountPlan(root, act, () => null).render([...tasks, next], [{ startMs: tomorrow(9), endMs: tomorrow(10), title: "Standup" }]);
+    // Free from ten to six, less nothing else: the hour goes at the first gap.
+    expect([...root.querySelectorAll(".plan-free")].some((p) => /free tomorrow, next /.test(p.textContent ?? ""))).toBe(true);
+    root.querySelector<HTMLButtonElement>('[data-task="n"] .plan-put')!.click();
+    expect(act.move).toHaveBeenLastCalledWith("n", "2026-11-13", tomorrow(10));
+    // Once set, the time is shown instead, and takes its hour out of the gap.
+    mountPlan(root, act, () => null).render([...tasks, { ...next, remindMs: tomorrow(10) }], [{ startMs: tomorrow(9), endMs: tomorrow(10), title: "Standup" }]);
+    expect(root.querySelector('[data-task="n"] .plan-put')).toBeNull();
+    expect(root.querySelector('[data-task="n"] .plan-at')).not.toBeNull();
+  });
+
   it("has no free-time line in the evening, or with nothing to do", () => {
     mountPlan(root, act, () => null).render([task("x", "Nothing due", { group: "upcoming" })]);
     expect(root.querySelector(".plan-free")).toBeNull();

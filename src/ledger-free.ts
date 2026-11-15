@@ -91,9 +91,9 @@ export function suggest(tasks: Pick<Task, "id" | "estimateMin">[], gaps: Span[])
 export const clockName = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 /// The line under the day's heading: "3h 10m free today, next 2:00 – 3:30 pm"; empty when there is
-/// none left to speak of.
-export function freeLine(gaps: Span[]): string {
+/// none left to speak of. `day` is how the day is said ("today", "tomorrow").
+export function freeLine(gaps: Span[], day = "today"): string {
   if (!gaps.length) return "";
   const total = Math.round(gaps.reduce((sum, g) => sum + (g.endMs - g.startMs), 0) / MIN);
-  return `${estimateName(total)} free today, next ${clockName(gaps[0].startMs)} – ${clockName(gaps[0].endMs)}`;
+  return `${estimateName(total)} free ${day}, next ${clockName(gaps[0].startMs)} – ${clockName(gaps[0].endMs)}`;
 }

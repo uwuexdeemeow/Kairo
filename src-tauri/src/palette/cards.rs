@@ -30,6 +30,7 @@ pub enum Card {
 pub fn card(conn: &Connection, preview: &Preview) -> Card {
     match preview {
         Preview::Moment(at) => Card::Moment(moment(conn, *at, super::moment_titles(conn).unwrap_or(false))),
+        Preview::LastUsed(subject) => Card::Moment(last_used(conn, subject, super::moment_titles(conn).unwrap_or(false))),
         Preview::Day(day) => Card::Day(day_glance(conn, *day)),
         Preview::Answer(subject, period, against) => Card::Answer(answer(conn, subject, *period, *against)),
         Preview::Focus(minutes, label) => Card::Focus(focus_plan(conn, *minutes, label.as_deref())),
@@ -504,6 +505,72 @@ pub fn moment(conn: &Connection, at: NaiveDateTime, titles: bool) -> MomentCard 
     MomentCard { title: format!("{day} at {}", at.format("%-I:%M %P")), sub: sub.join(" · "), lines, note }
 }
 
+/// A time in the past said briefly: "Today, 3:10 pm", "Yesterday, 3:10 pm", "Sun 15 Nov, 3:10 pm".
+fn said_when(ms: i64) -> String {
+    let Some(at) = chrono::DateTime::from_timestamp_millis(ms).map(|d| d.with_timezone(&Local)) else { return String::new() };
+    let day = match (Local::now().date_naive() - at.date_naive()).num_days() {
+        0 => "Today".to_string(),
+        1 => "Yesterday".to_string(),
+        _ => at.format("%a %-d %b").to_string(),
+    };
+    format!("{day}, {}", at.format("%-I:%M %P"))
+}
+
+/// The latest times an app or site was used: up to four stretches, newest first, each as long as
+/// it was and (with `titles`) what it was mostly on. Looks as far back as Kairo has history.
+pub fn last_used(conn: &Connection, subject: &Subject, titles: bool) -> MomentCard {
+    /// Uses closer together than this are one; shorter than `GLANCE_MS` isn't a use.
+    const JOIN_MS: i64 = 5 * 60_000;
+    let (column, value) = match subject.key.split_once(':') {
+        Some(("app", exe)) => ("exe", exe),
+        Some(("site", site)) => ("site", site),
+        _ => ("exe", ""),
+    };
+    // Newest first, so only the latest few stretches are ever read.
+    let mut stretches: Vec<Stretch> = Vec::new();
+    let query = conn.prepare(&format!("SELECT title, start_ms, end_ms FROM sessions WHERE idle = 0 AND {column} = ?1 ORDER BY end_ms DESC LIMIT 5000"));
+    if let Ok(mut stmt) = query {
+        let rows = stmt.query_map([value], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)));
+        for (title, start, end) in rows.into_iter().flatten().flatten() {
+            let joins = stretches.last().is_some_and(|s| s.start - end <= JOIN_MS);
+            if !joins {
+                // A stretch that was only a glance isn't a use: look further back.
+                if stretches.last().is_some_and(|s| s.end - s.start <= GLANCE_MS) {
+                    stretches.pop();
+                }
+                if stretches.len() >= 4 {
+                    break;
+                }
+                stretches.push(Stretch { what: subject.name.clone(), start, end, away: false, titles: HashMap::new() });
+            }
+            let Some(last) = stretches.last_mut() else { continue };
+            last.start = last.start.min(start);
+            last.end = last.end.max(end);
+            if titles && !title.is_empty() {
+                *last.titles.entry(title).or_default() += end - start;
+            }
+        }
+        if stretches.last().is_some_and(|s| s.end - s.start <= GLANCE_MS) {
+            stretches.pop();
+        }
+    }
+    let lines: Vec<MomentLine> = stretches
+        .iter()
+        .enumerate()
+        .map(|(i, s)| MomentLine {
+            when: said_when(s.start),
+            what: fmt_dur(s.end - s.start),
+            detail: s.titles.iter().max_by_key(|(_, ms)| **ms).map(|(t, _)| t.clone()).unwrap_or_default(),
+            here: i == 0,
+        })
+        .collect();
+    let (sub, note) = match stretches.first() {
+        Some(s) => (format!("Last used: {}", said_when(s.end)), if titles { String::new() } else { "Window titles are hidden. Show them in Kairo’s settings.".to_string() }),
+        None => (String::new(), "Kairo has no time recorded for it.".to_string()),
+    };
+    MomentCard { title: subject.name.clone(), sub, lines, note }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,6 +607,32 @@ mod tests {
         assert_eq!(shown.lines[2].detail, "20m · Video");
         assert_eq!(shown.lines[1].detail.split(" · ").nth(1), Some("main.rs - kairo"));
         assert!(shown.note.is_empty());
+    }
+
+    #[test]
+    fn the_last_times_something_was_used_come_newest_first_without_glances() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let day = Local::now().date_naive() - Duration::days(3);
+        let t = |d: i64, h, m| (day - Duration::days(d)).and_hms_opt(h, m, 0).unwrap();
+        // Figma: an hour, a minute of glancing, then twenty minutes two days before.
+        session(&conn, "figma", "Landing page", None, false, t(0, 10, 0), 30);
+        session(&conn, "figma", "Landing page", None, false, t(0, 10, 32), 30);
+        session(&conn, "figma", "Inbox", None, false, t(0, 15, 0), 1);
+        session(&conn, "figma", "Icons", None, false, t(2, 9, 0), 20);
+        session(&conn, "code", "main.rs", None, false, t(0, 11, 0), 30);
+        let subject = Subject { name: "Figma".into(), key: "app:figma".into(), category: Category::Neutral, icon: None, used_ms: 0 };
+        let plain = last_used(&conn, &subject, false);
+        assert_eq!(plain.title, "Figma");
+        assert_eq!(plain.lines.iter().map(|l| l.what.as_str()).collect::<Vec<_>>(), ["1h 02m", "20m"]);
+        assert!(plain.lines[0].here && !plain.lines[1].here);
+        assert!(plain.lines.iter().all(|l| l.detail.is_empty()));
+        assert!(plain.sub.starts_with("Last used: ") && plain.note.contains("hidden"), "{plain:?}");
+        let shown = last_used(&conn, &subject, true);
+        assert_eq!(shown.lines.iter().map(|l| l.detail.as_str()).collect::<Vec<_>>(), ["Landing page", "Icons"]);
+        // Never used: it says so.
+        let none = Subject { key: "app:nothing".into(), ..subject };
+        let nothing = last_used(&conn, &none, false);
+        assert!(nothing.lines.is_empty() && nothing.note.contains("no time recorded"));
     }
 
     #[test]

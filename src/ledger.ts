@@ -192,7 +192,7 @@ function drawPlan() {
   const from = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
   const view = planView;
   void api
-    .calendarEvents(from, from + 86_400_000)
+    .calendarEvents(from, from + 3 * 86_400_000)
     .then((events) => {
       if (shown === "plan") view.render(open(), events);
     })
