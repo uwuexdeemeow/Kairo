@@ -226,7 +226,7 @@ describe("the Plan view", () => {
   it("says when nothing is due, and keeps the keyboard in the list as rows go", () => {
     const view = mountPlan(root, act, () => null);
     view.render([task("x", "Nothing due", { group: "upcoming" })]);
-    expect(root.querySelector(".plan-empty")!.textContent).toBe("Nothing due today or overdue.");
+    expect(root.querySelector(".plan-empty")!.textContent).toBe("Tasks due today, and any overdue, show up here.");
     expect(root.querySelector(".plan-list")).toBeNull();
 
     view.render(tasks.slice(0, 2));

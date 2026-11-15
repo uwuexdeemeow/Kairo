@@ -194,7 +194,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
         parts.push(all);
       }
     } else {
-      parts.push(h("p", { class: "muted plan-empty" }, "Nothing due today or overdue."));
+      parts.push(h("p", { class: "muted plan-empty" }, "Tasks due today, and any overdue, show up here."));
     }
 
     // What tomorrow already holds, so moving things there is no surprise.
