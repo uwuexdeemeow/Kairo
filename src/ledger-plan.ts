@@ -104,7 +104,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
       refocus = at;
       act.done(t.id, true);
     });
-    const open = h("button", { class: "plan-title", title: "Open it" }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
+    const open = h("button", { class: "plan-title", title: `Open “${t.title}”` }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
     open.addEventListener("click", () => act.openTask(t.id));
     if (t.group === "overdue") open.append(h("span", { class: "plan-late" }, "Overdue"));
     const cost = costText(t);
@@ -144,7 +144,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
 
   /// One of tomorrow's tasks: its name and cost, and the time it's set for or where it would fit.
   const nextRow = (t: Task, start: number): HTMLElement => {
-    const open = h("button", { class: "plan-title", title: "Open it" }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
+    const open = h("button", { class: "plan-title", title: `Open “${t.title}”` }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
     open.addEventListener("click", () => act.openTask(t.id));
     const cost = costText(t);
     if (cost) open.append(h("span", { class: "plan-cost", title: "Time spent on it, and its estimate" }, cost));
@@ -226,7 +226,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
           "ul",
           { class: "plan-done-list" },
           ...doneToday.map((t) => {
-            const open = h("button", { class: "plan-title", title: "Open it" }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
+            const open = h("button", { class: "plan-title", title: `Open “${t.title}”` }, h("span", { class: "plan-name" }, t.title)) as HTMLButtonElement;
             open.addEventListener("click", () => act.openTask(t.id));
             if (t.focusedMs >= 60_000) open.append(h("span", { class: "plan-cost" }, fmtDur(t.focusedMs)));
             return h("li", { class: "plan-row plan-row-done" }, h("span", { class: "plan-check", "aria-hidden": "true" }, glyph("check")), open);
