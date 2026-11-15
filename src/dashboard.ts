@@ -406,7 +406,7 @@ document.addEventListener("keydown", () => document.body.classList.add("keys"), 
 $("#focus-stop").addEventListener("click", async () => {
   const r = await api.controlFocus("stop").catch(() => null);
   // Strict mode holds an early end back a little while: say until when.
-  if (r?.waitUntil) $("#focus-text").textContent = `Strict mode: you can end this at ${new Date(r.waitUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  if (r?.waitUntil) $("#focus-text").textContent = `Strict mode: you can end this at ${new Date(r.waitUntil).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
   else void refreshLines();
 });
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-tab]")) b.addEventListener("click", () => showTab(b.dataset.tab as Tab));
