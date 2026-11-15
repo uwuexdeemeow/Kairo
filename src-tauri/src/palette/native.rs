@@ -1817,10 +1817,14 @@ impl Palette {
             if line.here {
                 let mark = D2D1_ROUNDED_RECT { rect: rect(x - 10.0, y - 1.0, W - x + 10.0 - 10.0, y + MOMENT_LINE_H - 3.0), radiusX: 6.0, radiusY: 6.0 };
                 unsafe { rt.FillRoundedRectangle(&mark, &self.brush(rt, t.accent, 0.18)?) };
+                // A bar as well as the tint, so the row shows without colour: the web card's.
+                let bar = rect(x - 10.0, y - 1.0, x - 7.0, y + MOMENT_LINE_H - 3.0);
+                unsafe { rt.FillRectangle(&bar, &self.brush(rt, t.ink, 1.0)?) };
             }
-            self.text(rt, &line.when, &self.formats.mono, x, y + 3.0, 170.0, t.muted, &[], false)?;
-            self.text(rt, &line.what, &self.formats.chip, x + 180.0, y + 3.0, 150.0, t.ink, &[], false)?;
-            self.text(rt, &line.detail, &self.formats.sub, x + 335.0, y + 2.0, W - 30.0 - (x + 335.0), t.muted, &[], false)?;
+            // Columns as the web card has them: 150, 140 and the rest, 10 apart.
+            self.text(rt, &line.when, &self.formats.mono, x, y + 3.0, 150.0, t.muted, &[], false)?;
+            self.text(rt, &line.what, &self.formats.chip, x + 160.0, y + 3.0, 140.0, t.ink, &[], false)?;
+            self.text(rt, &line.detail, &self.formats.sub, x + 310.0, y + 2.0, W - 30.0 - (x + 310.0), t.muted, &[], false)?;
         }
         if !m.note.is_empty() {
             let y = top + 62.0 + m.lines.len() as f32 * MOMENT_LINE_H + 6.0;
