@@ -1233,7 +1233,7 @@ html.palette-root {
 
 .palette-moment-line {
   display: grid;
-  grid-template-columns: 170px 150px minmax(0, 1fr);
+  grid-template-columns: 150px 140px minmax(0, 1fr);
   gap: 10px;
   padding: 3px 8px;
   border-radius: 6px;
@@ -1242,8 +1242,9 @@ html.palette-root {
 }
 
 .palette-moment-line .when {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .palette-moment-line .what,
@@ -1253,9 +1254,12 @@ html.palette-root {
   white-space: nowrap;
 }
 
+/* The stretch asked about: a bar and weight as well as a tint, so it shows without colour. */
 .palette-moment-line.here {
   background: var(--line);
+  box-shadow: inset 3px 0 0 var(--ink);
   color: var(--ink);
+  font-weight: 600;
 }
 
 .palette-plan {
@@ -4710,6 +4714,33 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .plan-empty {
   margin: 12px 0 0;
   font-size: 13px;
+}
+
+/* Narrow window: the title takes a line of its own and the ways to move it sit under it. */
+@media (max-width: 560px) {
+  .plan-row {
+    flex-wrap: wrap;
+  }
+
+  .plan-title {
+    flex-basis: calc(100% - 32px);
+  }
+
+  .plan-act,
+  .plan-at {
+    margin-left: 28px;
+  }
+
+  .plan-act + .plan-act {
+    margin-left: 0;
+  }
+}
+
+/* No keyboard to press T and L on: the hint would only be noise. */
+@media (hover: none) {
+  .plan-keys {
+    display: none;
+  }
 }
 
 /* A focus mode on Chrono's Focus page: its name, length and list in a row, its apps under them. */

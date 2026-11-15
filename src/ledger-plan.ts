@@ -203,7 +203,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     nextPlaces = new Map();
     if (next.length) {
       const planned = plannedMinutes(next.map((t) => ({ ...t, group: "today" as const })));
-      parts.push(h("p", { class: "muted plan-tomorrow-line" }, `Tomorrow already has ${next.length} ${next.length === 1 ? "task" : "tasks"}${planned ? ` · ${estimateName(planned)} planned` : ""}.`));
+      parts.push(h("h2", { class: "plan-head" }, "Tomorrow"), h("p", { class: "muted plan-tomorrow-line" }, `${next.length} ${next.length === 1 ? "task" : "tasks"} already${planned ? ` · ${estimateName(planned)} planned` : ""}.`));
       // Tomorrow's free time between its meetings, and where each of its tasks would go: the
       // functions look at the day of the moment they're given, so midnight starts tomorrow.
       const d = new Date(t0);

@@ -165,7 +165,7 @@ describe("the Plan view", () => {
 
   it("says what tomorrow already holds", () => {
     mountPlan(root, act, () => null).render([...tasks, task("t1", "Tomorrow one", { group: "upcoming", dueDay: "2026-11-13", estimateMin: 90 }), task("t2", "Tomorrow two", { group: "upcoming", dueDay: "2026-11-13" })]);
-    expect(root.querySelector(".plan-tomorrow-line")!.textContent).toBe("Tomorrow already has 2 tasks · 1h 30m planned.");
+    expect(root.querySelector(".plan-tomorrow-line")!.textContent).toBe("2 tasks already · 1h 30m planned.");
     mountPlan(root, act, () => null).render(tasks);
     expect(root.querySelector(".plan-tomorrow-line")).toBeNull();
   });

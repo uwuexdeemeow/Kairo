@@ -350,7 +350,7 @@ function answerCard(a: Extract<PaletteCard, { kind: "answer" }>): Node[] {
 /// What was on screen around a moment: the stretch it fell in, marked, among its neighbours.
 function momentCard(m: Extract<PaletteCard, { kind: "moment" }>): Node[] {
   const head = h("div", { class: "palette-answer-head" }, strokeIcon("search", "accent"), h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, m.title), m.sub ? h("span", { class: "palette-sub" }, m.sub) : ""));
-  const lines = m.lines.map((l) => h("li", { class: l.here ? "palette-moment-line here" : "palette-moment-line", ...(l.here ? { "aria-current": "true" } : {}) }, h("span", { class: "when" }, l.when), h("span", { class: "what" }, l.what), h("span", { class: "detail" }, l.detail)));
+  const lines = m.lines.map((l) => h("li", { class: l.here ? "palette-moment-line here" : "palette-moment-line", ...(l.here ? { "aria-current": "time" } : {}) }, h("span", { class: "when" }, l.when), h("span", { class: "what", title: l.what }, l.what), h("span", { class: "detail", title: l.detail }, l.detail)));
   const out: Node[] = [head, h("ul", { class: "palette-moment" }, ...lines)];
   if (m.note) out.push(h("p", { class: "palette-note" }, m.note));
   return out;
