@@ -195,6 +195,32 @@ const IN_USE_MS: i64 = 2 * 60_000;
 /// How often the clock-based reminders are looked at.
 const CHECK_EVERY: Duration = Duration::from_secs(60);
 
+/// The extra a notification carries to say where a click on it goes: the Plan nudge's opens
+/// Ledger on Plan.
+const OPENS: &str = "kairoOpens";
+
+/// Where a click on one of Kairo's notifications goes in Ledger ("plan"), if it says; a click on
+/// one of its buttons, or on a notification that says nothing, goes nowhere.
+pub fn opens_on_click(performed: &tauri_plugin_notification::ActionPerformed) -> Option<String> {
+    if performed.action_id() != "tap" {
+        return None;
+    }
+    performed.notification()?.extra().get(OPENS)?.as_str().map(str::to_string)
+}
+
+/// Opens Ledger where a clicked notification says. Windows reports a click only while the toast
+/// is on screen, not from the Action Center; there the notification only tells.
+pub fn follow_clicks(app: &AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+    let handle = app.clone();
+    let _ = app.notification().on_action(move |performed| {
+        if let Some(at) = opens_on_click(performed) {
+            let app = handle.clone();
+            let _ = handle.run_on_main_thread(move || crate::show_ledger_at(&app, &at));
+        }
+    });
+}
+
 pub fn spawn(app: AppHandle, db_path: PathBuf) {
     let (tx, moments) = mpsc::channel();
     let _ = MOMENTS.set(tx);
@@ -245,7 +271,8 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
         let last = crate::ledger::plan_nudged(conn).map_err(|e| e.to_string())?;
         if let Some((title, body)) = plan_nudge(&tasks, now.naive_local(), morning, last.as_deref()) {
             use tauri_plugin_notification::NotificationExt;
-            if let Err(e) = app.notification().builder().title(&title).body(&body).show() {
+            // A click on it opens Ledger on Plan (follow_clicks).
+            if let Err(e) = app.notification().builder().title(&title).body(&body).extra(OPENS, "plan").show() {
                 eprintln!("reminders: {e}");
             }
             // Marked for every computer, so a combined one doesn't ask twice.
@@ -295,6 +322,22 @@ mod tests {
     use super::*;
 
     const NOW_DAY: &str = "2026-11-03";
+
+    /// What the notification plugin hands its handlers: the action, and the notification as it was built.
+    fn clicked(action: &str, notification: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
+        serde_json::from_value(serde_json::json!({ "actionId": action, "inputValue": null, "notification": notification })).unwrap()
+    }
+
+    #[test]
+    fn a_click_on_the_plan_nudge_opens_plan_and_other_clicks_go_nowhere() {
+        let nudge = serde_json::json!({ "id": 7, "title": "Plan the day?", "extra": { OPENS: "plan" } });
+        assert_eq!(opens_on_click(&clicked("tap", nudge.clone())).as_deref(), Some("plan"));
+        // A button on it, not the notification itself.
+        assert_eq!(opens_on_click(&clicked("snooze", nudge)), None);
+        // A reminder, or a notification the platform couldn't describe.
+        assert_eq!(opens_on_click(&clicked("tap", serde_json::json!({ "id": 8, "title": "Due today: Essay" }))), None);
+        assert_eq!(opens_on_click(&clicked("tap", serde_json::Value::Null)), None);
+    }
 
     fn at(h: u32, m: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(2026, 11, 3).unwrap().and_hms_opt(h, m, 0).unwrap()

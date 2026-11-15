@@ -281,6 +281,7 @@ pub fn run() {
             clipboard::spawn(app.handle().clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
+            reminders::follow_clicks(app.handle());
             reminders::spawn(app.handle().clone(), db_path.clone());
             app.manage(AppState {
                 db_path,
