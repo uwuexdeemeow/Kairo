@@ -202,6 +202,8 @@ export type PaletteCard =
       productivePct: number;
       focusCount: number;
       focusMs: number;
+      /** Tasks ticked off in Ledger that day. */
+      tasksDone: number;
       /** Stretches of the day as shares of it from midnight. */
       segments: { from: number; to: number; category: Category }[];
     }

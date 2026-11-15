@@ -471,6 +471,8 @@ pub struct DayGlance {
     pub productive_pct: i64,
     pub focus_count: usize,
     pub focus_ms: i64,
+    /// Tasks ticked off in Ledger that day.
+    pub tasks_done: i64,
     pub segments: Vec<Segment>,
 }
 
@@ -486,6 +488,7 @@ pub fn day_glance(conn: &Connection, day: NaiveDate) -> DayGlance {
         productive_pct: percent(glance.productive_ms, glance.active_ms),
         focus_count: blocks.len(),
         focus_ms: blocks.iter().map(focus::Block::ms).sum(),
+        tasks_done: crate::tasks::done_between(conn, from, to).unwrap_or(0),
         segments: glance.segments.iter().map(|&(s, e, category)| Segment { from: share(s), to: share(e), category }).collect(),
     }
 }

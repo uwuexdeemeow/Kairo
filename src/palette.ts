@@ -326,7 +326,9 @@ function dayCard(day: Extract<PaletteCard, { kind: "day" }>): Node[] {
     strip.append(el);
   }
   const focus = day.focusCount ? `${day.focusCount} · ${fmtDur(day.focusMs)}` : "0";
-  return [h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus)), strip];
+  // Ledger's side of the day, on a day something was ticked off; none says nothing.
+  const done = day.tasksDone ? [stat("Tasks done", String(day.tasksDone))] : [];
+  return [h("div", { class: "palette-stats" }, stat("On screen", fmtDur(day.activeMs)), stat("Productive", `${day.productivePct}%`), stat("Focus sessions", focus), ...done), strip];
 }
 
 /// Time in an app or site over a period: the total and its change, a bar a day (or an hour)

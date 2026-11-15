@@ -559,6 +559,22 @@ describe("a time chart", () => {
     await vi.waitFor(() => expect(subs()).not.toContain("Enter again to open it"));
   });
 
+  const glance = { kind: "day", title: "Yesterday", activeMs: 3_600_000, productivePct: 50, focusCount: 0, focusMs: 0, segments: [] };
+  const statNames = () => [...document.querySelectorAll(".palette-stat span")].map((s) => s.textContent);
+
+  it("adds the tasks ticked off to a day's glance", async () => {
+    api.paletteCard.mockResolvedValue({ ...glance, tasksDone: 3 });
+    await open(results(1, [item("Yesterday", { preview: true })]));
+    await vi.waitFor(() => expect(statNames()).toEqual(["On screen", "Productive", "Focus sessions", "Tasks done"]));
+    expect(document.querySelector(".palette-stat:last-child strong")!.textContent).toBe("3");
+  });
+
+  it("leaves tasks out of a day's glance on a day none were ticked off", async () => {
+    api.paletteCard.mockResolvedValue({ ...glance, tasksDone: 0 });
+    await open(results(1, [item("Yesterday", { preview: true })]));
+    await vi.waitFor(() => expect(statNames()).toEqual(["On screen", "Productive", "Focus sessions"]));
+  });
+
   it("shows a day's glance as the row is selected, as before", async () => {
     api.paletteCard.mockResolvedValue({ kind: "day", title: "Yesterday", activeMs: 0, productivePct: 0, focusCount: 0, focusMs: 0, segments: [] });
     await open(results(1, [item("Yesterday", { preview: true })]));
