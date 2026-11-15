@@ -5414,6 +5414,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   background: color-mix(in srgb, var(--palette) 18%, transparent);
 }
 
+/* On the tint a muted second line falls under 4.5:1 on the dark grounds; the second text ink holds. */
+.palette-row.selected .palette-sub {
+  color: var(--ink-2);
+}
+
 /* Compact, before anything's typed: the search bar alone. */
 .palette.bare > :not(.palette-search) {
   display: none;
