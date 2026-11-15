@@ -208,7 +208,7 @@ function whereText(sync: SyncState): string {
     return `${line} ${last} ${sync.error}`;
   }
   if (sync.error === "unlinked") return "This computer was unlinked. Enter a new code to combine again.";
-  return `Off. This computer would show up as ${sync.name}.`;
+  return `Not combined yet. Your other computers would see this one as ${sync.name}.`;
 }
 
 function renderSync(sync: SyncState) {
