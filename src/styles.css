@@ -3255,18 +3255,31 @@ select,
   color: var(--distracting-ink);
 }
 
+/* The box sits by the first line, so a label that wraps keeps it there and leaves room before the
+   next switch; one line still takes the same 40px. */
 .toggle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-height: 40px;
+  padding: 9px 0;
+  line-height: 22px;
 }
 
 .toggle input {
+  flex: none;
   width: 16px;
   height: 16px;
-  margin: 0;
+  margin: 3px 0 0;
   accent-color: var(--app);
+}
+
+/* A switch's help sits under its words and close to it, so it reads as that switch's and not the
+   next one's; kept to a readable measure. 26px is the box and its gap. */
+.toggle + p.muted {
+  max-width: 68ch;
+  margin-top: -6px;
+  padding-left: 26px;
 }
 
 /* ---------- tooltip ---------- */
@@ -3339,9 +3352,17 @@ select,
     border-bottom: 1px solid var(--rule);
     background: var(--bg);
   }
+  /* The pages scroll sideways within the bar rather than widening the window's page. */
   .tabs {
-    flex: none;
+    flex: 1 1 100%;
     flex-direction: row;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 2px;
+    scrollbar-width: thin;
+  }
+  .tabs button {
+    flex: none;
   }
   .tab-settings {
     margin-top: 0;
