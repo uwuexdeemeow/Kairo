@@ -939,6 +939,10 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
 1. **Clicking it.** With reminders and "Ask me to plan the day" on and something due, set the
    morning time a minute ahead. *Expect:* "Plan the day?"; click it while it's on screen. *Expect:*
    Kairo's window opens on Ledger's Plan. From the Windows Action Center it only tells, no click.
+2. **Wrapping up.** Turn on "Ask me to wrap up the day", set the working day to end a minute ahead
+   (or at five or later), with a task done today or one left. *Expect:* "Wrap up the day?" with
+   "1 done · 2 left"; clicking it opens Plan's "Wrap up the day". It comes once an evening, not
+   before five, not from eleven, and not with nothing done or left.
 
 ## Two computers combined
 

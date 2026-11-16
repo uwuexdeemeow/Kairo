@@ -151,6 +151,32 @@ pub fn plan_nudge(tasks: &[Task], now_local: NaiveDateTime, morning: NaiveTime, 
     Some(("Plan the day?".into(), body))
 }
 
+/// The "Wrap up the day?" nudge: its title and body, when it is time. From the end of the working
+/// day (never before five, when Plan turns to wrapping up) until eleven, once a day, when something
+/// was done today or is still left. Pure: nothing is shown or marked.
+pub fn wrap_nudge(tasks: &[Task], now_local: NaiveDateTime, day_start_ms: i64, day_to: NaiveTime, last: Option<&str>) -> Option<(String, String)> {
+    use chrono::Timelike;
+    let today = now_local.date().format("%Y-%m-%d").to_string();
+    let from = day_to.max(NaiveTime::from_hms_opt(EVENING_FROM_HOUR, 0, 0).expect("an hour"));
+    if now_local.time() < from || now_local.hour() >= WRAP_UNTIL_HOUR || last == Some(today.as_str()) {
+        return None;
+    }
+    let left = tasks.iter().filter(|t| t.done_ms.is_none() && matches!(t.group.as_str(), "overdue" | "today")).count();
+    let done = tasks.iter().filter(|t| t.done_ms.is_some_and(|d| d >= day_start_ms)).count();
+    if left == 0 && done == 0 {
+        return None;
+    }
+    let body = match (done, left) {
+        (0, l) => format!("{l} left"),
+        (d, 0) => format!("{d} done · everything due is done"),
+        (d, l) => format!("{d} done · {l} left"),
+    };
+    Some(("Wrap up the day?".into(), body))
+}
+
+/// The wrap-up nudge isn't sent this late: a late return isn't the end of a working day.
+const WRAP_UNTIL_HOUR: u32 = 23;
+
 /// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
 pub fn when_mark(when: &str) -> String {
     format!("when:{}", when.replace(' ', "_"))
@@ -281,6 +307,21 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
             crate::sync::record(conn, "ledger:plan_nudged", &today)?;
         }
     }
+    if settings.wrap_nudge && in_use {
+        let day_to = NaiveTime::parse_from_str(&settings.day_to, "%H:%M").map_err(|e| e.to_string())?;
+        let start = crate::analysis::day_bounds(now.date_naive()).map(|(from, _)| from).unwrap_or(0);
+        let last = crate::ledger::wrap_nudged(conn).map_err(|e| e.to_string())?;
+        if let Some((title, body)) = wrap_nudge(&tasks, now.naive_local(), start, day_to, last.as_deref()) {
+            use tauri_plugin_notification::NotificationExt;
+            // A click opens Plan, which is wrapping the day up by now.
+            if let Err(e) = app.notification().builder().title(&title).body(&body).extra(OPENS, "plan").show() {
+                eprintln!("reminders: {e}");
+            }
+            let today = now.format("%Y-%m-%d").to_string();
+            crate::ledger::set_wrap_nudged(conn, &today).map_err(|e| e.to_string())?;
+            crate::sync::record(conn, "ledger:wrap_nudged", &today)?;
+        }
+    }
     send(app, conn, show, due.drop)
 }
 
@@ -353,6 +394,35 @@ mod tests {
 
     fn titles(d: &Due) -> Vec<&str> {
         d.show.iter().map(|r| r.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_wrap_up_nudge_comes_once_at_the_end_of_the_working_day_never_before_five() {
+        let start = 1_000;
+        let mut left = task("a", "Essay", Some(NOW_DAY), 1);
+        left.group = "today".into();
+        let mut done = task("b", "Call", Some(NOW_DAY), 1);
+        done.group = "done".into();
+        done.done_ms = Some(start + 5);
+        let mut old = task("c", "Old", None, 1);
+        old.group = "done".into();
+        old.done_ms = Some(start - 5);
+        let six = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
+        let tasks = [left.clone(), done.clone(), old.clone()];
+        let nudge = |h, m, to: NaiveTime, last: Option<&str>| wrap_nudge(&tasks, at(h, m), start, to, last);
+        assert_eq!(nudge(18, 0, six, None), Some(("Wrap up the day?".to_string(), "1 done · 1 left".to_string())));
+        assert_eq!(nudge(17, 59, six, None), None);
+        // A working day ending at four still waits for five, when Plan wraps the day up.
+        let four = NaiveTime::from_hms_opt(16, 0, 0).unwrap();
+        assert_eq!(nudge(16, 30, four, None), None);
+        assert!(nudge(17, 0, four, None).is_some());
+        // Not late at night, and once a day.
+        assert_eq!(nudge(23, 0, six, None), None);
+        assert_eq!(nudge(19, 0, six, Some(NOW_DAY)), None);
+        // What it says: all done; only left; nothing at all is nothing to wrap up.
+        assert_eq!(wrap_nudge(&[done.clone()], at(18, 0), start, six, None).unwrap().1, "1 done · everything due is done");
+        assert_eq!(wrap_nudge(&[left], at(18, 0), start, six, None).unwrap().1, "1 left");
+        assert_eq!(wrap_nudge(&[old], at(18, 0), start, six, None), None);
     }
 
     #[test]

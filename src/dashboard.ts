@@ -103,7 +103,7 @@ const APPS: KairoApp[] = [
     line: async () => ledgerLine(await tasksNow()),
     open: () => api.openLedger(),
     settings: {
-      covers: "Reminders, the morning reminder and your working day",
+      covers: "Reminders, the morning and evening nudges, and your working day",
       open: () => api.openLedger("settings"),
     },
   },

@@ -515,6 +515,7 @@ async function loadSettings() {
   $<HTMLInputElement>("#ledger-day-from").value = s.dayFrom;
   $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
   $<HTMLInputElement>("#ledger-plan-nudge").checked = s.planNudge;
+  $<HTMLInputElement>("#ledger-wrap-nudge").checked = s.wrapNudge;
   dayHoursNow = dayHours(s.dayFrom, s.dayTo);
   morningFollowsReminders();
 }
@@ -524,6 +525,7 @@ function morningFollowsReminders() {
   const on = $<HTMLInputElement>("#ledger-reminders").checked;
   $<HTMLInputElement>("#ledger-morning").disabled = !on;
   $<HTMLInputElement>("#ledger-plan-nudge").disabled = !on;
+  $<HTMLInputElement>("#ledger-wrap-nudge").disabled = !on;
 }
 
 let savedFade = 0;
@@ -565,17 +567,23 @@ $("#ledger-reminders").addEventListener("change", () => {
   void saveSettings();
 });
 $("#ledger-morning").addEventListener("change", () => saveSettings());
-$("#ledger-plan-nudge").addEventListener("change", async () => {
-  const note = $("#ledger-settings-note");
-  window.clearTimeout(savedFade);
-  try {
-    await api.setPlanNudge($<HTMLInputElement>("#ledger-plan-nudge").checked);
-    note.textContent = "Saved";
-    savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
-  } catch {
-    note.textContent = "Couldn't save this. Try again in a moment.";
-  }
-});
+// The morning's and the evening's nudges, each saved as it's flipped.
+for (const [box, save] of [
+  ["#ledger-plan-nudge", api.setPlanNudge],
+  ["#ledger-wrap-nudge", api.setWrapNudge],
+] as const) {
+  $(box).addEventListener("change", async () => {
+    const note = $("#ledger-settings-note");
+    window.clearTimeout(savedFade);
+    try {
+      await save($<HTMLInputElement>(box).checked);
+      note.textContent = "Saved";
+      savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
+    } catch {
+      note.textContent = "Couldn't save this. Try again in a moment.";
+    }
+  });
+}
 $("#ledger-day-from").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 $("#ledger-day-to").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 markTabs();

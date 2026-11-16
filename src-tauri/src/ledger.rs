@@ -13,6 +13,8 @@ const DAY_FROM_KEY: &str = "ledger_day_from";
 const DAY_TO_KEY: &str = "ledger_day_to";
 const PLAN_NUDGE_KEY: &str = "ledger_plan_nudge";
 const PLAN_NUDGED_KEY: &str = "ledger_plan_nudged";
+const WRAP_NUDGE_KEY: &str = "ledger_wrap_nudge";
+const WRAP_NUDGED_KEY: &str = "ledger_wrap_nudged";
 pub const MORNING: &str = "09:00";
 pub const DAY_FROM: &str = "09:00";
 pub const DAY_TO: &str = "18:00";
@@ -31,6 +33,8 @@ pub struct Settings {
     /// Whether the morning reminder time also asks "Plan the day?" when something is due. Off
     /// until chosen.
     pub plan_nudge: bool,
+    /// Whether the end of the working day asks "Wrap up the day?". Off until chosen.
+    pub wrap_nudge: bool,
 }
 
 /// A time of day as "HH:MM", or None when it isn't one.
@@ -57,7 +61,8 @@ pub fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
     // then the usual day is used rather than none.
     let (day_from, day_to) = if day_ok(&from, &to) { (from, to) } else { (DAY_FROM.into(), DAY_TO.into()) };
     let plan_nudge = db::get_setting(conn, PLAN_NUDGE_KEY)?.is_some_and(|v| v == "1");
-    Ok(Settings { reminders, morning, day_from, day_to, plan_nudge })
+    let wrap_nudge = db::get_setting(conn, WRAP_NUDGE_KEY)?.is_some_and(|v| v == "1");
+    Ok(Settings { reminders, morning, day_from, day_to, plan_nudge, wrap_nudge })
 }
 
 /// Changes them here; the caller shares them. A time that isn't one is refused.
@@ -77,6 +82,20 @@ pub fn set(conn: &Connection, reminders: bool, morning: &str, day_from: &str, da
 pub fn set_plan_nudge(conn: &Connection, on: bool) -> Result<Settings, String> {
     db::set_setting(conn, PLAN_NUDGE_KEY, if on { "1" } else { "0" }).map_err(|e| e.to_string())?;
     settings(conn).map_err(|e| e.to_string())
+}
+
+pub fn set_wrap_nudge(conn: &Connection, on: bool) -> Result<Settings, String> {
+    db::set_setting(conn, WRAP_NUDGE_KEY, if on { "1" } else { "0" }).map_err(|e| e.to_string())?;
+    settings(conn).map_err(|e| e.to_string())
+}
+
+/// The day the wrap-up nudge last came, as for the plan nudge.
+pub fn wrap_nudged(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    db::get_setting(conn, WRAP_NUDGED_KEY)
+}
+
+pub fn set_wrap_nudged(conn: &Connection, day: &str) -> rusqlite::Result<()> {
+    db::set_setting(conn, WRAP_NUDGED_KEY, day)
 }
 
 /// The day ("2026-11-16") the plan nudge last came, so it comes once a day, whichever computer
@@ -100,6 +119,8 @@ pub fn apply(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
         "day_to" => clean_time(value).ok_or_else(|| "Use a time like 18:00.".to_string()).and_then(|t| db::set_setting(conn, DAY_TO_KEY, &t).map_err(|e| e.to_string())),
         "plan_nudge" => set_plan_nudge(conn, value == "1").map(|_| ()),
         "plan_nudged" => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Use a day like 2026-11-16.".to_string()).and_then(|d| set_plan_nudged(conn, &d.format("%Y-%m-%d").to_string()).map_err(|e| e.to_string())),
+        "wrap_nudge" => set_wrap_nudge(conn, value == "1").map(|_| ()),
+        "wrap_nudged" => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Use a day like 2026-11-16.".to_string()).and_then(|d| set_wrap_nudged(conn, &d.format("%Y-%m-%d").to_string()).map_err(|e| e.to_string())),
         _ => Err("unknown Ledger setting".into()),
     }
 }

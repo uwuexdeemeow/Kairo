@@ -501,6 +501,7 @@ pub fn run() {
             commands::ledger_settings,
             commands::set_ledger_settings,
             commands::set_plan_nudge,
+            commands::set_wrap_nudge,
             commands::get_notes,
             commands::get_note,
             commands::new_note,
