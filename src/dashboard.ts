@@ -262,6 +262,8 @@ async function drawToday(running: Running) {
   const plan = $<HTMLButtonElement>("#plan-day");
   plan.hidden = !due.length;
   plan.textContent = planTitle(Date.now());
+  // Something overdue makes planning the thing to do: a button, not a link in the line.
+  plan.className = due.some((t) => t.group === "overdue") ? "btn plan-day" : "link-btn plan-day";
   // The day's estimates against a usual day's focus, when any task due has one.
   next.textContent = [loadLine(plannedMinutes(tasks), usual), nextReminder].filter(Boolean).join(" · ");
 }

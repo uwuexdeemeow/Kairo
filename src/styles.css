@@ -3428,9 +3428,9 @@ select,
 
 /* Home's Today: what's due, each a way into Ledger, and the next reminder. */
 /* Not ".today": Chrono's charts mark today's column with that. */
+/* The page's width, so its rows end where the tabs above and the rule below do. */
 .dash-today {
   margin-top: 24px;
-  max-width: 640px;
 }
 
 .today-list {
@@ -3538,6 +3538,14 @@ select,
 .plan-day {
   min-height: 34px;
   font-size: 13px;
+}
+
+/* With something overdue, a button of the usual size under the day's line. */
+.btn.plan-day {
+  display: block;
+  margin-top: 12px;
+  min-height: 36px;
+  font-size: 14px;
 }
 
 /* The apps that keep count: a chip each, its name the way in and today's line beside it. */
