@@ -1879,12 +1879,23 @@ html.palette-root {
   margin-bottom: 10px;
 }
 
+/* A switch as Kairo's others are: the 16px box in the app's ink, a row tall enough to hit. */
 .pomodoro-switch {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: 32px;
   font-size: 13px;
-  color: var(--faint);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pomodoro-switch input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--app);
 }
 
 .pomodoro-lengths input[type="number"] {
