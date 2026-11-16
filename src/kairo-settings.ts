@@ -443,6 +443,7 @@ export function wireKairoSettings(): void {
   saves("#palette-search-files", (on) => api.setPaletteSearchFiles(on));
   saves("#palette-moment-titles", (on) => api.setPaletteMomentTitles(on));
   saves("#clipboard-history", (on) => api.setClipboardHistory(on));
+  saves("#capture-quick", (on) => api.setCaptureQuick(on));
 
   // The theme shows at once; whether it was kept is said beside it, as the switches do.
   $<HTMLSelectElement>("#appearance").addEventListener("change", async (e) => {
@@ -638,6 +639,7 @@ export async function loadKairoSettings(): Promise<void> {
     fill("#capture-keys", async () => {
       const keys = await api.captureShortcut();
       showShortcut(CAPTURE, keys);
+      $<HTMLInputElement>("#capture-quick").checked = await api.captureQuick();
       // Linux keeps its note: Wayland's way in stands whether or not keys are set.
       if (!IS_LINUX && recording !== CAPTURE) {
         $(CAPTURE.note).textContent = keys ? "Works from any window, even with Kairo's windows closed." : "Set keys to capture from any window. Without them, type capture in the palette.";

@@ -56,6 +56,11 @@ impl Active {
         self.label.as_deref()
     }
 
+    /// The task it was started on, by id.
+    pub fn task(&self) -> Option<&str> {
+        self.task.as_deref()
+    }
+
     pub fn is_paused(&self) -> bool {
         self.paused_at.is_some()
     }

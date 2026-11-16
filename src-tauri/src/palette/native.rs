@@ -119,6 +119,8 @@ pub(crate) struct Theme {
     pub(crate) light: bool,
     pub(crate) bg: u32,
     pub(crate) ink: u32,
+    /// The second text ink: a selected row's second line, which muted can't hold 4.5:1 on.
+    pub(crate) ink_2: u32,
     pub(crate) muted: u32,
     pub(crate) rule: u32,
     pub(crate) line: u32,
@@ -137,6 +139,7 @@ const DARK: Theme = Theme {
     light: false,
     bg: 0x141a24,
     ink: 0xe3e7ee,
+    ink_2: 0xc4cbd6,
     muted: 0x97a1b2,
     rule: 0x232c3d,
     line: 0x33405a,
@@ -153,6 +156,7 @@ const LIGHT: Theme = Theme {
     light: true,
     bg: 0xf4efe6,
     ink: 0x2b2622,
+    ink_2: 0x4a423b,
     muted: 0x5e544a,
     rule: 0xe3d9c9,
     line: 0xd3c7b3,
@@ -191,7 +195,7 @@ fn v(x: f32, y: f32) -> Vector2 {
 pub(crate) fn theme_for(mode: &str) -> Theme {
     let ground = crate::appearance::ground_of(mode).unwrap_or_else(|| crate::appearance::system_ground(platform_prefers_light()));
     let base = if ground.light { LIGHT } else { DARK };
-    Theme { bg: ground.bg, raised: ground.raised, ink: ground.ink, muted: ground.muted, rule: ground.rule, line: ground.line, ..base }
+    Theme { bg: ground.bg, raised: ground.raised, ink: ground.ink, ink_2: ground.ink_2, muted: ground.muted, rule: ground.rule, line: ground.line, ..base }
 }
 
 fn platform_prefers_light() -> bool {
@@ -1836,11 +1840,15 @@ impl Palette {
     fn draw_day(&self, rt: &ID2D1RenderTarget, p: &DayGlance) -> Result<()> {
         let t = self.theme;
         self.card(rt, DAY_CARD_H)?;
-        let stats = [
+        let mut stats = vec![
             ("On screen", fmt_dur(p.active_ms)),
             ("Productive", format!("{}%", p.productive_pct)),
             ("Focus sessions", if p.focus_count > 0 { format!("{} · {}", p.focus_count, fmt_dur(p.focus_ms)) } else { "0".into() }),
         ];
+        // Ledger's side of the day, as on the web: only on a day something was ticked off.
+        if p.tasks_done > 0 {
+            stats.push(("Tasks done", p.tasks_done.to_string()));
+        }
         let mut x = 26.0;
         for (name, value) in stats {
             self.text(rt, name, &self.formats.stat_label, x, HEADER + 22.0, 200.0, t.muted, &[], false)?;
@@ -1889,7 +1897,9 @@ impl Palette {
         match &item.sub {
             Some(sub) => {
                 self.text(rt, &item.title, &self.formats.title, x, mid - 18.0, right - x, ink, &item.at, false)?;
-                self.text(rt, sub, &self.formats.sub, x, mid + 1.0, right - x, t.muted, &[], false)?;
+                // On the selected row's tint muted falls under 4.5:1 on the dark grounds; as on the web.
+                let sub_ink = if selected { t.ink_2 } else { t.muted };
+                self.text(rt, sub, &self.formats.sub, x, mid + 1.0, right - x, sub_ink, &[], false)?;
             }
             None => {
                 self.text(rt, &item.title, &self.formats.title, x, mid - 9.5, right - x, ink, &item.at, false)?;

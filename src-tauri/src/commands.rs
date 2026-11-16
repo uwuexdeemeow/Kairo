@@ -287,11 +287,19 @@ pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: 
 
 /// As `add_task_from`, due on `day` ("2026-11-07") when the text names no day of its own.
 pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &str, day: Option<&str>) -> CmdResult<Vec<tasks::Task>> {
+    add_quick(conn, text, day)?;
+    tasks_changed(app, conn)
+}
+
+/// Adds a task from quick-add text and shares its plan and the rest, without telling the windows
+/// (`tasks_changed` does): the task made, or None for text with no title.
+pub(crate) fn add_quick(conn: &rusqlite::Connection, text: &str, day: Option<&str>) -> CmdResult<Option<tasks::Task>> {
     let mut q = quick(text);
     if q.due.is_none() {
         q.due = day.filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()).map(String::from);
     }
-    if let Some(t) = tasks::add(conn, &q.title, now_ms()).map_err(err)? {
+    let added = tasks::add(conn, &q.title, now_ms()).map_err(err)?;
+    if let Some(t) = &added {
         if q.due.is_some() || q.priority.is_some() {
             tasks::set_plan(conn, &t.id, q.due.as_deref(), q.priority.unwrap_or(tasks::MEDIUM), None).map_err(err)?;
             plan_changed(conn, &t.id)?;
@@ -312,7 +320,7 @@ pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &s
             more_changed(conn, &t.id)?;
         }
     }
-    tasks_changed(app, conn)
+    Ok(added)
 }
 
 #[tauri::command]
@@ -443,6 +451,19 @@ pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
 pub fn capture_shortcut(state: State<AppState>) -> CmdResult<String> {
     let conn = state.db.lock().map_err(err)?;
     crate::capture::shortcut(&conn).map_err(err)
+}
+
+/// Whether a captured line is read as quick-add text.
+#[tauri::command]
+pub fn capture_quick(state: State<AppState>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::quick(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_capture_quick(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::set_quick(&conn, on).map_err(err)
 }
 
 /// Sets capture's keys, or with "" takes them away; returns them as they now are.

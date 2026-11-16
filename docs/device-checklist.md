@@ -900,9 +900,11 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    3:45 pm", and up to four stretches, newest first, each with its day and time and how long; a
    minute of glancing isn't counted as a use. Window titles show only with the setting on.
 3. **Not a search.** `last week`, `last tue`, `recapping` and plain app names don't give these rows.
+   **Long ago.** Ask about an app last used more than 30 days back. *Expect:* its row and card, with
+   its last use months ago; `<that app> this week` still offers nothing for it.
 4. **Tasks done.** Tick off two tasks in Ledger, then type `recap`. *Expect (macOS, Linux):* the card
    adds "Tasks done 2"; `how was` a day with none ticked off shows no Tasks done. *Windows:* the
-   native palette doesn't show it yet.
+   same in the native palette; check the four stats fit across the card.
 
 ## Any system: capture
 
@@ -925,6 +927,12 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    Enter keeps the clipboard as above. With nothing copied, the row says so.
 8. **Turn off.** *Expect:* "No keys" again, the keys back to other apps, and Set keys focused.
 9. **Linux on Wayland.** Add a desktop shortcut that runs `kairo --capture`. *Expect:* as 3 and 4.
+10. **As typed.** Turn on "Read a copied line as I'd type it in Ledger", copy "Call Leo tomorrow
+    !high" and capture it. *Expect:* "Call Leo", due tomorrow, high priority. Off again, the same
+    copy is kept word for word.
+11. **During focus.** Start a focus session on a task with no note, copy a paragraph and capture it.
+    *Expect:* "Saved as a note" with ", on “<task>”"; the task shows the note. A second paragraph is
+    a note of its own; the task keeps the first.
 
 ## Ledger: the Plan nudge
 

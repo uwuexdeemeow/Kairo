@@ -13,6 +13,7 @@ use tauri::AppHandle;
 use crate::db;
 
 const SHORTCUT_KEY: &str = "capture_shortcut";
+const QUICK_KEY: &str = "capture_quick";
 /// The longest single line kept as a task; a longer one is a note. A task's title is cut there.
 const TASK_CHARS: usize = 80;
 
@@ -42,14 +43,30 @@ pub struct Kept {
     pub opens: String,
 }
 
+/// Whether a copied line is read as Ledger's quick-add reads what's typed ("Call Leo tomorrow
+/// !high" due tomorrow, high); off unless turned on, so copied words stay as they were.
+pub fn quick(conn: &Connection) -> Result<bool> {
+    Ok(db::get_setting(conn, QUICK_KEY)?.as_deref() == Some("1"))
+}
+
+pub fn set_quick(conn: &Connection, on: bool) -> Result<()> {
+    db::set_setting(conn, QUICK_KEY, if on { "1" } else { "0" })
+}
+
 /// Keeps `text` in Ledger as a task or a note, and says so; tells others (Ledger's window, other
-/// computers) through the same paths as adding one by hand.
+/// computers) through the same paths as adding one by hand. A note kept during a focus session on
+/// a task goes on that task, unless it already has one.
 pub fn keep(app: Option<&AppHandle>, conn: &Connection, text: &str, now: i64) -> std::result::Result<Kept, String> {
+    const NOTHING: &str = "Nothing to capture: copy some text first.";
     match kind_of(text) {
-        None => Err("Nothing to capture: copy some text first.".into()),
+        None => Err(NOTHING.into()),
         Some(Kind::Task(title)) => {
-            // Taken as it is: copied words aren't quick-add text, so "tomorrow" in them stays a word.
-            let task = crate::tasks::add(conn, &title, now).map_err(|e| e.to_string())?.ok_or("Nothing to capture: copy some text first.")?;
+            let task = if quick(conn).map_err(|e| e.to_string())? {
+                crate::commands::add_quick(conn, &title, None)?
+            } else {
+                crate::tasks::add(conn, &title, now).map_err(|e| e.to_string())?
+            }
+            .ok_or(NOTHING)?;
             if let Some(app) = app {
                 crate::commands::tasks_changed(app, conn)?;
             }
@@ -57,12 +74,34 @@ pub fn keep(app: Option<&AppHandle>, conn: &Connection, text: &str, now: i64) ->
         }
         Some(Kind::Note(body)) => {
             let note = crate::notebook::create(conn, &body, now).map_err(|e| e.to_string())?;
+            let on = focused_task(conn).map_err(|e| e.to_string())?;
+            if let Some((task, _)) = &on {
+                crate::tasks::set_note(conn, task, Some(&note.id)).map_err(|e| e.to_string())?;
+                crate::sync::record(conn, &format!("tasknote:{task}"), &note.id)?;
+            }
             if let Some(app) = app {
                 crate::note_window::changed(app, &note.id, "capture", false);
+                if on.is_some() {
+                    crate::commands::tasks_changed(app, conn)?;
+                }
             }
-            Ok(Kept { title: "Saved as a note".into(), body: note.title, opens: format!("note:{}", note.id) })
+            let body = match on {
+                Some((_, name)) => format!("{}, on “{name}”", note.title),
+                None => note.title,
+            };
+            Ok(Kept { title: "Saved as a note".into(), body, opens: format!("note:{}", note.id) })
         }
     }
+}
+
+/// The task the running focus session is on, by id and title, when it has no note yet: one it
+/// already has isn't swapped for what was copied.
+fn focused_task(conn: &Connection) -> Result<Option<(String, String)>> {
+    let Some(task) = crate::focus::active(conn)?.and_then(|a| a.task().map(str::to_string)) else { return Ok(None) };
+    if crate::tasks::note_of(conn, &task)?.is_some() {
+        return Ok(None);
+    }
+    Ok(crate::tasks::title(conn, &task)?.map(|title| (task, title)))
 }
 
 /// Reads the clipboard's text and keeps it, from the shortcut or `--capture`: the outcome is said
@@ -208,6 +247,36 @@ mod tests {
         assert_eq!(crate::notebook::get(&c, id).unwrap().unwrap().body, "Meeting notes\n- ship Friday\n- ask Marta");
 
         assert_eq!(keep(None, &c, "   ", 1_000), Err("Nothing to capture: copy some text first.".into()));
+    }
+
+    #[test]
+    fn with_quick_add_on_a_line_is_read_as_typed_into_ledger() {
+        let c = conn();
+        set_quick(&c, true).unwrap();
+        let kept = keep(None, &c, "Book the dentist tomorrow !high", 1_000).unwrap();
+        assert_eq!(kept.body, "Book the dentist");
+        let t = &crate::tasks::list(&c, 2_000, &crate::tasks::today()).unwrap()[0];
+        let tomorrow = (chrono::Local::now().date_naive() + chrono::Duration::days(1)).format("%Y-%m-%d").to_string();
+        assert_eq!((t.due_day.as_deref(), t.priority), (Some(tomorrow.as_str()), crate::tasks::HIGH));
+        set_quick(&c, false).unwrap();
+        assert!(!quick(&c).unwrap());
+    }
+
+    #[test]
+    fn a_note_kept_during_focus_on_a_task_goes_on_that_task_unless_it_has_one() {
+        let c = conn();
+        let essay = crate::tasks::add(&c, "Essay", 1).unwrap().unwrap();
+        crate::focus::start_by_hand(&c, 25, None, Some(&essay.id), 1_000).unwrap();
+        let first = keep(None, &c, "Sources\n- Smith 2019\n- Lee 2021", 2_000).unwrap();
+        assert_eq!(first.body, "Sources, on “Essay”");
+        let id = first.opens.strip_prefix("note:").unwrap().to_string();
+        assert_eq!(crate::tasks::note_of(&c, &essay.id).unwrap().as_deref(), Some(id.as_str()));
+        // Its note stays: a second copy is a note of its own.
+        let second = keep(None, &c, "More\nthoughts", 3_000).unwrap();
+        assert_eq!(second.body, "More");
+        assert_eq!(crate::tasks::note_of(&c, &essay.id).unwrap().as_deref(), Some(id.as_str()));
+        // A line is still a task of its own, not put on the one in focus.
+        assert_eq!(keep(None, &c, "Email Lee", 4_000).unwrap().title, "Added to Ledger");
     }
 
     #[test]
