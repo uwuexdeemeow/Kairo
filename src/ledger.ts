@@ -7,7 +7,7 @@ import { mountDone, type DoneView } from "./ledger-done";
 import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
 import { dayHours, USUAL_DAY, type Hours } from "./ledger-free";
-import { mountPlan, planTitle, type PlanView } from "./ledger-plan";
+import { mountPlan, movedSaid, planTitle, type PlanView } from "./ledger-plan";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -171,10 +171,24 @@ function drawPlan() {
   planView ??= mountPlan(
     $("#view-plan"),
     {
+      // A move is made at once, and Undo (or Ctrl+Z) puts the task back where it was.
       move: (id, due, remind) =>
         void tried("move it", async () => {
           const t = tasks.find((x) => x.id === id);
-          if (t) draw(await api.setTaskPlan(id, due, t.priority, remind));
+          if (!t) return;
+          const was = { due: t.dueDay, remind: t.remindMs };
+          draw(await api.setTaskPlan(id, due, t.priority, remind));
+          taskUndo.offer({
+            what: t.title,
+            said: movedSaid(t.title, was.due, due, remind),
+            finish: () => {},
+            undo: () =>
+              void tried("move it back", async () => {
+                const now = tasks.find((x) => x.id === id);
+                draw(await api.setTaskPlan(id, was.due, now?.priority ?? t.priority, was.remind));
+              }),
+            focusAfter: () => document.querySelector<HTMLElement>(`#view-plan [data-task="${id}"] .plan-title`) ?? document.querySelector<HTMLElement>("#view-plan .plan-title"),
+          });
         }),
       done: (id, done) => void actions.done(id, done),
       openTask: (id) => openTask(id),
