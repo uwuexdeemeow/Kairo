@@ -5933,7 +5933,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   flex-direction: column;
   gap: 14px;
   padding: 18px 20px 20px;
-  border: 1px dashed var(--rule);
+  border: 1px solid var(--rule);
   border-radius: 12px;
 }
 
