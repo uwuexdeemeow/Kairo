@@ -1195,9 +1195,10 @@ html.palette-root {
   align-items: end;
 }
 
+/* Plain days in the controls' edge, which holds 3:1 on the card; over the limit, distracting. */
 .palette-bar {
   border-radius: 3px;
-  background: var(--neutral);
+  background: var(--edge);
 }
 
 .palette-bar.over {
@@ -1212,7 +1213,7 @@ html.palette-root {
   position: absolute;
   left: 0;
   right: 0;
-  border-top: 1px dashed var(--neutral);
+  border-top: 1px dashed var(--edge);
 }
 
 .palette-bar-labels {

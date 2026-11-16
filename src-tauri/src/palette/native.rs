@@ -1763,7 +1763,8 @@ impl Palette {
             let hex = if bar.over {
                 t.distracting
             } else if bar.ms > 0 {
-                t.neutral
+                // The controls' edge, as the web's, holding 3:1 on the card.
+                t.edge
             } else {
                 t.line
             };
@@ -1777,7 +1778,7 @@ impl Palette {
         }
         if let Some(limit) = a.limit_ms {
             let y = (floor - limit as f32 / most * height).round() + 0.5;
-            unsafe { rt.DrawLine(v(left, y), v(right, y), &self.brush(rt, t.neutral, 1.0)?, 1.0, &self.dash) };
+            unsafe { rt.DrawLine(v(left, y), v(right, y), &self.brush(rt, t.edge, 1.0)?, 1.0, &self.dash) };
         }
 
         self.text(rt, &a.note, &self.formats.chip, x, top + 152.0, W - 2.0 * x, t.muted, &[], false)?;

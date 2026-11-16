@@ -584,6 +584,14 @@ describe("a time chart", () => {
     expect($("#palette-said").textContent).toBe("");
   });
 
+  it("says a focus plan as it shows, with what starting it would end", async () => {
+    api.paletteCard.mockResolvedValue({ kind: "focus", title: "Focus 50 minutes on “essay”", sub: "ends at 4:20 pm", blocking: "Distracting apps and sites", launchers: "Closed", strict: "Off", replaces: true });
+    await open(results(1, [item("Plain"), item("Start a 50-minute focus session", { preview: true })]));
+    expect($("#palette-said").textContent).toBe("");
+    key("ArrowDown");
+    await vi.waitFor(() => expect($("#palette-said").textContent).toBe("Focus 50 minutes on “essay”, ends at 4:20 pm. Blocking: Distracting apps and sites. Launchers: Closed. Strict mode: Off. Starting it ends the session that's running."));
+  });
+
   it("says a chart asked for with its total and change", async () => {
     api.paletteCard.mockResolvedValue({ ...card, change: "−1h 30m vs last week" });
     await open(results(1, [answer]));

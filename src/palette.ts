@@ -283,6 +283,9 @@ export function cardSaid(card: PaletteCard): string {
     const head = card.sub ? `${card.title}, ${card.sub}` : card.title;
     return line ? `${head}: ${line.what}, ${line.when}.${card.note ? ` ${card.note}` : ""}` : `${head}.${card.note ? ` ${card.note}` : ""}`;
   }
+  if (card.kind === "focus") {
+    return `${card.title}, ${card.sub}. Blocking: ${card.blocking}. Launchers: ${card.launchers}. Strict mode: ${card.strict}.${card.replaces ? " Starting it ends the session that's running." : ""}`;
+  }
   return "";
 }
 
@@ -343,7 +346,7 @@ function answerCard(a: Extract<PaletteCard, { kind: "answer" }>): Node[] {
   const tone = a.better === true ? " good" : a.better === false ? " worse" : "";
   const total = h("div", { class: "palette-total" }, h("strong", {}, fmtDur(a.totalMs)), ...(a.change ? [h("span", { class: `palette-change${tone}` }, a.change)] : []));
   const most = Math.max(1, ...a.bars.map((b) => b.ms), a.limitMs ? a.limitMs * 1.2 : 0);
-  const described = a.bars.map((b) => `${b.label || "·"} ${fmtDur(b.ms)}`).join(", ");
+  const described = a.bars.map((b) => `${b.label || "·"} ${fmtDur(b.ms)}${b.over ? ", over the limit" : ""}`).join(", ");
   const columns = `repeat(${a.bars.length}, minmax(0, 1fr))`;
   const bars = h("div", { class: `palette-bars${a.bars.length > 7 ? " dense" : ""}`, role: "img", "aria-label": `${a.title}: ${described}` });
   const labels = h("div", { class: `palette-bar-labels${a.bars.length > 7 ? " dense" : ""}`, "aria-hidden": "true" });
@@ -360,7 +363,7 @@ function answerCard(a: Extract<PaletteCard, { kind: "answer" }>): Node[] {
     bars.append(line);
   }
   const chart = h("div", { class: "palette-chart" }, bars, labels);
-  return [head, h("div", { class: "palette-answer-body" }, total, chart), h("p", { class: "palette-note" }, a.note)];
+  return [head, h("div", { class: "palette-answer-body" }, total, chart), h("p", { class: "palette-note", title: a.note }, a.note)];
 }
 
 /// What was on screen around a moment: the stretch it fell in, marked, among its neighbours.
@@ -368,7 +371,7 @@ function momentCard(m: Extract<PaletteCard, { kind: "moment" }>): Node[] {
   const head = h("div", { class: "palette-answer-head" }, strokeIcon("search", "accent"), h("span", { class: "palette-text" }, h("span", { class: "palette-title" }, m.title), m.sub ? h("span", { class: "palette-sub" }, m.sub) : ""));
   const lines = m.lines.map((l) => h("li", { class: l.here ? "palette-moment-line here" : "palette-moment-line", ...(l.here ? { "aria-current": "time" } : {}) }, h("span", { class: "when" }, l.when), h("span", { class: "what", title: l.what }, l.what), h("span", { class: "detail", title: l.detail }, l.detail)));
   const out: Node[] = [head, h("ul", { class: "palette-moment" }, ...lines)];
-  if (m.note) out.push(h("p", { class: "palette-note" }, m.note));
+  if (m.note) out.push(h("p", { class: "palette-note", title: m.note }, m.note));
   return out;
 }
 
@@ -398,7 +401,9 @@ async function renderPreview() {
   box.className = `palette-preview ${card.kind}`;
   box.replaceChildren(...(card.kind === "day" ? dayCard(card) : card.kind === "answer" ? answerCard(card) : card.kind === "moment" ? momentCard(card) : focusCard(card)));
   box.hidden = false;
-  if (asked === selected) $("#palette-said").textContent = cardSaid(card);
+  // A focus plan is said as it shows, before Enter starts it: it can end the session running.
+  // A day's glance stays quiet, coming and going as the rows are passed over.
+  if (asked === selected || card.kind === "focus") $("#palette-said").textContent = cardSaid(card);
   loadIcons();
   fit();
 }
