@@ -24,7 +24,7 @@ export function renderTaskPicker(root: HTMLElement, tasks: Task[], session: Runn
     parts.push(h("p", { class: "muted" }, "Add tasks in Ledger, then start a focus session on one here."));
   } else if (!session) {
     const pick = h("select", { "aria-label": "Focus on a task" }, ...open.map((t) => h("option", { value: t.id }, t.title))) as HTMLSelectElement;
-    const start = h("button", { class: "btn task-start" }, "Start focus");
+    const start = h("button", { class: "btn task-start" }, "Focus on this task");
     start.addEventListener("click", () => act.start(pick.value));
     parts.push(h("div", { class: "row-buttons" }, pick, start));
   }

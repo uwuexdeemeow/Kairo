@@ -765,7 +765,8 @@ h2 {
   height: 160px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--rule);
+  /* Fainter than the rule, so a day's grey neutral time doesn't read as empty track. */
+  background: color-mix(in srgb, var(--rule) 45%, transparent);
 }
 
 .wk-part {
@@ -3350,6 +3351,10 @@ select,
   .wrap {
     padding: 28px 28px 56px;
   }
+  /* DESIGN.md's narrow title, from the smallest window up: "How Chrono sorts your time" fits. */
+  h1 {
+    font-size: 34px;
+  }
 }
 
 /* Too narrow for a column: the sidebar becomes a bar that sticks to the top. */
@@ -3891,6 +3896,27 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   background: color-mix(in srgb, var(--raised) 94%, var(--ink));
 }
 
+/* The calendar's day ticks a task as the list does: a ring in Ledger's ink. */
+.cal-tick {
+  flex: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--edge);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cal-tick:hover {
+  border-color: var(--ledger);
+}
+
+.cal-tick:checked {
+  border-color: var(--ledger);
+  background: radial-gradient(circle, var(--ledger) 0 4px, transparent 4.5px);
+}
+
 .task-card > input[type="checkbox"] {
   grid-column: 1;
   appearance: none;
@@ -3981,6 +4007,12 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .task-start:focus-visible {
   border-color: var(--edge);
   color: var(--ledger);
+  opacity: 1;
+}
+
+/* Start comes forward with its task: the same "▶ 25m" down every row is only noise at rest. */
+.task-start {
+  opacity: 0;
 }
 
 /* On paper Ledger's ink is deepened with the text ink, as for what's shown, to stay above 4.5:1. */
@@ -3990,10 +4022,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: color-mix(in srgb, var(--ledger) 65%, var(--ink));
 }
 
-/* A touch screen has no pointer to reveal the edge: it's always there. */
+/* A touch screen has no pointer to reveal the edge or the button: they're always there. */
 @media (hover: none) {
   .task-start {
     border-color: var(--edge);
+    opacity: 1;
   }
 }
 
@@ -4383,6 +4416,21 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
+}
+
+/* The rows are for screen readers; the cells lay out in the month's grid as before. */
+.cal-row {
+  display: contents;
+}
+
+/* The month as a title, as Ledger's other heads are, not in a label's capitals. */
+.ledger-calendar .cal-title {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
 }
 
 .cal-name {
@@ -5602,9 +5650,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   filter: drop-shadow(0 10px 18px var(--shadow));
 }
 
+/* Each segment's outline in the controls' edge, so it holds 3:1 where it's faded out. */
 .ring-seg {
   fill: var(--raised);
-  stroke: var(--line);
+  stroke: var(--edge);
   stroke-width: 1.5;
   transition: opacity 140ms var(--ease);
 }
@@ -5892,7 +5941,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   flex-direction: column;
   gap: 14px;
   padding: 18px 20px 20px;
-  border: 1px dashed var(--rule);
+  border: 1px solid var(--rule);
   border-radius: 12px;
 }
 
@@ -6428,8 +6477,30 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 12px;
 }
 
+/* Its parts apart by space rather than dots (the links are underlined), so a narrow window
+   breaks between them and no dot is left at either end of a line. */
 .scan-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 14px;
   font-size: 12px;
+}
+
+/* The advice and the engines' names start where the count does, beside the stamp. */
+.scan-advice,
+.scan-names {
+  padding-left: 32px;
+}
+
+.scan-result.lead .scan-advice,
+.scan-result.lead .scan-names {
+  padding-left: 38px;
+}
+
+/* An empty Check: the field's edge says so too. */
+.scan-query[aria-invalid="true"] {
+  border-color: var(--distracting-ink);
 }
 
 /* The verdict carries the colour, in an ink that reads as text: any engine calling it malicious,
@@ -6560,6 +6631,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .speed-dial {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 2px;
   padding: 12px 14px;
   border: 1px solid var(--rule);
@@ -6568,9 +6640,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   transition: border-color 140ms var(--ease);
 }
 
-/* The direction being measured now. */
+/* The direction being measured now, in the window's own ink. */
 .speed-dial.live {
-  border-color: var(--chrono);
+  border-color: var(--app);
 }
 
 .speed-label {
@@ -6578,9 +6650,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 12px;
 }
 
+/* Down to 40px in the narrowest window, so "1250" stays inside its card. */
 .speed-figure {
   font-family: var(--display);
-  font-size: 48px;
+  font-size: clamp(36px, 12.5vw, 48px);
   font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -6594,8 +6667,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   margin: 0;
 }
 
+/* Ping and the server keep their line before they're known, so nothing jumps when they arrive. */
 .speed-ping {
   font-variant-numeric: tabular-nums;
+}
+
+.speed-ping,
+.speed-server {
+  min-height: 1.5em;
 }
 
 .speed-status {
@@ -6717,13 +6796,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   width: min(220px, 100%);
 }
 
+/* A day's heading in the label style, as Tasks' groups are. */
 .done-day {
   margin: 20px 0 8px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
 }
 
 .done-row {
@@ -6746,15 +6826,17 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: inherit;
   font: inherit;
   text-align: left;
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* Everything here is done: a line through each would only make it harder to read. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
 
+/* At the row's end, after Reopen and Delete, which keep their place unseen until wanted:
+   the meta stays put rather than floating where they'd be. */
 .done-meta {
+  order: 3;
   font-size: 12px;
   white-space: nowrap;
 }
@@ -7325,6 +7407,11 @@ summary:focus-visible {
 /* The week's three figures lead; the rest follow smaller. */
 .stats-lead dd {
   font-size: 28px;
+}
+
+/* The change beside a lead figure is the stats' usual size, not the figure's. */
+.stats-lead dd span {
+  font-size: 18px;
 }
 
 .stats-minor {

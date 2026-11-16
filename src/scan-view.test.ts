@@ -150,7 +150,7 @@ describe("the scan window", () => {
     const scan = await mountScan(root, act);
     for (let i = 0; i < 12; i++) scan.check(`https://site${i}.example`);
     // Four a minute: the rest wait their turn, kept on the list until they're done.
-    await vi.waitFor(() => expect(root.textContent).toContain("Waiting its turn under VirusTotal's free limit"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Queued: free limit of 4 a minute"));
     expect(act.check).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(act.check).toHaveBeenCalledTimes(12);
@@ -234,8 +234,12 @@ describe("the scan window", () => {
 
   it("says when there's nothing to check, and names its results for screen readers", async () => {
     await mountScan(root, act);
+    // The field has the keyboard as the window opens.
+    expect(document.activeElement).toBe(field());
     checkTyped("   ");
     expect(field().getAttribute("aria-invalid")).toBe("true");
+    // Said in the field too, for those who see it, until something's typed.
+    expect(field().placeholder).toBe("Paste a link or a hash first");
     expect(root.querySelector(".sr-only[aria-live]")!.textContent).toBe("Paste a link or a hash first.");
     expect(act.check).not.toHaveBeenCalled();
     expect(root.querySelector("h1")!.textContent).toBe("Check a file or link with VirusTotal");

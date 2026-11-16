@@ -120,25 +120,38 @@ describe("the notes list", () => {
 describe("with no note open", () => {
   const cards = () => [...root.querySelectorAll(".note-pane .notes-recent-card strong")].map((c) => c.textContent);
 
+  // More than the list shows at a glance, so the pane offers the latest.
+  const many = () => [
+    note("a", "# Old\nfirst", { editedMs: NOW - 4000 }),
+    note("b", "# Newest\nsecond", { editedMs: NOW }),
+    note("c", "# Middle\nthird", { editedMs: NOW - 2000 }),
+    note("d", "# Older\nfourth", { editedMs: NOW - 3000 }),
+    note("e", "# Oldest\nfifth", { editedMs: NOW - 5000 }),
+    note("f", "# Ancient\nsixth", { editedMs: NOW - 6000 }),
+  ];
+
   it("offers the three notes edited last, newest first", async () => {
-    notes = [
-      note("a", "# Old\nfirst", { editedMs: NOW - 4000 }),
-      note("b", "# Newest\nsecond", { editedMs: NOW }),
-      note("c", "# Middle\nthird", { editedMs: NOW - 2000 }),
-      note("d", "# Older\nfourth", { editedMs: NOW - 3000 }),
-    ];
+    notes = many();
     mountNotes(root, act, () => NOW);
     await vi.waitFor(() => expect(cards()).toEqual(["Newest", "Middle", "Older"]));
     expect(root.querySelector(".note-pane")!.textContent).toContain("Pick up where you left off");
     expect(root.querySelector('.notes-recent-card[data-note="b"] .notes-recent-preview')!.textContent).toBe("second");
   });
 
-  it("opens a note from its card", async () => {
+  it("with a few notes, which the list shows, offers no cards, only the tips", async () => {
     mountNotes(root, act, () => NOW);
     await settle();
-    await vi.waitFor(() => expect(cards().length).toBe(2));
+    await vi.waitFor(() => expect(root.querySelector(".note-pane .notes-recent-tip")).not.toBeNull());
+    expect(cards()).toEqual([]);
+  });
+
+  it("opens a note from its card", async () => {
+    notes = many();
+    mountNotes(root, act, () => NOW);
+    await settle();
+    await vi.waitFor(() => expect(cards().length).toBe(3));
     root.querySelector<HTMLButtonElement>('.notes-recent-card[data-note="b"]')!.click();
-    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("Shopping"));
+    await vi.waitFor(() => expect(root.querySelector<HTMLTextAreaElement>(".note-pane textarea")?.value).toBe("# Newest\nsecond"));
     expect(root.querySelector(".notes-recent")).toBeNull();
   });
 
@@ -165,7 +178,7 @@ describe("with no note open", () => {
 
 describe("the notes as cards", () => {
   it("previews the text after the title, without its marks", () => {
-    expect(notePreview("# Essay plan\n\n- [x] pick a topic\n- [ ] **outline** the `three` parts")).toBe("pick a topic outline the three parts");
+    expect(notePreview("# Essay plan\n\n- [x] pick a topic\n- [ ] **outline** the `three` parts")).toBe("pick a topic · outline the three parts");
     expect(notePreview("Shopping")).toBe("");
     expect(notePreview("\n\nTitle\n[the brief](https://x.y) and *more*")).toBe("the brief and more");
   });

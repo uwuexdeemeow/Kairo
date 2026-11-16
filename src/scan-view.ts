@@ -102,7 +102,7 @@ export const clock = (ms: number) => {
 /// What a scan going on says: how long so far, and that it's taking a while past a minute and a half.
 const scanningText = (since: number, now: number) =>
   now - since >= SLOW_MS ? `Taking longer than usual. Kairo keeps checking. ${clock(now - since)}` : `Scanning on VirusTotal… ${clock(now - since)}`;
-const waitingText = (until: number, now: number) => `Waiting its turn under VirusTotal's free limit… ${clock(until - now + 999)}`;
+const waitingText = (until: number, now: number) => `Queued: free limit of 4 a minute… ${clock(until - now + 999)}`;
 
 /// The errors that mean the key, which only settings can fix.
 const aboutKey = (why: string) => /settings/i.test(why);
@@ -188,6 +188,9 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       ...body,
     );
   };
+  /// A result's foot: its parts in a line, spaced apart, so a narrow window breaks between parts
+  /// and never splits a link.
+  const foot = (...parts: (Node | string)[]) => h("p", { class: "scan-foot muted" }, ...parts.map((p) => h("span", { class: "scan-foot-part" }, p)));
   const button = (cls: string, text: string, then: () => void) => {
     const b = h("button", { class: `link-btn ${cls}` }, text);
     b.addEventListener("click", then);
@@ -202,9 +205,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       const tools: Node[] = [];
       if (e.ask) tools.push(button("scan-retry", "Try again", () => void run(e, e.ask!)));
       if (aboutKey(s.why)) tools.push(button("scan-settings-link", "Open Kairo's settings", () => act.openSettings()));
-      // Separated as the verdict's own links are.
-      const foot = tools.flatMap((t, i) => (i ? [" · ", t] : [t]));
-      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(foot.length ? [h("p", { class: "scan-foot" }, ...foot)] : []));
+      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(tools.length ? [foot(...tools)] : []));
     }
     if (s.kind === "skipped") return card(e, "", h("p", { class: "muted" }, "Not uploaded."));
     if (s.kind === "stopped") {
@@ -248,7 +249,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     const report = h("button", { class: "link-btn scan-report" }, "Full report", h("span", { "aria-hidden": "true" }, " ↗"));
     report.addEventListener("click", () => act.openReport(a.link));
     const again = button("scan-rescan", "Scan again", () => void run(e, () => act.rescan(a.then)));
-    parts.push(h("p", { class: "scan-foot muted" }, ...(a.lastMs ? [`Last scanned ${day(a.lastMs)} · `] : []), report, " · ", again));
+    parts.push(foot(...(a.lastMs ? [`Last scanned ${day(a.lastMs)}`] : []), report, again));
     return card(e, v.tone, ...parts);
   };
 
@@ -365,6 +366,8 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       if (key) {
         root.replaceChildren(h("div", { class: "scan" }, title, drop, h("div", { class: "scan-ask" }, query, checkButton), list, said));
         draw();
+        // Pasting is what the window is for: the field has the keyboard as it opens.
+        query.focus();
         return;
       }
       const settings = h("button", { class: "btn primary scan-settings" }, "Open Kairo's settings");
@@ -387,6 +390,9 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     if (!query.value.trim()) {
       // Nothing to check: the field says so, rather than the button doing nothing.
       query.setAttribute("aria-invalid", "true");
+      // Said in the field as well, for those who see it (spaces typed would hide it).
+      query.value = "";
+      query.placeholder = "Paste a link or a hash first";
       said.textContent = "Paste a link or a hash first.";
       query.focus();
       return;
@@ -395,7 +401,10 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     view.check(query.value);
     query.value = "";
   });
-  query.addEventListener("input", () => query.removeAttribute("aria-invalid"));
+  query.addEventListener("input", () => {
+    query.removeAttribute("aria-invalid");
+    query.placeholder = "Paste a link or a hash";
+  });
   query.addEventListener("keydown", (e) => {
     if (e.key === "Enter") checkButton.click();
   });

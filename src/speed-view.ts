@@ -40,18 +40,18 @@ export function figure(mbps: number | null): string {
 }
 
 export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
-  const dial = (cls: string, label: string) => {
+  const dial = (cls: string, arrow: string, label: string) => {
     const fig = h("span", { class: "speed-figure" }, "—");
-    return { box: h("div", { class: `speed-dial ${cls}` }, h("span", { class: "speed-label" }, label), fig, h("span", { class: "speed-unit muted" }, "Mbps")), fig };
+    return { box: h("div", { class: `speed-dial ${cls}` }, h("span", { class: "speed-label" }, h("span", { "aria-hidden": "true" }, `${arrow} `), label), fig, h("span", { class: "speed-unit muted" }, "Mbps")), fig };
   };
-  const down = dial("speed-down", "↓ Download");
-  const up = dial("speed-up", "↑ Upload");
+  const down = dial("speed-down", "↓", "Download");
+  const up = dial("speed-up", "↑", "Upload");
   const ping = h("p", { class: "speed-ping" });
   const server = h("p", { class: "speed-server muted" });
   const status = h("p", { class: "speed-status", "aria-live": "polite" });
   const used = h("span", { class: "speed-used muted" });
   const again = h("button", { class: "btn speed-again" }, "Run again") as HTMLButtonElement;
-  root.replaceChildren(h("div", { class: "speed" }, h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, used)));
+  root.replaceChildren(h("div", { class: "speed" }, h("h1", { class: "sr-only" }, "Speed test"), h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, used)));
 
   const view: SpeedView = {
     update: (p) => {

@@ -174,6 +174,8 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
     },
     PROMPT,
   );
+  // Named by the note it holds, so a screen reader says which one it's in.
+  box.querySelector("textarea")?.setAttribute("aria-label", first.title ? `Note: ${first.title}` : "Note");
   drawFoot();
 
   // The paper is drawn by the stylesheet, on the box around the editor.
