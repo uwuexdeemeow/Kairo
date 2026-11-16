@@ -1753,8 +1753,11 @@ mod linux_tests {
     fn the_process_list_includes_this_test_and_unknown_processes_cant_be_closed() {
         let me = std::process::id();
         assert!(super::processes().iter().any(|(pid, _)| *pid == me));
-        // init belongs to root; nothing else gets to end it.
-        assert!(!super::close_process(1));
+        // init belongs to root; nothing else gets to end it. Run as root (a container, CI), it
+        // could, so it isn't asked: the test mustn't signal init.
+        if unsafe { libc::geteuid() } != 0 {
+            assert!(!super::close_process(1));
+        }
     }
 
     #[test]
