@@ -176,6 +176,15 @@ describe("the popped-out note", () => {
     more.click();
     expect(more.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(menu.querySelector("button"));
+    expect(more.getAttribute("aria-label")).toBe("Window options");
+    // The arrows go from item to item, round from the last to the first.
+    const items = [...menu.querySelectorAll<HTMLButtonElement>("button")];
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[1]);
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[items.length - 1]);
+    menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(items[0]);
     menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     expect(menu.hidden).toBe(true);
     expect(document.activeElement).toBe(more);

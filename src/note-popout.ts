@@ -192,7 +192,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     more.setAttribute("aria-expanded", "false");
     if (focus) more.focus();
   };
-  const more = noteTool("more", "Window", glyph("more"), () => {
+  const more = noteTool("more", "Window options", glyph("more"), () => {
     const open = moreMenu.hidden;
     moreMenu.hidden = !open;
     more.setAttribute("aria-expanded", String(open));
@@ -201,11 +201,25 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   more.setAttribute("aria-expanded", "false");
   more.setAttribute("aria-controls", "popout-more-menu");
   moreMenu.addEventListener("keydown", (e) => {
+    // The arrows go from item to item, as the dropdowns' do; Home and End to either end.
+    const items = [...moreMenu.querySelectorAll<HTMLButtonElement>("button")];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const to = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 } as Record<string, number>)[e.key];
+    if (to !== undefined && items.length) {
+      e.preventDefault();
+      items[(to + items.length) % items.length].focus();
+      return;
+    }
     if (e.key !== "Escape") return;
     // Esc closes the menu here, rather than going back to the list.
     e.preventDefault();
     e.stopPropagation();
     closeMore(true);
+  });
+  // Tabbing away closes it too, rather than leaving it open over the note.
+  moreMenu.addEventListener("focusout", (e) => {
+    const next = e.relatedTarget as Node | null;
+    if (!moreMenu.hidden && next && !moreMenu.contains(next) && next !== more) closeMore();
   });
   document.addEventListener("pointerdown", (e) => {
     if (!moreMenu.hidden && !(e.target as Element).closest?.(".popout-more")) closeMore();

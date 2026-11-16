@@ -514,9 +514,10 @@
               Block distracting apps and sites during focus sessions
             </label>
             <label class="toggle">
-              <input type="checkbox" id="block-launchers" />
-              Close game launchers (Steam, Epic, Riot, Battle.net, EA, Ubisoft, GOG) during focus sessions
+              <input type="checkbox" id="block-launchers" aria-describedby="block-launchers-note" />
+              Close game launchers during focus sessions
             </label>
+            <p class="muted" id="block-launchers-note">Steam, Epic, Riot, Battle.net, EA, Ubisoft and GOG.</p>
             <label class="toggle">
               <input type="checkbox" id="block-strict" />
               Strict mode: ending a session early or allowing something blocked takes a 30-second wait
@@ -550,7 +551,7 @@
             <p class="muted">At most one notification a night, and only while you're at the computer.</p>
             <div class="row-buttons">
               <button class="link-btn" id="nudge-test">Send a test nudge</button>
-              <span class="muted" id="nudge-status"></span>
+              <span class="muted" id="nudge-status" aria-live="polite"></span>
             </div>
           </section>
 
@@ -567,7 +568,7 @@
                 <input type="time" id="evening-time" value="21:00" />
               </label>
               <button class="link-btn" id="evening-test">Send a test summary</button>
-              <span class="muted" id="evening-status"></span>
+              <span class="muted" id="evening-status" aria-live="polite"></span>
             </div>
           </section>
 
@@ -587,7 +588,7 @@
                 </select>
               </label>
               <button class="link-btn" id="retention-apply" hidden></button>
-              <span class="muted" id="retention-status"></span>
+              <span class="muted" id="retention-status" aria-live="polite"></span>
             </div>
             <div class="row-buttons">
               <label class="field">
@@ -601,12 +602,12 @@
                 </select>
               </label>
               <button class="link-btn" id="title-days-apply" hidden></button>
-              <span class="muted" id="title-days-status"></span>
+              <span class="muted" id="title-days-status" aria-live="polite"></span>
             </div>
             <p class="muted">Older titles are blanked, but the time stays: every session still says which app or site it was and for how long, so your totals and patterns don't change. Projects that find time by words in a title stop finding it before then.</p>
             <div class="row-buttons">
               <label class="field">
-                <span class="field-label">Erase tracked time from</span>
+                <span class="field-label">Delete tracked time from</span>
                 <select id="delete-range">
                   <option value="hour">the last hour</option>
                   <option value="today">today</option>
@@ -617,7 +618,7 @@
               <span class="day-pick" id="delete-date-pick" hidden>
                 <button class="link-btn" id="delete-date" aria-haspopup="dialog"></button>
               </span>
-              <button class="link-btn" id="delete-run">Delete</button>
+              <button class="link-btn danger-link" id="delete-run">Delete</button>
               <span class="muted" id="delete-status" aria-live="polite"></span>
             </div>
           </section>
@@ -628,7 +629,7 @@
             <div class="row-buttons">
               <button class="link-btn" id="demo-load">Load demo data</button>
               <button class="link-btn" id="demo-clear">Clear demo data</button>
-              <span class="muted" id="demo-status"></span>
+              <span class="muted" id="demo-status" aria-live="polite"></span>
             </div>
           </section>
 

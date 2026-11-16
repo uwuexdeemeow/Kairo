@@ -2284,8 +2284,16 @@ $("#heads-up-dismiss").addEventListener("click", async () => {
   $("#heads-up").hidden = true;
 });
 
+// A switch that couldn't be saved flips back and says why, as focus blocking's does.
 $<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {
-  await api.setNudgesEnabled((e.target as HTMLInputElement).checked);
+  const box = e.target as HTMLInputElement;
+  $("#nudge-status").textContent = "";
+  try {
+    await api.setNudgesEnabled(box.checked);
+  } catch (err) {
+    box.checked = !box.checked;
+    $("#nudge-status").textContent = `Couldn't change it. ${why(err)}`;
+  }
 });
 
 /// The evening summary's toggle and time save together, whichever changed.
@@ -2369,14 +2377,22 @@ listen("kairo:sync", () => {
 $("#open-kairo-settings").addEventListener("click", () => api.openDashboard("settings"));
 
 $("#demo-load").addEventListener("click", async () => {
-  const n = await api.seedDemo();
-  $("#demo-status").textContent = `Loaded ${n} demo sessions. Open Patterns to see insights.`;
-  load();
+  try {
+    const n = await api.seedDemo();
+    $("#demo-status").textContent = `Loaded ${n} demo sessions. Open Patterns to see insights.`;
+    load();
+  } catch (err) {
+    $("#demo-status").textContent = `Couldn't load the demo data. ${why(err)}`;
+  }
 });
 $("#demo-clear").addEventListener("click", async () => {
-  const n = await api.clearDemo();
-  $("#demo-status").textContent = `Removed ${n} demo sessions.`;
-  load();
+  try {
+    const n = await api.clearDemo();
+    $("#demo-status").textContent = `Removed ${n} demo sessions.`;
+    load();
+  } catch (err) {
+    $("#demo-status").textContent = `Couldn't remove the demo data. ${why(err)}`;
+  }
 });
 
 let resizeTimer = 0;
