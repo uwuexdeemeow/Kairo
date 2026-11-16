@@ -3896,6 +3896,27 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   background: color-mix(in srgb, var(--raised) 94%, var(--ink));
 }
 
+/* The calendar's day ticks a task as the list does: a ring in Ledger's ink. */
+.cal-tick {
+  flex: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  border: 1.5px solid var(--edge);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.cal-tick:hover {
+  border-color: var(--ledger);
+}
+
+.cal-tick:checked {
+  border-color: var(--ledger);
+  background: radial-gradient(circle, var(--ledger) 0 4px, transparent 4.5px);
+}
+
 .task-card > input[type="checkbox"] {
   grid-column: 1;
   appearance: none;
@@ -4388,6 +4409,21 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
+}
+
+/* The rows are for screen readers; the cells lay out in the month's grid as before. */
+.cal-row {
+  display: contents;
+}
+
+/* The month as a title, as Ledger's other heads are, not in a label's capitals. */
+.ledger-calendar .cal-title {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ink);
 }
 
 .cal-name {
