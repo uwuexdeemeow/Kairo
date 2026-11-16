@@ -5897,8 +5897,8 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   cursor: pointer;
 }
 
-.popout-more-item:hover,
-.popout-more-item:focus-visible {
+/* Under the pointer, a tint; the keyboard's place is the focus outline alone, not both. */
+.popout-more-item:hover {
   background: var(--line);
 }
 
@@ -6283,16 +6283,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 /* ☰ goes somewhere, B / I / ☐ change the text: it's filled in Ledger's ink, set apart from them. */
+/* Back to the list: a tool like the others, not the tinted look that marks what's shown. */
 .note-tool[data-tool="list"] {
   margin-right: 2px;
-  border-color: transparent;
-  background: color-mix(in srgb, var(--app) 18%, transparent);
-  color: var(--app);
-  font-weight: 800;
+  color: var(--ink-2);
 }
 
 .note-tool[data-tool="list"]:hover {
-  background: color-mix(in srgb, var(--app) 28%, transparent);
+  color: var(--app);
 }
 
 .popout-bar > .note-tools {
