@@ -927,6 +927,12 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    Enter keeps the clipboard as above. With nothing copied, the row says so.
 8. **Turn off.** *Expect:* "No keys" again, the keys back to other apps, and Set keys focused.
 9. **Linux on Wayland.** Add a desktop shortcut that runs `kairo --capture`. *Expect:* as 3 and 4.
+10. **As typed.** Turn on "Read a copied line as I'd type it in Ledger", copy "Call Leo tomorrow
+    !high" and capture it. *Expect:* "Call Leo", due tomorrow, high priority. Off again, the same
+    copy is kept word for word.
+11. **During focus.** Start a focus session on a task with no note, copy a paragraph and capture it.
+    *Expect:* "Saved as a note" with ", on “<task>”"; the task shows the note. A second paragraph is
+    a note of its own; the task keeps the first.
 
 ## Ledger: the Plan nudge
 

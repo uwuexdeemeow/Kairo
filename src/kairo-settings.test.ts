@@ -8,6 +8,8 @@ const api = vi.hoisted(() => ({
   setRingFocusMinutes: vi.fn(),
   captureShortcut: vi.fn(),
   setCaptureShortcut: vi.fn(),
+  captureQuick: vi.fn(),
+  setCaptureQuick: vi.fn(),
   version: vi.fn(),
   sync: vi.fn(),
   stopSync: vi.fn(),
@@ -86,6 +88,8 @@ beforeEach(async () => {
   api.ringSettings.mockResolvedValue({ shortcut: "Alt+Q", ...ring });
   api.setRingShortcut.mockResolvedValue({ shortcut: "Alt+R", ...ring });
   api.captureShortcut.mockResolvedValue("");
+  api.captureQuick.mockResolvedValue(false);
+  api.setCaptureQuick.mockResolvedValue(undefined);
   api.setCaptureShortcut.mockImplementation(async (s: string) => s);
   document.body.innerHTML = markup;
   settings = await import("./kairo-settings");
@@ -221,6 +225,16 @@ describe("the capture shortcut", () => {
     expect($("#capture-note").textContent).toBe("Turned off. The palette's Capture what I copied still works.");
     expect($("#capture-clear").hidden).toBe(true);
     expect(document.activeElement).toBe($("#capture-record"));
+  });
+
+  it("reads copied lines as quick-add text only when that's turned on", async () => {
+    const box = $<HTMLInputElement>("#capture-quick");
+    expect(box.checked).toBe(false);
+    box.click();
+    await vi.waitFor(() => expect(api.setCaptureQuick).toHaveBeenCalledWith(true));
+    api.captureQuick.mockResolvedValue(true);
+    await settings.loadKairoSettings();
+    expect(box.checked).toBe(true);
   });
 
   it("shows keys saved before", async () => {

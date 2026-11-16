@@ -546,6 +546,8 @@ pub fn run() {
             commands::set_ring_shortcut,
             commands::capture_shortcut,
             commands::set_capture_shortcut,
+            commands::capture_quick,
+            commands::set_capture_quick,
             commands::set_ring_items,
             commands::set_ring_focus_minutes,
             commands::open_ring,
