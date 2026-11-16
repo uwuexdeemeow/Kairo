@@ -201,7 +201,8 @@ impl Painter {
             if lit > 0.6 {
                 let a = (lit - 0.6) / 0.4;
                 self.text(rt, &scene.names[index], &self.name, x, mark_y + size / 2.0 + 2.0, t.ink, a)?;
-                self.text(rt, &scene.lines[index], &self.line, x, mark_y + size / 2.0 + 22.0, t.muted, a)?;
+                // The second text ink, as the web ring: muted is under 4.5:1 on the lit segment.
+                self.text(rt, &scene.lines[index], &self.line, x, mark_y + size / 2.0 + 22.0, t.ink_2, a)?;
             }
         }
         Ok(())

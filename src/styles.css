@@ -5673,9 +5673,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--ink);
 }
 
+/* The second text ink: muted falls under 4.5:1 on the lit segment in dark. The native ring too. */
 .ring-line {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 

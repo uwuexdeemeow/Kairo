@@ -31,6 +31,16 @@ describe("the web ring", () => {
     expect(root.querySelector('.ring-seg[data-segment="palette"]')).not.toBeNull();
   });
 
+  it("tells a screen reader what's lit from one line that stays put as it turns", () => {
+    open(1);
+    const said = document.querySelector('[role="status"]')!;
+    expect(said.textContent).toBe("Ledger, 3 due today");
+    expect(root.contains(said)).toBe(false);
+    key("keydown", "ArrowRight");
+    expect(document.querySelector('[role="status"]')).toBe(said);
+    expect(said.textContent).toBe("Palette, Ctrl + Space");
+  });
+
   it("turns with the arrows and the wheel, and opens with Enter", () => {
     open(1);
     key("keydown", "ArrowRight");
