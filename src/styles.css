@@ -6429,7 +6429,32 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .scan-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 6px;
   font-size: 12px;
+}
+
+.scan-foot-part + .scan-foot-part::before {
+  content: "·";
+  margin-right: 6px;
+}
+
+/* The advice and the engines' names start where the count does, beside the stamp. */
+.scan-advice,
+.scan-names {
+  padding-left: 32px;
+}
+
+.scan-result.lead .scan-advice,
+.scan-result.lead .scan-names {
+  padding-left: 38px;
+}
+
+/* An empty Check: the field's edge says so too. */
+.scan-query[aria-invalid="true"] {
+  border-color: var(--distracting-ink);
 }
 
 /* The verdict carries the colour, in an ink that reads as text: any engine calling it malicious,
@@ -6560,6 +6585,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .speed-dial {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   gap: 2px;
   padding: 12px 14px;
   border: 1px solid var(--rule);
@@ -6568,9 +6594,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   transition: border-color 140ms var(--ease);
 }
 
-/* The direction being measured now. */
+/* The direction being measured now, in the window's own ink. */
 .speed-dial.live {
-  border-color: var(--chrono);
+  border-color: var(--app);
 }
 
 .speed-label {
@@ -6578,9 +6604,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 12px;
 }
 
+/* Down to 40px in the narrowest window, so "1250" stays inside its card. */
 .speed-figure {
   font-family: var(--display);
-  font-size: 48px;
+  font-size: clamp(36px, 12.5vw, 48px);
   font-weight: 800;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
@@ -6594,8 +6621,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   margin: 0;
 }
 
+/* Ping and the server keep their line before they're known, so nothing jumps when they arrive. */
 .speed-ping {
   font-variant-numeric: tabular-nums;
+}
+
+.speed-ping,
+.speed-server {
+  min-height: 1.5em;
 }
 
 .speed-status {
