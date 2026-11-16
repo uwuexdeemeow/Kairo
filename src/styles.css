@@ -765,7 +765,8 @@ h2 {
   height: 160px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--rule);
+  /* Fainter than the rule, so a day's grey neutral time doesn't read as empty track. */
+  background: color-mix(in srgb, var(--rule) 45%, transparent);
 }
 
 .wk-part {
@@ -3349,6 +3350,10 @@ select,
   }
   .wrap {
     padding: 28px 28px 56px;
+  }
+  /* DESIGN.md's narrow title, from the smallest window up: "How Chrono sorts your time" fits. */
+  h1 {
+    font-size: 34px;
   }
 }
 
@@ -7358,6 +7363,11 @@ summary:focus-visible {
 /* The week's three figures lead; the rest follow smaller. */
 .stats-lead dd {
   font-size: 28px;
+}
+
+/* The change beside a lead figure is the stats' usual size, not the figure's. */
+.stats-lead dd span {
+  font-size: 18px;
 }
 
 .stats-minor {
