@@ -1505,10 +1505,11 @@ html.palette-root {
   padding: 28px 32px;
 }
 
+/* Fraunces at its title weight, as DESIGN.md's Two Weights Rule has it. */
 .blocked h1 {
   margin-top: 8px;
-  font-size: 30px;
-  font-weight: 400;
+  font-size: 28px;
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
@@ -5508,6 +5509,37 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 
 .blocked .blocked-actions {
   justify-content: center;
+}
+
+/* The window opens 320px tall: the watch and the space around it close up so all of it shows,
+   rather than being centred off the top. A window shorter still scrolls. */
+@media (max-height: 400px) {
+  .blocked-page {
+    overflow-y: auto;
+  }
+
+  .blocked {
+    padding: 14px 24px;
+  }
+
+  .blocked-watch {
+    width: 104px;
+    height: 104px;
+    margin-bottom: 6px;
+  }
+
+  .blocked-minutes {
+    font-size: 32px;
+  }
+
+  .blocked h1 {
+    margin-top: 4px;
+    font-size: 24px;
+  }
+
+  .blocked .blocked-actions {
+    margin-top: 14px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
