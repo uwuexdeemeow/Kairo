@@ -124,6 +124,8 @@ pub(crate) struct Theme {
     pub(crate) muted: u32,
     pub(crate) rule: u32,
     pub(crate) line: u32,
+    /// The edge of what can be pressed: the ring's segments.
+    pub(crate) edge: u32,
     pub(crate) raised: u32,
     pub(crate) productive: u32,
     pub(crate) neutral: u32,
@@ -143,6 +145,7 @@ const DARK: Theme = Theme {
     muted: 0x97a1b2,
     rule: 0x232c3d,
     line: 0x33405a,
+    edge: 0x657086,
     raised: 0x1b2230,
     productive: 0x3987e5,
     neutral: 0x4a505c,
@@ -160,6 +163,7 @@ const LIGHT: Theme = Theme {
     muted: 0x5e544a,
     rule: 0xe3d9c9,
     line: 0xd3c7b3,
+    edge: 0x8d8274,
     raised: 0xfffaf2,
     productive: 0x2f6fd0,
     neutral: 0xa9aeb6,
@@ -195,7 +199,7 @@ fn v(x: f32, y: f32) -> Vector2 {
 pub(crate) fn theme_for(mode: &str) -> Theme {
     let ground = crate::appearance::ground_of(mode).unwrap_or_else(|| crate::appearance::system_ground(platform_prefers_light()));
     let base = if ground.light { LIGHT } else { DARK };
-    Theme { bg: ground.bg, raised: ground.raised, ink: ground.ink, ink_2: ground.ink_2, muted: ground.muted, rule: ground.rule, line: ground.line, ..base }
+    Theme { bg: ground.bg, raised: ground.raised, ink: ground.ink, ink_2: ground.ink_2, muted: ground.muted, rule: ground.rule, line: ground.line, edge: ground.edge, ..base }
 }
 
 fn platform_prefers_light() -> bool {

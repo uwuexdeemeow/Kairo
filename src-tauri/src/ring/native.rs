@@ -189,7 +189,8 @@ impl Painter {
             let paper = mix(t.raised, t.ink, 0.12 * lit);
             let dim = if segment == Segment::Focus && scene.focus_running { 0.6 } else { 1.0 };
             rt.FillGeometry(&shape, &rt.CreateSolidColorBrush(&color(paper, alpha * dim), None)?, None);
-            let edge = if lit > 0.5 { ink } else { t.line };
+            // A segment's outline in the controls' edge, as the web ring's, so it holds 3:1.
+            let edge = if lit > 0.5 { ink } else { t.edge };
             rt.DrawGeometry(&shape, &rt.CreateSolidColorBrush(&color(edge, alpha), None)?, 1.5 + 1.0 * lit, None);
 
             // Its mark, and for the one at the top, its name and line.

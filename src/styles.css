@@ -5650,9 +5650,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   filter: drop-shadow(0 10px 18px var(--shadow));
 }
 
+/* Each segment's outline in the controls' edge, so it holds 3:1 where it's faded out. */
 .ring-seg {
   fill: var(--raised);
-  stroke: var(--line);
+  stroke: var(--edge);
   stroke-width: 1.5;
   transition: opacity 140ms var(--ease);
 }

@@ -26,22 +26,24 @@ pub struct Ground {
     pub muted: u32,
     pub rule: u32,
     pub line: u32,
+    /// The edge of what's pressed or typed into, holding 3:1 on the page and its sheets.
+    pub edge: u32,
 }
 
-const fn ground(id: &'static str, light: bool, [bg, raised, ink, ink_2, muted, rule, line]: [u32; 7]) -> Ground {
-    Ground { id, light, bg, raised, ink, ink_2, muted, rule, line }
+const fn ground(id: &'static str, light: bool, [bg, raised, ink, ink_2, muted, rule, line, edge]: [u32; 8]) -> Ground {
+    Ground { id, light, bg, raised, ink, ink_2, muted, rule, line, edge }
 }
 
 /// Every ground, dark ones first, each list led by the one the system's own look picks.
 pub const GROUNDS: &[Ground] = &[
-    ground("dark", false, [0x141a24, 0x1b2230, 0xe3e7ee, 0xc4cbd6, 0x97a1b2, 0x232c3d, 0x33405a]),
-    ground("graphite", false, [0x161718, 0x1f2022, 0xe6e6e6, 0xc9c9c9, 0xa0a0a0, 0x2a2b2e, 0x3c3e42]),
-    ground("walnut", false, [0x1a1411, 0x241c17, 0xede3d9, 0xd3c6b8, 0xa99a8a, 0x30251e, 0x47372b]),
-    ground("baize", false, [0x0f1a15, 0x15241d, 0xe0ebe4, 0xc1d1c7, 0x92a89b, 0x1d3128, 0x2b4639]),
-    ground("midnight", false, [0x000000, 0x0d0f13, 0xe3e7ee, 0xc4cbd6, 0x97a1b2, 0x1a1d23, 0x2a2f38]),
-    ground("light", true, [0xf4efe6, 0xfffaf2, 0x2b2622, 0x4a423b, 0x5e544a, 0xe3d9c9, 0xd3c7b3]),
-    ground("linen", true, [0xf2f3f5, 0xffffff, 0x23262b, 0x41464e, 0x565c66, 0xe1e4e8, 0xcdd2d9]),
-    ground("sage", true, [0xeef1ea, 0xf8faf5, 0x252b24, 0x424a40, 0x566053, 0xdbe2d5, 0xc6d0bf]),
+    ground("dark", false, [0x141a24, 0x1b2230, 0xe3e7ee, 0xc4cbd6, 0x97a1b2, 0x232c3d, 0x33405a, 0x657086]),
+    ground("graphite", false, [0x161718, 0x1f2022, 0xe6e6e6, 0xc9c9c9, 0xa0a0a0, 0x2a2b2e, 0x3c3e42, 0x6e7075]),
+    ground("walnut", false, [0x1a1411, 0x241c17, 0xede3d9, 0xd3c6b8, 0xa99a8a, 0x30251e, 0x47372b, 0x7a6656]),
+    ground("baize", false, [0x0f1a15, 0x15241d, 0xe0ebe4, 0xc1d1c7, 0x92a89b, 0x1d3128, 0x2b4639, 0x5b7869]),
+    ground("midnight", false, [0x000000, 0x0d0f13, 0xe3e7ee, 0xc4cbd6, 0x97a1b2, 0x1a1d23, 0x2a2f38, 0x5d6575]),
+    ground("light", true, [0xf4efe6, 0xfffaf2, 0x2b2622, 0x4a423b, 0x5e544a, 0xe3d9c9, 0xd3c7b3, 0x8d8274]),
+    ground("linen", true, [0xf2f3f5, 0xffffff, 0x23262b, 0x41464e, 0x565c66, 0xe1e4e8, 0xcdd2d9, 0x858b95]),
+    ground("sage", true, [0xeef1ea, 0xf8faf5, 0x252b24, 0x424a40, 0x566053, 0xdbe2d5, 0xc6d0bf, 0x808b7b]),
 ];
 
 /// The ground a mode names; None for "system", which takes Ink or Paper as the system looks.
@@ -218,7 +220,7 @@ mod tests {
             };
             let start = css.find(&selector).unwrap_or_else(|| panic!("no block for {}", g.id));
             let block = &css[start..start + css[start..].find('}').unwrap()];
-            for (token, value) in [("bg", g.bg), ("raised", g.raised), ("ink", g.ink), ("ink-2", g.ink_2), ("muted", g.muted), ("rule", g.rule), ("line", g.line)] {
+            for (token, value) in [("bg", g.bg), ("raised", g.raised), ("ink", g.ink), ("ink-2", g.ink_2), ("muted", g.muted), ("rule", g.rule), ("line", g.line), ("edge", g.edge)] {
                 assert!(block.contains(&format!("--{token}: #{value:06x};")), "{}: --{token} isn't #{value:06x}", g.id);
             }
         }
