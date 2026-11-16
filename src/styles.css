@@ -4007,6 +4007,12 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .task-start:focus-visible {
   border-color: var(--edge);
   color: var(--ledger);
+  opacity: 1;
+}
+
+/* Start comes forward with its task: the same "▶ 25m" down every row is only noise at rest. */
+.task-start {
+  opacity: 0;
 }
 
 /* On paper Ledger's ink is deepened with the text ink, as for what's shown, to stay above 4.5:1. */
@@ -4016,10 +4022,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: color-mix(in srgb, var(--ledger) 65%, var(--ink));
 }
 
-/* A touch screen has no pointer to reveal the edge: it's always there. */
+/* A touch screen has no pointer to reveal the edge or the button: they're always there. */
 @media (hover: none) {
   .task-start {
     border-color: var(--edge);
+    opacity: 1;
   }
 }
 
@@ -6791,13 +6798,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   width: min(220px, 100%);
 }
 
+/* A day's heading in the label style, as Tasks' groups are. */
 .done-day {
   margin: 20px 0 8px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
 }
 
 .done-row {
@@ -6820,15 +6828,17 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: inherit;
   font: inherit;
   text-align: left;
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent);
+  /* Everything here is done: a line through each would only make it harder to read. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
 }
 
+/* At the row's end, after Reopen and Delete, which keep their place unseen until wanted:
+   the meta stays put rather than floating where they'd be. */
 .done-meta {
+  order: 3;
   font-size: 12px;
   white-space: nowrap;
 }
