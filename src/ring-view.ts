@@ -67,7 +67,7 @@ export function drawRing(root: HTMLElement, ring: Ring, state: Pick<RingState, "
   root.innerHTML =
     `<svg class="ring-arc" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}" aria-hidden="true">${segs}</svg>` +
     marks +
-    `<div class="ring-lit" style="left:${top.x.toFixed(1)}px;top:${top.y.toFixed(1)}px" role="status" aria-live="polite">` +
+    `<div class="ring-lit" style="left:${top.x.toFixed(1)}px;top:${top.y.toFixed(1)}px" aria-hidden="true">` +
     `${mark(ring.segment(), 34, state.paused)}<span class="ring-name">${esc(state.names[ring.lit] ?? "")}</span><span class="ring-line">${esc(state.lines[ring.lit] ?? "")}</span></div>`;
 }
 
@@ -84,7 +84,18 @@ export function mountRing(root: HTMLElement, state: RingState, act: RingActions,
     act.pick(index);
   };
 
-  const draw = () => drawRing(root, ring, state);
+  // What's lit, said to a screen reader as the native ring says it ("Ledger, 3 due today"). The
+  // line stays put beside the drawing, which is redrawn whole at each turn, so each is heard.
+  const said = document.createElement("p");
+  said.className = "sr-only";
+  said.setAttribute("role", "status");
+  root.after(said);
+  const draw = () => {
+    drawRing(root, ring, state);
+    const name = state.names[ring.lit] ?? "";
+    const line = state.lines[ring.lit] ?? "";
+    said.textContent = line ? `${name}, ${line}` : name;
+  };
 
   const turn = (steps: number) => {
     if (!steps) return;

@@ -920,13 +920,13 @@ h2 {
   transition: transform 140ms var(--ease), border-color 140ms var(--ease), background 140ms var(--ease);
 }
 
-.btn:hover:not(:disabled) {
+.btn:hover:not(:disabled, [aria-disabled="true"]) {
   border-color: color-mix(in srgb, var(--app) 45%, var(--edge));
   background: color-mix(in srgb, var(--raised) 85%, var(--ink));
   transform: translateY(-1px);
 }
 
-.btn:active:not(:disabled) {
+.btn:active:not(:disabled, [aria-disabled="true"]) {
   transform: none;
 }
 
@@ -943,13 +943,18 @@ h2 {
   transition: transform 160ms var(--ease), background 160ms var(--ease);
 }
 
-.btn.primary:hover:not(:disabled) {
+.btn.primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: color-mix(in srgb, var(--app) 86%, var(--ink));
   transform: translateY(-1px);
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn[aria-disabled="true"] {
   opacity: 0.4;
+}
+
+.btn[aria-disabled="true"] {
+  cursor: default;
 }
 
 /* ---------- command palette ---------- */
@@ -1505,10 +1510,11 @@ html.palette-root {
   padding: 28px 32px;
 }
 
+/* Fraunces at its title weight, as DESIGN.md's Two Weights Rule has it. */
 .blocked h1 {
   margin-top: 8px;
-  font-size: 30px;
-  font-weight: 400;
+  font-size: 28px;
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 
@@ -2811,6 +2817,17 @@ html.palette-root {
   width: 3px;
   height: 3px;
   background: var(--line);
+}
+
+/* The ramp's palest steps are under 3:1 against the page, so they keep an edge: an hour with a
+   little productive time doesn't vanish. The legend's swatches the same. */
+.hm-cell .seq-0,
+.hm-cell .seq-1,
+.hm-cell .seq-2,
+.ramp.seq-0,
+.ramp.seq-1,
+.ramp.seq-2 {
+  box-shadow: inset 0 0 0 1px var(--edge);
 }
 
 .hm-cell:hover span {
@@ -4455,8 +4472,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   border-left: 2px solid var(--ledger);
 }
 
+/* Late in the colour Tasks' list marks overdue with; gold is for a pinned note. */
 .cal-cell.late .cal-task {
-  border-left-color: var(--ribbon);
+  border-left-color: var(--distracting);
 }
 
 .cal-more,
@@ -5510,6 +5528,37 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   justify-content: center;
 }
 
+/* The window opens 320px tall: the watch and the space around it close up so all of it shows,
+   rather than being centred off the top. A window shorter still scrolls. */
+@media (max-height: 400px) {
+  .blocked-page {
+    overflow-y: auto;
+  }
+
+  .blocked {
+    padding: 14px 24px;
+  }
+
+  .blocked-watch {
+    width: 104px;
+    height: 104px;
+    margin-bottom: 6px;
+  }
+
+  .blocked-minutes {
+    font-size: 32px;
+  }
+
+  .blocked h1 {
+    margin-top: 4px;
+    font-size: 24px;
+  }
+
+  .blocked .blocked-actions {
+    margin-top: 14px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .palette {
     animation: none;
@@ -5629,9 +5678,10 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--ink);
 }
 
+/* The second text ink: muted falls under 4.5:1 on the lit segment in dark. The native ring too. */
 .ring-line {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -6588,7 +6638,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--on-app);
 }
 
-.btn.danger:hover:not(:disabled) {
+.btn.danger:hover:not(:disabled, [aria-disabled="true"]) {
   background: color-mix(in srgb, var(--distracting-ink) 88%, var(--ink));
 }
 

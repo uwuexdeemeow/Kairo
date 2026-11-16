@@ -33,6 +33,7 @@ function paint() {
   const until = new Date(current.untilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   $("#blocked-title").textContent = `${current.label} is blocked`;
   const limit = current.reason === "limit";
+  document.title = limit ? "Blocked for today" : "Blocked during focus";
   $("#blocked-eyebrow").textContent = limit ? "Daily limit" : "Focus session";
   $("#blocked-detail").textContent = limit
     ? `You've passed today's limit for it, so it stays blocked until midnight.`

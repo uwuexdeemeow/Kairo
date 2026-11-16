@@ -32,7 +32,7 @@ describe("the speed window", () => {
     expect(text(".speed-server")).toBe("Cloudflare · LHR");
     expect(root.querySelector(".speed-down")!.classList.contains("live")).toBe(true);
     view.update(p({ phase: "done", pingMs: 12, jitterMs: 2, downMbps: 312.4, upMbps: 48.94, usedBytes: 81e6, server: "LHR" }));
-    expect(text(".speed-status")).toBe("Done");
+    expect(text(".speed-status")).toBe("Done: 312 Mbps down, 48.9 up");
     expect(text(".speed-up .speed-figure")).toBe("48.9");
     expect(text(".speed-used")).toBe("Used about 81 MB");
     expect(root.querySelector(".live")).toBeNull();
@@ -49,9 +49,15 @@ describe("the speed window", () => {
     const view = mountSpeed(root, { run });
     const again = root.querySelector<HTMLButtonElement>(".speed-again")!;
     view.update(p({ phase: "upload", downMbps: 100 }));
-    expect(again.disabled).toBe(true);
+    // Held back but not disabled, so the keyboard stays on it.
+    expect(again.getAttribute("aria-disabled")).toBe("true");
+    expect(again.textContent).toBe("Testing…");
+    again.click();
+    expect(run).not.toHaveBeenCalled();
     view.update(p({ phase: "done", downMbps: 100, upMbps: 20 }));
-    expect(again.disabled).toBe(false);
+    expect(again.getAttribute("aria-disabled")).toBe("false");
+    expect(again.textContent).toBe("Run again");
+    expect(document.activeElement).toBe(again);
     again.click();
     expect(run).toHaveBeenCalledTimes(1);
     expect(text(".speed-down .speed-figure")).toBe("—");
