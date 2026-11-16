@@ -157,9 +157,18 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
   // ---------- drawing ----------
 
   const draw = () => {
+    // Every card is drawn anew; the keyboard goes back to the same control of the same result
+    // (or that result's first, when the one it was on has gone), not to the page.
+    const focused = list.contains(document.activeElement) ? (document.activeElement as HTMLElement) : null;
+    const where = focused && { key: focused.closest<HTMLElement>(".scan-result")?.dataset.key, control: [...focused.classList].find((c) => c.startsWith("scan-")) };
     list.replaceChildren(...entries.map(drawEntry));
+    if (where?.key) {
+      const card = [...list.querySelectorAll<HTMLElement>(".scan-result")].find((c) => c.dataset.key === where.key);
+      (card?.querySelector<HTMLElement>(`.${where.control}`) ?? card?.querySelector<HTMLElement>("button") ?? query).focus();
+    }
     // The newest answer is the figure, though results still being worked on may sit above it.
-    list.querySelector(".scan-verdict")?.closest(".scan-result")?.classList.add("lead");
+    // An error isn't one: it says nothing about the file or link.
+    list.querySelector(".scan-result:not(.error) .scan-verdict")?.closest(".scan-result")?.classList.add("lead");
     // With results to read, the way in steps back to a line.
     list.parentElement?.classList.toggle("has-results", entries.length > 0);
   };
@@ -174,7 +183,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     const id = `scan-name-${++ids}`;
     return h(
       "article",
-      { class: `scan-result${tone ? ` ${tone}` : ""}`, "aria-labelledby": id },
+      { class: `scan-result${tone ? ` ${tone}` : ""}`, "aria-labelledby": id, "data-key": e.key },
       h("div", { class: "scan-head" }, h("h2", { class: "scan-name", id, title: e.name }, e.name)),
       ...body,
     );
