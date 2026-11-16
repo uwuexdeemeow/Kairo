@@ -5409,11 +5409,13 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-family: var(--sans);
 }
 
+/* Section labels, as elsewhere (DESIGN.md's Label): 11px, so "Top hit" and "Days" aren't the
+   smallest words in the palette. The native palette draws them the same. */
 .palette-label {
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
