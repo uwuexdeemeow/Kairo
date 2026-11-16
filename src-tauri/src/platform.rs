@@ -57,6 +57,97 @@ pub fn window_exists(_id: &str) -> bool {
 #[cfg(target_os = "macos")]
 pub use mac::{activate_window, can_close_windows, close_window, open_windows};
 
+/// The clipboard formats a password manager (KeePass, KeePassXC, 1Password, Bitwarden and
+/// others) puts beside a copy to say it mustn't be kept or shown: Windows' own two, the macOS
+/// pasteboard's (nspasteboard.org), and KDE's, which KeePassXC sets on Linux.
+pub const CONCEALED_MARKS: [&str; 5] = [
+    "ExcludeClipboardContentFromMonitorProcessing",
+    "CanIncludeInClipboardHistory",
+    "org.nspasteboard.ConcealedType",
+    "org.nspasteboard.TransientType",
+    "x-kde-passwordManagerHint",
+];
+
+/// Whether a clipboard's formats, as listed, mark what's on it as a password manager's copy.
+/// Linux reads them as text; Windows asks for each by name.
+#[cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
+pub fn concealed_by<S: AsRef<str>>(formats: &[S]) -> bool {
+    formats.iter().any(|f| CONCEALED_MARKS.contains(&f.as_ref().trim()))
+}
+
+/// Whether what's on the clipboard now is marked as a password manager's copy, so neither the
+/// clipboard history nor capture may keep it. `CanIncludeInClipboardHistory` excludes unless it
+/// says 1; when it can't be read, it excludes too.
+#[cfg(windows)]
+pub fn clipboard_concealed() -> bool {
+    use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    let format = |name: &str| {
+        let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
+        unsafe { RegisterClipboardFormatW(wide.as_ptr()) }
+    };
+    let exclude = format(CONCEALED_MARKS[0]);
+    if exclude != 0 && unsafe { IsClipboardFormatAvailable(exclude) } != 0 {
+        return true;
+    }
+    let history = format(CONCEALED_MARKS[1]);
+    if history == 0 || unsafe { IsClipboardFormatAvailable(history) } == 0 {
+        return false;
+    }
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return true;
+        }
+        let handle = GetClipboardData(history);
+        let mut allowed = false;
+        if !handle.is_null() {
+            let at = GlobalLock(handle) as *const u32;
+            if !at.is_null() {
+                allowed = std::ptr::read_unaligned(at) == 1;
+                GlobalUnlock(handle);
+            }
+        }
+        CloseClipboard();
+        !allowed
+    }
+}
+
+/// Not read on a Mac yet: the pasteboard's types need AppKit's NSPasteboard, which isn't built
+/// here. Until then a Mac keeps what a password manager copies, as before.
+#[cfg(target_os = "macos")]
+pub fn clipboard_concealed() -> bool {
+    false
+}
+
+/// On Linux the clipboard's formats are listed by `wl-paste` on Wayland or `xclip` on X11, when
+/// installed; without them nothing is known and nothing is held back.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn clipboard_concealed() -> bool {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let (program, args): (&str, &[&str]) = if wayland() { ("wl-paste", &["--list-types"]) } else { ("xclip", &["-o", "-selection", "clipboard", "-t", "TARGETS"]) };
+    let Ok(mut child) = Command::new(program).args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn() else { return false };
+    // An app holding the clipboard that doesn't answer mustn't hold the watcher up.
+    let until = Instant::now() + Duration::from_millis(500);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(20)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        use std::io::Read;
+        let _ = stdout.read_to_string(&mut out);
+    }
+    concealed_by(&out.lines().collect::<Vec<_>>())
+}
+
 /// On Wayland, the GNOME extension or KWin script lists windows, with their ids marked "g" or
 /// "k"; other Wayland desktops can't. On X11, the window manager does.
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -1644,6 +1735,13 @@ mod pad_tests {
 
 #[cfg(all(test, not(any(windows, target_os = "macos"))))]
 mod linux_tests {
+    #[test]
+    fn a_password_managers_marks_are_known_on_every_system() {
+        assert!(super::concealed_by(&["TARGETS", "UTF8_STRING", "x-kde-passwordManagerHint"]));
+        assert!(super::concealed_by(&["public.utf8-plain-text", "org.nspasteboard.ConcealedType"]));
+        assert!(!super::concealed_by(&["TARGETS", "text/plain", "UTF8_STRING"]));
+    }
+
     #[test]
     fn wine_processes_go_by_their_exe() {
         let cmdline = b"Z:\\home\\me\\.steam\\steam\\steamapps\\common\\Hades\\x64\\Hades.exe\0-vulkan\0";
