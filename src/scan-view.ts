@@ -188,8 +188,8 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       ...body,
     );
   };
-  /// A result's foot: its parts in a line, with a dot between each drawn by the page, so a narrow
-  /// window breaks between parts and never leaves a dot at the end of a line or a link in two.
+  /// A result's foot: its parts in a line, spaced apart, so a narrow window breaks between parts
+  /// and never splits a link.
   const foot = (...parts: (Node | string)[]) => h("p", { class: "scan-foot muted" }, ...parts.map((p) => h("span", { class: "scan-foot-part" }, p)));
   const button = (cls: string, text: string, then: () => void) => {
     const b = h("button", { class: `link-btn ${cls}` }, text);

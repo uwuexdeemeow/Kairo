@@ -6477,17 +6477,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 12px;
 }
 
+/* Its parts apart by space rather than dots (the links are underlined), so a narrow window
+   breaks between them and no dot is left at either end of a line. */
 .scan-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  column-gap: 6px;
+  column-gap: 14px;
   font-size: 12px;
-}
-
-.scan-foot-part + .scan-foot-part::before {
-  content: "·";
-  margin-right: 6px;
 }
 
 /* The advice and the engines' names start where the count does, beside the stamp. */
