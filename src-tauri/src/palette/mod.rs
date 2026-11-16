@@ -382,6 +382,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         .collect();
     let footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
     let subjects = cards::subjects(conn, &apps).unwrap_or_default();
+    let older_subjects = cards::older_subjects(conn, &subjects, today);
     // Nothing is left waiting for a second Enter from the last time it was open.
     tauri::Manager::state::<crate::system::PendingPower>(app).clear();
     let ctx = Context {
@@ -395,6 +396,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         search_files: search_files(conn).unwrap_or(true),
         switches: settings::read(app, conn),
         subjects,
+        older_subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
@@ -1307,6 +1309,7 @@ mod tests {
             search_files: true,
             switches: Vec::new(),
             subjects: Vec::new(),
+            older_subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,
             block_lists: Vec::new(),

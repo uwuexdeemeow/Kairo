@@ -773,6 +773,9 @@ pub struct Context {
     pub switches: Vec<(Switch, bool)>,
     /// What Kairo has recorded lately, to answer questions about.
     pub subjects: Vec<Subject>,
+    /// What was used before that and not since, for "when did I last use" alone: older apps would
+    /// only crowd the answers about time.
+    pub older_subjects: Vec<Subject>,
     /// Daily limits by key, in milliseconds.
     pub limits: HashMap<String, i64>,
     /// How the weekly goals stand, like "7h 53m of 15h 00m productive"; None with none set.
@@ -890,6 +893,16 @@ fn best_subject<'a>(ctx: &'a Context, query: &str) -> Option<(&'a Subject, Match
         .iter()
         .filter_map(|s| fuzzy(query, &s.name).map(|m| (s, m)))
         .max_by(|(a, x), (b, y)| (x.score + (a.used_ms as f64 / HOUR_MS as f64).min(20.0)).total_cmp(&(y.score + (b.used_ms as f64 / HOUR_MS as f64).min(20.0))))
+}
+
+/// The app or site a "when did I last use" question means: among those used lately first, then
+/// among those used only before that. A project isn't used, so it isn't asked about this way.
+fn last_used_subject<'a>(ctx: &'a Context, asked: &str) -> Option<(&'a Subject, Match)> {
+    let apps = |s: &&Subject| !s.key.starts_with("project:");
+    let best = |list: &'a [Subject]| {
+        list.iter().filter(apps).filter_map(|s| fuzzy(asked, &s.name).map(|m| (s, m))).max_by(|(a, x), (b, y)| (x.score + (a.used_ms as f64 / HOUR_MS as f64).min(20.0)).total_cmp(&(y.score + (b.used_ms as f64 / HOUR_MS as f64).min(20.0))))
+    };
+    best(&ctx.subjects).or_else(|| best(&ctx.older_subjects))
 }
 
 /// "THE FINALS’" or "Chrome’s".
@@ -1327,7 +1340,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(recap_item(ctx, day));
     }
     // Projects are time across several apps, with no one thing that was last used.
-    if let Some((subject, _)) = parse_last_used(query).and_then(|asked| best_subject(ctx, &asked)).filter(|(s, _)| !s.key.starts_with("project:")) {
+    if let Some((subject, _)) = parse_last_used(query).and_then(|asked| last_used_subject(ctx, &asked)) {
         items.push(last_used_item(subject));
     }
     for app in &ctx.apps {
@@ -1518,6 +1531,7 @@ pub(super) mod tests {
             search_files: true,
             switches: Vec::new(),
             subjects: vec![subject("THE FINALS", "app:discovery", 30), subject("YouTube", "site:youtube", 12), subject("Cursor", "app:cursor", 61)],
+            older_subjects: vec![subject("Figma", "app:figma", 0)],
             limits: HashMap::from([("app:discovery".to_string(), 2 * HOUR_MS)]),
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
@@ -1997,6 +2011,19 @@ pub(super) mod tests {
     fn the_ring_opens_from_the_palette() {
         let c = ctx();
         assert_eq!(search(&c, "ring")[0].action, Action::OpenRing);
+    }
+
+    #[test]
+    fn last_used_finds_an_app_used_only_long_ago_and_prefers_one_used_lately() {
+        let c = ctx();
+        let row = search(&c, "when did i last use figma").into_iter().find(|i| matches!(i.preview, Some(Preview::LastUsed(_)))).expect("a last-used row");
+        assert_eq!(row.title, "When did I last use Figma?");
+        // Only for this question: Figma's time this week isn't offered.
+        assert!(search(&c, "figma this week").iter().all(|i| !i.title.contains("Figma")));
+        // A lately used match wins over an older one.
+        let both = Context { older_subjects: vec![subject("Cursor Old", "app:cursorold", 0)], ..ctx() };
+        let row = search(&both, "last used cursor").into_iter().find(|i| matches!(i.preview, Some(Preview::LastUsed(_)))).unwrap();
+        assert_eq!(row.title, "When did I last use Cursor?");
     }
 
     #[test]

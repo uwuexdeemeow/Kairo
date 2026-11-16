@@ -39,6 +39,57 @@ pub fn card(conn: &Connection, preview: &Preview) -> Card {
 
 // ---------- what can be asked about ----------
 
+/// What was used before the last 30 days and not since, read at most once a day: going through the
+/// whole history at every opening would slow the palette down as the history grows.
+static OLDER: std::sync::Mutex<Option<(NaiveDate, Vec<Subject>)>> = std::sync::Mutex::new(None);
+
+/// Apps and sites last used before the last 30 days, newest first, for "when did I last use":
+/// none of those in `recent`. Their `used_ms` is 0, so lately used ones are preferred.
+pub fn older_subjects(conn: &Connection, recent: &[Subject], today: NaiveDate) -> Vec<Subject> {
+    let mut cache = OLDER.lock().unwrap_or_else(|e| e.into_inner());
+    let all = match cache.as_ref() {
+        Some((day, list)) if *day == today => list.clone(),
+        _ => {
+            let list = older_before(conn, now_ms() - SUBJECTS_FOR_MS).unwrap_or_default();
+            *cache = Some((today, list.clone()));
+            list
+        }
+    };
+    all.into_iter().filter(|s| !recent.iter().any(|r| r.key == s.key)).collect()
+}
+
+/// Apps and sites with time before `before`, by their latest use, newest first.
+fn older_before(conn: &Connection, before: i64) -> Result<Vec<Subject>> {
+    let cats = analysis::category_map(conn)?;
+    let mut stmt = conn.prepare(
+        "SELECT app, exe, site, MAX(end_ms) FROM sessions
+         WHERE idle = 0 AND start_ms < ?1 GROUP BY app, exe, site",
+    )?;
+    let rows = stmt.query_map([before], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, i64>(3)?)))?;
+    let mut latest: HashMap<String, (Subject, i64)> = HashMap::new();
+    let mut note = |key: String, name: String, category, at: i64| {
+        let e = latest.entry(key.clone()).or_insert_with(|| (Subject { name, key, category, icon: None, used_ms: 0 }, at));
+        e.1 = e.1.max(at);
+    };
+    for row in rows {
+        let (app, exe, site, at) = row?;
+        note(format!("app:{exe}"), app, analysis::resolve(&cats, &exe, None), at);
+        if let Some(site) = site {
+            let category = analysis::resolve(&cats, &exe, Some(&site));
+            note(format!("site:{site}"), site, category, at);
+        }
+    }
+    let mut found: Vec<(Subject, i64)> = latest.into_values().collect();
+    found.sort_by_key(|(_, at)| std::cmp::Reverse(*at));
+    let mut subjects: Vec<Subject> = found.into_iter().map(|(s, _)| s).collect();
+    for s in subjects.iter_mut() {
+        if let Some(exe) = s.key.strip_prefix("app:") {
+            s.icon = db::app_path(conn, exe).ok().flatten();
+        }
+    }
+    Ok(subjects)
+}
+
 /// Apps and sites with time over the last 30 days, most used first.
 pub fn subjects(conn: &Connection, apps: &[AppEntry]) -> Result<Vec<Subject>> {
     let cats = analysis::category_map(conn)?;
@@ -579,6 +630,29 @@ mod tests {
         let start = Local.from_local_datetime(&from).earliest().unwrap().timestamp_millis();
         let s = db::NewSession { app, exe: app, title, site, start_ms: start, end_ms: start + minutes * 60_000, idle, demo: false };
         db::insert_session(conn, &s).unwrap();
+    }
+
+    #[test]
+    fn apps_and_sites_used_only_long_ago_are_found_newest_first_and_not_the_recent_ones() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let ago = |days| (Local::now() - Duration::days(days)).naive_local();
+        session(&conn, "Figma", "x", None, false, ago(90), 30);
+        session(&conn, "Blender", "x", None, false, ago(200), 30);
+        session(&conn, "Chrome", "Docs", Some("docs.google.com"), false, ago(60), 30);
+        session(&conn, "Code", "x", None, false, ago(70), 30);
+        // Used lately too: one of the recent, not of these.
+        session(&conn, "Code", "x", None, false, ago(1), 30);
+        // Idle time isn't a use.
+        session(&conn, "Away", "x", None, true, ago(40), 30);
+        let all = older_before(&conn, now_ms() - SUBJECTS_FOR_MS).unwrap();
+        let names: Vec<&str> = all.iter().map(|s| s.name.as_str()).collect();
+        let at = |n: &str| names.iter().position(|x| *x == n).unwrap_or_else(|| panic!("{n} missing from {names:?}"));
+        // Newest first: Chrome and its site (60 days), Code (70), Figma (90), Blender (200).
+        assert!(at("Chrome") < at("Code") && at("docs.google.com") < at("Code") && at("Code") < at("Figma") && at("Figma") < at("Blender"));
+        assert!(all.iter().all(|s| s.used_ms == 0) && !names.contains(&"Away"));
+        let recent = subjects(&conn, &[]).unwrap();
+        let older = older_subjects(&conn, &recent, Local::now().date_naive());
+        assert!(older.iter().any(|s| s.name == "Figma") && !older.iter().any(|s| s.name == "Code"));
     }
 
     #[test]

@@ -900,9 +900,11 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    3:45 pm", and up to four stretches, newest first, each with its day and time and how long; a
    minute of glancing isn't counted as a use. Window titles show only with the setting on.
 3. **Not a search.** `last week`, `last tue`, `recapping` and plain app names don't give these rows.
+   **Long ago.** Ask about an app last used more than 30 days back. *Expect:* its row and card, with
+   its last use months ago; `<that app> this week` still offers nothing for it.
 4. **Tasks done.** Tick off two tasks in Ledger, then type `recap`. *Expect (macOS, Linux):* the card
    adds "Tasks done 2"; `how was` a day with none ticked off shows no Tasks done. *Windows:* the
-   native palette doesn't show it yet.
+   same in the native palette; check the four stats fit across the card.
 
 ## Any system: capture
 
