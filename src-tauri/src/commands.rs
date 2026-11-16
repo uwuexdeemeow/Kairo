@@ -84,11 +84,18 @@ pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {
         .map(|t| t.date_naive().to_string()))
 }
 
+/// Where "the last `days` days" start: the midnight `days - 1` days before today, so they're that
+/// many calendar days with today, not a day more (`days` times 24 hours back reaches into one).
+fn patterns_from(today: NaiveDate, days: u32, now: i64) -> i64 {
+    let first = today - chrono::Duration::days(i64::from(days.max(1)) - 1);
+    day_bounds(first).map_or(now - i64::from(days) * DAY_MS, |(from, _)| from)
+}
+
 #[tauri::command]
 pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
-    let from = now - days as i64 * DAY_MS;
+    let from = patterns_from(Local::now().date_naive(), days, now);
     let rows = analysis::load_rows_of(&conn, from, now, &sync::shown(&conn)?).map_err(err)?;
     let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
     let focused_ms = blocks.iter().map(focus::Block::ms).sum();
@@ -2150,6 +2157,17 @@ pub fn stop_sync(app: AppHandle) -> CmdResult<SyncState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_last_30_days_are_30_calendar_days_with_today() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let from = patterns_from(today, 30, 0);
+        assert_eq!(from, day_bounds(NaiveDate::from_ymd_opt(2026, 10, 18).unwrap()).unwrap().0);
+        // Counting the days with time from there gives 30 at most, today included.
+        let days = (0..).map(|n| today - chrono::Duration::days(n)).take_while(|d| day_bounds(*d).unwrap().0 >= from).count();
+        assert_eq!(days, 30);
+        assert_eq!(patterns_from(today, 1, 0), day_bounds(today).unwrap().0);
+    }
 
     #[test]
     fn day_bounds_span_one_local_day() {
