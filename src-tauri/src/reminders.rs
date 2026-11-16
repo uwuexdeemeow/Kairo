@@ -151,6 +151,32 @@ pub fn plan_nudge(tasks: &[Task], now_local: NaiveDateTime, morning: NaiveTime, 
     Some(("Plan the day?".into(), body))
 }
 
+/// The "Wrap up the day?" nudge: its title and body, when it is time. From the end of the working
+/// day (never before five, when Plan turns to wrapping up) until eleven, once a day, when something
+/// was done today or is still left. Pure: nothing is shown or marked.
+pub fn wrap_nudge(tasks: &[Task], now_local: NaiveDateTime, day_start_ms: i64, day_to: NaiveTime, last: Option<&str>) -> Option<(String, String)> {
+    use chrono::Timelike;
+    let today = now_local.date().format("%Y-%m-%d").to_string();
+    let from = day_to.max(NaiveTime::from_hms_opt(EVENING_FROM_HOUR, 0, 0).expect("an hour"));
+    if now_local.time() < from || now_local.hour() >= WRAP_UNTIL_HOUR || last == Some(today.as_str()) {
+        return None;
+    }
+    let left = tasks.iter().filter(|t| t.done_ms.is_none() && matches!(t.group.as_str(), "overdue" | "today")).count();
+    let done = tasks.iter().filter(|t| t.done_ms.is_some_and(|d| d >= day_start_ms)).count();
+    if left == 0 && done == 0 {
+        return None;
+    }
+    let body = match (done, left) {
+        (0, l) => format!("{l} left"),
+        (d, 0) => format!("{d} done · everything due is done"),
+        (d, l) => format!("{d} done · {l} left"),
+    };
+    Some(("Wrap up the day?".into(), body))
+}
+
+/// The wrap-up nudge isn't sent this late: a late return isn't the end of a working day.
+const WRAP_UNTIL_HOUR: u32 = 23;
+
 /// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
 pub fn when_mark(when: &str) -> String {
     format!("when:{}", when.replace(' ', "_"))
@@ -199,26 +225,79 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 /// Ledger on Plan.
 pub const OPENS: &str = "kairoOpens";
 
-/// Where a click on one of Kairo's notifications goes in Ledger ("plan"), if it says; a click on
-/// one of its buttons, or on a notification that says nothing, goes nowhere.
-pub fn opens_on_click(performed: &tauri_plugin_notification::ActionPerformed) -> Option<String> {
-    if performed.action_id() != "tap" {
-        return None;
-    }
-    performed.notification()?.extra().get(OPENS)?.as_str().map(str::to_string)
+/// The extra a one-task reminder carries: the task, by id, for its Start focus button.
+const TASK: &str = "kairoTask";
+/// The buttons a one-task reminder has, as registered with the notifications.
+const TASK_BUTTONS: &str = "kairo-task";
+/// The Start focus button's action, and the session it starts.
+const START_FOCUS: &str = "focus";
+pub const REMINDER_FOCUS_MINUTES: u32 = 25;
+
+/// What a click on one of Kairo's notifications does.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Clicked {
+    /// Opens Ledger there ("plan", "task:<id>", "note:<id>").
+    Open(String),
+    /// Starts a focus session on the task, by id: a reminder's Start focus button.
+    Focus(String),
 }
 
-/// Opens Ledger where a clicked notification says. Windows reports a click only while the toast
-/// is on screen, not from the Action Center; there the notification only tells.
+/// What a click on a notification asks for: the notification itself opens where it says, its
+/// Start focus button starts a session on its task; anything else, nothing.
+pub fn clicked(performed: &tauri_plugin_notification::ActionPerformed) -> Option<Clicked> {
+    let extra = performed.notification()?.extra();
+    let said = |key: &str| extra.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    match performed.action_id() {
+        "tap" => said(OPENS).map(Clicked::Open),
+        START_FOCUS => said(TASK).map(Clicked::Focus),
+        _ => None,
+    }
+}
+
+/// The task a reminder is for, when it's for one alone: only then does it open on it and offer
+/// to start a session on it.
+pub fn single_task(r: &Reminder) -> Option<&str> {
+    let first = r.marks.first()?.0.as_str();
+    r.marks.iter().all(|(id, _)| id == first).then_some(first)
+}
+
+/// Opens Ledger where a clicked notification says, or starts a focus session from a reminder's
+/// button. Windows reports a click only while the toast is on screen, not from the Action Center;
+/// there the notification only tells.
 pub fn follow_clicks(app: &AppHandle) {
-    use tauri_plugin_notification::NotificationExt;
+    use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+    let start = Action::builder(START_FOCUS, format!("Start focus ({REMINDER_FOCUS_MINUTES} min)")).build();
+    let _ = app.notification().register_action_types(vec![ActionType::builder(TASK_BUTTONS).actions(vec![start]).build()]);
     let handle = app.clone();
-    let _ = app.notification().on_action(move |performed| {
-        if let Some(at) = opens_on_click(performed) {
+    let _ = app.notification().on_action(move |performed| match clicked(performed) {
+        Some(Clicked::Open(at)) => {
             let app = handle.clone();
             let _ = handle.run_on_main_thread(move || crate::show_ledger_at(&app, &at));
         }
+        Some(Clicked::Focus(task)) => start_focus_on(&handle, &task),
+        None => {}
     });
+}
+
+/// A reminder's Start focus: a session on its task, unless one is running already (it isn't
+/// ended from a notification), said in a notification when it can't start.
+fn start_focus_on(app: &AppHandle, task: &str) {
+    use tauri::{Emitter, Manager};
+    let Some(state) = app.try_state::<crate::AppState>() else { return };
+    let started = {
+        let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        match crate::focus::active(&conn) {
+            Ok(Some(_)) => Err("A focus session is already running."),
+            Ok(None) => crate::focus::start_by_hand(&conn, REMINDER_FOCUS_MINUTES, None, Some(task), chrono::Utc::now().timestamp_millis()).map(|_| ()).map_err(|_| "Couldn't start a focus session. Try again from the palette."),
+            Err(_) => Err("Couldn't start a focus session. Try again from the palette."),
+        }
+    };
+    match started {
+        Ok(()) => {
+            let _ = app.emit("kairo:focus", ());
+        }
+        Err(why) => crate::capture::tell(app, "Kairo", why, None),
+    }
 }
 
 pub fn spawn(app: AppHandle, db_path: PathBuf) {
@@ -281,6 +360,21 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
             crate::sync::record(conn, "ledger:plan_nudged", &today)?;
         }
     }
+    if settings.wrap_nudge && in_use {
+        let day_to = NaiveTime::parse_from_str(&settings.day_to, "%H:%M").map_err(|e| e.to_string())?;
+        let start = crate::analysis::day_bounds(now.date_naive()).map(|(from, _)| from).unwrap_or(0);
+        let last = crate::ledger::wrap_nudged(conn).map_err(|e| e.to_string())?;
+        if let Some((title, body)) = wrap_nudge(&tasks, now.naive_local(), start, day_to, last.as_deref()) {
+            use tauri_plugin_notification::NotificationExt;
+            // A click opens Plan, which is wrapping the day up by now.
+            if let Err(e) = app.notification().builder().title(&title).body(&body).extra(OPENS, "plan").show() {
+                eprintln!("reminders: {e}");
+            }
+            let today = now.format("%Y-%m-%d").to_string();
+            crate::ledger::set_wrap_nudged(conn, &today).map_err(|e| e.to_string())?;
+            crate::sync::record(conn, "ledger:wrap_nudged", &today)?;
+        }
+    }
     send(app, conn, show, due.drop)
 }
 
@@ -299,7 +393,12 @@ fn on_moment(app: &AppHandle, conn: &rusqlite::Connection, moment: &Moment) -> R
 fn send(app: &AppHandle, conn: &rusqlite::Connection, show: Vec<Reminder>, mut marks: Vec<(String, String)>) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
     for r in show {
-        if let Err(e) = app.notification().builder().title(&r.title).body(&r.body).show() {
+        let mut n = app.notification().builder().title(&r.title).body(&r.body);
+        // One task's reminder opens it when clicked, and offers to start a session on it.
+        if let Some(id) = single_task(&r) {
+            n = n.extra(OPENS, format!("task:{id}")).extra(TASK, id).action_type_id(TASK_BUTTONS);
+        }
+        if let Err(e) = n.show() {
             eprintln!("reminders: {e}");
         }
         marks.extend(r.marks);
@@ -324,19 +423,30 @@ mod tests {
     const NOW_DAY: &str = "2026-11-03";
 
     /// What the notification plugin hands its handlers: the action, and the notification as it was built.
-    fn clicked(action: &str, notification: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
+    fn click(action: &str, notification: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
         serde_json::from_value(serde_json::json!({ "actionId": action, "inputValue": null, "notification": notification })).unwrap()
     }
 
     #[test]
-    fn a_click_on_the_plan_nudge_opens_plan_and_other_clicks_go_nowhere() {
+    fn a_click_opens_where_it_says_and_a_reminders_button_starts_focus_on_its_task() {
         let nudge = serde_json::json!({ "id": 7, "title": "Plan the day?", "extra": { OPENS: "plan" } });
-        assert_eq!(opens_on_click(&clicked("tap", nudge.clone())).as_deref(), Some("plan"));
-        // A button on it, not the notification itself.
-        assert_eq!(opens_on_click(&clicked("snooze", nudge)), None);
-        // A reminder, or a notification the platform couldn't describe.
-        assert_eq!(opens_on_click(&clicked("tap", serde_json::json!({ "id": 8, "title": "Due today: Essay" }))), None);
-        assert_eq!(opens_on_click(&clicked("tap", serde_json::Value::Null)), None);
+        assert_eq!(clicked(&click("tap", nudge.clone())), Some(Clicked::Open("plan".into())));
+        // A button the notification doesn't have.
+        assert_eq!(clicked(&click("snooze", nudge)), None);
+        let reminder = serde_json::json!({ "id": 8, "title": "Due today: Essay", "extra": { OPENS: "task:t1", TASK: "t1" } });
+        assert_eq!(clicked(&click("tap", reminder.clone())), Some(Clicked::Open("task:t1".into())));
+        assert_eq!(clicked(&click(START_FOCUS, reminder)), Some(Clicked::Focus("t1".into())));
+        // A reminder for several tasks, or one the platform couldn't describe.
+        assert_eq!(clicked(&click("tap", serde_json::json!({ "id": 9, "title": "Due today: Essay and 2 more" }))), None);
+        assert_eq!(clicked(&click("tap", serde_json::Value::Null)), None);
+    }
+
+    #[test]
+    fn only_a_reminder_for_one_task_is_tied_to_it() {
+        let one = Reminder { title: "Reminder: Essay".into(), body: String::new(), marks: vec![("t1".into(), "due".into()), ("t1".into(), "morning".into())] };
+        assert_eq!(single_task(&one), Some("t1"));
+        let many = Reminder { marks: vec![("t1".into(), "due".into()), ("t2".into(), "due".into())], ..one };
+        assert_eq!(single_task(&many), None);
     }
 
     fn at(h: u32, m: u32) -> NaiveDateTime {
@@ -353,6 +463,35 @@ mod tests {
 
     fn titles(d: &Due) -> Vec<&str> {
         d.show.iter().map(|r| r.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_wrap_up_nudge_comes_once_at_the_end_of_the_working_day_never_before_five() {
+        let start = 1_000;
+        let mut left = task("a", "Essay", Some(NOW_DAY), 1);
+        left.group = "today".into();
+        let mut done = task("b", "Call", Some(NOW_DAY), 1);
+        done.group = "done".into();
+        done.done_ms = Some(start + 5);
+        let mut old = task("c", "Old", None, 1);
+        old.group = "done".into();
+        old.done_ms = Some(start - 5);
+        let six = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
+        let tasks = [left.clone(), done.clone(), old.clone()];
+        let nudge = |h, m, to: NaiveTime, last: Option<&str>| wrap_nudge(&tasks, at(h, m), start, to, last);
+        assert_eq!(nudge(18, 0, six, None), Some(("Wrap up the day?".to_string(), "1 done · 1 left".to_string())));
+        assert_eq!(nudge(17, 59, six, None), None);
+        // A working day ending at four still waits for five, when Plan wraps the day up.
+        let four = NaiveTime::from_hms_opt(16, 0, 0).unwrap();
+        assert_eq!(nudge(16, 30, four, None), None);
+        assert!(nudge(17, 0, four, None).is_some());
+        // Not late at night, and once a day.
+        assert_eq!(nudge(23, 0, six, None), None);
+        assert_eq!(nudge(19, 0, six, Some(NOW_DAY)), None);
+        // What it says: all done; only left; nothing at all is nothing to wrap up.
+        assert_eq!(wrap_nudge(&[done.clone()], at(18, 0), start, six, None).unwrap().1, "1 done · everything due is done");
+        assert_eq!(wrap_nudge(&[left], at(18, 0), start, six, None).unwrap().1, "1 left");
+        assert_eq!(wrap_nudge(&[old], at(18, 0), start, six, None), None);
     }
 
     #[test]

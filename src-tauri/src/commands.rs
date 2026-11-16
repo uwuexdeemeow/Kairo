@@ -752,6 +752,14 @@ pub fn set_plan_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledg
     Ok(s)
 }
 
+#[tauri::command]
+pub fn set_wrap_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    let s = crate::ledger::set_wrap_nudge(&conn, on)?;
+    sync::record(&conn, "ledger:wrap_nudge", if s.wrap_nudge { "1" } else { "0" })?;
+    Ok(s)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockLists {

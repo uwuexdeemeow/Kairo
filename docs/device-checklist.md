@@ -934,11 +934,25 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
     *Expect:* "Saved as a note" with ", on “<task>”"; the task shows the note. A second paragraph is
     a note of its own; the task keeps the first.
 
+## Ledger: a reminder's Start focus
+
+1. **One task.** Set a task's reminder a minute ahead. *Expect:* "Reminder: <task>" with a
+   "Start focus (25 min)" button. Clicking the notification opens the task in Ledger; the button
+   starts a 25-minute session on it (Chrono's Focus page and the palette show it running).
+2. **A session already running.** Do it again during a session. *Expect:* "A focus session is
+   already running." and the session as it was.
+3. **Several tasks.** A morning reminder for two or more tasks ("Due today: Essay and 1 more").
+   *Expect:* no button, and a click doesn't open a task.
+
 ## Ledger: the Plan nudge
 
 1. **Clicking it.** With reminders and "Ask me to plan the day" on and something due, set the
    morning time a minute ahead. *Expect:* "Plan the day?"; click it while it's on screen. *Expect:*
    Kairo's window opens on Ledger's Plan. From the Windows Action Center it only tells, no click.
+2. **Wrapping up.** Turn on "Ask me to wrap up the day", set the working day to end a minute ahead
+   (or at five or later), with a task done today or one left. *Expect:* "Wrap up the day?" with
+   "1 done · 2 left"; clicking it opens Plan's "Wrap up the day". It comes once an evening, not
+   before five, not from eleven, and not with nothing done or left.
 
 ## Two computers combined
 

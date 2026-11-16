@@ -402,6 +402,8 @@ export interface LedgerSettings {
   dayTo: string;
   /** Whether the morning reminder time also asks "Plan the day?" when something is due. */
   planNudge: boolean;
+  /** Whether the end of the working day asks "Wrap up the day?". */
+  wrapNudge: boolean;
 }
 
 export interface FocusBlock {
@@ -635,6 +637,7 @@ export const api = {
   ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
   setLedgerSettings: (reminders: boolean, morning: string, dayFrom: string, dayTo: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning, dayFrom, dayTo }),
   setPlanNudge: (on: boolean) => invoke<LedgerSettings>("set_plan_nudge", { on }),
+  setWrapNudge: (on: boolean) => invoke<LedgerSettings>("set_wrap_nudge", { on }),
   /** Pinned first, then newest edited; with a query, those whose title or text has it. */
   notes: (query?: string) => invoke<Note[]>("get_notes", { query }),
   note: (id: string) => invoke<Note | null>("get_note", { id }),

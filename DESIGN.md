@@ -245,7 +245,7 @@ Warm paper and cool ink, with four app inks for accents and a separate set of da
 - **Input** (Instrument Sans, 17px): the palette's search box.
 - **Body** (Instrument Sans 400, 14px, 1.5): everything read and pressed.
 - **Small** (Instrument Sans 400, 13px): palette notes, chips, the bubble.
-- **Label** (Instrument Sans 600, 11px, 0.12em, uppercase): section labels, in faint.
+- **Label** (Instrument Sans 600, 11px, 0.12em, uppercase): section labels, in faint, and the palette's section headings ("Top hit", "Days").
 - **Caption** (Instrument Sans 600, 10px, 0.14em, uppercase): group headings and field names in panels; chart labels.
 - **Mono** (Geist Mono, 11 to 12px): keys, durations, tabular data, the note editor.
 

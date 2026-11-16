@@ -127,11 +127,19 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// The clipboard's text; an image or nothing copied counts as nothing to capture.
+/// The clipboard's text; an image or nothing copied counts as nothing to capture, and a copy a
+/// password manager marked is refused, so a password never lands in Ledger.
 pub fn read(app: &AppHandle) -> std::result::Result<String, String> {
     use tauri_plugin_clipboard_manager::ClipboardExt;
-    app.clipboard().read_text().map_err(|_| "Nothing to capture: copy some text first.".to_string())
+    let text = app.clipboard().read_text().map_err(|_| "Nothing to capture: copy some text first.".to_string())?;
+    if crate::platform::clipboard_concealed() {
+        return Err(CONCEALED.into());
+    }
+    Ok(text)
 }
+
+/// Why a password manager's copy isn't kept.
+pub const CONCEALED: &str = "That copy is from a password manager, so Kairo doesn't keep it.";
 
 /// A notification; with `opens`, a click on it opens Ledger there (reminders::follow_clicks).
 pub fn tell(app: &AppHandle, title: &str, body: &str, opens: Option<&str>) {

@@ -503,7 +503,8 @@ unsafe fn create(app: AppHandle, conn: Connection) -> Result<()> {
     let formats = Formats {
         title: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 14.0)?,
         sub: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_NORMAL, 12.0)?,
-        label: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_SEMI_BOLD, 10.0)?,
+        // The web's .palette-label: 11px at 0.12em (1.3px of spacing, below).
+        label: format(&dwrite, f, false, DWRITE_FONT_WEIGHT_SEMI_BOLD, 11.0)?,
         mono: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 12.0)?,
         kbd: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 11.0)?,
         stat: format(&dwrite, f, true, DWRITE_FONT_WEIGHT_NORMAL, 15.0)?,
@@ -1421,7 +1422,7 @@ impl Palette {
             }
             if std::ptr::eq(format, &self.formats.label) {
                 if let Ok(spaced) = layout.cast::<IDWriteTextLayout1>() {
-                    let _ = spaced.SetCharacterSpacing(0.0, 1.4, 0.0, DWRITE_TEXT_RANGE { startPosition: 0, length: pos });
+                    let _ = spaced.SetCharacterSpacing(0.0, 1.3, 0.0, DWRITE_TEXT_RANGE { startPosition: 0, length: pos });
                 }
             }
             let brush = self.brush(rt, hex, 1.0)?;

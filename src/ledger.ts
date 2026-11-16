@@ -7,7 +7,7 @@ import { mountDone, type DoneView } from "./ledger-done";
 import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
 import { dayHours, USUAL_DAY, type Hours } from "./ledger-free";
-import { mountPlan, planTitle, type PlanView } from "./ledger-plan";
+import { mountPlan, movedSaid, planTitle, type PlanView } from "./ledger-plan";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -171,10 +171,24 @@ function drawPlan() {
   planView ??= mountPlan(
     $("#view-plan"),
     {
+      // A move is made at once, and Undo (or Ctrl+Z) puts the task back where it was.
       move: (id, due, remind) =>
         void tried("move it", async () => {
           const t = tasks.find((x) => x.id === id);
-          if (t) draw(await api.setTaskPlan(id, due, t.priority, remind));
+          if (!t) return;
+          const was = { due: t.dueDay, remind: t.remindMs };
+          draw(await api.setTaskPlan(id, due, t.priority, remind));
+          taskUndo.offer({
+            what: t.title,
+            said: movedSaid(t.title, was.due, due, remind),
+            finish: () => {},
+            undo: () =>
+              void tried("move it back", async () => {
+                const now = tasks.find((x) => x.id === id);
+                draw(await api.setTaskPlan(id, was.due, now?.priority ?? t.priority, was.remind));
+              }),
+            focusAfter: () => document.querySelector<HTMLElement>(`#view-plan [data-task="${id}"] .plan-title`) ?? document.querySelector<HTMLElement>("#view-plan .plan-title"),
+          });
         }),
       done: (id, done) => void actions.done(id, done),
       openTask: (id) => openTask(id),
@@ -501,6 +515,7 @@ async function loadSettings() {
   $<HTMLInputElement>("#ledger-day-from").value = s.dayFrom;
   $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
   $<HTMLInputElement>("#ledger-plan-nudge").checked = s.planNudge;
+  $<HTMLInputElement>("#ledger-wrap-nudge").checked = s.wrapNudge;
   dayHoursNow = dayHours(s.dayFrom, s.dayTo);
   morningFollowsReminders();
 }
@@ -510,6 +525,7 @@ function morningFollowsReminders() {
   const on = $<HTMLInputElement>("#ledger-reminders").checked;
   $<HTMLInputElement>("#ledger-morning").disabled = !on;
   $<HTMLInputElement>("#ledger-plan-nudge").disabled = !on;
+  $<HTMLInputElement>("#ledger-wrap-nudge").disabled = !on;
 }
 
 let savedFade = 0;
@@ -551,17 +567,23 @@ $("#ledger-reminders").addEventListener("change", () => {
   void saveSettings();
 });
 $("#ledger-morning").addEventListener("change", () => saveSettings());
-$("#ledger-plan-nudge").addEventListener("change", async () => {
-  const note = $("#ledger-settings-note");
-  window.clearTimeout(savedFade);
-  try {
-    await api.setPlanNudge($<HTMLInputElement>("#ledger-plan-nudge").checked);
-    note.textContent = "Saved";
-    savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
-  } catch {
-    note.textContent = "Couldn't save this. Try again in a moment.";
-  }
-});
+// The morning's and the evening's nudges, each saved as it's flipped.
+for (const [box, save] of [
+  ["#ledger-plan-nudge", api.setPlanNudge],
+  ["#ledger-wrap-nudge", api.setWrapNudge],
+] as const) {
+  $(box).addEventListener("change", async () => {
+    const note = $("#ledger-settings-note");
+    window.clearTimeout(savedFade);
+    try {
+      await save($<HTMLInputElement>(box).checked);
+      note.textContent = "Saved";
+      savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
+    } catch {
+      note.textContent = "Couldn't save this. Try again in a moment.";
+    }
+  });
+}
 $("#ledger-day-from").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 $("#ledger-day-to").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 markTabs();

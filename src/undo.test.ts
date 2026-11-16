@@ -30,6 +30,12 @@ describe("deletes that can be taken back", () => {
     expect(document.activeElement).toBe(fallback);
   });
 
+  it("says a change already made in its own words", () => {
+    const u = mountUndo(line);
+    u.offer({ what: "Essay", said: "Moved “Essay” to tomorrow", finish: vi.fn(), undo: vi.fn(), focusAfter: () => fallback });
+    expect(line.textContent).toBe("Moved “Essay” to tomorrow · Undo");
+  });
+
   it("keeps several, and takes them back latest first", () => {
     const u = mountUndo(line);
     const first = offer(u);
