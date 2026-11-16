@@ -225,26 +225,79 @@ const CHECK_EVERY: Duration = Duration::from_secs(60);
 /// Ledger on Plan.
 pub const OPENS: &str = "kairoOpens";
 
-/// Where a click on one of Kairo's notifications goes in Ledger ("plan"), if it says; a click on
-/// one of its buttons, or on a notification that says nothing, goes nowhere.
-pub fn opens_on_click(performed: &tauri_plugin_notification::ActionPerformed) -> Option<String> {
-    if performed.action_id() != "tap" {
-        return None;
-    }
-    performed.notification()?.extra().get(OPENS)?.as_str().map(str::to_string)
+/// The extra a one-task reminder carries: the task, by id, for its Start focus button.
+const TASK: &str = "kairoTask";
+/// The buttons a one-task reminder has, as registered with the notifications.
+const TASK_BUTTONS: &str = "kairo-task";
+/// The Start focus button's action, and the session it starts.
+const START_FOCUS: &str = "focus";
+pub const REMINDER_FOCUS_MINUTES: u32 = 25;
+
+/// What a click on one of Kairo's notifications does.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Clicked {
+    /// Opens Ledger there ("plan", "task:<id>", "note:<id>").
+    Open(String),
+    /// Starts a focus session on the task, by id: a reminder's Start focus button.
+    Focus(String),
 }
 
-/// Opens Ledger where a clicked notification says. Windows reports a click only while the toast
-/// is on screen, not from the Action Center; there the notification only tells.
+/// What a click on a notification asks for: the notification itself opens where it says, its
+/// Start focus button starts a session on its task; anything else, nothing.
+pub fn clicked(performed: &tauri_plugin_notification::ActionPerformed) -> Option<Clicked> {
+    let extra = performed.notification()?.extra();
+    let said = |key: &str| extra.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    match performed.action_id() {
+        "tap" => said(OPENS).map(Clicked::Open),
+        START_FOCUS => said(TASK).map(Clicked::Focus),
+        _ => None,
+    }
+}
+
+/// The task a reminder is for, when it's for one alone: only then does it open on it and offer
+/// to start a session on it.
+pub fn single_task(r: &Reminder) -> Option<&str> {
+    let first = r.marks.first()?.0.as_str();
+    r.marks.iter().all(|(id, _)| id == first).then_some(first)
+}
+
+/// Opens Ledger where a clicked notification says, or starts a focus session from a reminder's
+/// button. Windows reports a click only while the toast is on screen, not from the Action Center;
+/// there the notification only tells.
 pub fn follow_clicks(app: &AppHandle) {
-    use tauri_plugin_notification::NotificationExt;
+    use tauri_plugin_notification::{Action, ActionType, NotificationExt};
+    let start = Action::builder(START_FOCUS, format!("Start focus ({REMINDER_FOCUS_MINUTES} min)")).build();
+    let _ = app.notification().register_action_types(vec![ActionType::builder(TASK_BUTTONS).actions(vec![start]).build()]);
     let handle = app.clone();
-    let _ = app.notification().on_action(move |performed| {
-        if let Some(at) = opens_on_click(performed) {
+    let _ = app.notification().on_action(move |performed| match clicked(performed) {
+        Some(Clicked::Open(at)) => {
             let app = handle.clone();
             let _ = handle.run_on_main_thread(move || crate::show_ledger_at(&app, &at));
         }
+        Some(Clicked::Focus(task)) => start_focus_on(&handle, &task),
+        None => {}
     });
+}
+
+/// A reminder's Start focus: a session on its task, unless one is running already (it isn't
+/// ended from a notification), said in a notification when it can't start.
+fn start_focus_on(app: &AppHandle, task: &str) {
+    use tauri::{Emitter, Manager};
+    let Some(state) = app.try_state::<crate::AppState>() else { return };
+    let started = {
+        let conn = state.db.lock().unwrap_or_else(|e| e.into_inner());
+        match crate::focus::active(&conn) {
+            Ok(Some(_)) => Err("A focus session is already running."),
+            Ok(None) => crate::focus::start_by_hand(&conn, REMINDER_FOCUS_MINUTES, None, Some(task), chrono::Utc::now().timestamp_millis()).map(|_| ()).map_err(|_| "Couldn't start a focus session. Try again from the palette."),
+            Err(_) => Err("Couldn't start a focus session. Try again from the palette."),
+        }
+    };
+    match started {
+        Ok(()) => {
+            let _ = app.emit("kairo:focus", ());
+        }
+        Err(why) => crate::capture::tell(app, "Kairo", why, None),
+    }
 }
 
 pub fn spawn(app: AppHandle, db_path: PathBuf) {
@@ -340,7 +393,12 @@ fn on_moment(app: &AppHandle, conn: &rusqlite::Connection, moment: &Moment) -> R
 fn send(app: &AppHandle, conn: &rusqlite::Connection, show: Vec<Reminder>, mut marks: Vec<(String, String)>) -> Result<(), String> {
     use tauri_plugin_notification::NotificationExt;
     for r in show {
-        if let Err(e) = app.notification().builder().title(&r.title).body(&r.body).show() {
+        let mut n = app.notification().builder().title(&r.title).body(&r.body);
+        // One task's reminder opens it when clicked, and offers to start a session on it.
+        if let Some(id) = single_task(&r) {
+            n = n.extra(OPENS, format!("task:{id}")).extra(TASK, id).action_type_id(TASK_BUTTONS);
+        }
+        if let Err(e) = n.show() {
             eprintln!("reminders: {e}");
         }
         marks.extend(r.marks);
@@ -365,19 +423,30 @@ mod tests {
     const NOW_DAY: &str = "2026-11-03";
 
     /// What the notification plugin hands its handlers: the action, and the notification as it was built.
-    fn clicked(action: &str, notification: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
+    fn click(action: &str, notification: serde_json::Value) -> tauri_plugin_notification::ActionPerformed {
         serde_json::from_value(serde_json::json!({ "actionId": action, "inputValue": null, "notification": notification })).unwrap()
     }
 
     #[test]
-    fn a_click_on_the_plan_nudge_opens_plan_and_other_clicks_go_nowhere() {
+    fn a_click_opens_where_it_says_and_a_reminders_button_starts_focus_on_its_task() {
         let nudge = serde_json::json!({ "id": 7, "title": "Plan the day?", "extra": { OPENS: "plan" } });
-        assert_eq!(opens_on_click(&clicked("tap", nudge.clone())).as_deref(), Some("plan"));
-        // A button on it, not the notification itself.
-        assert_eq!(opens_on_click(&clicked("snooze", nudge)), None);
-        // A reminder, or a notification the platform couldn't describe.
-        assert_eq!(opens_on_click(&clicked("tap", serde_json::json!({ "id": 8, "title": "Due today: Essay" }))), None);
-        assert_eq!(opens_on_click(&clicked("tap", serde_json::Value::Null)), None);
+        assert_eq!(clicked(&click("tap", nudge.clone())), Some(Clicked::Open("plan".into())));
+        // A button the notification doesn't have.
+        assert_eq!(clicked(&click("snooze", nudge)), None);
+        let reminder = serde_json::json!({ "id": 8, "title": "Due today: Essay", "extra": { OPENS: "task:t1", TASK: "t1" } });
+        assert_eq!(clicked(&click("tap", reminder.clone())), Some(Clicked::Open("task:t1".into())));
+        assert_eq!(clicked(&click(START_FOCUS, reminder)), Some(Clicked::Focus("t1".into())));
+        // A reminder for several tasks, or one the platform couldn't describe.
+        assert_eq!(clicked(&click("tap", serde_json::json!({ "id": 9, "title": "Due today: Essay and 2 more" }))), None);
+        assert_eq!(clicked(&click("tap", serde_json::Value::Null)), None);
+    }
+
+    #[test]
+    fn only_a_reminder_for_one_task_is_tied_to_it() {
+        let one = Reminder { title: "Reminder: Essay".into(), body: String::new(), marks: vec![("t1".into(), "due".into()), ("t1".into(), "morning".into())] };
+        assert_eq!(single_task(&one), Some("t1"));
+        let many = Reminder { marks: vec![("t1".into(), "due".into()), ("t2".into(), "due".into())], ..one };
+        assert_eq!(single_task(&many), None);
     }
 
     fn at(h: u32, m: u32) -> NaiveDateTime {
