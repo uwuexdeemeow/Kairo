@@ -65,6 +65,19 @@ impl History {
         true
     }
 
+    /// Takes note of a copy as `push` does, unless `concealed` says a password manager marked it:
+    /// then it's seen but never kept. `concealed` is asked only about a copy not seen before.
+    pub fn take(&mut self, text: &str, now: i64, concealed: impl FnOnce() -> bool) -> bool {
+        if self.last_seen.as_deref() == Some(text) {
+            return false;
+        }
+        if concealed() {
+            self.prime(text);
+            return false;
+        }
+        self.push(text, now)
+    }
+
     /// Notes what is on the clipboard without keeping it: copied before Kairo was watching.
     pub fn prime(&mut self, text: &str) {
         self.last_seen = Some(text.to_string());
@@ -146,8 +159,9 @@ pub fn spawn(app: AppHandle) {
                         primed = true;
                     }
                     (false, None) => primed = true,
+                    // A password manager's copy is seen, so it isn't asked about again, but never kept.
                     (true, Some(t)) => {
-                        history.push(&t, now_ms());
+                        history.take(&t, now_ms(), crate::platform::clipboard_concealed);
                     }
                     (true, None) => {}
                 }
@@ -191,6 +205,25 @@ pub fn size_of(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_password_managers_copy_is_seen_but_never_kept() {
+        let mut h = History::default();
+        let mut asked = 0;
+        assert!(!h.take("hunter2", 1, || {
+            asked += 1;
+            true
+        }));
+        // Seen: not asked about again while it's still on the clipboard.
+        assert!(!h.take("hunter2", 2, || {
+            asked += 1;
+            true
+        }));
+        assert_eq!(asked, 1);
+        assert_eq!(h.entries().count(), 0);
+        assert!(h.take("lunch at 1", 3, || false));
+        assert_eq!(h.entries().map(|e| e.text.as_str()).collect::<Vec<_>>(), ["lunch at 1"]);
+    }
 
     #[test]
     fn copies_are_kept_newest_first_without_repeats() {

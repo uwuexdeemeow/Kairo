@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-03T17:43:53Z",
+  "generatedAt": "2026-11-16T15:30:23Z",
   "title": "Design System: Kairo",
   "extensions": {
     "colorMeta": {
@@ -48,7 +48,7 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Section labels and field names, uppercase, in faint."
+        "purpose": "Section labels, in faint, and the palette's section headings, uppercase."
       },
       "mono": {
         "displayName": "Mono",
@@ -133,7 +133,7 @@
       "refersTo": "button",
       "description": "A sheet-coloured button with a hairline and a pressable edge.",
       "html": "<button class=\"ds-btn\">Back up</button>",
-      "css": ".ds-btn{min-height:36px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:500 14px var(--sans);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--ink) 6%,transparent),0 1px 2px var(--shadow)}.ds-btn:focus-visible{outline:2px solid var(--app);outline-offset:2px}"
+      "css": ".ds-btn{min-height:36px;padding:0 16px;border:1px solid var(--edge);border-radius:10px;background:var(--raised);color:var(--ink);font:500 14px var(--sans);box-shadow:inset 0 1px 0 color-mix(in srgb,var(--ink) 6%,transparent),0 1px 2px var(--shadow)}.ds-btn:focus-visible{outline:2px solid var(--app);outline-offset:2px}"
     },
     {
       "name": "Primary Button",
@@ -149,7 +149,7 @@
       "refersTo": "field",
       "description": "A boxed text field on a sheet.",
       "html": "<input class=\"ds-field\" placeholder=\"Add a task\">",
-      "css": ".ds-field{min-height:38px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--raised);color:var(--ink);font:14px var(--sans);box-shadow:inset 0 1px 2px color-mix(in srgb,#000 12%,transparent)}.ds-field:focus-visible{border-color:var(--app);outline:2px solid var(--app);outline-offset:1px}"
+      "css": ".ds-field{min-height:38px;padding:8px 12px;border:1px solid var(--edge);border-radius:10px;background:var(--raised);color:var(--ink);font:14px var(--sans);box-shadow:inset 0 1px 2px color-mix(in srgb,var(--shadow) 25%,transparent)}.ds-field:focus-visible{border-color:var(--app);outline:2px solid var(--app);outline-offset:1px}"
     },
     {
       "name": "Chip",
@@ -165,7 +165,7 @@
       "refersTo": "label",
       "description": "Small capitals over a group.",
       "html": "<h3 class=\"ds-label\">Today</h3>",
-      "css": ".ds-label{margin:0;color:var(--faint);font:600 10px var(--sans);letter-spacing:.14em;text-transform:uppercase}"
+      "css": ".ds-label{margin:0;color:var(--faint);font:600 11px var(--sans);letter-spacing:.12em;text-transform:uppercase}"
     },
     {
       "name": "Palette Bubble",
@@ -186,10 +186,10 @@
   ],
   "narrative": {
     "northStar": "Objects on Paper",
-    "overview": "Each of Kairo's apps is drawn as the thing it is: Chrono a watch dial, Ledger a cloth notebook with a gold ribbon, the command palette a keycap, Kairo itself a ring with one stretch of it lit gold, the moment. They sit on a sheet of cream paper by day, or on deep blue ink by night (the default), with a faint grain over the ground. Everything else is ruled lines, small capitals and quiet sheets, so the objects and the numbers carry the character.",
+    "overview": "Each of Kairo's apps is drawn as the thing it is: Chrono a watch dial, Ledger a cloth notebook with a gold ribbon, the command palette a keycap, Kairo itself a ring with one stretch of it lit gold, the moment. They sit on a sheet of cream paper by day, or on deep blue ink by night (the default), with a faint grain over the ground. Everything else is ruled lines, small capitals and quiet sheets, so the objects and the numbers carry the character.\n\nThe dashboard's Home is the exception to showing them: it leads with the day, not the apps. Its title says what is left (\"Two things left today.\"), a quiet strip names the focus session while one runs, the tasks due are plain rows, and the apps are small chips and a line of hints. The drawn objects stay in each app's own window, its mark and the ring.\n\nIt is a tool used for seconds at a time, many times a day, so density is moderate and calm: one display face for titles and big numbers, one text face for everything you read and press, a mono face for keys and figures. Each window takes its app's ink as its accent, the same way a notebook and a watch keep their own colour on one desk; the data colours (productive, distracting, the blue ramp) mean the same thing everywhere.\n\nThe look is defined by `src/styles.css` (tokens on `:root`, dark first, `[data-theme=\"light\"]` for paper), the drawings in `src/logos.ts`, and the native Windows palette and ring, which copy the same values in Rust and must stay in step.",
     "keyCharacteristics": [
       "Real objects as app marks, drawn inline in each app's ink; no image files.",
-      "Two grounds: deep blue ink (default) and cream paper, each with a fine grain.",
+      "Two grounds at heart: deep blue ink (default) and cream paper, each with a fine grain. The other themes are grounds over one of them, swapping only the paper and its text inks: Graphite, Walnut, Baize and Midnight over ink; Linen and Sage over paper. App inks and data colours stay those of the set beneath (`data-ground` in `src/styles.css`, `GROUNDS` in `src-tauri/src/appearance.rs`).",
       "Fraunces 800 for titles and figures, with an italic 400 aside in the app's ink.",
       "Section labels in small capitals with wide letter-spacing.",
       "Kairo's own controls everywhere the system's would ignore the theme: dropdowns, the calendar, time lists."
@@ -197,12 +197,17 @@
     "rules": [
       {
         "name": "The Whose Window Rule",
-        "body": "Accent colour comes from --app, never a literal: the same component is blue in Chrono and amber in Ledger.",
+        "body": "Accent colour comes from `--app`, never a literal: the same component is blue in Chrono and amber in Ledger.",
+        "section": "colors"
+      },
+      {
+        "name": "The Shown Rule",
+        "body": "What's shown (the sidebar's page, a range toggle, a length preset, the dashboard's tab) is the app's ink on a 14% tint of it. On paper the tint costs the ink its contrast, so there the ink is mixed 65/35 with the text ink to stay above 4.5:1.",
         "section": "colors"
       },
       {
         "name": "The Fill Is Not Ink Rule",
-        "body": "A data colour used as small text takes its -ink variant; fills keep the original so charts read the same.",
+        "body": "A data colour used as small text takes its `-ink` variant; fills keep the original so charts read the same.",
         "section": "colors"
       },
       {
@@ -217,18 +222,19 @@
       }
     ],
     "dos": [
-      "Do take every colour from the tokens on :root, and define a new one for both grounds.",
-      "Do use --app for accents and the -ink variants for data colours as text.",
-      "Do draw icons and marks inline in the 24-unit stroke family (or the 100-unit object drawings in src/logos.ts).",
-      "Do give every motion an alternative under prefers-reduced-motion.",
-      "Do change the native Windows palette and ring in step with the web ones when a shared value moves."
+      "**Do** take every colour from the tokens on `:root`, and define a new one for both grounds.",
+      "**Do** use `--app` for accents and the `-ink` variants for data colours as text.",
+      "**Do** draw the edge of anything pressed or typed into (buttons, fields, toggles, checkboxes) with `--edge`, which holds 3:1 on page and sheet; `--line` and `--rule` are for dividers and containers.",
+      "**Do** draw icons and marks inline in the 24-unit stroke family (or the 100-unit object drawings in `src/logos.ts`).",
+      "**Do** give every motion an alternative under `prefers-reduced-motion`.",
+      "**Do** change the native Windows palette and ring in step with the web ones when a shared value moves."
     ],
     "donts": [
-      "Don't use the system's date, time or select pickers; they ignore the theme.",
-      "Don't remove the outline on focus without putting a solid one back.",
-      "Don't set small text in the faint grey below 4.5:1, or a data fill colour as words.",
-      "Don't hard-code a colour in a component.",
-      "Don't add image files for marks or icons."
+      "**Don't** use the system's date, time or select pickers; they ignore the theme.",
+      "**Don't** remove the outline on focus without putting a solid one back.",
+      "**Don't** set small text in the faint grey below 4.5:1, or a data fill colour as words.",
+      "**Don't** hard-code a colour in a component.",
+      "**Don't** add image files for marks or icons."
     ]
   }
 }

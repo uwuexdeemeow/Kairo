@@ -1,7 +1,7 @@
 {
   "name": "kairo",
   "private": true,
-  "version": "1.31.52",
+  "version": "1.31.58",
   "type": "module",
   "scripts": {
     "dev": "vite",

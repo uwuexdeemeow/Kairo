@@ -900,6 +900,59 @@ On Windows, a Mac and Linux, with some hours of history from yesterday or today.
    3:45 pm", and up to four stretches, newest first, each with its day and time and how long; a
    minute of glancing isn't counted as a use. Window titles show only with the setting on.
 3. **Not a search.** `last week`, `last tue`, `recapping` and plain app names don't give these rows.
+   **Long ago.** Ask about an app last used more than 30 days back. *Expect:* its row and card, with
+   its last use months ago; `<that app> this week` still offers nothing for it.
+4. **Tasks done.** Tick off two tasks in Ledger, then type `recap`. *Expect (macOS, Linux):* the card
+   adds "Tasks done 2"; `how was` a day with none ticked off shows no Tasks done. *Windows:* the
+   same in the native palette; check the four stats fit across the card.
+
+## Any system: capture
+
+1. **Off at first.** Kairo's settings, Palette and ring, Capture. *Expect:* "No keys" and Set keys;
+   pressing Alt+Shift+C in another app types as it always did.
+2. **Setting keys.** Set keys, press Alt+Shift+C. *Expect:* "Saved. Alt+Shift+C captures what you
+   copied from anywhere." and Turn off beside Change. The palette's or the ring's keys are refused
+   ("Ctrl+Space opens the command palette."), and capture's keys are refused for them.
+3. **A line.** In a browser, copy a short line ("Call Leo about the invoice") and press the keys.
+   *Expect:* "Added to Ledger" with the line; Ledger, if open, lists it at once, with no due day
+   read from words like "tomorrow". Click the notification while it's on screen. *Expect:* Ledger
+   opens on that task.
+4. **More than a line.** Copy a paragraph or several lines and press the keys. *Expect:* "Saved as
+   a note" with its first line; clicking opens the note in Ledger.
+5. **Nothing copied.** Copy an image (or clear the clipboard) and press the keys. *Expect:* "Nothing
+   to capture: copy some text first." and nothing added.
+6. **Over a game.** In a full-screen game, press the keys. *Expect:* only the notification; the game
+   keeps the keyboard and no window opens.
+7. **From the palette.** Type `capture` in the palette. *Expect:* "Capture what I copied" first;
+   Enter keeps the clipboard as above. With nothing copied, the row says so.
+8. **Turn off.** *Expect:* "No keys" again, the keys back to other apps, and Set keys focused.
+9. **Linux on Wayland.** Add a desktop shortcut that runs `kairo --capture`. *Expect:* as 3 and 4.
+10. **As typed.** Turn on "Read a copied line as I'd type it in Ledger", copy "Call Leo tomorrow
+    !high" and capture it. *Expect:* "Call Leo", due tomorrow, high priority. Off again, the same
+    copy is kept word for word.
+11. **During focus.** Start a focus session on a task with no note, copy a paragraph and capture it.
+    *Expect:* "Saved as a note" with ", on “<task>”"; the task shows the note. A second paragraph is
+    a note of its own; the task keeps the first.
+
+## Ledger: a reminder's Start focus
+
+1. **One task.** Set a task's reminder a minute ahead. *Expect:* "Reminder: <task>" with a
+   "Start focus (25 min)" button. Clicking the notification opens the task in Ledger; the button
+   starts a 25-minute session on it (Chrono's Focus page and the palette show it running).
+2. **A session already running.** Do it again during a session. *Expect:* "A focus session is
+   already running." and the session as it was.
+3. **Several tasks.** A morning reminder for two or more tasks ("Due today: Essay and 1 more").
+   *Expect:* no button, and a click doesn't open a task.
+
+## Ledger: the Plan nudge
+
+1. **Clicking it.** With reminders and "Ask me to plan the day" on and something due, set the
+   morning time a minute ahead. *Expect:* "Plan the day?"; click it while it's on screen. *Expect:*
+   Kairo's window opens on Ledger's Plan. From the Windows Action Center it only tells, no click.
+2. **Wrapping up.** Turn on "Ask me to wrap up the day", set the working day to end a minute ahead
+   (or at five or later), with a task done today or one left. *Expect:* "Wrap up the day?" with
+   "1 done · 2 left"; clicking it opens Plan's "Wrap up the day". It comes once an evening, not
+   before five, not from eleven, and not with nothing done or left.
 
 ## Two computers combined
 

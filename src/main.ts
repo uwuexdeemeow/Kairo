@@ -225,7 +225,8 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
   const [fromHour, toHour] = timelineHours(day0, d.timeline.length || shownFocus.length ? times : []);
   const t0 = day0 + fromHour * HOUR_MS;
   const span = (toHour - fromHour) * HOUR_MS;
-  const clock = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
+  // Hours as Patterns and its insights say them ("10pm"), so one view has one clock.
+  const clock = fmtHour;
   const most = d.topApps.slice(0, 3).map((u) => `${u.label} ${fmtDur(u.ms)}`).join(", ");
   const strip = h("div", { class: "timeline", role: "group", "aria-label": `Activity on ${$("#today-date").textContent} from ${clock(fromHour)} to ${clock(toHour)}.${most ? ` Most time: ${most}.` : ""} Arrow keys move between stretches.` });
   const segs: HTMLElement[] = [];
@@ -297,9 +298,10 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     showHour(zoomedHour?.day === shownDay() ? zoomedHour.hour : ((isToday ? Date.now() : last.end - 1) - day0) / HOUR_MS);
   }
 
-  // A mark every hour on a short day, every two or three on a longer one.
+  // A mark every hour on a short day, every two or three on a longer one, and half as many in a
+  // narrow window, where they'd run into each other.
   const hours = toHour - fromHour;
-  const step = hours <= 8 ? 1 : hours <= 14 ? 2 : 3;
+  const step = (hours <= 8 ? 1 : hours <= 14 ? 2 : 3) * (window.matchMedia("(max-width: 900px)").matches ? 2 : 1);
   const axis = h("div", { class: "axis", "aria-hidden": "true" });
   for (let hour = fromHour; hour <= toHour; hour += step) {
     const mark = h("span", {}, clock(hour));
@@ -674,7 +676,7 @@ function renderPeriod(w: Period) {
     stat("On screen", fmtGoal(t.activeMs), vsBefore(t.activeMs, p.activeMs)),
   );
   $("#week-stats-minor").replaceChildren(
-    stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "—"),
+    stat("Goals met", w.goalDays ? `${w.goalDaysMet} of ${w.goalDays} days` : "None yet"),
     ...(w.goalWeeks ? [stat("Weekly goals", `${w.goalWeeksMet} of ${w.goalWeeks} weeks`)] : []),
     year
       ? stat("Best month", bestMonth(w) ? parseDate(bestMonth(w)!).toLocaleDateString([], { month: "long" }) : "—")
@@ -1040,7 +1042,7 @@ function paintCategories() {
     const dot = h("span", { class: `dot ${e.category}` });
     // During focus: "Auto" follows the category, so its wording shows what that means right now.
     const focus = h("select", { "aria-label": `During focus sessions, ${e.label} is` }) as HTMLSelectElement;
-    const autoText = (c: Category) => (c === "distracting" ? "Auto · blocked" : "Auto · allowed");
+    const autoText = (c: Category) => (c === "distracting" ? "Blocked, as distracting" : "Allowed by its category");
     for (const [rule, text] of [["auto", autoText(e.category)], ["block", "Always block"], ["allow", "Never block"]] as const) {
       const opt = h("option", { value: rule }, text) as HTMLOptionElement;
       opt.selected = rule === e.focus;
@@ -1833,7 +1835,7 @@ function renderFocusPage(o: FocusOverview) {
     stat("Today", String(o.today.sessions), o.today.sessions ? fmtDur(o.today.focusedMs) : ""),
     stat("This week", String(o.week.sessions), o.week.sessions ? fmtDur(o.week.focusedMs) : ""),
     stat("All time", String(o.all.sessions), o.all.sessions ? fmtDur(o.all.focusedMs) : ""),
-    stat("Finished", finished, o.all.sessions ? `${o.all.completed} of ${o.all.sessions}` : ""),
+    stat("Finished in full", finished, o.all.sessions ? `${o.all.completed} of ${o.all.sessions}` : ""),
   );
 
   const root = $("#focus-history");
@@ -2282,8 +2284,16 @@ $("#heads-up-dismiss").addEventListener("click", async () => {
   $("#heads-up").hidden = true;
 });
 
+// A switch that couldn't be saved flips back and says why, as focus blocking's does.
 $<HTMLInputElement>("#nudges-enabled").addEventListener("change", async (e) => {
-  await api.setNudgesEnabled((e.target as HTMLInputElement).checked);
+  const box = e.target as HTMLInputElement;
+  $("#nudge-status").textContent = "";
+  try {
+    await api.setNudgesEnabled(box.checked);
+  } catch (err) {
+    box.checked = !box.checked;
+    $("#nudge-status").textContent = `Couldn't change it. ${why(err)}`;
+  }
 });
 
 /// The evening summary's toggle and time save together, whichever changed.
@@ -2367,14 +2377,22 @@ listen("kairo:sync", () => {
 $("#open-kairo-settings").addEventListener("click", () => api.openDashboard("settings"));
 
 $("#demo-load").addEventListener("click", async () => {
-  const n = await api.seedDemo();
-  $("#demo-status").textContent = `Loaded ${n} demo sessions. Open Patterns to see insights.`;
-  load();
+  try {
+    const n = await api.seedDemo();
+    $("#demo-status").textContent = `Loaded ${n} demo sessions. Open Patterns to see insights.`;
+    load();
+  } catch (err) {
+    $("#demo-status").textContent = `Couldn't load the demo data. ${why(err)}`;
+  }
 });
 $("#demo-clear").addEventListener("click", async () => {
-  const n = await api.clearDemo();
-  $("#demo-status").textContent = `Removed ${n} demo sessions.`;
-  load();
+  try {
+    const n = await api.clearDemo();
+    $("#demo-status").textContent = `Removed ${n} demo sessions.`;
+    load();
+  } catch (err) {
+    $("#demo-status").textContent = `Couldn't remove the demo data. ${why(err)}`;
+  }
 });
 
 let resizeTimer = 0;

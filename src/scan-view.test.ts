@@ -150,7 +150,7 @@ describe("the scan window", () => {
     const scan = await mountScan(root, act);
     for (let i = 0; i < 12; i++) scan.check(`https://site${i}.example`);
     // Four a minute: the rest wait their turn, kept on the list until they're done.
-    await vi.waitFor(() => expect(root.textContent).toContain("Waiting its turn under VirusTotal's free limit"));
+    await vi.waitFor(() => expect(root.textContent).toContain("Queued: free limit of 4 a minute"));
     expect(act.check).toHaveBeenCalledTimes(4);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(act.check).toHaveBeenCalledTimes(12);
@@ -188,6 +188,29 @@ describe("the scan window", () => {
     expect(act.check).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the keyboard on the control it was on as other results change, and lets a newer error not take the lead", async () => {
+    await mountScan(root, act);
+    checkTyped("https://good.example");
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    act.check.mockRejectedValueOnce("Couldn't reach VirusTotal. Check your connection and try again.");
+    checkTyped("https://offline.example");
+    await vi.waitFor(() => expect(first().classList.contains("error")).toBe(true));
+    // The verdict below is still the figure; the error above isn't one.
+    expect(first().classList.contains("lead")).toBe(false);
+    expect(results()[1].classList.contains("lead")).toBe(true);
+    first().querySelector<HTMLButtonElement>(".scan-retry")!.focus();
+    // Another result arrives and every card is drawn again.
+    let answer: (v: VtAnswer) => void = () => {};
+    act.check.mockImplementationOnce(() => new Promise<VtAnswer>((r) => (answer = r)));
+    checkTyped("https://third.example");
+    await vi.waitFor(() => expect(act.check).toHaveBeenCalledTimes(3));
+    answer(verdict(0));
+    await vi.waitFor(() => expect(results().length).toBe(3));
+    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    expect(document.activeElement?.classList.contains("scan-retry")).toBe(true);
+    expect(document.activeElement?.closest<HTMLElement>(".scan-result")?.textContent).toContain("offline.example");
+  });
+
   it("calls a hash VirusTotal hasn't seen unknown, and names a known one as VirusTotal does", async () => {
     const scan = await mountScan(root, act);
     act.check.mockResolvedValueOnce({ state: "unknown" });
@@ -211,8 +234,12 @@ describe("the scan window", () => {
 
   it("says when there's nothing to check, and names its results for screen readers", async () => {
     await mountScan(root, act);
+    // The field has the keyboard as the window opens.
+    expect(document.activeElement).toBe(field());
     checkTyped("   ");
     expect(field().getAttribute("aria-invalid")).toBe("true");
+    // Said in the field too, for those who see it, until something's typed.
+    expect(field().placeholder).toBe("Paste a link or a hash first");
     expect(root.querySelector(".sr-only[aria-live]")!.textContent).toBe("Paste a link or a hash first.");
     expect(act.check).not.toHaveBeenCalled();
     expect(root.querySelector("h1")!.textContent).toBe("Check a file or link with VirusTotal");

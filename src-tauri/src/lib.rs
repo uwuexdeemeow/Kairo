@@ -4,6 +4,7 @@ mod away;
 mod backup;
 mod blocking;
 mod calendar;
+mod capture;
 mod clipboard;
 mod browser;
 mod classify;
@@ -179,6 +180,8 @@ pub fn run() {
                         ring::toggle(app);
                     }
                 }
+                // Opens nothing, so it's fine over a game: the notification says what was kept.
+                Launch::Capture => capture::from_keys(app),
                 Launch::Quiet => {}
             }
         }))
@@ -205,9 +208,13 @@ pub fn run() {
                 .with_handler(|app, shortcut, event| {
                     // A game or full-screen app in front keeps its keys to itself, unless
                     // Settings lets the palette and the ring open over it.
-                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed
-                        && palette::shortcut_may_open()
-                    {
+                    let pressed = event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed;
+                    // Capture opens no window, so it isn't held back by a game in front.
+                    if pressed && capture::is_capture(shortcut) {
+                        let app = app.clone();
+                        // Off the shortcut's thread: it reads the clipboard and the database.
+                        std::thread::spawn(move || capture::from_keys(&app));
+                    } else if pressed && palette::shortcut_may_open() {
                         if ring::is_ring(shortcut) {
                             ring::toggle(app);
                         } else {
@@ -231,6 +238,7 @@ pub fn run() {
             let palette_shortcut = palette::shortcut(&conn)?;
             let ring_shortcut = ring::shortcut(&conn)?;
             ring::remember_keys(&ring_shortcut);
+            let capture_shortcut = capture::shortcut(&conn)?;
             palette::over_fullscreen(&conn)?;
             let paused = Arc::new(AtomicBool::new(false));
             let window_cache = nudge::SharedCache::default();
@@ -281,6 +289,7 @@ pub fn run() {
             clipboard::spawn(app.handle().clone());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
+            reminders::follow_clicks(app.handle());
             reminders::spawn(app.handle().clone(), db_path.clone());
             app.manage(AppState {
                 db_path,
@@ -338,6 +347,7 @@ pub fn run() {
                     eprintln!("ring: cannot use {ring_shortcut}: {e}");
                 }
             }
+            capture::register_saved(app.handle(), &capture_shortcut);
             updater::spawn(app.handle().clone());
             // Chrono's window is made when it's wanted; at sign-in Kairo starts in the tray, and
             // opened by hand it's the palette.
@@ -349,6 +359,7 @@ pub fn run() {
                 #[cfg(not(windows))]
                 Launch::Palette => palette::toggle(app.handle()),
                 Launch::Ring => ring::toggle(app.handle()),
+                Launch::Capture => capture::from_keys(app.handle()),
                 _ => {}
             }
             Ok(())
@@ -490,6 +501,7 @@ pub fn run() {
             commands::ledger_settings,
             commands::set_ledger_settings,
             commands::set_plan_nudge,
+            commands::set_wrap_nudge,
             commands::get_notes,
             commands::get_note,
             commands::new_note,
@@ -533,6 +545,10 @@ pub fn run() {
             speedtest::open_speed,
             commands::ring_settings,
             commands::set_ring_shortcut,
+            commands::capture_shortcut,
+            commands::set_capture_shortcut,
+            commands::capture_quick,
+            commands::set_capture_quick,
             commands::set_ring_items,
             commands::set_ring_focus_minutes,
             commands::open_ring,

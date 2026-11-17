@@ -84,11 +84,18 @@ pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {
         .map(|t| t.date_naive().to_string()))
 }
 
+/// Where "the last `days` days" start: the midnight `days - 1` days before today, so they're that
+/// many calendar days with today, not a day more (`days` times 24 hours back reaches into one).
+fn patterns_from(today: NaiveDate, days: u32, now: i64) -> i64 {
+    let first = today - chrono::Duration::days(i64::from(days.max(1)) - 1);
+    day_bounds(first).map_or(now - i64::from(days) * DAY_MS, |(from, _)| from)
+}
+
 #[tauri::command]
 pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
-    let from = now - days as i64 * DAY_MS;
+    let from = patterns_from(Local::now().date_naive(), days, now);
     let rows = analysis::load_rows_of(&conn, from, now, &sync::shown(&conn)?).map_err(err)?;
     let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
     let focused_ms = blocks.iter().map(focus::Block::ms).sum();
@@ -287,11 +294,19 @@ pub(crate) fn add_task_from(app: &AppHandle, conn: &rusqlite::Connection, text: 
 
 /// As `add_task_from`, due on `day` ("2026-11-07") when the text names no day of its own.
 pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &str, day: Option<&str>) -> CmdResult<Vec<tasks::Task>> {
+    add_quick(conn, text, day)?;
+    tasks_changed(app, conn)
+}
+
+/// Adds a task from quick-add text and shares its plan and the rest, without telling the windows
+/// (`tasks_changed` does): the task made, or None for text with no title.
+pub(crate) fn add_quick(conn: &rusqlite::Connection, text: &str, day: Option<&str>) -> CmdResult<Option<tasks::Task>> {
     let mut q = quick(text);
     if q.due.is_none() {
         q.due = day.filter(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").is_ok()).map(String::from);
     }
-    if let Some(t) = tasks::add(conn, &q.title, now_ms()).map_err(err)? {
+    let added = tasks::add(conn, &q.title, now_ms()).map_err(err)?;
+    if let Some(t) = &added {
         if q.due.is_some() || q.priority.is_some() {
             tasks::set_plan(conn, &t.id, q.due.as_deref(), q.priority.unwrap_or(tasks::MEDIUM), None).map_err(err)?;
             plan_changed(conn, &t.id)?;
@@ -312,7 +327,7 @@ pub(crate) fn add_task_on(app: &AppHandle, conn: &rusqlite::Connection, text: &s
             more_changed(conn, &t.id)?;
         }
     }
-    tasks_changed(app, conn)
+    Ok(added)
 }
 
 #[tauri::command]
@@ -436,6 +451,34 @@ fn ring_settings_of(conn: &rusqlite::Connection) -> CmdResult<RingSettings> {
 pub fn ring_settings(state: State<AppState>) -> CmdResult<RingSettings> {
     let conn = state.db.lock().map_err(err)?;
     ring_settings_of(&conn)
+}
+
+/// Capture's keys: empty while there are none.
+#[tauri::command]
+pub fn capture_shortcut(state: State<AppState>) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::shortcut(&conn).map_err(err)
+}
+
+/// Whether a captured line is read as quick-add text.
+#[tauri::command]
+pub fn capture_quick(state: State<AppState>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::quick(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn set_capture_quick(state: State<AppState>, on: bool) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::set_quick(&conn, on).map_err(err)
+}
+
+/// Sets capture's keys, or with "" takes them away; returns them as they now are.
+#[tauri::command]
+pub fn set_capture_shortcut(app: AppHandle, state: State<AppState>, shortcut: String) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::capture::change_shortcut(&app, &conn, &shortcut)?;
+    crate::capture::shortcut(&conn).map_err(err)
 }
 
 #[tauri::command]
@@ -713,6 +756,14 @@ pub fn set_plan_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledg
     let conn = state.db.lock().map_err(err)?;
     let s = crate::ledger::set_plan_nudge(&conn, on)?;
     sync::record(&conn, "ledger:plan_nudge", if s.plan_nudge { "1" } else { "0" })?;
+    Ok(s)
+}
+
+#[tauri::command]
+pub fn set_wrap_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    let s = crate::ledger::set_wrap_nudge(&conn, on)?;
+    sync::record(&conn, "ledger:wrap_nudge", if s.wrap_nudge { "1" } else { "0" })?;
     Ok(s)
 }
 
@@ -2106,6 +2157,17 @@ pub fn stop_sync(app: AppHandle) -> CmdResult<SyncState> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_last_30_days_are_30_calendar_days_with_today() {
+        let today = NaiveDate::from_ymd_opt(2026, 11, 16).unwrap();
+        let from = patterns_from(today, 30, 0);
+        assert_eq!(from, day_bounds(NaiveDate::from_ymd_opt(2026, 10, 18).unwrap()).unwrap().0);
+        // Counting the days with time from there gives 30 at most, today included.
+        let days = (0..).map(|n| today - chrono::Duration::days(n)).take_while(|d| day_bounds(*d).unwrap().0 >= from).count();
+        assert_eq!(days, 30);
+        assert_eq!(patterns_from(today, 1, 0), day_bounds(today).unwrap().0);
+    }
 
     #[test]
     fn day_bounds_span_one_local_day() {

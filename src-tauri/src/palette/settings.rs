@@ -94,6 +94,8 @@ pub fn entries() -> Vec<Entry> {
         kairo("Palette suggestions", "suggested recent apps when it opens", "palette-suggestions", Some(Suggestions), None),
         kairo("Open over full screen", "fullscreen games palette", "palette-over-fullscreen", Some(OverFullscreen), None),
         kairo("Clipboard history", "copy paste clip remember copied text privacy", "clipboard-history", None, None),
+        kairo("Keys for capture", "shortcut hotkey capture copied clipboard", "capture-record", None, None),
+        kairo("Read copied lines as quick-add", "capture quick add due priority parse", "capture-quick", None, None),
         kairo("Search files", "documents folders index palette", "palette-search-files", Some(SearchFiles), None),
         kairo("Window titles in “what was I doing”", "show hide titles time moment history privacy ask what was i doing at 3pm", "palette-moment-titles", Some(MomentTitles), None),
         kairo(AUTOSTART_TITLE, "start at login open at login start with windows startup boot sign in", "autostart-enabled", Some(Autostart), None),

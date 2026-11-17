@@ -189,7 +189,8 @@ impl Painter {
             let paper = mix(t.raised, t.ink, 0.12 * lit);
             let dim = if segment == Segment::Focus && scene.focus_running { 0.6 } else { 1.0 };
             rt.FillGeometry(&shape, &rt.CreateSolidColorBrush(&color(paper, alpha * dim), None)?, None);
-            let edge = if lit > 0.5 { ink } else { t.line };
+            // A segment's outline in the controls' edge, as the web ring's, so it holds 3:1.
+            let edge = if lit > 0.5 { ink } else { t.edge };
             rt.DrawGeometry(&shape, &rt.CreateSolidColorBrush(&color(edge, alpha), None)?, 1.5 + 1.0 * lit, None);
 
             // Its mark, and for the one at the top, its name and line.
@@ -201,7 +202,8 @@ impl Painter {
             if lit > 0.6 {
                 let a = (lit - 0.6) / 0.4;
                 self.text(rt, &scene.names[index], &self.name, x, mark_y + size / 2.0 + 2.0, t.ink, a)?;
-                self.text(rt, &scene.lines[index], &self.line, x, mark_y + size / 2.0 + 22.0, t.muted, a)?;
+                // The second text ink, as the web ring: muted is under 4.5:1 on the lit segment.
+                self.text(rt, &scene.lines[index], &self.line, x, mark_y + size / 2.0 + 22.0, t.ink_2, a)?;
             }
         }
         Ok(())

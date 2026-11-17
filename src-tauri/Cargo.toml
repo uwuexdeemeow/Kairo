@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.31.52"
+version = "1.31.58"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -87,6 +87,8 @@ windows-sys = { version = "0.59", features = [
   "Win32_Graphics_Gdi",
   "Win32_Storage_FileSystem",
   "Win32_System_Console",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
   "Win32_System_Diagnostics_ToolHelp",
   "Win32_System_Power",
   "Win32_System_Shutdown",

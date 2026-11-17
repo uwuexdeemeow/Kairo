@@ -202,6 +202,8 @@ export type PaletteCard =
       productivePct: number;
       focusCount: number;
       focusMs: number;
+      /** Tasks ticked off in Ledger that day. */
+      tasksDone: number;
       /** Stretches of the day as shares of it from midnight. */
       segments: { from: number; to: number; category: Category }[];
     }
@@ -400,6 +402,8 @@ export interface LedgerSettings {
   dayTo: string;
   /** Whether the morning reminder time also asks "Plan the day?" when something is due. */
   planNudge: boolean;
+  /** Whether the end of the working day asks "Wrap up the day?". */
+  wrapNudge: boolean;
 }
 
 export interface FocusBlock {
@@ -633,6 +637,7 @@ export const api = {
   ledgerSettings: () => invoke<LedgerSettings>("ledger_settings"),
   setLedgerSettings: (reminders: boolean, morning: string, dayFrom: string, dayTo: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning, dayFrom, dayTo }),
   setPlanNudge: (on: boolean) => invoke<LedgerSettings>("set_plan_nudge", { on }),
+  setWrapNudge: (on: boolean) => invoke<LedgerSettings>("set_wrap_nudge", { on }),
   /** Pinned first, then newest edited; with a query, those whose title or text has it. */
   notes: (query?: string) => invoke<Note[]>("get_notes", { query }),
   note: (id: string) => invoke<Note | null>("get_note", { id }),
@@ -792,6 +797,13 @@ export const api = {
   /** Where the panel sits in the palette's window, in points in from each edge: a Mac puts its
    *  frosted glass there. */
   paletteGlass: (room: { left: number; top: number; right: number; bottom: number }) => invoke<void>("palette_glass", room),
+  /** Capture's keys: empty while there are none. */
+  captureShortcut: () => invoke<string>("capture_shortcut"),
+  /** Sets capture's keys, or with "" takes them away; returns them as they now are. */
+  setCaptureShortcut: (shortcut: string) => invoke<string>("set_capture_shortcut", { shortcut }),
+  /** Whether a captured line is read as quick-add text ("tomorrow !high"). */
+  captureQuick: () => invoke<boolean>("capture_quick"),
+  setCaptureQuick: (on: boolean) => invoke<void>("set_capture_quick", { on }),
   paletteSettings: () => invoke<{ shortcut: string; suggestions: boolean; overFullscreen: boolean; searchFiles: boolean; momentTitles: boolean; look: PaletteLook }>("get_palette_settings"),
   setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */

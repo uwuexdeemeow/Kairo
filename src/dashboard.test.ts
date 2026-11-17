@@ -233,6 +233,8 @@ describe("Today", () => {
       await open();
       await vi.waitFor(() => expect($<HTMLButtonElement>("#plan-day").hidden).toBe(false));
       expect($("#plan-day").textContent).toBe("Plan the day");
+      // Only due today: a link in the line.
+      expect($("#plan-day").className).toBe("link-btn plan-day");
       $<HTMLButtonElement>("#plan-day").click();
       expect(api.openLedger).toHaveBeenCalledWith("plan");
       // From five o'clock it wraps the day up instead.
@@ -240,6 +242,11 @@ describe("Today", () => {
       $<HTMLButtonElement>('[data-tab="settings"]').click();
       $<HTMLButtonElement>('[data-tab="home"]').click();
       await vi.waitFor(() => expect($("#plan-day").textContent).toBe("Wrap up the day"));
+      // Something overdue: a button.
+      api.tasks.mockResolvedValue([{ id: "b", title: "Invoice", group: "overdue", remindMs: null }]);
+      $<HTMLButtonElement>('[data-tab="settings"]').click();
+      $<HTMLButtonElement>('[data-tab="home"]').click();
+      await vi.waitFor(() => expect($("#plan-day").className).toBe("btn plan-day"));
       // Nothing due: nothing to plan.
       api.tasks.mockResolvedValue([]);
       $<HTMLButtonElement>('[data-tab="settings"]').click();

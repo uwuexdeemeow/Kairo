@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
-import { dayAfter, isEvening, leadLine, mountPlan, planTitle, remindLater, remindTomorrow, toLookAt, type PlanActions } from "./ledger-plan";
+import { dayAfter, isEvening, leadLine, mountPlan, movedSaid, planTitle, remindLater, remindTomorrow, toLookAt, type PlanActions } from "./ledger-plan";
 
 const MIN = 60_000;
 const at = (h: number, m = 0) => new Date(2026, 10, 12, h, m).getTime();
@@ -135,29 +135,67 @@ describe("the Plan view", () => {
     press(title("a"), "x");
     press(root.querySelector(".plan-lead")!, "t");
     expect(act.move.mock.calls.length).toBe(calls);
-    expect(root.querySelector(".plan-keys")!.textContent).toBe("On a task: T tomorrow · L later");
+    expect(root.querySelector(".plan-keys")!.textContent).toBe("On a task: T tomorrow · L later · D done · P put at its time · ↑↓ move");
     expect(button("a", ".plan-tomorrow").getAttribute("aria-keyshortcuts")).toBe("T");
   });
 
-  it("tells a screen reader what a move did once the list shows it, and says nothing for one that didn't happen", () => {
+  it("tells a screen reader a task was done once the list shows it, and leaves moves to the Undo line", () => {
     const view = mountPlan(root, act, () => null);
     view.render(tasks);
     const said = () => root.querySelector('[role="status"]')!.textContent;
-    button("a", ".plan-tomorrow").click();
-    // Not yet: the list hasn't changed.
-    expect(said()).toBe("");
-    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
-    expect(said()).toBe("Moved “Overdue one” to tomorrow");
-    // The line stays put across draws, so it is heard.
     const line = root.querySelector('[role="status"]');
-    button("b", ".plan-later").click();
-    // The move failed: the task is still due today, and the list redraws with it.
-    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
-    expect(said()).toBe("Moved “Overdue one” to tomorrow");
-    expect(root.querySelector('[role="status"]')).toBe(line);
     button("b", ".plan-tick").click();
-    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, { ...tasks[1], group: "done", doneMs: at(10) }, tasks[2]]);
+    // Not yet: the list hasn't changed. Then it failed: still due, so nothing is said.
+    expect(said()).toBe("");
+    view.render(tasks);
+    expect(said()).toBe("");
+    button("b", ".plan-tick").click();
+    view.render([tasks[0], { ...tasks[1], group: "done", doneMs: at(10) }, tasks[2]]);
     expect(said()).toBe("Done: “Today one”");
+    // The line stays put across draws, so it is heard.
+    expect(root.querySelector('[role="status"]')).toBe(line);
+    button("a", ".plan-tomorrow").click();
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[2]]);
+    expect(said()).toBe("Done: “Today one”");
+  });
+
+  it("plans with the keys alone: D done, P put at its time, the arrows from task to task", () => {
+    const view = mountPlan(root, act, () => null);
+    view.render([...tasks, task("e", "Estimated", { group: "today", dueDay: "2026-11-12", estimateMin: 30 }), task("t1", "Tomorrow one", { group: "upcoming", dueDay: "2026-11-13" })]);
+    const press = (target: Element, key: string) => target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    const title = (id: string) => root.querySelector<HTMLElement>(`[data-task="${id}"] .plan-title`)!;
+    press(title("b"), "d");
+    expect(act.done).toHaveBeenCalledWith("b", true);
+    // An estimate and no time yet: it has a spot to be put at.
+    press(title("e"), "P");
+    expect(act.move).toHaveBeenLastCalledWith("e", "2026-11-12", expect.any(Number));
+    // One already set for a time has no spot: P does nothing.
+    const moves = act.move.mock.calls.length;
+    press(title("a"), "p");
+    expect(act.move.mock.calls.length).toBe(moves);
+    title("a").focus();
+    press(title("a"), "ArrowDown");
+    expect(document.activeElement).toBe(title("b"));
+    press(title("b"), "ArrowDown");
+    expect(document.activeElement).toBe(title("e"));
+    press(title("e"), "ArrowDown");
+    // On into tomorrow's list, and no further than the last.
+    expect(document.activeElement).toBe(title("t1"));
+    press(title("t1"), "ArrowDown");
+    expect(document.activeElement).toBe(title("t1"));
+    press(title("t1"), "ArrowUp");
+    expect(document.activeElement).toBe(title("e"));
+    // Tomorrow's tasks don't take T, L, D or P: they're already planned.
+    const calls = act.done.mock.calls.length;
+    press(title("t1"), "d");
+    expect(act.done.mock.calls.length).toBe(calls);
+    expect(button("b", ".plan-tick").getAttribute("aria-keyshortcuts")).toBe("D");
+  });
+
+  it("says a move for the Undo line: to tomorrow, off, or to a time", () => {
+    expect(movedSaid("Essay", "2026-11-12", "2026-11-13", null)).toBe("Moved “Essay” to tomorrow");
+    expect(movedSaid("Essay", "2026-11-12", null, null)).toBe("Put “Essay” off");
+    expect(movedSaid("Essay", "2026-11-12", "2026-11-12", new Date(2026, 10, 12, 14, 30).getTime())).toMatch(/^Put “Essay” at 2:30/);
   });
 
   it("ticks a task off, and opens one", () => {

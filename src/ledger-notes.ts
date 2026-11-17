@@ -54,20 +54,28 @@ export function retitle(body: string, title: string): string {
   return lines.join("\n");
 }
 
+/// The fewest notes for which the empty pane offers the latest ones: fewer fit the list in sight.
+const RECENT_FROM = 5;
+
 /// What a note's card shows under its title: the text after the title line, its Markdown marks
 /// taken out, on one line.
 export function notePreview(body: string): string {
   const lines = body.split("\n");
   const title = lines.findIndex((l) => l.trim() !== "");
+  // Each line on its own, then a dot between them, so a list's items don't run into each other.
   return lines
     .slice(title + 1)
-    .join(" ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/(^|\s)[-*] \[[ xX]\] /g, "$1")
-    .replace(/(^|\s)(#{1,3}|[-*]|\d+\.) /g, "$1")
-    .replace(/\*\*|[*_`]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+    .map((line) =>
+      line
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/^\s*[-*] \[[ xX]\] /, "")
+        .replace(/^\s*(#{1,3}|[-*]|\d+\.) /, "")
+        .replace(/\*\*|[*_`]/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /// "9:14" today, "Yesterday", or "28 Oct".
@@ -254,7 +262,8 @@ export function mountNotes(root: HTMLElement, act: NotesActions, now: () => numb
       h("li", {}, h("kbd", {}, "Ctrl+B"), " bold, ", h("kbd", {}, "Ctrl+I"), " italic, “- [ ]” a checkbox"),
       h("li", {}, "All notes in a window keeps them beside your work"),
     );
-    const recent = [...notes].sort((a, b) => b.editedMs - a.editedMs).slice(0, 3);
+    // With a few notes the list beside already shows them all; cards would only repeat it.
+    const recent = notes.length > RECENT_FROM ? [...notes].sort((a, b) => b.editedMs - a.editedMs).slice(0, 3) : [];
     if (!recent.length) {
       const art = h("div", { class: "notes-empty-art", "aria-hidden": "true" });
       art.innerHTML = logo("ledger", 88);

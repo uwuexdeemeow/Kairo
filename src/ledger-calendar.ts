@@ -64,8 +64,9 @@ export function mountCalendar(root: HTMLElement, deps: CalendarDeps, today: () =
 
   const head = h("div", { class: "cal-head" });
   const grid = h("div", { class: "cal-grid", role: "grid" });
-  // Not "cal-day": that is the date picker's day button, with its own fixed height.
-  const side = h("section", { class: "cal-side", "aria-live": "polite" });
+  // Not "cal-day": that is the date picker's day button, with its own fixed height. Not live:
+  // each day's cell already says its tasks and meetings as the arrows reach it.
+  const side = h("section", { class: "cal-side", "aria-label": "The chosen day" });
   root.replaceChildren(head, h("div", { class: "cal-body" }, grid, side));
 
   const loadEvents = async () => {
@@ -110,7 +111,7 @@ export function mountCalendar(root: HTMLElement, deps: CalendarDeps, today: () =
       h("h2", { class: "cal-title", "aria-live": "polite" }, title),
       step("Next month", 1, "›"),
       now,
-      undated ? h("span", { class: "muted cal-undated" }, `${undated} open ${undated === 1 ? "task has" : "tasks have"} no due day`) : "",
+      undated ? h("span", { class: "muted cal-undated" }, `${undated} ${undated === 1 ? "task has" : "tasks have"} no date`) : "",
     );
   };
 
@@ -144,10 +145,18 @@ export function mountCalendar(root: HTMLElement, deps: CalendarDeps, today: () =
       if (due.length > CELL_TASKS) inner.append(h("span", { class: "cal-more" }, `+${due.length - CELL_TASKS} more`));
       if (meets) inner.append(h("span", { class: "cal-meet" }, `${meets} ${meets === 1 ? "meeting" : "meetings"}`));
       cell.append(inner);
-      cell.addEventListener("click", () => choose(iso));
+      cell.addEventListener("click", () => {
+        choose(iso);
+        // In a narrow window the day sits under the month, out of sight: bring it up.
+        if (window.matchMedia("(max-width: 900px)").matches) side.scrollIntoView?.({ block: "nearest" });
+      });
       return cell;
     });
-    grid.replaceChildren(...names, ...cells);
+    // A grid's cells sit in rows: the weekday names, then a row a week.
+    const row = (...items: HTMLElement[]) => h("div", { class: "cal-row", role: "row" }, ...items);
+    const weeks: HTMLElement[] = [];
+    for (let i = 0; i < cells.length; i += 7) weeks.push(row(...cells.slice(i, i + 7)));
+    grid.replaceChildren(row(...names), ...weeks);
   };
 
   grid.addEventListener("keydown", (e) => {
@@ -174,7 +183,7 @@ export function mountCalendar(root: HTMLElement, deps: CalendarDeps, today: () =
     const list = h("ul", { class: "cal-tasks", "aria-label": `Tasks due ${title}` });
     for (const t of mine) {
       const done = t.doneMs !== null;
-      const tick = h("input", { type: "checkbox", "aria-label": done ? `Reopen “${t.title}”` : `Mark “${t.title}” done` }) as HTMLInputElement;
+      const tick = h("input", { type: "checkbox", class: "cal-tick", "aria-label": done ? `Reopen “${t.title}”` : `Mark “${t.title}” done` }) as HTMLInputElement;
       tick.checked = done;
       tick.addEventListener("change", () => deps.done(t.id, !done));
       const name = h("button", { class: `cal-task-name${done ? " done" : ""}`, type: "button", title: "Details" }, t.title);

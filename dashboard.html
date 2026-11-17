@@ -143,6 +143,23 @@
           <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, kept in memory and gone when Kairo quits. Type <kbd>clip</kbd> in the palette to see the latest, and a space after it to see them all. Turning this off forgets them at once.</p>
         </section>
 
+        <section class="block" id="capture-settings">
+          <h3>Capture</h3>
+          <p class="muted">Keeps what you've copied in Ledger from any window: a short line as a task, anything longer as a note. During a focus session on a task, the note goes on that task. Kairo only reads what's already on the clipboard; it never copies for you.</p>
+          <div class="row-buttons">
+            <span>Capture with</span>
+            <span class="shortcut-keys" id="capture-keys" aria-live="polite"></span>
+            <button class="btn" id="capture-record">Set keys</button>
+            <button class="link-btn" id="capture-clear" hidden>Turn off</button>
+          </div>
+          <p class="muted" id="capture-note" aria-live="polite">Set keys to capture from any window. Without them, type <kbd>capture</kbd> in the palette.</p>
+          <label class="toggle">
+            <input type="checkbox" id="capture-quick" aria-describedby="capture-quick-note" />
+            Read a copied line as I'd type it in Ledger
+          </label>
+          <p class="muted" id="capture-quick-note">Then “Call Leo tomorrow !high” is due tomorrow, at high priority. Off, copied words are kept just as they are.</p>
+        </section>
+
         <section class="block" id="virustotal-settings">
           <h3>VirusTotal</h3>
           <p class="muted">Check files, links and hashes from the palette: type <kbd>scan</kbd> or <kbd>vt</kbd>. A file is looked up by its fingerprint; it's uploaded only if you choose to.</p>

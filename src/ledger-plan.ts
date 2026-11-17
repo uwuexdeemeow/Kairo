@@ -64,6 +64,13 @@ const dayStart = (ms: number): number => {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 };
 
+/// What the Undo line says of a move from Plan: to tomorrow, off with no day, or to a time.
+export function movedSaid(title: string, wasDue: string | null, due: string | null, remind: number | null): string {
+  if (due === null) return `Put “${title}” off`;
+  if (due !== wasDue) return due === dayAfter(todayIso()) ? `Moved “${title}” to tomorrow` : `Moved “${title}”`;
+  return remind !== null ? `Put “${title}” at ${clockName(remind)}` : `Moved “${title}”`;
+}
+
 /// The tasks to look at: open, and due today or overdue, in Ledger's order.
 export function toLookAt(tasks: Task[]): Task[] {
   return tasks.filter((t) => t.doneMs === null && (t.group === "overdue" || t.group === "today"));
@@ -92,27 +99,27 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
   let nextPlaces = new Map<string, number>();
   /// The row the keyboard goes to after the next draw: where an action left it.
   let refocus: number | null = null;
-  /// What an action did, said to a screen reader once the list redrawn shows it happened (a move
-  /// that failed says nothing): someone who sees the row go needs no word, someone who hears the
-  /// next title does.
+  /// A task ticked off, said to a screen reader once the list redrawn shows it (one that failed says
+  /// nothing): someone who sees the row go needs no word, someone who hears the next title does.
+  /// Moves are said by the page's Undo line.
   let toSay: { text: string; done: (tasks: Task[]) => boolean } | null = null;
   /// The task has left today's list: done, or moved off today.
   const gone = (id: string) => (list: Task[]) => !toLookAt(list).some((x) => x.id === id);
-  /// The task's reminder is now at `ms`.
-  const setAt = (id: string, ms: number) => (list: Task[]) => list.some((x) => x.id === id && x.remindMs === ms);
+
   // The view is redrawn whole; the line that speaks stays put beside it, so it's heard.
   const body = h("div", { class: "plan-body" });
   const said = h("p", { class: "sr-only", role: "status" });
   root.replaceChildren(body, said);
 
-  const move = (t: Task, at: number, due: string | null, remind: number | null, text: string, done = gone(t.id)) => {
+  // A move is said by the page's Undo line, which offers to take it back; here only the place
+  // the keyboard goes next is kept.
+  const move = (t: Task, at: number, due: string | null, remind: number | null) => {
     refocus = at;
-    toSay = { text, done };
     act.move(t.id, due, remind);
   };
 
   const row = (t: Task, at: number): HTMLElement => {
-    const tick = h("button", { class: "plan-tick", "aria-label": `Mark “${t.title}” done`, title: "Mark done" }, glyph("check")) as HTMLButtonElement;
+    const tick = h("button", { class: "plan-tick", "aria-label": `Mark “${t.title}” done`, "aria-keyshortcuts": "D", title: "Mark done (D)" }, glyph("check")) as HTMLButtonElement;
     tick.addEventListener("click", () => {
       refocus = at;
       toSay = { text: `Done: “${t.title}”`, done: gone(t.id) };
@@ -124,9 +131,9 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     const cost = costText(t);
     if (cost) open.append(h("span", { class: "plan-cost", title: "Time spent on it, and its estimate" }, cost));
     const tomorrow = h("button", { class: "link-btn plan-act plan-tomorrow", "aria-label": `Move “${t.title}” to tomorrow`, "aria-keyshortcuts": "T", title: "Due tomorrow (T)" }, "Tomorrow") as HTMLButtonElement;
-    tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs), `Moved “${t.title}” to tomorrow`));
+    tomorrow.addEventListener("click", () => move(t, at, dayAfter(todayIso()), remindTomorrow(t.remindMs)));
     const later = h("button", { class: "link-btn plan-act plan-later", "aria-label": `Put “${t.title}” off, with no day`, "aria-keyshortcuts": "L", title: "No due day (L)" }, "Later") as HTMLButtonElement;
-    later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now()), `Put “${t.title}” off, with no day`));
+    later.addEventListener("click", () => move(t, at, null, remindLater(t.remindMs, now())));
     // Already set for a time today, or where it would fit among the meetings.
     const placed = placedSpan(t, now(), hours());
     const spot = places.get(t.id);
@@ -136,24 +143,35 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     } else if (spot !== undefined) {
       const put = h(
         "button",
-        { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)}, and remind me then`, title: `Fits at ${clockName(spot)}: sets its reminder then` },
+        { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)}, and remind me then`, "aria-keyshortcuts": "P", title: `Fits at ${clockName(spot)}: sets its reminder then (P)` },
         `Put at ${clockName(spot)}`,
       ) as HTMLButtonElement;
-      put.addEventListener("click", () => move(t, at, todayIso(), spot, `Put “${t.title}” at ${clockName(spot)}`, setAt(t.id, spot)));
+      put.addEventListener("click", () => move(t, at, todayIso(), spot));
       when = put;
     }
     return h("li", { class: "plan-row", "data-task": t.id }, tick, open, ...(when ? [when] : []), tomorrow, later);
   };
 
-  // T and L on a task in the list do what their buttons do, so the day can be planned with the
-  // keys alone: the one that took its place is focused next.
+  // On a task in today's list T, L, D and P do what its buttons do (tomorrow, later, done, put at
+  // the time it fits), so the day can be planned with the keys alone: the one that took its place
+  // is focused next. The arrows go from task to task, across the lists.
+  const KEYS: Record<string, string> = { t: ".plan-tomorrow", l: ".plan-later", d: ".plan-tick", p: ".plan-put" };
   root.addEventListener("keydown", (e) => {
-    const key = e.key.toLowerCase();
-    if ((key !== "t" && key !== "l") || e.ctrlKey || e.metaKey || e.altKey) return;
-    const row = (e.target as HTMLElement).closest<HTMLElement>(".plan-list .plan-row");
-    if (!row) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target as HTMLElement;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      const titles = [...root.querySelectorAll<HTMLElement>(".plan-title")];
+      const at = titles.indexOf(target.closest<HTMLElement>(".plan-row")?.querySelector<HTMLElement>(".plan-title") ?? target);
+      if (at < 0) return;
+      e.preventDefault();
+      titles[Math.max(0, Math.min(titles.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))].focus();
+      return;
+    }
+    const button = KEYS[e.key.toLowerCase()];
+    const row = target.closest<HTMLElement>(".plan-list .plan-row");
+    if (!button || !row) return;
     e.preventDefault();
-    row.querySelector<HTMLButtonElement>(key === "t" ? ".plan-tomorrow" : ".plan-later")?.click();
+    row.querySelector<HTMLButtonElement>(button)?.click();
   });
 
   /// One of tomorrow's tasks: its name and cost, and the time it's set for or where it would fit.
@@ -173,10 +191,7 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
         { class: "link-btn plan-act plan-put", "aria-label": `Put “${t.title}” at ${clockName(spot)} tomorrow, and remind me then`, title: `Fits at ${clockName(spot)} tomorrow: sets its reminder then` },
         `Put at ${clockName(spot)}`,
       ) as HTMLButtonElement;
-      put.addEventListener("click", () => {
-        toSay = { text: `Put “${t.title}” at ${clockName(spot)} tomorrow`, done: setAt(t.id, spot) };
-        act.move(t.id, t.dueDay, spot);
-      });
+      put.addEventListener("click", () => act.move(t.id, t.dueDay, spot));
       parts.push(put);
     }
     return h("li", { class: "plan-row plan-next", "data-task": t.id }, ...parts);
@@ -201,15 +216,13 @@ export function mountPlan(root: HTMLElement, act: PlanActions, usual: () => numb
     parts.push(h("h2", { class: "plan-head" }, evening ? "Left over" : "To do today"));
     if (left.length) {
       parts.push(h("ul", { class: "plan-list" }, ...left.map(row)));
-      const keys = h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later");
+      const keys = h("p", { class: "muted plan-keys" }, "On a task: ", h("kbd", {}, "T"), " tomorrow · ", h("kbd", {}, "L"), " later · ", h("kbd", {}, "D"), " done · ", h("kbd", {}, "P"), " put at its time · ", h("kbd", {}, "↑"), h("kbd", {}, "↓"), " move");
       if (left.length > 1) {
         // In the evening carrying what's left over is the thing to do, so it's a button under the
         // list; in the morning, when most is kept, a link after the keys.
         const all = h("button", { class: evening ? "btn plan-all" : "link-btn plan-all" }, "Move all to tomorrow") as HTMLButtonElement;
         confirmTwice(all, () => "Press again to move them all", async () => {
           const due = dayAfter(todayIso());
-          const ids = left.map((t) => t.id);
-          toSay = { text: `Moved ${left.length} tasks to tomorrow`, done: (list) => ids.every((id) => gone(id)(list)) };
           for (const t of left) act.move(t.id, due, remindTomorrow(t.remindMs));
         });
         parts.push(...(evening ? [all, keys] : [keys, all]));

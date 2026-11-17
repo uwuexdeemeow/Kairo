@@ -332,6 +332,9 @@ pub fn change_shortcut(app: &AppHandle, conn: &Connection, new: &str) -> std::re
     if crate::ring::shortcut(conn).is_ok_and(|ring| ring.eq_ignore_ascii_case(new)) {
         return Err(format!("{new} opens the app ring."));
     }
+    if crate::capture::shortcut(conn).is_ok_and(|keys| keys.eq_ignore_ascii_case(new)) {
+        return Err(format!("{new} captures what you copied."));
+    }
     if !crate::platform::desktop_palette_shortcut(new) {
         let keys = app.global_shortcut();
         let _ = keys.unregister(old.as_str());
@@ -379,6 +382,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         .collect();
     let footer = format!("{} today · {}% productive", fmt_dur(glance.active_ms), percent(glance.productive_ms, glance.active_ms));
     let subjects = cards::subjects(conn, &apps).unwrap_or_default();
+    let older_subjects = cards::older_subjects(conn, &subjects, today);
     // Nothing is left waiting for a second Enter from the last time it was open.
     tauri::Manager::state::<crate::system::PendingPower>(app).clear();
     let ctx = Context {
@@ -392,6 +396,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         search_files: search_files(conn).unwrap_or(true),
         switches: settings::read(app, conn),
         subjects,
+        older_subjects,
         limits: cards::limits(conn),
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
@@ -471,6 +476,8 @@ pub struct DayGlance {
     pub productive_pct: i64,
     pub focus_count: usize,
     pub focus_ms: i64,
+    /// Tasks ticked off in Ledger that day.
+    pub tasks_done: i64,
     pub segments: Vec<Segment>,
 }
 
@@ -486,6 +493,7 @@ pub fn day_glance(conn: &Connection, day: NaiveDate) -> DayGlance {
         productive_pct: percent(glance.productive_ms, glance.active_ms),
         focus_count: blocks.len(),
         focus_ms: blocks.iter().map(focus::Block::ms).sum(),
+        tasks_done: crate::tasks::done_between(conn, from, to).unwrap_or(0),
         segments: glance.segments.iter().map(|&(s, e, category)| Segment { from: share(s), to: share(e), category }).collect(),
     }
 }
@@ -559,6 +567,13 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         }
         Action::OpenRing => {
             crate::ring::toggle(app);
+            Ok(())
+        }
+        // Said as a notification, which opens what was kept; nothing copied is said on its row.
+        Action::Capture => {
+            let text = crate::capture::read(app)?;
+            let kept = crate::capture::keep(Some(app), conn, &text, now_ms())?;
+            crate::capture::tell(app, &kept.title, &kept.body, Some(&kept.opens));
             Ok(())
         }
         Action::OpenNote(id) => {
@@ -1294,6 +1309,7 @@ mod tests {
             search_files: true,
             switches: Vec::new(),
             subjects: Vec::new(),
+            older_subjects: Vec::new(),
             limits: HashMap::new(),
             week_goals: None,
             block_lists: Vec::new(),

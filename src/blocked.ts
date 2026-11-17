@@ -33,6 +33,11 @@ function paint() {
   const until = new Date(current.untilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   $("#blocked-title").textContent = `${current.label} is blocked`;
   const limit = current.reason === "limit";
+  document.title = limit ? "Blocked for today" : "Blocked during focus";
+  // Past a limit it's more of the same day's time, not an exception to a session; while strict
+  // mode holds the button back it says so instead.
+  const allow = $("#blocked-allow");
+  if (!allow.dataset.timer) allow.textContent = limit ? "5 more minutes" : "Allow 5 minutes";
   $("#blocked-eyebrow").textContent = limit ? "Daily limit" : "Focus session";
   $("#blocked-detail").textContent = limit
     ? `You've passed today's limit for it, so it stays blocked until midnight.`

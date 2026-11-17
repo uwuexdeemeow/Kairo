@@ -9,6 +9,8 @@ import { h } from "./ui";
 export type Pending = {
   /** What was deleted, as the line names it. */
   what: string;
+  /** What the line says instead of "Deleted “what”", for a change already made (a task moved). */
+  said?: string;
   /** Deletes it for good. */
   finish(): void;
   /** Brings it back. */
@@ -61,7 +63,7 @@ export function mountUndo(line: HTMLElement): Undo {
     const button = h("button", { class: "link-btn undo-btn" }, "Undo");
     button.addEventListener("click", () => u.undo());
     const more = pending.length > 1 ? ` and ${pending.length - 1} more` : "";
-    line.replaceChildren(`Deleted “${latest.what}”${more} · `, button);
+    line.replaceChildren(`${latest.said ?? `Deleted “${latest.what}”`}${more} · `, button);
     line.hidden = false;
     fadeLater();
   };

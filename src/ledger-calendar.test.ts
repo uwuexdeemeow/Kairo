@@ -230,7 +230,7 @@ describe("the Calendar view", () => {
 
   it("counts the open tasks with no day, which no cell can show", () => {
     mount([], [task("a", null), task("b", null), task("c", null, { doneMs: 1 }), task("d", TODAY)]);
-    expect(root.querySelector(".cal-undated")?.textContent).toBe("2 open tasks have no due day");
+    expect(root.querySelector(".cal-undated")?.textContent).toBe("2 tasks have no date");
     mount([], [task("a", TODAY)]);
     expect(root.querySelector(".cal-undated")).toBeNull();
   });
