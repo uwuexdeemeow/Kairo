@@ -46,7 +46,7 @@ export function renderModes(modes: FocusMode[], lists: string[]): void {
       list.addEventListener("change", () => save({ list: list.value || null }));
 
       const remove = h("button", { class: "link-btn" }, "Remove") as HTMLButtonElement;
-      confirmTwice(remove, () => "Click again to remove", () => run(() => api.removeFocusMode(m.name)));
+      confirmTwice(remove, () => "Press again to remove", () => run(() => api.removeFocusMode(m.name)));
 
       // The apps it opens, each with its way out, and a way to add another: the installed apps are
       // read when that is asked for.

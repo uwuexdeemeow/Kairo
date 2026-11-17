@@ -477,6 +477,10 @@ describe("what was on screen at a moment", () => {
     expect($("#palette-preview").textContent).toContain("In a focus session");
     expect(document.querySelector(".palette-note")!.textContent).toContain("hidden");
     expect(api.paletteRun).not.toHaveBeenCalled();
+    // The keyboard stays in the box, so the card is said in a line.
+    expect($("#palette-said").textContent).toBe("Yesterday at 3:00 pm, In a focus session: Code, 2:40 pm – 3:30 pm. Window titles are hidden. Show them in Kairo’s settings.");
+    key("ArrowUp");
+    await vi.waitFor(() => expect($("#palette-said").textContent).toBe(""));
   });
 });
 
@@ -559,5 +563,15 @@ describe("a time chart", () => {
     api.paletteCard.mockResolvedValue({ kind: "day", title: "Yesterday", activeMs: 0, productivePct: 0, focusCount: 0, focusMs: 0, segments: [] });
     await open(results(1, [item("Yesterday", { preview: true })]));
     await vi.waitFor(() => expect(api.paletteCard).toHaveBeenCalledWith(1, 0));
+    // Moving along the rows stays quiet: only a card asked for is said.
+    await vi.waitFor(() => expect($("#palette-preview").hidden).toBe(false));
+    expect($("#palette-said").textContent).toBe("");
+  });
+
+  it("says a chart asked for with its total and change", async () => {
+    api.paletteCard.mockResolvedValue({ ...card, change: "−1h 30m vs last week" });
+    await open(results(1, [answer]));
+    key("Enter");
+    await vi.waitFor(() => expect($("#palette-said").textContent).toBe("THE FINALS this week: 2h 00m, −1h 30m vs last week. Mon 26 Oct – Sun 1 Nov."));
   });
 });

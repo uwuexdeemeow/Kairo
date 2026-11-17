@@ -86,15 +86,11 @@
           <section class="block">
             <h2>Reminders</h2>
             <label class="toggle">
-              <input type="checkbox" id="ledger-reminders" />
+              <input type="checkbox" id="ledger-reminders" aria-describedby="ledger-reminders-note" />
               Remind me of tasks
             </label>
-            <p class="muted">On a task's due day, again the morning after if it's still open, and at its own reminder time. Only while you're at the computer; with computers combined, just one of them reminds you.</p>
-            <label class="toggle">
-              <input type="checkbox" id="ledger-plan-nudge" />
-              Ask me to plan the day
-            </label>
-            <p class="muted">Once a morning, at the reminder time below, if something is due or overdue: “Plan the day?” with how much is waiting. If you first come back before five, it asks then. Off when reminders are off.</p>
+            <p class="muted" id="ledger-reminders-note">On a task's due day, again the morning after if it's still open, and at its own reminder time. Only while you're at the computer; with computers combined, just one of them reminds you.</p>
+            <!-- Under the reminders it times, above the nudge that rides on it. -->
             <div class="row-buttons">
               <label class="field">
                 Morning reminder at
@@ -102,6 +98,11 @@
               </label>
               <span class="muted" id="ledger-settings-note" aria-live="polite"></span>
             </div>
+            <label class="toggle">
+              <input type="checkbox" id="ledger-plan-nudge" aria-describedby="ledger-plan-nudge-note" />
+              Ask me to plan the day
+            </label>
+            <p class="muted" id="ledger-plan-nudge-note">Once a morning, at the morning reminder time, if something is due or overdue: “Plan the day?” with how much is waiting. If you first come back before five, it asks then. Off when reminders are off.</p>
           </section>
           <section class="block">
             <h2>Planning</h2>
@@ -115,6 +116,7 @@
                 to
                 <input type="time" id="ledger-day-to" value="18:00" aria-label="Working day to" />
               </label>
+              <span class="muted" id="ledger-planning-note" aria-live="polite"></span>
             </div>
           </section>
         </section>

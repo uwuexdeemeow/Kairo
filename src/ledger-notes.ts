@@ -75,7 +75,7 @@ export function editedText(ms: number, now: number): string {
   const d = new Date(ms);
   const day = (t: Date) => `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}`;
   const today = new Date(now);
-  if (day(d) === day(today)) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (day(d) === day(today)) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
   if (day(d) === day(yesterday)) return "Yesterday";
   return `${d.getDate()} ${d.toLocaleDateString("en-GB", { month: "short" })}`;

@@ -19,7 +19,7 @@ beforeEach(() => {
   apply = document.getElementById("a") as HTMLButtonElement;
   status = document.getElementById("t")!;
   save = vi.fn(async () => 0);
-  control = keepFor({ select, apply, status, labels, applyText: (l) => `Save and clear older than ${l}`, armedText: "Click again to clear", changedText: "Saved. Cleared.", save });
+  control = keepFor({ select, apply, status, labels, applyText: (l) => `Save and clear older than ${l}`, armedText: "Press again to clear", changedText: "Saved. Cleared.", save });
 });
 
 describe("a Keep for choice", () => {
@@ -47,7 +47,7 @@ describe("a Keep for choice", () => {
     expect(apply.textContent).toBe("Save and clear older than 30 days");
     // The first click arms it, the second saves.
     apply.click();
-    expect(apply.textContent).toBe("Click again to clear");
+    expect(apply.textContent).toBe("Press again to clear");
     expect(save).not.toHaveBeenCalled();
     save.mockResolvedValueOnce(12);
     apply.click();

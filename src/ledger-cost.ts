@@ -36,7 +36,8 @@ export function loadLine(plannedMin: number, usualMs: number | null): string {
   if (plannedMin <= 0) return "";
   const planned = `${estimateName(plannedMin)} planned today`;
   const usualMin = usualMs === null ? null : Math.round(usualMs / 60_000);
-  return usualMin !== null && plannedMin > usualMin ? `${planned}, more than the ${estimateName(usualMin)} you usually focus` : planned;
+  // A usual day of under a minute's focus says nothing to compare with ("more than the 0m").
+  return usualMin !== null && usualMin > 0 && plannedMin > usualMin ? `${planned}, more than the ${estimateName(usualMin)} you usually focus` : planned;
 }
 
 /// Finished tasks it takes to say how someone's time compares with their estimates, and the least

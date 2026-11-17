@@ -139,6 +139,27 @@ describe("the Plan view", () => {
     expect(button("a", ".plan-tomorrow").getAttribute("aria-keyshortcuts")).toBe("T");
   });
 
+  it("tells a screen reader what a move did once the list shows it, and says nothing for one that didn't happen", () => {
+    const view = mountPlan(root, act, () => null);
+    view.render(tasks);
+    const said = () => root.querySelector('[role="status"]')!.textContent;
+    button("a", ".plan-tomorrow").click();
+    // Not yet: the list hasn't changed.
+    expect(said()).toBe("");
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
+    expect(said()).toBe("Moved “Overdue one” to tomorrow");
+    // The line stays put across draws, so it is heard.
+    const line = root.querySelector('[role="status"]');
+    button("b", ".plan-later").click();
+    // The move failed: the task is still due today, and the list redraws with it.
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, tasks[1], tasks[2]]);
+    expect(said()).toBe("Moved “Overdue one” to tomorrow");
+    expect(root.querySelector('[role="status"]')).toBe(line);
+    button("b", ".plan-tick").click();
+    view.render([{ ...tasks[0], group: "upcoming", dueDay: "2026-11-13" }, { ...tasks[1], group: "done", doneMs: at(10) }, tasks[2]]);
+    expect(said()).toBe("Done: “Today one”");
+  });
+
   it("ticks a task off, and opens one", () => {
     mountPlan(root, act, () => null).render(tasks);
     button("b", ".plan-tick").click();
@@ -153,7 +174,10 @@ describe("the Plan view", () => {
     const all = root.querySelector<HTMLButtonElement>(".plan-all")!;
     all.click();
     expect(act.move).not.toHaveBeenCalled();
-    expect(all.textContent).toBe("Click again to move them all");
+    expect(all.textContent).toBe("Press again to move them all");
+    // In the morning it's a link after the keys.
+    expect(all.classList.contains("link-btn")).toBe(true);
+    expect(all.previousElementSibling!.classList.contains("plan-keys")).toBe(true);
     all.click();
     expect(act.move.mock.calls.map((c) => [c[0], c[1]])).toEqual([
       ["a", "2026-11-13"],
@@ -177,6 +201,10 @@ describe("the Plan view", () => {
     mountPlan(root, act, () => null).render([...tasks, done, old]);
     expect(root.querySelector(".plan-lead")!.textContent).toBe("1 done · 50m focused · 2 left");
     expect([...root.querySelectorAll(".plan-head")].map((h) => h.textContent)).toEqual(["Left over", "Done today"]);
+    // Carrying what's left is the evening's thing to do: a button, under the list.
+    const all = root.querySelector(".plan-all")!;
+    expect(all.classList.contains("btn")).toBe(true);
+    expect(all.nextElementSibling!.classList.contains("plan-keys")).toBe(true);
     const finished = [...root.querySelectorAll(".plan-done-list .plan-row")];
     expect(finished.map((r) => r.querySelector(".plan-name")!.textContent)).toEqual(["Finished"]);
     expect(finished[0].querySelector(".plan-cost")!.textContent).toBe("50m");
@@ -226,7 +254,7 @@ describe("the Plan view", () => {
   it("says when nothing is due, and keeps the keyboard in the list as rows go", () => {
     const view = mountPlan(root, act, () => null);
     view.render([task("x", "Nothing due", { group: "upcoming" })]);
-    expect(root.querySelector(".plan-empty")!.textContent).toBe("Nothing due today or overdue.");
+    expect(root.querySelector(".plan-empty")!.textContent).toBe("Tasks due today, and any overdue, show up here.");
     expect(root.querySelector(".plan-list")).toBeNull();
 
     view.render(tasks.slice(0, 2));

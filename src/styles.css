@@ -1254,10 +1254,16 @@ html.palette-root {
   white-space: nowrap;
 }
 
-/* The stretch asked about: a bar and weight as well as a tint, so it shows without colour. */
+/* What was in front, in ink as the native palette draws it; the times and details stay muted. */
+.palette-moment-line .what {
+  color: var(--ink);
+}
+
+/* The stretch asked about: the palette's ink at 18%, as the native palette fills it, with a bar
+   and weight as well, so it shows without colour. */
 .palette-moment-line.here {
-  background: var(--line);
-  box-shadow: inset 3px 0 0 var(--ink);
+  background: color-mix(in srgb, var(--app) 18%, transparent);
+  box-shadow: inset 3px 0 0 var(--app);
   color: var(--ink);
   font-weight: 600;
 }
@@ -3249,18 +3255,31 @@ select,
   color: var(--distracting-ink);
 }
 
+/* The box sits by the first line, so a label that wraps keeps it there and leaves room before the
+   next switch; one line still takes the same 40px. */
 .toggle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-height: 40px;
+  padding: 9px 0;
+  line-height: 22px;
 }
 
 .toggle input {
+  flex: none;
   width: 16px;
   height: 16px;
-  margin: 0;
+  margin: 3px 0 0;
   accent-color: var(--app);
+}
+
+/* A switch's help sits under its words and close to it, so it reads as that switch's and not the
+   next one's; kept to a readable measure. 26px is the box and its gap. */
+.toggle + p.muted {
+  max-width: 68ch;
+  margin-top: -6px;
+  padding-left: 26px;
 }
 
 /* ---------- tooltip ---------- */
@@ -3333,9 +3352,17 @@ select,
     border-bottom: 1px solid var(--rule);
     background: var(--bg);
   }
+  /* The pages scroll sideways within the bar rather than widening the window's page. */
   .tabs {
-    flex: none;
+    flex: 1 1 100%;
     flex-direction: row;
+    min-width: 0;
+    overflow-x: auto;
+    padding: 2px;
+    scrollbar-width: thin;
+  }
+  .tabs button {
+    flex: none;
   }
   .tab-settings {
     margin-top: 0;
@@ -3836,7 +3863,8 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .task-card:hover,
 .task-card:focus-within {
   border-color: var(--line);
-  background: color-mix(in srgb, var(--raised) 90%, var(--ink));
+  /* Light enough a lift that a late day and the start's length keep 4.5:1 on it. */
+  background: color-mix(in srgb, var(--raised) 94%, var(--ink));
 }
 
 .task-card > input[type="checkbox"] {
@@ -3929,6 +3957,13 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .task-start:focus-visible {
   border-color: var(--edge);
   color: var(--ledger);
+}
+
+/* On paper Ledger's ink is deepened with the text ink, as for what's shown, to stay above 4.5:1. */
+:root[data-theme="light"] .task-card:hover .task-start,
+:root[data-theme="light"] .task-card:focus-within .task-start,
+:root[data-theme="light"] .task-start:focus-visible {
+  color: color-mix(in srgb, var(--ledger) 65%, var(--ink));
 }
 
 /* A touch screen has no pointer to reveal the edge: it's always there. */
@@ -4649,19 +4684,28 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .plan-late {
+  flex: none;
   color: var(--distracting-ink);
   font-size: 12px;
   font-weight: 600;
 }
 
+/* "~1h 30m" stays one piece; the name gives way first. */
 .plan-cost {
+  flex: none;
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
 .plan-row-done .plan-title {
   color: var(--muted);
+}
+
+/* Tomorrow's rows have no tick, but their names line up with today's above them. */
+.plan-next .plan-title {
+  padding-left: 38px;
 }
 
 .plan-act {
@@ -4711,6 +4755,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   font-size: 13px;
 }
 
+/* The evening's way to carry what's left: a button of the usual size under the list. */
+.plan-all.btn {
+  display: block;
+  margin: 14px 0 4px;
+  min-height: 36px;
+  font-size: 14px;
+}
+
 .plan-tomorrow-line,
 .plan-focused,
 .plan-empty {
@@ -4728,13 +4780,19 @@ body:not(.keys) .dash .app-open:focus-visible::after {
     flex-basis: calc(100% - 32px);
   }
 
+  /* Under the name, starting where its text does (tick, gap and the name's own padding). */
   .plan-act,
   .plan-at {
-    margin-left: 28px;
+    margin-left: 36px;
   }
 
-  .plan-act + .plan-act {
+  .plan-act + .plan-act,
+  .plan-at + .plan-act {
     margin-left: 0;
+  }
+
+  .plan-at {
+    margin-left: 38px;
   }
 }
 
@@ -5356,6 +5414,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .palette-row.selected,
 .palette-tile.selected {
   background: color-mix(in srgb, var(--palette) 18%, transparent);
+}
+
+/* On the tint a muted second line falls under 4.5:1 on the dark grounds; the second text ink holds. */
+.palette-row.selected .palette-sub {
+  color: var(--ink-2);
 }
 
 /* Compact, before anything's typed: the search bar alone. */
@@ -6139,6 +6202,15 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 /* The last on the ring, before those off it: a little room between the two. */
 .ring-choice.on + .ring-choice:not(.on) {
   margin-top: 8px;
+}
+
+/* The same box as Kairo's other switches, not the system's smaller one. */
+.ring-choice input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--app);
 }
 
 .ring-choice-name {

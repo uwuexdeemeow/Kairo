@@ -97,7 +97,7 @@ describe("loading", () => {
     expect($<HTMLInputElement>("#palette-suggestions").checked).toBe(true);
     expect($<HTMLInputElement>("#palette-search-files").checked).toBe(true);
     expect($<HTMLInputElement>("#clipboard-history").checked).toBe(true);
-    expect($("#sync-where").textContent).toBe("Off. This computer would show up as Tower.");
+    expect($("#sync-where").textContent).toBe("Not combined yet. Your other computers would see this one as Tower.");
     expect($("#sync-stop").hidden).toBe(true);
   });
 
