@@ -3431,6 +3431,7 @@ select,
   place-items: center;
   width: 24px;
   height: 24px;
+  padding: 0;
   border: 1.5px solid var(--edge);
   border-radius: 50%;
   background: none;
@@ -4591,6 +4592,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   place-items: center;
   width: 24px;
   height: 24px;
+  padding: 0;
   border: 1.5px solid var(--edge);
   border-radius: 50%;
   background: none;
