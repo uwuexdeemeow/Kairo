@@ -1127,8 +1127,14 @@ mod tests {
         apply(&laptop.conn, "ledger:day_to", "16:30").unwrap();
         assert_eq!(
             crate::ledger::settings(&laptop.conn).unwrap(),
-            crate::ledger::Settings { reminders: false, morning: "07:30".into(), day_from: "08:00".into(), day_to: "16:30".into(), plan_nudge: false, wrap_nudge: false }
+            crate::ledger::Settings { reminders: false, morning: "07:30".into(), day_from: "08:00".into(), day_to: "16:30".into(), plan_nudge: false, wrap_nudge: false, review_nudge: false }
         );
+        // The weekly review's switch and the week last reviewed travel too, and a week that isn't a Monday doesn't.
+        apply(&laptop.conn, "ledger:review_nudge", "1").unwrap();
+        apply(&laptop.conn, "ledger:review_done", "2026-11-02").unwrap();
+        assert!(crate::ledger::settings(&laptop.conn).unwrap().review_nudge);
+        assert_eq!(crate::ledger::reviewed_week(&laptop.conn).unwrap().as_deref(), Some("2026-11-02"));
+        assert!(apply(&laptop.conn, "ledger:review_done", "2026-11-03").is_err());
         assert!(apply(&laptop.conn, "ledger:morning", "25:00").is_err());
         assert!(apply(&laptop.conn, "ledger:day_to", "late").is_err());
         // An end before its start (two computers caught mid-change) falls back to the usual day.

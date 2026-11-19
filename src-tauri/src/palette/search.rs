@@ -506,6 +506,8 @@ pub enum Action {
     OpenLedger,
     /// Opens Ledger's Plan view: the day planned, or wrapped up.
     OpenPlan,
+    /// Ledger's Review view.
+    OpenReview,
     /// Opens the app ring.
     OpenRing,
     /// Keeps what's on the clipboard in Ledger: a short line as a task, anything else a note.
@@ -1395,14 +1397,15 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let idle = ctx.live.session.is_none();
     // Ledger's Plan view: planned in the day, wrapped up from five o'clock.
     let plan_title = if chrono::Timelike::hour(&ctx.live.now) >= 17 { "Wrap up the day" } else { "Plan the day" };
-    let actions: [(&str, String, Glyph, Action, bool); 12] = [
+    let actions: [(&str, String, Glyph, Action, bool); 13] = [
         ("focus start session pomodoro 25", "Start a 25-minute focus session".into(), Glyph::Focus, Action::StartFocus(25, None, None), idle),
         ("focus start session 50", "Start a 50-minute focus session".into(), Glyph::Focus, Action::StartFocus(50, None, None), idle),
         ("focus start session 90", "Start a 90-minute focus session".into(), Glyph::Focus, Action::StartFocus(90, None, None), idle),
         ("open chrono screen time tracker show window", "Open Chrono".into(), Glyph::Today, Action::Go("today", None), true),
         ("dashboard home apps kairo", "Dashboard".into(), Glyph::Day, Action::Dashboard(None), true),
         ("ledger tasks to-do todo notes", "Open Ledger".into(), Glyph::Focus, Action::OpenLedger, true),
-        ("plan day plan my day wrap up shutdown review tomorrow carry over", plan_title.into(), Glyph::Day, Action::OpenPlan, true),
+        ("plan day plan my day wrap up shutdown tomorrow carry over", plan_title.into(), Glyph::Day, Action::OpenPlan, true),
+        ("review the week weekly review look back slipped moved week review", "Review the week".into(), Glyph::Chart, Action::OpenReview, true),
         ("ring dial apps wheel", "Open the app ring".into(), Glyph::Day, Action::OpenRing, true),
         ("capture copied clipboard paste save keep inbox task note", "Capture what I copied".into(), Glyph::Tag, Action::Capture, true),
         ("schedule scheduled focus plan routine", "Focus schedule".into(), Glyph::Focus, Action::Go("focus", None), true),
@@ -2066,6 +2069,18 @@ pub(super) mod tests {
         // Either way, either word finds it.
         assert_eq!(search(&c, "wrap up")[0].action, Action::OpenPlan);
         assert_eq!(search(&c, "carry over")[0].action, Action::OpenPlan);
+    }
+
+    #[test]
+    fn the_weekly_review_is_found_by_its_words_and_plan_keeps_its_own() {
+        let c = ctx();
+        for q in ["review the week", "weekly review", "week review", "slipped"] {
+            let found = search(&c, q);
+            assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("Review the week", Action::OpenReview), "{q}");
+        }
+        // The day's plan isn't taken for it.
+        assert_eq!(search(&c, "plan")[0].action, Action::OpenPlan);
+        assert_eq!(search(&c, "wrap up")[0].action, Action::OpenPlan);
     }
 
     #[test]

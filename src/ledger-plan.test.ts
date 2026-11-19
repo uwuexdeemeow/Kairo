@@ -23,6 +23,7 @@ const task = (id: string, title: string, over: Partial<Task> = {}): Task => ({
   project: null,
   remindWhen: null,
   estimateMin: null,
+  moved: 0,
   group: "none",
   ...over,
 });

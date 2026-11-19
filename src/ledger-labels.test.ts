@@ -20,6 +20,7 @@ const task = (id: string, extra: Partial<Task> = {}): Task => ({
   project: null,
   remindWhen: null,
   estimateMin: null,
+  moved: 0,
   group: "none",
   ...extra,
 });

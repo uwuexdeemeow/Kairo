@@ -4718,6 +4718,90 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--ink-2);
 }
 
+/* Review: one page of four short steps, read top to bottom. */
+.ledger-review {
+  max-width: 640px;
+}
+
+.review-step {
+  margin: 0 0 28px;
+}
+
+.review-step h2 {
+  margin: 0 0 8px;
+  font: 600 15px var(--sans);
+}
+
+.review-step p {
+  margin: 0 0 8px;
+}
+
+.review-list,
+.review-planned {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-planned li {
+  padding: 2px 0;
+}
+
+.review-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.review-row:first-child {
+  border-top: 0;
+}
+
+.review-title {
+  flex: 1 1 160px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  color: var(--ink);
+  font: 500 14px var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-why {
+  font-size: 12px;
+}
+
+.review-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.review-acts .btn {
+  min-height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.review .link {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--ledger);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.review-search {
+  width: 100%;
+  margin: 0 0 4px;
+}
+
 .plan-head {
   margin: 24px 0 8px;
   color: var(--muted);

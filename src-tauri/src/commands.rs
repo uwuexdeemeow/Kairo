@@ -776,6 +776,33 @@ pub fn set_wrap_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledg
     Ok(s)
 }
 
+#[tauri::command]
+pub fn set_review_nudge(state: State<AppState>, on: bool) -> CmdResult<crate::ledger::Settings> {
+    let conn = state.db.lock().map_err(err)?;
+    let s = crate::ledger::set_review_nudge(&conn, on)?;
+    sync::record(&conn, "ledger:review_nudge", if s.review_nudge { "1" } else { "0" })?;
+    Ok(s)
+}
+
+/// The last week (its Monday) marked as reviewed; None before the first.
+#[tauri::command]
+pub fn get_reviewed_week(state: State<AppState>) -> CmdResult<Option<String>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ledger::reviewed_week(&conn).map_err(err)
+}
+
+/// Marks a week (its Monday, "2026-11-02") as reviewed; the later of two computers' weeks is kept.
+#[tauri::command]
+pub fn mark_week_reviewed(state: State<AppState>, week: String) -> CmdResult<Option<String>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::ledger::apply(&conn, "review_done", &week)?;
+    let kept = crate::ledger::reviewed_week(&conn).map_err(err)?;
+    if let Some(kept) = &kept {
+        sync::record(&conn, "ledger:review_done", kept)?;
+    }
+    Ok(kept)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BlockLists {

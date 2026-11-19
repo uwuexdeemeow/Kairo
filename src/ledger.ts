@@ -8,6 +8,7 @@ import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
 import { dayHours, USUAL_DAY, type Hours } from "./ledger-free";
 import { mountPlan, movedSaid, planTitle, type PlanView } from "./ledger-plan";
+import { mountReview, type ReviewView } from "./ledger-review";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -25,7 +26,7 @@ let tasks: Task[] = [];
 let session: RunningSession = null;
 let selected: string | null = null;
 /// The view showing: the summary line is the Tasks view's.
-let shown: "tasks" | "calendar" | "notes" | "done" | "plan" | "settings" = "tasks";
+let shown: "tasks" | "calendar" | "notes" | "done" | "plan" | "review" | "settings" = "tasks";
 
 /// The notes' names, for the task panel's Note row.
 let noteNames: NoteName[] = [];
@@ -120,6 +121,7 @@ function draw(list?: Task[]) {
   if (shown === "tasks") $("#ledger-summary").textContent = filterSummary(tasks, filter) || tasksLine(visible);
   if (shown === "done") drawDone();
   if (shown === "plan") drawPlan();
+  if (shown === "review") drawReview();
   if (shown === "calendar") drawCalendar();
 }
 
@@ -219,6 +221,51 @@ function drawPlan() {
       if (hours.fromMin === dayHoursNow.fromMin && hours.toMin === dayHoursNow.toMin) return;
       dayHoursNow = hours;
       if (shown === "plan") view.render(open());
+    })
+    .catch(() => {});
+}
+
+let reviewView: ReviewView | null = null;
+/// The week last marked reviewed, as the page last heard.
+let reviewedAt: string | null = null;
+
+/// The Review view, made the first time it's shown, drawn with the tasks as they are now. Moving
+/// and deleting are Plan's and Done's own, with their Undo.
+function drawReview() {
+  reviewView ??= mountReview($("#view-review"), {
+    move: (id, due, remind) =>
+      void tried("move it", async () => {
+        const t = tasks.find((x) => x.id === id);
+        if (!t) return;
+        const was = { due: t.dueDay, remind: t.remindMs };
+        draw(await api.setTaskPlan(id, due, t.priority, remind));
+        taskUndo.offer({
+          what: t.title,
+          said: movedSaid(t.title, was.due, due, remind),
+          finish: () => {},
+          undo: () =>
+            void tried("move it back", async () => {
+              const now = tasks.find((x) => x.id === id);
+              draw(await api.setTaskPlan(id, was.due, now?.priority ?? t.priority, was.remind));
+            }),
+          focusAfter: () => document.querySelector<HTMLElement>(`#view-review [data-task="${id}"] button`) ?? document.querySelector<HTMLElement>("#view-review button"),
+        });
+      }),
+    remove: (id) => actions.remove(id),
+    openTask: (id) => openTask(id),
+    chrono: (monday) => void api.openChrono("week", monday).catch(() => {}),
+    finish: async (monday) => {
+      reviewedAt = await api.markWeekReviewed(monday);
+      drawReview();
+    },
+  });
+  reviewView.render(tasks.filter((t) => !deletingTasks.has(t.id)), reviewedAt);
+  void api
+    .reviewedWeek()
+    .then((week) => {
+      if (week === reviewedAt) return;
+      reviewedAt = week;
+      if (shown === "review") reviewView?.render(tasks.filter((t) => !deletingTasks.has(t.id)), reviewedAt);
     })
     .catch(() => {});
 }
@@ -463,6 +510,8 @@ async function followOpen() {
   if (kind === "settings") show("settings");
   // Home's and the palette's Plan the day.
   if (kind === "plan") show("plan");
+  // The weekly review notification.
+  if (kind === "review") show("review");
   // The ring's New task: the Tasks view, ready to type.
   if (kind === "add") {
     show("tasks");
@@ -470,8 +519,11 @@ async function followOpen() {
   }
 }
 
-type View = "tasks" | "calendar" | "notes" | "done" | "plan" | "settings";
-const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "plan", "settings"];
+type View = "tasks" | "calendar" | "notes" | "done" | "plan" | "review" | "settings";
+/// The tabs in the order they stand, for the arrow keys.
+const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "plan", "review", "settings"];
+/// What Ctrl+1 to 7 open: Settings kept its Ctrl+6 when Review came.
+const SHORTCUTS: View[] = ["tasks", "calendar", "notes", "done", "plan", "settings", "review"];
 
 /// The tabs as one Tab stop, the chosen one; the arrows move between them.
 function markTabs() {
@@ -494,11 +546,13 @@ function show(view: View) {
   $("#view-calendar").hidden = view !== "calendar";
   $("#view-done").hidden = view !== "done";
   $("#view-plan").hidden = view !== "plan";
+  $("#view-review").hidden = view !== "review";
   $("#view-settings").hidden = view !== "settings";
   $("#task-find").hidden = view !== "tasks";
-  $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", plan: planTitle(Date.now()), settings: "Settings" }[view];
+  $("#ledger-title").textContent = { tasks: "Tasks", calendar: "Calendar", notes: "Notes", done: "Done", plan: planTitle(Date.now()), review: "Review the week", settings: "Settings" }[view];
   if (view === "done") drawDone();
   if (view === "plan") drawPlan();
+  if (view === "review") drawReview();
   if (view === "calendar") drawCalendar();
   // Under Plan, the date; under Tasks, the date and how the list stands.
   $("#ledger-summary").textContent = view === "tasks" ? tasksLine(tasks) : view === "plan" ? new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }) : "";
@@ -516,6 +570,7 @@ async function loadSettings() {
   $<HTMLInputElement>("#ledger-day-to").value = s.dayTo;
   $<HTMLInputElement>("#ledger-plan-nudge").checked = s.planNudge;
   $<HTMLInputElement>("#ledger-wrap-nudge").checked = s.wrapNudge;
+  $<HTMLInputElement>("#ledger-review-nudge").checked = s.reviewNudge;
   dayHoursNow = dayHours(s.dayFrom, s.dayTo);
   morningFollowsReminders();
 }
@@ -526,6 +581,7 @@ function morningFollowsReminders() {
   $<HTMLInputElement>("#ledger-morning").disabled = !on;
   $<HTMLInputElement>("#ledger-plan-nudge").disabled = !on;
   $<HTMLInputElement>("#ledger-wrap-nudge").disabled = !on;
+  $<HTMLInputElement>("#ledger-review-nudge").disabled = !on;
 }
 
 let savedFade = 0;
@@ -571,6 +627,7 @@ $("#ledger-morning").addEventListener("change", () => saveSettings());
 for (const [box, save] of [
   ["#ledger-plan-nudge", api.setPlanNudge],
   ["#ledger-wrap-nudge", api.setWrapNudge],
+  ["#ledger-review-nudge", api.setReviewNudge],
 ] as const) {
   $(box).addEventListener("change", async () => {
     const note = $("#ledger-settings-note");
@@ -615,10 +672,10 @@ document.addEventListener("keydown", (e) => {
   // Esc closes a calendar or a dropdown open in the panel first, the panel only after.
   if (e.key === "Escape" && selected && !e.defaultPrevented && !document.querySelector('[aria-haspopup][aria-expanded="true"]')) return closePanel();
   const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
-  // Ctrl+1 to 6: the views.
-  if (ctrl && ["1", "2", "3", "4", "5", "6"].includes(e.key)) {
+  // Ctrl+1 to 7: the views.
+  if (ctrl && ["1", "2", "3", "4", "5", "6", "7"].includes(e.key)) {
     e.preventDefault();
-    return show(VIEWS[Number(e.key) - 1]);
+    return show(SHORTCUTS[Number(e.key) - 1]);
   }
   // Ctrl+N: a new note in Notes; elsewhere, the add field, ready to type a task.
   if (ctrl && e.key.toLowerCase() === "n") {

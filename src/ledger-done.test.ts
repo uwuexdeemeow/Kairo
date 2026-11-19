@@ -24,6 +24,7 @@ const task = (id: string, title: string, doneMs: number | null, focusedMs = 0): 
   project: null,
   remindWhen: null,
   estimateMin: null,
+  moved: 0,
   group: doneMs === null ? "none" : "done",
 });
 

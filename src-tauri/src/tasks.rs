@@ -58,6 +58,9 @@ pub struct Task {
     /// time actually spent (`focused_ms`) stays on the computer it was spent on.
     #[serde(default)]
     pub estimate_min: Option<i64>,
+    /// How many times its due day was moved to a later one. Shared in `taskmore`.
+    #[serde(default)]
+    pub moved: i64,
     /// Where Ledger lists it: "overdue", "today", "upcoming", "none" or "done".
     #[serde(default, skip_deserializing)]
     pub group: String,
@@ -87,6 +90,7 @@ impl Default for Task {
             project: None,
             remind_when: None,
             estimate_min: None,
+            moved: 0,
             group: "none".into(),
         }
     }
@@ -124,6 +128,9 @@ pub struct More {
     pub when: Option<String>,
     #[serde(default)]
     pub estimate: Option<i64>,
+    /// How many times its due day was moved to a later one; the larger count of two computers wins.
+    #[serde(default)]
+    pub moved: i64,
 }
 
 /// Tags a task may carry, and the longest one.
@@ -196,6 +203,7 @@ pub fn add(conn: &Connection, title: &str, now: i64) -> Result<Option<Task>> {
         project: None,
         remind_when: None,
         estimate_min: None,
+        moved: 0,
         group: "none".into(),
     };
     conn.execute(
@@ -255,7 +263,7 @@ fn focused_by_task(conn: &Connection, now: i64) -> Result<HashMap<String, i64>> 
 pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
     let focused = focused_by_task(conn, now)?;
     let mut stmt = conn.prepare("SELECT id, title, created_ms, done_ms, position, due_day, priority, remind_ms, reminded, note, steps, repeat, tags,
-                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1), remind_when, estimate_min FROM tasks")?;
+                (SELECT name FROM projects p WHERE p.name = tasks.project COLLATE NOCASE LIMIT 1), remind_when, estimate_min, moved FROM tasks")?;
     let rows = stmt.query_map([], |r| {
         let id: String = r.get(0)?;
         Ok(Task {
@@ -276,6 +284,7 @@ pub fn list(conn: &Connection, now: i64, today: &str) -> Result<Vec<Task>> {
             project: r.get(13)?,
             remind_when: r.get(14)?,
             estimate_min: r.get(15)?,
+            moved: r.get(16)?,
             group: String::new(),
         })
     })?;
@@ -320,6 +329,7 @@ pub fn set_plan(conn: &Connection, id: &str, due: Option<&str>, priority: u8, re
     conn.execute(
         "UPDATE tasks SET
              reminded = CASE WHEN due_day IS ?2 AND remind_ms IS ?4 THEN reminded ELSE '' END,
+             moved = moved + CASE WHEN ?2 > due_day THEN 1 ELSE 0 END,
              due_day = ?2, priority = ?3, remind_ms = ?4
          WHERE id = ?1",
         params![id, due, priority.min(HIGH), remind],
@@ -410,8 +420,8 @@ pub fn set_steps(conn: &Connection, id: &str, steps: Vec<Step>) -> Result<bool> 
 
 /// What a task has beyond its plan; None when there's no such task.
 pub fn more(conn: &Connection, id: &str) -> Result<Option<More>> {
-    conn.query_row("SELECT repeat, steps, tags, project, remind_when, estimate_min FROM tasks WHERE id = ?1", [id], |r| {
-        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)?, when: r.get(4)?, estimate: r.get(5)? })
+    conn.query_row("SELECT repeat, steps, tags, project, remind_when, estimate_min, moved FROM tasks WHERE id = ?1", [id], |r| {
+        Ok(More { repeat: r.get(0)?, steps: parse_steps(&r.get::<_, String>(1)?), tags: parse_tags(&r.get::<_, String>(2)?), project: r.get(3)?, when: r.get(4)?, estimate: r.get(5)?, moved: r.get(6)? })
     })
     .optional()
 }
@@ -511,7 +521,7 @@ pub fn more_json(conn: &Connection, id: &str) -> Result<Option<String>> {
 
 /// The tasks with a repeat or steps, with their shared text, for sharing when combining starts.
 pub fn with_more(conn: &Connection) -> Result<Vec<(String, String)>> {
-    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL OR remind_when IS NOT NULL OR estimate_min IS NOT NULL")?;
+    let mut stmt = conn.prepare("SELECT id FROM tasks WHERE repeat IS NOT NULL OR steps != '' OR tags != '' OR project IS NOT NULL OR remind_when IS NOT NULL OR estimate_min IS NOT NULL OR moved > 0")?;
     let ids = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<Result<Vec<_>>>()?;
     ids.into_iter().filter_map(|id| more_json(conn, &id).transpose().map(|m| m.map(|m| (id, m)))).collect()
 }
@@ -525,8 +535,8 @@ pub fn apply_more(conn: &Connection, id: &str, m: &More) -> Result<bool> {
     let when = m.when.as_deref().and_then(clean_when);
     let estimate = m.estimate.and_then(clean_estimate);
     Ok(conn.execute(
-        "UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5, remind_when = ?6, estimate_min = ?7 WHERE id = ?1",
-        params![id, repeat, text, clean_tags(&m.tags).join(" "), project, when, estimate],
+        "UPDATE tasks SET repeat = ?2, steps = ?3, tags = ?4, project = ?5, remind_when = ?6, estimate_min = ?7, moved = MAX(moved, ?8) WHERE id = ?1",
+        params![id, repeat, text, clean_tags(&m.tags).join(" "), project, when, estimate, m.moved.max(0)],
     )? > 0)
 }
 
@@ -1231,6 +1241,50 @@ mod tests {
         set_estimate(&c, &t.id, None).unwrap();
         assert_eq!(list(&c, 1, TODAY).unwrap()[0].estimate_min, None);
         assert!(!set_estimate(&c, "nope", Some(30)).unwrap());
+    }
+
+    #[test]
+    fn a_task_remembers_how_many_times_it_was_moved_to_a_later_day() {
+        let c = conn();
+        let t = add(&c, "Essay", 1).unwrap().unwrap();
+        let moved = |c: &Connection| list(c, 1, TODAY).unwrap().into_iter().find(|x| x.id == t.id).unwrap().moved;
+        // Getting a first day is a plan, not a move.
+        set_plan(&c, &t.id, Some("2026-11-12"), MEDIUM, None).unwrap();
+        assert_eq!(moved(&c), 0);
+        // Later days count; the same day, an earlier one, and losing the day don't.
+        set_plan(&c, &t.id, Some("2026-11-13"), MEDIUM, None).unwrap();
+        set_plan(&c, &t.id, Some("2026-11-13"), HIGH, Some(5)).unwrap();
+        set_plan(&c, &t.id, Some("2026-11-16"), HIGH, None).unwrap();
+        assert_eq!(moved(&c), 2);
+        set_plan(&c, &t.id, Some("2026-11-14"), HIGH, None).unwrap();
+        set_plan(&c, &t.id, None, HIGH, None).unwrap();
+        set_plan(&c, &t.id, Some("2026-11-20"), HIGH, None).unwrap();
+        assert_eq!(moved(&c), 2);
+    }
+
+    #[test]
+    fn the_times_a_task_moved_travel_and_the_larger_count_wins() {
+        let (here, there) = (conn(), conn());
+        let t = add(&there, "Essay", 1).unwrap().unwrap();
+        set_plan(&there, &t.id, Some("2026-11-12"), MEDIUM, None).unwrap();
+        set_plan(&there, &t.id, Some("2026-11-13"), MEDIUM, None).unwrap();
+        set_plan(&there, &t.id, Some("2026-11-14"), MEDIUM, None).unwrap();
+        assert_eq!(with_more(&there).unwrap().len(), 1);
+        replace_from_json(&here, &to_json(&there).unwrap()).unwrap();
+        let m: More = serde_json::from_str(&more_json(&there, &t.id).unwrap().unwrap()).unwrap();
+        assert_eq!(m.moved, 2);
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        assert_eq!(list(&here, 1, TODAY).unwrap()[0].moved, 2);
+        // This computer moved it more since (the day itself arrives as its plan, so give it that
+        // first): its own count stays.
+        set_plan(&here, &t.id, Some("2026-11-14"), MEDIUM, None).unwrap();
+        set_plan(&here, &t.id, Some("2026-11-15"), MEDIUM, None).unwrap();
+        set_plan(&here, &t.id, Some("2026-11-16"), MEDIUM, None).unwrap();
+        assert!(apply_more(&here, &t.id, &m).unwrap());
+        assert_eq!(list(&here, 1, TODAY).unwrap()[0].moved, 2 + 2);
+        // A Kairo from before it shares none: read as never moved.
+        let old: More = serde_json::from_str(r#"{"repeat":null,"steps":[],"tags":[],"project":null}"#).unwrap();
+        assert_eq!(old.moved, 0);
     }
 
     #[test]

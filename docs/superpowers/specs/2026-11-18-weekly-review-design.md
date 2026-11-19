@@ -1,7 +1,14 @@
 # A weekly review in Ledger
 
 Built on what Kairo already records. No new storage engine, network or dependency; one small field on
-a task. Draft, not yet built.
+a task. Built in 1.31.60, with these differences from the draft:
+- The nudge is its own Ledger notification beside "Plan the day?" and "Wrap up the day?", not a second
+  line on Chrono's recap (a notification opens one place, and the recap's is Chrono). It is off until
+  chosen, like those two, and goes with Ledger's reminders switch.
+- Review is the seventh Ledger shortcut, Ctrl+7, so Settings keeps its Ctrl+6.
+- "Do it" puts a task on the next working day, and Later clears its day.
+- The three picks are made in one review; tasks already due next week are listed above the picker.
+- The palette's Plan row no longer carries the word "review", which is Review's.
 
 ## Goal
 Once a week, end the week on purpose: see what got done, face what keeps slipping, and choose what

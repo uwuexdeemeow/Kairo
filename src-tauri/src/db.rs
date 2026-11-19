@@ -216,6 +216,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("tasks", "remind_when", "TEXT"),
         // How long a task is expected to take, in minutes (tasks.rs).
         ("tasks", "estimate_min", "INTEGER"),
+        // How many times its due day was moved to a later one (tasks.rs), for the weekly review.
+        ("tasks", "moved", "INTEGER NOT NULL DEFAULT 0"),
         // The paper a note is written on: lined, blank, dotted or grid (notebook.rs).
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).

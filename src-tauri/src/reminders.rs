@@ -177,6 +177,53 @@ pub fn wrap_nudge(tasks: &[Task], now_local: NaiveDateTime, day_start_ms: i64, d
 /// The wrap-up nudge isn't sent this late: a late return isn't the end of a working day.
 const WRAP_UNTIL_HOUR: u32 = 23;
 
+/// An open task counts as slipping once it has been moved to a later day this many times.
+pub const SLIP_MOVES: i64 = 2;
+
+/// Whether an open task slipped: overdue, or moved to a later day `SLIP_MOVES` times or more.
+pub fn slipped(t: &Task) -> bool {
+    t.done_ms.is_none() && (t.group == "overdue" || t.moved >= SLIP_MOVES)
+}
+
+/// The Monday of the week a review looks at on `date`: this week's from Sunday on, the week just
+/// ended on Monday, and None on the days between, when no review is offered.
+pub fn review_week(date: NaiveDate) -> Option<NaiveDate> {
+    use chrono::Datelike;
+    match date.weekday() {
+        chrono::Weekday::Sun => Some(date - chrono::Days::new(6)),
+        chrono::Weekday::Mon => Some(date - chrono::Days::new(7)),
+        _ => None,
+    }
+}
+
+/// The "Review the week?" nudge: its title, body and the week it is for (its Monday, "2026-11-02"),
+/// when it is time. Sunday from the end of the working day (never before five) until eleven, and
+/// Monday until five, once a week, when the week had something done or something slipped and it
+/// hasn't been reviewed. `from_ms` and `to_ms` are the first and last moments of that week. Pure:
+/// nothing is shown or marked.
+pub fn review_nudge(tasks: &[Task], now_local: NaiveDateTime, day_to: NaiveTime, from_ms: i64, to_ms: i64, reviewed: Option<&str>, last: Option<&str>) -> Option<(String, String, String)> {
+    use chrono::{Datelike, Timelike};
+    let week = review_week(now_local.date())?.format("%Y-%m-%d").to_string();
+    let on_time = match now_local.date().weekday() {
+        chrono::Weekday::Sun => now_local.time() >= day_to.max(NaiveTime::from_hms_opt(EVENING_FROM_HOUR, 0, 0).expect("an hour")) && now_local.hour() < WRAP_UNTIL_HOUR,
+        _ => now_local.hour() < EVENING_FROM_HOUR,
+    };
+    if !on_time || reviewed == Some(week.as_str()) || last == Some(week.as_str()) {
+        return None;
+    }
+    let done = tasks.iter().filter(|t| t.done_ms.is_some_and(|d| d >= from_ms && d < to_ms)).count();
+    let slipping = tasks.iter().filter(|t| slipped(t)).count();
+    if done == 0 && slipping == 0 {
+        return None;
+    }
+    let body = match (done, slipping) {
+        (d, 0) => format!("{d} done this week"),
+        (0, s) => format!("{s} slipped"),
+        (d, s) => format!("{d} done this week · {s} slipped"),
+    };
+    Some(("Review the week?".into(), body, week))
+}
+
 /// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
 pub fn when_mark(when: &str) -> String {
     format!("when:{}", when.replace(' ', "_"))
@@ -375,6 +422,24 @@ fn check(app: &AppHandle, conn: &rusqlite::Connection) -> Result<(), String> {
             crate::sync::record(conn, "ledger:wrap_nudged", &today)?;
         }
     }
+    if settings.review_nudge && in_use {
+        if let Some(monday) = review_week(now.date_naive()) {
+            let day_to = NaiveTime::parse_from_str(&settings.day_to, "%H:%M").map_err(|e| e.to_string())?;
+            let from = crate::analysis::day_bounds(monday).map(|(from, _)| from).unwrap_or(0);
+            let to = crate::analysis::day_bounds(monday + chrono::Days::new(6)).map(|(_, to)| to).unwrap_or(i64::MAX);
+            let reviewed = crate::ledger::reviewed_week(conn).map_err(|e| e.to_string())?;
+            let last = crate::ledger::review_nudged(conn).map_err(|e| e.to_string())?;
+            if let Some((title, body, week)) = review_nudge(&tasks, now.naive_local(), day_to, from, to, reviewed.as_deref(), last.as_deref()) {
+                use tauri_plugin_notification::NotificationExt;
+                // A click opens Ledger on Review (follow_clicks).
+                if let Err(e) = app.notification().builder().title(&title).body(&body).extra(OPENS, "review").show() {
+                    eprintln!("reminders: {e}");
+                }
+                crate::ledger::set_review_nudged(conn, &week).map_err(|e| e.to_string())?;
+                crate::sync::record(conn, "ledger:review_nudged", &week)?;
+            }
+        }
+    }
     send(app, conn, show, due.drop)
 }
 
@@ -463,6 +528,50 @@ mod tests {
 
     fn titles(d: &Due) -> Vec<&str> {
         d.show.iter().map(|r| r.title.as_str()).collect()
+    }
+
+    #[test]
+    fn the_review_nudge_comes_once_for_the_week_that_is_ending() {
+        let sunday = |h, m| NaiveDate::from_ymd_opt(2026, 11, 8).unwrap().and_hms_opt(h, m, 0).unwrap();
+        let monday = |h, m| NaiveDate::from_ymd_opt(2026, 11, 9).unwrap().and_hms_opt(h, m, 0).unwrap();
+        let six = NaiveTime::from_hms_opt(18, 0, 0).unwrap();
+        // The week of Monday 2 November, by its first and last moments.
+        let (from, to) = (2_000, 9_000);
+        let mut done = task("a", "Essay", None, 1);
+        done.group = "done".into();
+        done.done_ms = Some(from + 5);
+        let mut slipped = task("b", "Taxes", Some("2026-11-03"), 1);
+        slipped.group = "overdue".into();
+        let mut moved = task("c", "Gym", Some("2026-11-10"), 1);
+        moved.group = "upcoming".into();
+        moved.moved = 2;
+        let mut fine = task("d", "Mail", Some("2026-11-10"), 1);
+        fine.group = "upcoming".into();
+        fine.moved = 1;
+        // Done after the week ended counts toward the next.
+        let mut after = task("e", "Later", None, 1);
+        after.group = "done".into();
+        after.done_ms = Some(to + 5);
+        let tasks = [done.clone(), slipped.clone(), moved, fine, after];
+        let nudge = |now: NaiveDateTime, reviewed: Option<&str>, last: Option<&str>| review_nudge(&tasks, now, six, from, to, reviewed, last);
+
+        // Sunday evening, not before the working day ends (never before five); not late at night.
+        let said = nudge(sunday(18, 0), None, None).unwrap();
+        assert_eq!((said.0.as_str(), said.1.as_str(), said.2.as_str()), ("Review the week?", "1 done this week · 2 slipped", "2026-11-02"));
+        assert_eq!(nudge(sunday(17, 59), None, None), None);
+        assert_eq!(nudge(sunday(23, 0), None, None), None);
+        // Monday morning is still the week just ended; by the afternoon it is over.
+        assert_eq!(nudge(monday(9, 0), None, None).unwrap().2, "2026-11-02");
+        assert_eq!(nudge(monday(17, 0), None, None), None);
+        // Once a week, and not for a week already reviewed.
+        assert_eq!(nudge(sunday(19, 0), None, Some("2026-11-02")), None);
+        assert_eq!(nudge(sunday(19, 0), Some("2026-11-02"), None), None);
+        assert!(nudge(sunday(19, 0), Some("2026-10-26"), Some("2026-10-26")).is_some());
+        // Not on other days, and not for a week with nothing in it.
+        assert_eq!(nudge(NaiveDate::from_ymd_opt(2026, 11, 6).unwrap().and_hms_opt(18, 0, 0).unwrap(), None, None), None);
+        assert_eq!(review_nudge(&[], sunday(18, 0), six, from, to, None, None), None);
+        // Only what's done: no "slipped" in the line.
+        assert_eq!(review_nudge(&[done], sunday(18, 0), six, from, to, None, None).unwrap().1, "1 done this week");
     }
 
     #[test]

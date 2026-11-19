@@ -41,6 +41,10 @@
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 18h18M7 18a5 5 0 0110 0M12 6V3M5.5 9.5L4 8M18.5 9.5L20 8" /></svg>
             Plan
           </button>
+          <button role="tab" data-view="review" id="tab-review" aria-selected="false" aria-controls="view-review" title="Review the week (Ctrl+7)">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v15H4zM4 10h16M9 3v4M15 3v4M8 15l2.5 2.5L16 13" /></svg>
+            Review
+          </button>
           <button role="tab" data-view="settings" id="tab-settings" aria-selected="false" aria-controls="view-settings" class="tab-settings" title="Settings (Ctrl+6)">
             <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></svg>
             Settings
@@ -81,6 +85,7 @@
         <section id="view-done" class="view ledger-done" role="tabpanel" aria-labelledby="tab-done" hidden></section>
 
         <section id="view-plan" class="view ledger-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+        <section id="view-review" class="view ledger-review" role="tabpanel" aria-labelledby="tab-review" hidden></section>
 
         <section id="view-settings" class="view" role="tabpanel" aria-labelledby="tab-settings" hidden>
           <section class="block">
@@ -108,6 +113,11 @@
               Ask me to wrap up the day
             </label>
             <p class="muted" id="ledger-wrap-nudge-note">Once an evening, at the end of the working day below (not before five): “Wrap up the day?” with what's done and what's left; click it to open Plan. Off when reminders are off.</p>
+            <label class="toggle">
+              <input type="checkbox" id="ledger-review-nudge" aria-describedby="ledger-review-nudge-note" />
+              Offer a weekly review
+            </label>
+            <p class="muted" id="ledger-review-nudge-note">Once a week, on Sunday evening (or Monday morning if it was missed): “Review the week?” with what got done and what slipped; click it to open Review. Off when reminders are off.</p>
           </section>
           <section class="block">
             <h2>Planning</h2>

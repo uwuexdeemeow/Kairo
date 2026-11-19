@@ -565,6 +565,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::show_ledger_at(app, "plan");
             Ok(())
         }
+        Action::OpenReview => {
+            crate::show_ledger_at(app, "review");
+            Ok(())
+        }
         Action::OpenRing => {
             crate::ring::toggle(app);
             Ok(())

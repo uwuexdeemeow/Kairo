@@ -15,6 +15,9 @@ const PLAN_NUDGE_KEY: &str = "ledger_plan_nudge";
 const PLAN_NUDGED_KEY: &str = "ledger_plan_nudged";
 const WRAP_NUDGE_KEY: &str = "ledger_wrap_nudge";
 const WRAP_NUDGED_KEY: &str = "ledger_wrap_nudged";
+const REVIEW_NUDGE_KEY: &str = "ledger_review_nudge";
+const REVIEW_NUDGED_KEY: &str = "ledger_review_nudged";
+const REVIEW_DONE_KEY: &str = "ledger_review_done";
 pub const MORNING: &str = "09:00";
 pub const DAY_FROM: &str = "09:00";
 pub const DAY_TO: &str = "18:00";
@@ -35,6 +38,8 @@ pub struct Settings {
     pub plan_nudge: bool,
     /// Whether the end of the working day asks "Wrap up the day?". Off until chosen.
     pub wrap_nudge: bool,
+    /// Whether Sunday evening asks "Review the week?". Off until chosen.
+    pub review_nudge: bool,
 }
 
 /// A time of day as "HH:MM", or None when it isn't one.
@@ -62,7 +67,8 @@ pub fn settings(conn: &Connection) -> rusqlite::Result<Settings> {
     let (day_from, day_to) = if day_ok(&from, &to) { (from, to) } else { (DAY_FROM.into(), DAY_TO.into()) };
     let plan_nudge = db::get_setting(conn, PLAN_NUDGE_KEY)?.is_some_and(|v| v == "1");
     let wrap_nudge = db::get_setting(conn, WRAP_NUDGE_KEY)?.is_some_and(|v| v == "1");
-    Ok(Settings { reminders, morning, day_from, day_to, plan_nudge, wrap_nudge })
+    let review_nudge = db::get_setting(conn, REVIEW_NUDGE_KEY)?.is_some_and(|v| v == "1");
+    Ok(Settings { reminders, morning, day_from, day_to, plan_nudge, wrap_nudge, review_nudge })
 }
 
 /// Changes them here; the caller shares them. A time that isn't one is refused.
@@ -87,6 +93,39 @@ pub fn set_plan_nudge(conn: &Connection, on: bool) -> Result<Settings, String> {
 pub fn set_wrap_nudge(conn: &Connection, on: bool) -> Result<Settings, String> {
     db::set_setting(conn, WRAP_NUDGE_KEY, if on { "1" } else { "0" }).map_err(|e| e.to_string())?;
     settings(conn).map_err(|e| e.to_string())
+}
+
+pub fn set_review_nudge(conn: &Connection, on: bool) -> Result<Settings, String> {
+    db::set_setting(conn, REVIEW_NUDGE_KEY, if on { "1" } else { "0" }).map_err(|e| e.to_string())?;
+    settings(conn).map_err(|e| e.to_string())
+}
+
+/// The week (its Monday, "2026-11-02") the review nudge last came for, so it comes once a week.
+pub fn review_nudged(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    db::get_setting(conn, REVIEW_NUDGED_KEY)
+}
+
+pub fn set_review_nudged(conn: &Connection, week: &str) -> rusqlite::Result<()> {
+    db::set_setting(conn, REVIEW_NUDGED_KEY, week)
+}
+
+/// The last week (its Monday) marked as reviewed.
+pub fn reviewed_week(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    db::get_setting(conn, REVIEW_DONE_KEY)
+}
+
+/// Marks a week reviewed, unless a later one already is: two computers reviewing keep the later.
+pub fn set_reviewed_week(conn: &Connection, week: &str) -> rusqlite::Result<()> {
+    match reviewed_week(conn)? {
+        Some(have) if have.as_str() >= week => Ok(()),
+        _ => db::set_setting(conn, REVIEW_DONE_KEY, week),
+    }
+}
+
+/// A Monday as "2026-11-02", or None for anything else.
+fn clean_week(text: &str) -> Option<String> {
+    use chrono::Datelike;
+    chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").ok().filter(|d| d.weekday() == chrono::Weekday::Mon).map(|d| d.format("%Y-%m-%d").to_string())
 }
 
 /// The day the wrap-up nudge last came, as for the plan nudge.
@@ -121,6 +160,9 @@ pub fn apply(conn: &Connection, key: &str, value: &str) -> Result<(), String> {
         "plan_nudged" => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Use a day like 2026-11-16.".to_string()).and_then(|d| set_plan_nudged(conn, &d.format("%Y-%m-%d").to_string()).map_err(|e| e.to_string())),
         "wrap_nudge" => set_wrap_nudge(conn, value == "1").map(|_| ()),
         "wrap_nudged" => chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Use a day like 2026-11-16.".to_string()).and_then(|d| set_wrap_nudged(conn, &d.format("%Y-%m-%d").to_string()).map_err(|e| e.to_string())),
+        "review_nudge" => set_review_nudge(conn, value == "1").map(|_| ()),
+        "review_nudged" => clean_week(value).ok_or_else(|| "Use a Monday like 2026-11-02.".to_string()).and_then(|w| set_review_nudged(conn, &w).map_err(|e| e.to_string())),
+        "review_done" => clean_week(value).ok_or_else(|| "Use a Monday like 2026-11-02.".to_string()).and_then(|w| set_reviewed_week(conn, &w).map_err(|e| e.to_string())),
         _ => Err("unknown Ledger setting".into()),
     }
 }
@@ -156,5 +198,25 @@ mod tests {
         // Changing the others keeps it.
         let kept = set(&c, false, "07:15", &s.day_from, &s.day_to).unwrap();
         assert_eq!((kept.morning.as_str(), kept.day_from.as_str()), ("07:15", "08:00"));
+    }
+
+    #[test]
+    fn the_weekly_review_nudge_is_off_until_chosen_and_remembers_its_weeks() {
+        let c = conn();
+        assert!(!settings(&c).unwrap().review_nudge);
+        assert!(set_review_nudge(&c, true).unwrap().review_nudge);
+        assert!(apply(&c, "review_nudge", "0").is_ok());
+        assert!(!settings(&c).unwrap().review_nudge);
+        // The week nudged and the week reviewed are Mondays; a week reviewed on two computers
+        // keeps the later one, and what isn't a day is refused.
+        assert_eq!((review_nudged(&c).unwrap(), reviewed_week(&c).unwrap()), (None, None));
+        apply(&c, "review_nudged", "2026-11-02").unwrap();
+        apply(&c, "review_done", "2026-11-02").unwrap();
+        apply(&c, "review_done", "2026-10-26").unwrap();
+        assert_eq!((review_nudged(&c).unwrap().as_deref(), reviewed_week(&c).unwrap().as_deref()), (Some("2026-11-02"), Some("2026-11-02")));
+        assert!(apply(&c, "review_done", "last week").is_err());
+        // Changing the others keeps them.
+        set(&c, true, "08:00", "09:00", "18:00").unwrap();
+        assert_eq!(reviewed_week(&c).unwrap().as_deref(), Some("2026-11-02"));
     }
 }

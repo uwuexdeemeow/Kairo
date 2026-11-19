@@ -352,6 +352,8 @@ export interface Task {
   remindWhen: string | null;
   /** How long it's expected to take, in minutes; null for no estimate. */
   estimateMin: number | null;
+  /** How many times its due day was moved to a later one. */
+  moved: number;
   group: TaskGroup;
 }
 
@@ -406,6 +408,8 @@ export interface LedgerSettings {
   planNudge: boolean;
   /** Whether the end of the working day asks "Wrap up the day?". */
   wrapNudge: boolean;
+  /** Whether Sunday evening asks "Review the week?". */
+  reviewNudge: boolean;
 }
 
 export interface FocusBlock {
@@ -640,6 +644,11 @@ export const api = {
   setLedgerSettings: (reminders: boolean, morning: string, dayFrom: string, dayTo: string) => invoke<LedgerSettings>("set_ledger_settings", { reminders, morning, dayFrom, dayTo }),
   setPlanNudge: (on: boolean) => invoke<LedgerSettings>("set_plan_nudge", { on }),
   setWrapNudge: (on: boolean) => invoke<LedgerSettings>("set_wrap_nudge", { on }),
+  setReviewNudge: (on: boolean) => invoke<LedgerSettings>("set_review_nudge", { on }),
+  /** The last week (its Monday) marked as reviewed; null before the first. */
+  reviewedWeek: () => invoke<string | null>("get_reviewed_week"),
+  /** Marks a week (its Monday) reviewed; the later of two computers' weeks is kept. */
+  markWeekReviewed: (week: string) => invoke<string | null>("mark_week_reviewed", { week }),
   /** Pinned first, then newest edited; with a query, those whose title or text has it. */
   notes: (query?: string) => invoke<Note[]>("get_notes", { query }),
   note: (id: string) => invoke<Note | null>("get_note", { id }),
