@@ -3,10 +3,11 @@ import { renderModes, setUpModeForm } from "./focus-modes";
 import { keepFor } from "./keep-for";
 import "./fonts";
 import { dayParts, watchSvg } from "./chrono-look";
+import { meetingBands, meetingLine } from "./meeting-lane";
 import { dialSvg, logo } from "./logos";
 import "./styles.css";
 import { listen } from "@tauri-apps/api/event";
-import { api, type AwayStretch, type PomodoroLengths, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type PomodoroStatus, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
+import { api, type AwayStretch, type CalendarEvent, type PomodoroLengths, type CalendarStatus, type Project, type ProjectTime, type ProjectDetail, type Span, type WeekNote, type Category, type CategoryEntry, type DayGoals, type DaySummary, type FocusAction, type FocusBlock, type FocusRule, type FocusOverview, type PomodoroStatus, type FocusSession, type FocusSlot, type BlockList, type BlockLists, type Period, type DeleteRange, type GoalSettings, type Patterns, type PrivacyMode, type SyncState, type Task, type Usage } from "./api";
 import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay, todayIso, weekdayIndex } from "./calendar";
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
@@ -181,7 +182,9 @@ function renderToday(d: DaySummary) {
   sub.replaceChildren(d.activeMs ? "on screen, " : isToday ? "on screen so far" : "on screen", ...(d.activeMs ? [h("strong", {}, `${pct(d.productiveMs, d.activeMs)}% productive`)] : []));
 
   const perHour = d.activeMs ? Math.round(d.switches / (d.activeMs / HOUR_MS)) : 0;
+  const meetings = meetingLine(d.meetingMs);
   $("#today-stats").replaceChildren(
+    ...(meetings ? [stat("Meetings", meetings, "", "Time on the calendar as meetings, overlaps counted once; not time attended")] : []),
     stat("Longest focus", fmtDur(d.longestFocusMs)),
     stat("Deep-work blocks", String(d.deepBlocks), "", "Stretches of 25 minutes or more of productive time"),
     stat("Distracted", fmtDur(d.distractingMs)),
@@ -197,6 +200,8 @@ function renderToday(d: DaySummary) {
 
 /// Focus sessions on the day the Today view shows, loaded alongside it.
 let shownFocus: FocusBlock[] = [];
+/// Its meetings from the connected calendars, which keep them for a good while after.
+let shownMeetings: CalendarEvent[] = [];
 
 /// The whole hours the day's graph spans: from the hour activity began to the hour it ended (or
 /// now), at least three hours wide, so short stretches are wide enough to see and point at. A day
@@ -221,8 +226,8 @@ const ZOOM_NAME_PX = 56;
 
 function renderTimeline(d: DaySummary, isToday: boolean) {
   const day0 = parseDate(shownDay()).getTime();
-  const times = [...d.timeline.flatMap((s) => [s.start, s.end]), ...shownFocus.flatMap((b) => [b.start, b.end]), ...(isToday ? [Date.now()] : [])];
-  const [fromHour, toHour] = timelineHours(day0, d.timeline.length || shownFocus.length ? times : []);
+  const times = [...d.timeline.flatMap((s) => [s.start, s.end]), ...shownFocus.flatMap((b) => [b.start, b.end]), ...shownMeetings.flatMap((m) => [m.startMs, m.endMs]), ...(isToday ? [Date.now()] : [])];
+  const [fromHour, toHour] = timelineHours(day0, d.timeline.length || shownFocus.length || shownMeetings.length ? times : []);
   const t0 = day0 + fromHour * HOUR_MS;
   const span = (toHour - fromHour) * HOUR_MS;
   // Hours as Patterns and its insights say them ("10pm"), so one view has one clock.
@@ -309,6 +314,25 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
     axis.append(mark);
   }
   const parts: Node[] = d.timeline.length ? [strip, axis, zoom] : [strip, axis];
+  // Meetings run as a quieter lane under the focus one: the calendar's word for the time, drawn
+  // beside what was tracked, so a meeting no longer looks like a gap.
+  const { bands, more } = meetingBands(shownMeetings, t0, span, day0, day0 + 24 * HOUR_MS);
+  if (bands.length) {
+    const lane = h("div", { class: "meeting-lane", role: "group", "aria-label": `${bands.length + more} ${bands.length + more === 1 ? "meeting" : "meetings"} on the calendar` });
+    const marks: HTMLElement[] = [];
+    for (const b of bands) {
+      const el = h("span", { class: "meeting-band" });
+      speak(el, `${b.title}, ${fmtClock(b.start)} to ${fmtClock(b.end)}, ${fmtDur(b.end - b.start)}, on the calendar`);
+      marks.push(el);
+      el.style.left = `${b.left}%`;
+      el.style.width = `max(${b.width}%, 3px)`;
+      tip(el, () => `<strong>${esc(b.title)}</strong><div class="muted">${fmtClock(b.start)}–${fmtClock(b.end)} · ${fmtDur(b.end - b.start)} · on the calendar</div>`);
+      lane.append(el);
+    }
+    rove(marks);
+    parts.unshift(lane);
+    if (more) parts.push(h("p", { class: "muted meeting-more" }, `and ${more} more ${more === 1 ? "meeting" : "meetings"}`));
+  }
   // Focus sessions run as a thin lane above the activity they covered.
   if (shownFocus.length) {
     const lane = h("div", { class: "focus-lane", role: "group", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
@@ -1971,6 +1995,10 @@ async function load(v: View = view) {
       const date = selectedDay ?? undefined;
       const [day, goals, focusBlocks, away, projectTimes] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date), api.projectTimes(date)]);
       shownFocus = focusBlocks;
+      // The day's meetings, from midnight to the next midnight; none when no calendar is connected.
+      const first = parseDate(selectedDay ?? todayIso());
+      const next = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 1);
+      shownMeetings = await api.calendarEvents(first.getTime(), next.getTime()).catch(() => []);
       renderToday(day);
       renderGoals(goals, selectedDay === null);
       renderAway(away);
@@ -2346,6 +2374,22 @@ $("#calendar-save").addEventListener("click", async () => {
     out.textContent = why(err);
   }
 });
+
+// The meetings that have passed are kept for a year; this clears them, after a second press.
+confirmTwice(
+  $<HTMLButtonElement>("#calendar-forget"),
+  () => "Press again to forget them",
+  async () => {
+    const out = $("#calendar-status");
+    try {
+      const n = await api.forgetPastMeetings();
+      out.textContent = n ? `Forgot ${n} past ${n === 1 ? "meeting" : "meetings"}.` : "No past meetings were kept.";
+      load("today");
+    } catch (err) {
+      out.textContent = why(err);
+    }
+  },
+);
 
 /// The sidebar's choice of whose time to show, while more than one computer is combined.
 function renderComputerPick(sync: SyncState) {

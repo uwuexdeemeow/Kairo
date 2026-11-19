@@ -120,9 +120,18 @@ pub fn subjects(conn: &Connection, apps: &[AppEntry]) -> Result<Vec<Subject>> {
     for p in crate::projects::totals(conn, now_ms() - SUBJECTS_FOR_MS, now_ms(), crate::analysis::ALL_COMPUTERS)? {
         subjects.push(Subject { name: p.name, key: format!("project:{}", p.id), category: Category::Neutral, icon: None, used_ms: p.ms });
     }
+    // And the calendar's meetings, when it has had any ("meetings this week").
+    let (now, back) = (now_ms(), now_ms() - SUBJECTS_FOR_MS);
+    if crate::calendar::between(conn, back, now).map(|e| !e.is_empty()).unwrap_or(false) {
+        let used_ms = crate::calendar::meeting_ms(conn, back, now).unwrap_or(0);
+        subjects.push(Subject { name: "Meetings".into(), key: MEETINGS.into(), category: Category::Neutral, icon: None, used_ms });
+    }
     subjects.sort_by_key(|s| std::cmp::Reverse(s.used_ms));
     Ok(subjects)
 }
+
+/// The key of the subject that is the calendar's meetings rather than an app, site or project.
+const MEETINGS: &str = "meetings";
 
 /// Daily limits by key, in milliseconds.
 pub fn limits(conn: &Connection) -> HashMap<String, i64> {
@@ -216,6 +225,11 @@ pub fn answer(conn: &Connection, subject: &Subject, period: Period, against: Opt
     // A project's time comes from window titles, which app and site rows don't carry.
     let project = subject.key.strip_prefix("project:").and_then(|id| id.parse::<i64>().ok());
     let load = |from: i64, to: i64| -> Vec<Row> {
+        if subject.key == MEETINGS {
+            // The calendar's meetings, made one where they overlap, as rows of their own.
+            let row = |(start, end): (i64, i64)| Row { app: "Meetings".into(), exe: MEETINGS.into(), site: None, start, end, idle: false, category: Category::Neutral, app_category: Category::Neutral };
+            return crate::calendar::merged(conn, from, to).unwrap_or_default().into_iter().map(row).collect();
+        }
         match project {
             Some(id) => crate::projects::rows_of(conn, id, from, to).unwrap_or_default(),
             None => analysis::load_rows(conn, from, to).unwrap_or_default().into_iter().filter(mine).collect(),
@@ -630,6 +644,24 @@ mod tests {
         let start = Local.from_local_datetime(&from).earliest().unwrap().timestamp_millis();
         let s = db::NewSession { app, exe: app, title, site, start_ms: start, end_ms: start + minutes * 60_000, idle, demo: false };
         db::insert_session(conn, &s).unwrap();
+    }
+
+    #[test]
+    fn meetings_can_be_asked_about_like_an_app() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        // No calendar events, nothing to ask about.
+        assert!(!subjects(&conn, &[]).unwrap().iter().any(|s| s.key == "meetings"));
+        let today = Local::now().date_naive();
+        let start = bounds(today).0 + 3_600_000;
+        let event = |from: i64, minutes: i64| crate::calendar::Event { start_ms: from, end_ms: from + minutes * 60_000, title: "m".into() };
+        // One an hour long yesterday, and two that overlap today.
+        let yesterday = bounds(today - Duration::days(1)).0 + 3_600_000;
+        crate::calendar::store(&conn, &[event(yesterday, 60), event(start, 90), event(start + 3_600_000, 60)]).unwrap();
+        let found = subjects(&conn, &[]).unwrap();
+        let meetings = found.iter().find(|s| s.key == "meetings").expect("meetings is a subject");
+        assert_eq!(meetings.name, "Meetings");
+        let card = answer(&conn, meetings, Period::Yesterday, None);
+        assert_eq!(card.total_ms, 60 * 60_000);
     }
 
     #[test]

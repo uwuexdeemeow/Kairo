@@ -939,6 +939,13 @@ fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, agai
         return vec![answer];
     }
     answer.score = 950.0;
+    let mut copy = Item::new("Copy the answer", Icon::Glyph(Glyph::Chart, Tone::Plain), "Answers", Action::CopyAnswer(subject.clone(), period, against));
+    copy.score = 948.0;
+    copy.preview = preview.clone();
+    // Time in meetings is the calendar's, not something to limit.
+    if subject.key == "meetings" {
+        return vec![answer, copy];
+    }
     let limit = ctx.limits.get(&subject.key).copied();
     let mut change = Item::new(
         match limit {
@@ -951,10 +958,7 @@ fn answer_items(ctx: &Context, subject: &Subject, m: Match, period: Period, agai
     );
     change.detail = limit.map(fmt_dur);
     change.score = 949.0;
-    change.preview = preview.clone();
-    let mut copy = Item::new("Copy the answer", Icon::Glyph(Glyph::Chart, Tone::Plain), "Answers", Action::CopyAnswer(subject.clone(), period, against));
-    copy.score = 948.0;
-    copy.preview = preview;
+    change.preview = preview;
     vec![answer, change, copy]
 }
 
@@ -1784,6 +1788,15 @@ pub(super) mod tests {
         assert!(!Preview::Focus(25, None).on_enter());
         assert_eq!(enter_again(answer.sub.as_deref()), "Enter again to open this week in Chrono");
         assert_eq!(enter_again(None), "Enter again to open it");
+    }
+
+    #[test]
+    fn meetings_are_answered_without_a_limit_to_set() {
+        let mut c = ctx();
+        c.subjects.push(Subject { name: "Meetings".into(), key: "meetings".into(), category: Category::Neutral, icon: None, used_ms: 3_600_000 });
+        let found = search(&c, "meetings this week");
+        assert_eq!(titles(&found), ["Meetings this week", "Copy the answer"]);
+        assert!(matches!(&found[0].preview, Some(Preview::Answer(s, Period::ThisWeek, None)) if s.key == "meetings"));
     }
 
     #[test]

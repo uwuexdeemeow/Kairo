@@ -1,7 +1,13 @@
 # Meetings in Chrono: history, the day's timeline, and a total
 
 Built on the calendar import Kairo already has. No OS calendar access, no new dependency, no
-network beyond the addresses already read. Draft, not yet built.
+network beyond the addresses already read. Built in 1.31.59, with these differences from the draft:
+the timeline draws meetings as a lane under the focus lane, not as bands behind the app blocks
+(it reads the same way the focus lane does and every meeting can be reached with the arrow keys);
+the palette answers through the existing answer card with Meetings as a subject, so there is no
+new card and no native-palette change; the week's data carries the total and the Sunday
+notification says it, while the month and year notifications and the Patterns "mostly meetings"
+line are left for later.
 
 ## Why this, and not "calendar as a source of time" from scratch
 Most of that idea exists. `calendar.rs` reads private iCal addresses (Google's secret address,

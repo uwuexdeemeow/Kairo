@@ -118,6 +118,10 @@ pub struct Period {
     limits_over: Vec<LimitWeek>,
     focus_sessions: usize,
     focus_ms: i64,
+    /// Time on the calendar as meetings, overlaps counted once, up to now; and the same for the
+    /// stretch before, as far as it's compared.
+    meeting_ms: i64,
+    previous_meeting_ms: i64,
 }
 
 pub fn week_start(date: NaiveDate) -> NaiveDate {
@@ -322,6 +326,10 @@ fn period_of(conn: &Connection, span: Span, now_ms: i64, computer: &str) -> Resu
     let focus = focus::blocks(conn, from, to, now_ms)?;
     let focus_ms = focus.iter().map(focus::Block::ms).sum();
     let top_projects = projects::totals(conn, from, to.min(now_ms), computer)?;
+    let meeting_ms = crate::calendar::meeting_ms(conn, from, to.min(now_ms))?;
+    let previous_from = analysis::day_bounds(previous_start).map_or(0, |b| b.0);
+    let previous_to = analysis::day_bounds(previous_start + Days::new(previous_len.saturating_sub(1))).map_or(previous_until, |b| b.1);
+    let previous_meeting_ms = crate::calendar::meeting_ms(conn, previous_from, previous_to.min(previous_until))?;
 
     Ok(Period {
         start: start.to_string(),
@@ -340,6 +348,8 @@ fn period_of(conn: &Connection, span: Span, now_ms: i64, computer: &str) -> Resu
         limits_over,
         focus_sessions: focus.len(),
         focus_ms,
+        meeting_ms,
+        previous_meeting_ms,
     })
 }
 
@@ -372,6 +382,9 @@ fn message(w: &Period) -> (String, String) {
     }
     if let Some(l) = w.limits_over.first() {
         parts.push(format!("{} over your {} limit.", fmt_dur(l.over_ms), l.label));
+    }
+    if w.meeting_ms > 0 {
+        parts.push(format!("Meetings: {}.", fmt_dur(w.meeting_ms)));
     }
     parts.push("Add your notes on the Week page.".into());
     (title, parts.join(" "))
@@ -509,6 +522,28 @@ mod tests {
         let start = analysis::day_bounds(date).unwrap().0 + 10 * 60 * MIN_MS;
         let row = db::NewSession { app, exe, title: "", site: None, start_ms: start, end_ms: start + minutes * MIN_MS, idle: false, demo: false };
         db::insert_session(conn, &row).unwrap();
+    }
+
+    #[test]
+    fn a_week_counts_its_meetings_against_the_one_before() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let monday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let at = |date: NaiveDate, hour: i64| analysis::day_bounds(date).unwrap().0 + hour * 60 * MIN_MS;
+        let meeting = |date: NaiveDate, hour: i64, minutes: i64| crate::calendar::Event { start_ms: at(date, hour), end_ms: at(date, hour) + minutes * MIN_MS, title: "m".into() };
+        crate::calendar::store(&conn, &[
+            meeting(monday - Days::new(2), 9, 60),
+            meeting(monday, 10, 90),
+            meeting(monday, 11, 60),
+            meeting(monday + Days::new(3), 14, 30),
+        ]).unwrap();
+        let now = analysis::day_bounds(monday + Days::new(7)).unwrap().0;
+        let w = week(&conn, monday, now).unwrap();
+        // 10:00-11:30 and 11:00-12:00 overlap, so Monday has 2h; Thursday adds 30m.
+        assert_eq!((w.meeting_ms, w.previous_meeting_ms), (150 * MIN_MS, 60 * MIN_MS));
+        // Said in the notification only when there were any.
+        assert!(message(&w).1.contains("Meetings: 2h 30m"));
+        let empty = week(&conn, monday - Days::new(28), now).unwrap();
+        assert!(!message(&empty).1.contains("Meetings"));
     }
 
     #[test]

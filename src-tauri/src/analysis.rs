@@ -326,6 +326,8 @@ pub struct DaySummary {
     top_apps: Vec<Usage>,
     top_sites: Vec<Usage>,
     timeline: Vec<Segment>,
+    /// Time the calendar had meetings, up to now; set by the command, which has the calendar.
+    pub meeting_ms: i64,
 }
 
 /// A day at a glance, for the command palette: totals, the busiest apps and the timeline.
@@ -383,6 +385,7 @@ pub fn day_summary(rows: &[Row]) -> DaySummary {
         top_apps,
         top_sites,
         timeline: timeline(rows),
+        meeting_ms: 0,
     }
 }
 

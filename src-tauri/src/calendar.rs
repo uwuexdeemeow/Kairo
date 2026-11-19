@@ -18,8 +18,10 @@ const STATUS_KEY: &str = "calendar_status";
 const READ_EVERY: Duration = Duration::from_secs(30 * 60);
 const FIRST_AFTER: Duration = Duration::from_secs(45);
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
-/// How far back and ahead events are kept.
+/// How far back and ahead each read looks.
 const WINDOW_MS: i64 = 14 * DAY_MS;
+/// How long a meeting that has passed is kept, so Chrono's older days still show them.
+const KEEP_MS: i64 = 400 * DAY_MS;
 /// Occurrences of one recurring event within the window, at most; a daily one has 29.
 const MAX_OCCURRENCES: u16 = 200;
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -196,7 +198,8 @@ pub fn parse(ics: &str, from_ms: i64, to_ms: i64) -> Vec<Event> {
 
 // ---------- keeping them ----------
 
-/// Replaces the events kept with `events`.
+/// Replaces every event kept with `events`; a read uses `replace_window`, which keeps the past.
+#[cfg(test)]
 pub fn store(conn: &Connection, events: &[Event]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM calendar_events", [])?;
@@ -204,6 +207,48 @@ pub fn store(conn: &Connection, events: &[Event]) -> rusqlite::Result<()> {
         tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title) VALUES (?1, ?2, ?3)", params![e.start_ms, e.end_ms, e.title])?;
     }
     tx.commit()
+}
+
+/// Replaces the events starting in [from, to) with `events`, leaving older ones as the last read
+/// left them: a meeting cancelled or moved inside the window goes or moves, and the past stays.
+pub fn replace_window(conn: &Connection, events: &[Event], from: i64, to: i64) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM calendar_events WHERE start_ms >= ?1 AND start_ms < ?2", params![from, to])?;
+    for e in events.iter().filter(|e| e.start_ms >= from && e.start_ms < to) {
+        tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title) VALUES (?1, ?2, ?3)", params![e.start_ms, e.end_ms, e.title])?;
+    }
+    tx.commit()
+}
+
+/// Drops meetings that ended more than 400 days ago; returns how many.
+pub fn prune_old(conn: &Connection, now: i64) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM calendar_events WHERE end_ms < ?1", [now - KEEP_MS])
+}
+
+/// Drops every meeting that has ended ("Forget past meetings"); returns how many.
+pub fn forget_past(conn: &Connection, now: i64) -> rusqlite::Result<usize> {
+    conn.execute("DELETE FROM calendar_events WHERE end_ms <= ?1", [now])
+}
+
+/// How long the calendar had meetings within [from, to): clipped to it, with overlapping meetings
+/// counted once.
+pub fn meeting_ms(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<i64> {
+    Ok(merged(conn, from, to)?.iter().map(|(start, end)| end - start).sum())
+}
+
+/// The stretches of [from, to) with a meeting, earliest first: clipped to it, with overlapping
+/// meetings made one.
+pub fn merged(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<(i64, i64)>> {
+    let mut out = Vec::new();
+    let mut covered_to = from;
+    for e in between(conn, from, to)? {
+        let (start, end) = (e.start_ms.max(from).max(covered_to), e.end_ms.min(to));
+        if end > start {
+            out.push((start, end));
+            covered_to = end;
+        }
+    }
+    Ok(out)
 }
 
 /// Events overlapping [from, to), earliest first.
@@ -238,7 +283,8 @@ pub fn set_urls(conn: &Connection, text: &str) -> Result<Vec<String>> {
     }
     db::set_setting(conn, URLS_KEY, &urls.join("\n")).map_err(err)?;
     if urls.is_empty() {
-        store(conn, &[]).map_err(err)?;
+        // What is ahead goes with the address; what happened stays until it's forgotten.
+        conn.execute("DELETE FROM calendar_events WHERE end_ms > ?1", [chrono::Utc::now().timestamp_millis()]).map_err(err)?;
         db::set_setting(conn, STATUS_KEY, "").map_err(err)?;
     }
     Ok(urls)
@@ -284,7 +330,8 @@ pub fn read_now(conn: &Connection, now_ms: i64) -> rusqlite::Result<Status> {
     }
     if any {
         events.sort_by_key(|e| e.start_ms);
-        store(conn, &events)?;
+        replace_window(conn, &events, now_ms - WINDOW_MS, now_ms + WINDOW_MS)?;
+        prune_old(conn, now_ms)?;
     }
     db::set_setting(conn, STATUS_KEY, &format!("{now_ms}|{}|{}", events.len(), errors.join("; ")))?;
     status(conn)
@@ -434,5 +481,59 @@ END:VCALENDAR\r
         assert_eq!(duration_ms("PT1H30M"), Some(90 * 60_000));
         assert_eq!(duration_ms("P1DT2H"), Some(26 * 3_600_000));
         assert_eq!(duration_ms("nonsense"), None);
+    }
+
+    const H: i64 = 3_600_000;
+
+    fn ev(start_ms: i64, end_ms: i64, title: &str) -> Event {
+        Event { start_ms, end_ms, title: title.into() }
+    }
+
+    #[test]
+    fn a_read_replaces_only_the_window_it_read() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let now = 100 * DAY_MS;
+        // Three weeks ago (older than the window), yesterday, and one that will be cancelled.
+        store(&conn, &[ev(now - 21 * DAY_MS, now - 21 * DAY_MS + H, "old"), ev(now - DAY_MS, now - DAY_MS + H, "yesterday"), ev(now + DAY_MS, now + DAY_MS + H, "cancelled")]).unwrap();
+        replace_window(&conn, &[ev(now - DAY_MS, now - DAY_MS + H, "yesterday"), ev(now + 2 * DAY_MS, now + 2 * DAY_MS + H, "new")], now - WINDOW_MS, now + WINDOW_MS).unwrap();
+        let titles: Vec<String> = between(&conn, 0, i64::MAX).unwrap().into_iter().map(|e| e.title).collect();
+        assert_eq!(titles, ["old", "yesterday", "new"]);
+    }
+
+    #[test]
+    fn meeting_time_merges_overlaps_and_clips_to_the_range() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let day = 50 * DAY_MS;
+        store(&conn, &[
+            ev(day + 10 * H, day + 11 * H, "a"),
+            ev(day + 10 * H + 30 * 60_000, day + 12 * H, "overlaps a"),
+            ev(day - H, day + H, "from the night before"),
+            ev(day + 23 * H, day + 25 * H, "runs past midnight"),
+        ]).unwrap();
+        // 00:00-01:00, 10:00-12:00 and 23:00-24:00.
+        assert_eq!(meeting_ms(&conn, day, day + DAY_MS).unwrap(), 4 * H);
+        assert_eq!(meeting_ms(&conn, day + DAY_MS, day + 2 * DAY_MS).unwrap(), H);
+        assert_eq!(meeting_ms(&conn, day + 13 * H, day + 14 * H).unwrap(), 0);
+    }
+
+    #[test]
+    fn the_past_is_pruned_after_400_days_and_forgotten_on_request() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let now = 1000 * DAY_MS;
+        store(&conn, &[ev(now - 401 * DAY_MS, now - 401 * DAY_MS + H, "ancient"), ev(now - 5 * DAY_MS, now - 5 * DAY_MS + H, "last week"), ev(now + DAY_MS, now + DAY_MS + H, "tomorrow")]).unwrap();
+        assert_eq!(prune_old(&conn, now).unwrap(), 1);
+        assert_eq!(between(&conn, 0, i64::MAX).unwrap().len(), 2);
+        assert_eq!(forget_past(&conn, now).unwrap(), 1);
+        assert_eq!(between(&conn, 0, i64::MAX).unwrap().iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["tomorrow"]);
+    }
+
+    #[test]
+    fn removing_the_addresses_clears_what_is_ahead_but_keeps_the_past() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store(&conn, &[ev(now - 2 * DAY_MS, now - 2 * DAY_MS + H, "past"), ev(now + 2 * DAY_MS, now + 2 * DAY_MS + H, "ahead")]).unwrap();
+        set_urls(&conn, "https://example.com/a.ics").unwrap();
+        set_urls(&conn, "").unwrap();
+        assert_eq!(between(&conn, 0, i64::MAX).unwrap().iter().map(|e| e.title.as_str()).collect::<Vec<_>>(), ["past"]);
     }
 }

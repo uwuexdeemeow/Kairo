@@ -450,6 +450,7 @@ pub fn run() {
             commands::dismiss_away,
             commands::get_calendar,
             commands::set_calendar,
+            commands::forget_past_meetings,
             commands::get_goal_settings,
             commands::get_week_goals,
             commands::set_goal,

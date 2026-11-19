@@ -50,6 +50,8 @@ export interface DaySummary {
   topApps: Usage[];
   topSites: Usage[];
   timeline: Segment[];
+  /** Time the calendar had meetings, up to now: on the calendar, not time attended. */
+  meetingMs: number;
 }
 
 export interface DayTotal {
@@ -656,6 +658,8 @@ export const api = {
   setTaskLabels: (id: string, tags: string[], project: string | null) => invoke<Task[]>("set_task_labels", { id, tags, project }),
   /** Meetings from the connected calendars between two times; only the days the calendar keeps have any. */
   calendarEvents: (fromMs: number, toMs: number) => invoke<CalendarEvent[]>("get_calendar_events", { fromMs, toMs }),
+  /** Deletes the stored meetings of days gone by; how many. */
+  forgetPastMeetings: () => invoke<number>("forget_past_meetings"),
   /** Replaces a task's checklist; what's kept (trimmed, at most 30) comes back in the list. */
   setTaskWhen: (id: string, when: string | null) => invoke<Task[]>("set_task_when", { id, when }),
   setTaskEstimate: (id: string, minutes: number | null) => invoke<Task[]>("set_task_estimate", { id, minutes }),

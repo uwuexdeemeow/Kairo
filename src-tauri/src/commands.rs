@@ -36,7 +36,16 @@ pub fn get_day(state: State<AppState>, date: Option<String>) -> CmdResult<DaySum
     let (from, to) = day_bounds(parse_day(date)?).ok_or("that date has no local midnight")?;
     let conn = state.db.lock().map_err(err)?;
     let rows = analysis::load_rows_of(&conn, from, to.min(now_ms()), &sync::shown(&conn)?).map_err(err)?;
-    Ok(analysis::day_summary(&rows))
+    let mut day = analysis::day_summary(&rows);
+    day.meeting_ms = calendar::meeting_ms(&conn, from, to.min(now_ms())).map_err(err)?;
+    Ok(day)
+}
+
+/// Deletes the meetings already stored for days gone by ("Forget past meetings"); returns how many.
+#[tauri::command]
+pub fn forget_past_meetings(state: State<AppState>) -> CmdResult<usize> {
+    let conn = state.db.lock().map_err(err)?;
+    calendar::forget_past(&conn, now_ms()).map_err(err)
 }
 
 #[derive(Serialize)]

@@ -2336,6 +2336,28 @@ html.palette-root {
   box-shadow: inset 0 0 0 1px var(--seq-4);
 }
 
+/* Meetings on the calendar: a quieter lane in the neutral ink, so it reads as context, not as
+   something tracked. Overlapping meetings overlap here too. */
+.meeting-lane {
+  position: relative;
+  height: 4px;
+  margin-bottom: 8px;
+  clip-path: inset(-6px 0);
+}
+
+.meeting-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+
+.meeting-more {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
 .seg {
   position: absolute;
   top: 0;
