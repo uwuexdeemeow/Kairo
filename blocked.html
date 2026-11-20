@@ -23,7 +23,10 @@
       </div>
       <p class="eyebrow" id="blocked-eyebrow">Focus session</p>
       <h1 id="blocked-title"></h1>
-      <p class="muted" id="blocked-detail" aria-live="polite"></p>
+      <p class="muted" id="blocked-detail"></p>
+      <!-- What changes state, read out: strict mode holding a button back, a failure. The time left
+           above is redrawn every minute and is not. -->
+      <p class="muted blocked-note" id="blocked-note" role="status"></p>
       <div class="blocked-actions">
         <button class="btn primary" id="blocked-back">Back to work</button>
         <button class="btn" id="blocked-allow">Allow 5 minutes</button>

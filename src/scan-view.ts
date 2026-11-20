@@ -11,6 +11,8 @@ export type ScanActions = {
   checkFile(path: string): Promise<VtAnswer>;
   check(text: string): Promise<VtAnswer>;
   upload(path: string): Promise<VtAnswer>;
+  /** Sends a link VirusTotal hasn't seen for a scan; only called once the user has said so. */
+  scanLink(url: string): Promise<VtAnswer>;
   follow(analysis: string, then: string): Promise<VtAnswer>;
   rescan(then: string): Promise<VtAnswer>;
   pickFile(): Promise<string | null>;
@@ -66,6 +68,22 @@ type Entry = {
 
 const isHash = (t: string) => /^[0-9a-f]{32,64}$/i.test(t);
 
+/// Whether what was typed is something VirusTotal can be asked about, as src-tauri's `classify`
+/// reads it: a hash of 32, 40 or 64 digits, a link, or a bare host ("example.com/page") ending in
+/// letters. Checked before anything is sent, so a bad paste is said under the field.
+export function askable(text: string): boolean {
+  const t = text.trim();
+  if (/^[0-9a-f]{32}$|^[0-9a-f]{40}$|^[0-9a-f]{64}$/i.test(t)) return true;
+  if (!t || /\s/.test(t)) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  const host = t.split(/[/?#]/)[0];
+  const last = host.split(".").pop() ?? "";
+  return host.includes(".") && last.length >= 2 && /^[a-z]+$/i.test(last);
+}
+
+/// What can't be put right by asking again.
+const hopeless = (why: string) => /not a link/i.test(why);
+
 /// What a result is called: a file's name, a link's host and path, or a hash cut short.
 export function nameOf(text: string, isFile: boolean): string {
   if (isFile) return text.split(/[\\/]/).pop() || text;
@@ -86,7 +104,8 @@ export function nameOf(text: string, isFile: boolean): string {
 export function verdictOf(v: VtVerdict): { tone: "bad" | "odd" | "fine" | "clean" | "none"; word: string; count: string; advice?: string } {
   const flagged = v.malicious + v.suspicious;
   if (!v.total) return { tone: "none", word: "No answer yet", count: "No engine has given a result for it." };
-  if (!flagged) return { tone: "clean", word: "Clean", count: `None of the ${v.total} engines flags it.` };
+  // What the data supports: no engine flags it, which is not the same as safe (a new sample may not be known yet).
+  if (!flagged) return { tone: "clean", word: "Nothing flagged", count: `None of the ${v.total} engines flags it.` };
   if (flagged === 1) return { tone: "fine", word: "Probably fine", count: `1 of ${v.total} engines flags it, often a false alarm.` };
   const count = `${flagged} of ${v.total} engines flag it.`;
   if (v.malicious >= 2) return { tone: "bad", word: "Malicious", count, advice: "Don't open it. The full report says what the engines found." };
@@ -129,6 +148,10 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
   const said = h("p", { class: "sr-only", "aria-live": "polite" });
   const title = h("h1", { class: "sr-only" }, "Check a file or link with VirusTotal");
   const query = h("input", { class: "filter scan-query", type: "text", placeholder: "Paste a link or a hash", "aria-label": "A link or a hash", autocomplete: "off", spellcheck: "false" }) as HTMLInputElement;
+  // Under the field: what was wrong with a paste, and always what is sent where.
+  const hint = h("p", { class: "scan-hint muted", id: "scan-hint" });
+  const privacy = h("p", { class: "scan-privacy muted" }, "A link or hash is only looked up. VirusTotal is sent a link, or a file, only if you choose to scan it.");
+  query.setAttribute("aria-describedby", "scan-hint");
   const checkButton = h("button", { class: "btn primary scan-check" }, "Check");
   const choose = h("button", { class: "btn scan-choose" }, "Choose file…");
   const drop = h("div", { class: "scan-drop" }, h("p", {}, "Drop a file here"), h("p", { class: "muted" }, "Only its fingerprint is sent, unless you choose to upload it."), choose);
@@ -200,14 +223,19 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
   const drawEntry = (e: Entry): HTMLElement => {
     const s = e.state;
     if (s.kind === "checking") return card(e, "", h("p", { class: "muted" }, "Checking…"));
-    if (s.kind === "waiting") return card(e, "", h("p", { class: "muted scan-time", "data-until": String(s.until) }, waitingText(s.until, Date.now())));
+    const takeAway = () => button("scan-remove", "Remove", () => remove(e));
+    if (s.kind === "waiting") {
+      return card(e, "", h("p", { class: "muted scan-time", "data-until": String(s.until) }, waitingText(s.until, Date.now())), h("p", { class: "scan-foot" }, button("scan-cancel", "Cancel", () => remove(e))));
+    }
     if (s.kind === "error") {
       const tools: Node[] = [];
-      if (e.ask) tools.push(button("scan-retry", "Try again", () => void run(e, e.ask!)));
+      // Only what asking again can put right: not a paste that was never a link.
+      if (e.ask && !hopeless(s.why)) tools.push(button("scan-retry", "Try again", () => void run(e, e.ask!)));
       if (aboutKey(s.why)) tools.push(button("scan-settings-link", "Open Kairo's settings", () => act.openSettings()));
-      return card(e, "error", verdictLine("error", "Couldn't check", s.why), ...(tools.length ? [foot(...tools)] : []));
+      tools.push(takeAway());
+      return card(e, "error", verdictLine("error", "Couldn't check", s.why), foot(...tools));
     }
-    if (s.kind === "skipped") return card(e, "", h("p", { class: "muted" }, "Not uploaded."));
+    if (s.kind === "skipped") return card(e, "", h("p", { class: "muted" }, e.path ? "Not uploaded." : "Not sent."), h("p", { class: "scan-foot" }, takeAway()));
     if (s.kind === "stopped") {
       return card(e, "", h("p", { class: "muted" }, "Stopped. VirusTotal carries on scanning it."), h("p", { class: "scan-foot" }, button("scan-again", "Check again", () => void run(e, () => act.follow(s.analysis, s.then)))));
     }
@@ -223,7 +251,22 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       return card(e, "", h("p", { class: "muted scan-time", "data-since": String(since) }, scanningText(since, Date.now())), h("p", { class: "scan-foot" }, stop));
     }
     if (a.state === "unknown") {
-      return card(e, "none", verdictLine("none", "Unknown to VirusTotal", "It hasn't seen anything with this hash, so it can't say either way."));
+      return card(e, "none", verdictLine("none", "Unknown to VirusTotal", "It hasn't seen anything with this hash, so it can't say either way."), foot(takeAway()));
+    }
+    if (a.state === "linkNotSeen") {
+      const send = h("button", { class: "btn scan-send" }, "Scan this link");
+      send.addEventListener("click", () => void run(e, () => act.scanLink(a.url)));
+      const notNow = button("scan-not-now", "Not now", () => {
+        e.state = { kind: "skipped" };
+        changed(e);
+      });
+      // Said plainly: a link can carry a private token (a password reset, a shared document).
+      return card(
+        e,
+        "unseen",
+        h("p", {}, "VirusTotal hasn't seen this link. Scanning sends it to VirusTotal, which shares it with security companies. Links can carry private tokens. Only scan what you'd be fine with others seeing."),
+        h("div", { class: "row-buttons" }, send, notNow),
+      );
     }
     if (a.state === "notSeen") {
       if (a.tooBig) return card(e, "", h("p", {}, "VirusTotal hasn't seen this file, and it's bigger than the 32 MB a free key can upload."));
@@ -249,7 +292,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     const report = h("button", { class: "link-btn scan-report" }, "Full report", h("span", { "aria-hidden": "true" }, " ↗"));
     report.addEventListener("click", () => act.openReport(a.link));
     const again = button("scan-rescan", "Scan again", () => void run(e, () => act.rescan(a.then)));
-    parts.push(foot(...(a.lastMs ? [`Last scanned ${day(a.lastMs)}`] : []), report, again));
+    parts.push(foot(...(a.lastMs ? [`Last scanned ${day(a.lastMs)}`] : []), report, again, takeAway()));
     return card(e, v.tone, ...parts);
   };
 
@@ -265,6 +308,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     if (a.state === "scanning") return `${e.name}: scanning`;
     if (a.state === "unknown") return `${e.name}: unknown to VirusTotal`;
     if (a.state === "notSeen") return `${e.name}: VirusTotal hasn't seen this file`;
+    if (a.state === "linkNotSeen") return `${e.name}: VirusTotal hasn't seen this link. Scanning it would send it.`;
     const v = verdictOf(a);
     return `${e.name}: ${v.word}. ${v.count}`;
   };
@@ -290,6 +334,18 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
     entries.unshift(was);
     trim();
     return was;
+  };
+  /// Takes a result away, stopping whatever it was waiting on.
+  const remove = (e: Entry) => {
+    e.run = (e.run ?? 0) + 1;
+    e.since = undefined;
+    const at = entries.indexOf(e);
+    if (at >= 0) entries.splice(at, 1);
+    draw();
+    said.textContent = "";
+    said.textContent = "Removed.";
+    // Where the keyboard was is gone; the field is the way in.
+    if (document.activeElement === document.body || !list.contains(document.activeElement)) query.focus();
   };
   /// Back to ten, oldest done first; one still going stays until it's done.
   const trim = () => {
@@ -364,7 +420,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       if (key === hasKey) return;
       hasKey = key;
       if (key) {
-        root.replaceChildren(h("div", { class: "scan" }, title, drop, h("div", { class: "scan-ask" }, query, checkButton), list, said));
+        root.replaceChildren(h("div", { class: "scan" }, title, drop, h("div", { class: "scan-ask" }, query, checkButton), hint, privacy, list, said));
         draw();
         // Pasting is what the window is for: the field has the keyboard as it opens.
         query.focus();
@@ -397,13 +453,25 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       query.focus();
       return;
     }
+    // Not a link or a hash: said under the field, with the text kept to put right. Nothing is sent
+    // and nothing becomes a result that can't be tried again.
+    if (!askable(query.value)) {
+      query.setAttribute("aria-invalid", "true");
+      hint.textContent = "That isn't a link or a hash. A link looks like example.com/page.";
+      said.textContent = "";
+      said.textContent = "That isn't a link or a hash.";
+      query.focus();
+      return;
+    }
     query.removeAttribute("aria-invalid");
+    hint.textContent = "";
     view.check(query.value);
     query.value = "";
   });
   query.addEventListener("input", () => {
     query.removeAttribute("aria-invalid");
     query.placeholder = "Paste a link or a hash";
+    hint.textContent = "";
   });
   query.addEventListener("keydown", (e) => {
     if (e.key === "Enter") checkButton.click();

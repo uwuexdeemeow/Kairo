@@ -192,13 +192,34 @@ describe("the popped-out note", () => {
     expect(root.querySelector("textarea")).not.toBeNull();
     more.click();
     const [keep, ledger] = menu.querySelectorAll<HTMLButtonElement>("button");
-    expect(keep.getAttribute("aria-pressed")).toBe("true");
+    // It is a menu to assistive technology, its items what they are.
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(keep.getAttribute("role")).toBe("menuitemcheckbox");
+    expect(ledger.getAttribute("role")).toBe("menuitem");
+    expect(keep.getAttribute("aria-checked")).toBe("true");
     keep.click();
     expect(act.setOnTop).toHaveBeenLastCalledWith(false);
     expect(root.querySelector('[data-tool="on-top"]')!.getAttribute("aria-pressed")).toBe("false");
+    // Choosing one hands the keyboard back to ⋯, not to the page, so Esc and Ctrl+N keep working.
+    expect(document.activeElement).toBe(more);
+    expect(keep.getAttribute("aria-checked")).toBe("false");
     more.click();
     ledger.click();
+    // Opening Ledger leaves the keyboard in the note.
+    expect(document.activeElement).toBe(root.querySelector("textarea"));
     await vi.waitFor(() => expect(act.openInLedger).toHaveBeenCalledWith("a"));
+  });
+
+  it("opens ⋯ with the down arrow from its button", async () => {
+    const pop = mountPopout(root, act);
+    await pop.show("a");
+    const more = root.querySelector<HTMLButtonElement>('[data-tool="more"]')!;
+    const menu = root.querySelector<HTMLElement>(".popout-more-menu")!;
+    more.focus();
+    more.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+    expect(menu.hidden).toBe(false);
+    expect(more.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(menu.querySelector("button"));
   });
 
   it("opens the note in Ledger, saving first", async () => {

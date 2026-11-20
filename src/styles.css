@@ -29,7 +29,7 @@
 
   --productive: #3987e5;
   --productive-hover: #4a95ec;
-  --neutral: #4a505c;
+  --neutral: #6b7384; /* 3.4:1 on a sheet, 3.6:1 on the page: a chart's neutral time must hold 3:1 */
   --distracting: #d95926;
   --warm: #f0a27c;
   --good: #7fd18b;
@@ -83,7 +83,7 @@
 
   --productive: #2f6fd0;
   --productive-hover: #2860b8;
-  --neutral: #a9aeb6;
+  --neutral: #7f7a73; /* 3.2:1 on the track, 3.7:1 on the page */
   --distracting: #cf5220;
   --warm: #b95420;
   --good: #2b8a3e;
@@ -305,6 +305,11 @@ h1 {
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
+}
+
+/* A title not written yet still holds its line, so the page doesn't jump when it arrives. */
+h1:empty::before {
+  content: "\200b";
 }
 
 /* The aside in a title: "Good evening, *nearly done.*" */
@@ -1094,7 +1099,7 @@ html.palette-root {
 }
 
 .palette-stat span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1439,7 +1444,10 @@ html.palette-root {
 }
 
 .palette-chip {
-  padding: 7px 12px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
   border-radius: 999px;
   border: 1px solid var(--line);
   font-size: 13px;
@@ -3198,6 +3206,16 @@ select,
   color: var(--app);
 }
 
+/* Held back (strict mode) without being disabled, so the keyboard stays on it. */
+.link-btn[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.link-btn[aria-disabled="true"]:hover {
+  color: var(--ink);
+}
+
 .field {
   display: flex;
   align-items: center;
@@ -3964,12 +3982,13 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 /* The calendar's day ticks a task as the list does: a ring in Ledger's ink. */
+/* 24px is the smallest a control should be to hit; the negative margin keeps the row as it was. */
 .cal-tick {
   flex: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
-  margin: 0;
+  width: 24px;
+  height: 24px;
+  margin: -3px;
   border: 1.5px solid var(--edge);
   border-radius: 50%;
   cursor: pointer;
@@ -3987,9 +4006,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .task-card > input[type="checkbox"] {
   grid-column: 1;
   appearance: none;
-  width: 18px;
-  height: 18px;
-  margin: 0;
+  width: 24px;
+  height: 24px;
+  margin: -3px;
   border: 1.5px solid var(--edge);
   border-radius: 50%;
   cursor: pointer;
@@ -4413,8 +4432,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .tag-del {
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  margin: -3px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -5397,6 +5417,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   white-space: pre-wrap;
   overflow-wrap: break-word;
   word-break: normal;
+  /* The textarea's scrollbar takes width where scrollbars aren't overlays; the copy under it
+     reserves the same, so a long note wraps in both at one width and the lines stay together. */
+  scrollbar-gutter: stable;
 }
 
 .note-layer {
@@ -5423,8 +5446,9 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: transparent;
 }
 
+/* Faint falls to about 4.35:1 on lined paper in the light theme; a step toward the ink holds 4.5:1. */
 .md-mark {
-  color: var(--faint);
+  color: color-mix(in srgb, var(--faint) 85%, var(--ink));
 }
 
 .md-h {
@@ -5662,9 +5686,24 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   text-transform: uppercase;
 }
 
+/* The tint alone is about 1.4:1 against the panel, so a 3px bar in the palette's ink marks the
+   selection too: rows keep it on their edge, tiles around their box. */
 .palette-row.selected,
 .palette-tile.selected {
   background: color-mix(in srgb, var(--palette) 18%, transparent);
+}
+
+.palette-row.selected {
+  box-shadow: inset 3px 0 0 var(--palette);
+}
+
+.palette-tile.selected {
+  box-shadow: inset 0 0 0 2px var(--palette);
+}
+
+/* The field is focused whenever the palette is open, so the keycap's edge shows it in the ink. */
+.palette-search:focus-within {
+  border-color: var(--palette);
 }
 
 /* On the tint a muted second line falls under 4.5:1 on the dark grounds; the second text ink holds. */
@@ -5835,6 +5874,17 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   transition: opacity 140ms var(--ease);
 }
 
+/* A segment can be clicked, so the pointer says so and the one under it comes forward. */
+.ring-seg {
+  cursor: pointer;
+}
+
+.ring-seg:not(.lit):hover {
+  stroke: var(--ink);
+  stroke-width: 2;
+  opacity: 1;
+}
+
 .ring-seg.off1 {
   opacity: 0.5;
 }
@@ -5906,8 +5956,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 
 /* The second text ink: muted falls under 4.5:1 on the lit segment in dark. The native ring too. */
 .ring-line {
+  max-width: 100%;
+  overflow: hidden;
   font-size: 11px;
   color: var(--ink-2);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -6068,7 +6121,7 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 /* Kept on top: ticked, as the dropdowns tick their choice. */
-.popout-more-item[aria-pressed="true"]::after {
+.popout-more-item[aria-checked="true"]::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -6606,6 +6659,21 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   gap: 8px;
 }
 
+/* Under the field: what was wrong with a paste, and always what is sent where. */
+.scan-hint,
+.scan-privacy {
+  margin: 6px 2px 0;
+  font-size: 13px;
+}
+
+.scan-hint:empty {
+  display: none;
+}
+
+.scan-hint {
+  color: var(--warm-ink);
+}
+
 .scan-query {
   flex: 1;
   min-width: 0;
@@ -6850,6 +6918,11 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 .speed-ping,
 .speed-server {
   min-height: 1.5em;
+}
+
+/* "Run again", "Testing…" and "Try again" take the same width, so the row doesn't move. */
+.speed-again {
+  min-width: 112px;
 }
 
 .speed-status {

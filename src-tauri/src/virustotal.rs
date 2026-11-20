@@ -125,6 +125,16 @@ pub enum Answer {
     Scanning { analysis: String, then: String },
     /// A hash VirusTotal has never seen: nothing to say about it, good or bad.
     Unknown,
+    /// A link VirusTotal has no record of: scanning it sends it, so that is up to the user.
+    LinkNotSeen { url: String },
+}
+
+/// The link to send for scanning from what was typed: a link, never a hash or other words.
+pub fn url_to_scan(text: &str) -> Result<String, String> {
+    match classify(text) {
+        Some(Query::Url(url)) => Ok(url),
+        _ => Err("That's not a link.".to_string()),
+    }
 }
 
 /// The verdict in a file or link object; None while it has never been scanned.
@@ -281,8 +291,9 @@ pub async fn vt_check_file(state: State<'_, AppState>, path: String) -> Result<A
     }
 }
 
-/// A link or a hash, as typed. A link VirusTotal hasn't seen is sent for a scan: it's public
-/// already.
+/// A link or a hash, as typed: looked up, never sent. A link VirusTotal has no record of comes
+/// back as `LinkNotSeen`, and is scanned (sent to VirusTotal, which shares it) only when the user
+/// says so, through `vt_scan_url`.
 #[tauri::command]
 pub async fn vt_check(state: State<'_, AppState>, text: String) -> Result<Answer, String> {
     let key = key_of(&state)?;
@@ -293,15 +304,25 @@ pub async fn vt_check(state: State<'_, AppState>, text: String) -> Result<Answer
         },
         Query::Url(url) => {
             let id = url_id(&url);
-            if let Some(v) = get(&key, &format!("/urls/{id}")).await?.as_ref().and_then(verdict_from) {
-                return Ok(Answer::Verdict(v));
+            match get(&key, &format!("/urls/{id}")).await?.as_ref().and_then(verdict_from) {
+                Some(v) => Ok(Answer::Verdict(v)),
+                None => Ok(Answer::LinkNotSeen { url }),
             }
-            let request = client()?.post(format!("{API}/urls")).header("content-type", "application/x-www-form-urlencoded").body(format!("url={}", form_encode(&url)));
-            let sent = call(&key, request).await?.ok_or("VirusTotal didn't take the link.")?;
-            let analysis = sent["data"]["id"].as_str().ok_or("VirusTotal didn't say how to follow the scan.")?;
-            Ok(Answer::Scanning { analysis: analysis.into(), then: format!("url:{id}") })
         }
     }
+}
+
+/// Sends a link VirusTotal hasn't seen for a scan, once the user has said so. The link goes to
+/// VirusTotal as typed, which scans it and shares what it finds.
+#[tauri::command]
+pub async fn vt_scan_url(state: State<'_, AppState>, text: String) -> Result<Answer, String> {
+    let key = key_of(&state)?;
+    let url = url_to_scan(&text)?;
+    let id = url_id(&url);
+    let request = client()?.post(format!("{API}/urls")).header("content-type", "application/x-www-form-urlencoded").body(format!("url={}", form_encode(&url)));
+    let sent = call(&key, request).await?.ok_or("VirusTotal didn't take the link.")?;
+    let analysis = sent["data"]["id"].as_str().ok_or("VirusTotal didn't say how to follow the scan.")?;
+    Ok(Answer::Scanning { analysis: analysis.into(), then: format!("url:{id}") })
 }
 
 /// Uploads a file VirusTotal hasn't seen, once the user has said so.
@@ -382,6 +403,17 @@ pub fn vt_pick_file(app: tauri::AppHandle) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_link_virustotal_hasnt_seen_is_offered_for_scanning_not_sent() {
+        let said = serde_json::to_value(super::Answer::LinkNotSeen { url: "https://example.com/a?b=1".into() }).unwrap();
+        assert_eq!(said, serde_json::json!({ "state": "linkNotSeen", "url": "https://example.com/a?b=1" }));
+        // Only a link can be sent for scanning; a hash or a file's words are refused.
+        assert!(super::url_to_scan("https://example.com").is_ok());
+        assert_eq!(super::url_to_scan("example.com/page").unwrap(), "https://example.com/page");
+        assert!(super::url_to_scan(&"a".repeat(64)).is_err());
+        assert!(super::url_to_scan("not a link").is_err());
+    }
+
     #[test]
     fn a_file_that_cant_be_read_says_why_in_words() {
         let dir = std::env::temp_dir();

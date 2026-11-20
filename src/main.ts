@@ -141,6 +141,9 @@ function renderLegends() {
 function stat(label: string, value: string, extra = "", hint = ""): HTMLElement {
   const dd = h("dd", {}, value);
   if (extra) dd.append(h("span", {}, ` · ${extra}`));
+  // The definition is a tooltip for the pointer and read with the figure by a screen reader, which
+  // never reaches a tooltip.
+  if (hint) dd.append(h("span", { class: "sr-only" }, `. ${hint}`));
   return h("div", {}, h("dt", hint ? { title: hint } : {}, label), dd);
 }
 
@@ -187,7 +190,7 @@ function renderToday(d: DaySummary) {
     ...(meetings ? [stat("Meetings", meetings, "", "Time on the calendar as meetings, overlaps counted once; not time attended")] : []),
     stat("Longest focus", fmtDur(d.longestFocusMs)),
     stat("Deep-work blocks", String(d.deepBlocks), "", "Stretches of 25 minutes or more of productive time"),
-    stat("Distracted", fmtDur(d.distractingMs)),
+    stat("Distracting", fmtDur(d.distractingMs), "", "Time in apps and sites in the Distracting category"),
     stat("App switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
     stat("Focus sessions", String(shownFocus.length), shownFocus.length ? fmtDur(shownFocus.reduce((ms, b) => ms + focusedMs(b), 0)) : ""),
   );
@@ -920,11 +923,22 @@ let lastPatterns: Patterns | null = null;
 function renderPatterns(p: Patterns) {
   lastPatterns = p;
   $("#patterns-days").textContent = `Last ${rangeDays} days · ${p.daysWithData} active`;
+  // Nothing recorded in the range: one line says so, rather than "0m", "0%" and empty charts that
+  // look broken. (A few days make the page's own "Still learning" card, and its charts begin.)
+  if (p.daysWithData === 0) {
+    $("#patterns-stats").replaceChildren();
+    renderUsage($("#patterns-apps"), [], "No app activity in this range.");
+    renderUsage($("#patterns-sites"), [], "No recognised sites in this range.");
+    $("#insights").replaceChildren(h("p", { class: "empty" }, `Nothing was tracked in the last ${rangeDays} days. Patterns appear after about three days of tracking.`));
+    $("#hourly").replaceChildren();
+    $("#heatmap").replaceChildren();
+    return;
+  }
   const s = p.summary;
   $("#patterns-stats").replaceChildren(
     stat("On screen, per day", fmtGoal(s.avgActiveMs)),
     stat("Productive", `${pct(s.avgProductiveMs, s.avgActiveMs)}%`, fmtGoal(s.avgProductiveMs)),
-    stat("Distracted, per day", fmtGoal(s.avgDistractingMs)),
+    stat("Distracting, per day", fmtGoal(s.avgDistractingMs)),
     stat("Focus sessions", String(s.focusSessions), s.focusSessions ? `${fmtGoal(s.avgFocusMs)}/day` : ""),
   );
   renderUsage($("#patterns-apps"), p.topApps, "No app activity in this range.");
@@ -986,7 +1000,8 @@ function renderHourly(p: Patterns) {
     });
     if (d.hour % 6 === 0) {
       const t = s("text", { x: d.hour * band + band / 2, y: height - 4, "text-anchor": "middle", class: "axis-text" });
-      t.textContent = String(d.hour).padStart(2, "0");
+      // As the timeline and the insights say hours ("6am"), so one page has one clock.
+      t.textContent = fmtHour(d.hour);
       svg.append(t);
     }
     // Hit target covers the whole column so thin bars are easy to hover.
@@ -1033,7 +1048,7 @@ function renderHeatmap(p: Patterns) {
     });
   });
   grid.append(h("span"));
-  for (let hr = 0; hr < 24; hr++) grid.append(h("span", { class: "hm-col" }, hr % 6 === 0 ? String(hr).padStart(2, "0") : ""));
+  for (let hr = 0; hr < 24; hr++) grid.append(h("span", { class: "hm-col" }, hr % 6 === 0 ? fmtHour(hr) : ""));
   rove(cells, 24);
   $("#heatmap").replaceChildren(grid);
 
@@ -1173,7 +1188,20 @@ function renderGoalSettings(s: GoalSettings) {
     const select = $<HTMLSelectElement>(id);
     select.replaceChildren(...fresh.children);
     select.value = String(current);
-    select.onchange = () => api.setGoal(kind, Number(select.value));
+    // Said either way, and put back when it didn't save: the select must not keep a goal that
+    // Today and Week aren't using.
+    select.dataset.saved = String(current);
+    select.onchange = async () => {
+      const out = $("#goal-status");
+      try {
+        await api.setGoal(kind, Number(select.value));
+        out.textContent = "Saved";
+        select.dataset.saved = select.value;
+      } catch (e) {
+        select.value = select.dataset.saved ?? String(current);
+        out.textContent = `Couldn't save. ${why(e)}`;
+      }
+    };
   }
 }
 
@@ -2247,8 +2275,13 @@ for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) 
 }
 
 $("#welcome-demo").addEventListener("click", async () => {
-  await api.seedDemo();
-  load("today");
+  try {
+    await api.seedDemo();
+    load("today");
+  } catch (e) {
+    // Said where the button is, since the page is still the welcome.
+    $("#welcome-demo-status").textContent = `Couldn't load the demo data. ${why(e)}`;
+  }
 });
 
 $("#week-prev").addEventListener("click", () => stepPeriod(-1));

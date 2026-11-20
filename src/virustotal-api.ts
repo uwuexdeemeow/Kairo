@@ -27,7 +27,9 @@ export type VtAnswer =
   /** Being scanned; followed with `then` once done. */
   | { state: "scanning"; analysis: string; then: string }
   /** A hash VirusTotal has never seen: nothing to say either way. */
-  | { state: "unknown" };
+  | { state: "unknown" }
+  /** A link VirusTotal has no record of: scanning it sends it, so that is up to the user. */
+  | { state: "linkNotSeen"; url: string };
 
 export const vt = {
   hasKey: () => invoke<boolean>("vt_has_key"),
@@ -36,6 +38,8 @@ export const vt = {
   checkFile: (path: string) => invoke<VtAnswer>("vt_check_file", { path }),
   check: (text: string) => invoke<VtAnswer>("vt_check", { text }),
   upload: (path: string) => invoke<VtAnswer>("vt_upload", { path }),
+  /** Sends a link VirusTotal hasn't seen for a scan, once the user has said so. */
+  scanLink: (text: string) => invoke<VtAnswer>("vt_scan_url", { text }),
   follow: (analysis: string, then: string) => invoke<VtAnswer>("vt_follow", { analysis, then }),
   /** Asks VirusTotal to scan something it has seen again, followed like any scan. */
   rescan: (then: string) => invoke<VtAnswer>("vt_rescan", { then }),

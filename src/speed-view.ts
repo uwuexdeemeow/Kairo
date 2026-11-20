@@ -36,7 +36,9 @@ export function doneLine(p: SpeedProgress): string {
 /// A speed as shown: one decimal under 100 Mbps, none above; a dash before it's known.
 export function figure(mbps: number | null): string {
   if (mbps === null) return "—";
-  return mbps < 100 ? mbps.toFixed(1) : String(Math.round(mbps));
+  // Rounded to a tenth first, so 99.96 reads "100", not "100.0".
+  const tenth = Math.round(mbps * 10) / 10;
+  return tenth < 100 ? tenth.toFixed(1) : String(Math.round(mbps));
 }
 
 export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
@@ -53,8 +55,16 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
   const again = h("button", { class: "btn speed-again" }, "Run again") as HTMLButtonElement;
   root.replaceChildren(h("div", { class: "speed" }, h("h1", { class: "sr-only" }, "Speed test"), h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, used)));
 
+  /// The last figures heard, which a failure keeps: its event carries nothing measured.
+  let last: SpeedProgress | null = null;
   const view: SpeedView = {
-    update: (p) => {
+    update: (heard) => {
+      // A failure falls back on what was measured before it, so a lost upload doesn't wipe the download.
+      const p: SpeedProgress =
+        heard.phase === "error" && last
+          ? { ...heard, pingMs: heard.pingMs ?? last.pingMs, jitterMs: heard.jitterMs ?? last.jitterMs, downMbps: heard.downMbps ?? last.downMbps, upMbps: heard.upMbps ?? last.upMbps, usedBytes: heard.usedBytes || last.usedBytes, server: heard.server ?? last.server }
+          : heard;
+      last = p.phase === "ping" && p.downMbps === null && p.pingMs === null ? null : p;
       down.fig.textContent = figure(p.downMbps);
       up.fig.textContent = figure(p.upMbps);
       down.box.classList.toggle("live", p.phase === "download");
@@ -68,7 +78,7 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
       // Held back while a test runs, but not disabled: a disabled button would drop the keyboard.
       const testing = p.phase !== "done" && p.phase !== "error";
       again.setAttribute("aria-disabled", String(testing));
-      again.textContent = testing ? "Testing…" : "Run again";
+      again.textContent = testing ? "Testing…" : p.phase === "error" ? "Try again" : "Run again";
     },
     start: () => {
       view.update({ phase: "ping", pingMs: null, jitterMs: null, downMbps: null, upMbps: null, usedBytes: 0, server: null, error: null });

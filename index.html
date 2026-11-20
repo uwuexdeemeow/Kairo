@@ -87,11 +87,12 @@
               </li>
               <li>
                 <button class="link-btn" data-goto="settings" data-goto-target="#ext-open">Add the browser extension</button>
-                <span class="muted">so Chrono knows exact sites in Brave or Chrome</span>
+                <span class="muted">optional: Chrono finds sites without it, and the extension lets it block distracting ones during focus</span>
               </li>
               <li>
                 <button class="link-btn" id="welcome-demo">Try it with demo data</button>
                 <span class="muted">three made-up weeks, cleared in one click from Settings</span>
+                <span class="muted" id="welcome-demo-status" aria-live="polite"></span>
               </li>
             </ol>
           </section>
@@ -451,7 +452,7 @@
               <span id="goal-focus-label">Focus sessions each day, at least</span>
               <select id="goal-focus" aria-labelledby="goal-focus-label"></select>
             </div>
-            <p class="muted goal-focus-note">Limits for single apps and sites are set in Categories.</p>
+            <p class="muted goal-focus-note">Limits for single apps and sites are set in Categories. <span id="goal-status" aria-live="polite"></span></p>
           </section>
 
           <section class="block">

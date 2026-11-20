@@ -43,6 +43,29 @@ describe("the speed window", () => {
     view.update(p({ phase: "error", error: "Couldn't reach the speed test. Check your connection." }));
     expect(text(".speed-status")).toBe("Couldn't reach the speed test. Check your connection.");
     expect(root.querySelector(".speed-status")!.classList.contains("error")).toBe(true);
+    // The way back says it is a second go.
+    expect(text(".speed-again")).toBe("Try again");
+  });
+
+  it("keeps what was measured when a later step fails, and what it cost", () => {
+    const view = mountSpeed(root, { run });
+    view.update(p({ phase: "upload", pingMs: 12.4, jitterMs: 2.2, downMbps: 312.4, usedBytes: 40e6, server: "LHR" }));
+    // The error event carries nothing measured: the figures already on the page stay.
+    view.update(p({ phase: "error", error: "Couldn't reach the speed test. Check your connection." }));
+    expect(text(".speed-down .speed-figure")).toBe("312");
+    expect(text(".speed-ping")).toBe("Ping 12 ms · Jitter 2 ms");
+    expect(text(".speed-server")).toBe("Cloudflare · LHR");
+    expect(text(".speed-used")).toBe("Used about 40 MB");
+    expect(text(".speed-up .speed-figure")).toBe("—");
+    // A new test starts from nothing, not from the failed one.
+    root.querySelector<HTMLButtonElement>(".speed-again")!.click();
+    expect(text(".speed-down .speed-figure")).toBe("—");
+    expect(text(".speed-used")).toBe("");
+  });
+
+  it("never rounds a speed up into a precision it doesn't have", () => {
+    expect(figure(99.96)).toBe("100");
+    expect(figure(99.94)).toBe("99.9");
   });
 
   it("runs again on request, clearing the last result, but not while one is running", () => {

@@ -148,7 +148,7 @@ const DARK: Theme = Theme {
     edge: 0x657086,
     raised: 0x1b2230,
     productive: 0x3987e5,
-    neutral: 0x4a505c,
+    neutral: 0x6b7384,
     distracting: 0xd95926,
     warm: 0xf0a27c,
     good: 0x7fd18b,
@@ -166,7 +166,7 @@ const LIGHT: Theme = Theme {
     edge: 0x8d8274,
     raised: 0xfffaf2,
     productive: 0x2f6fd0,
-    neutral: 0xa9aeb6,
+    neutral: 0x7f7a73,
     distracting: 0xcf5220,
     // Warm and good are text here, so they take the web's text inks (--warm-ink, --good-ink).
     warm: 0xae4f1e,
@@ -1703,7 +1703,10 @@ impl Palette {
         unsafe { rt.DrawLine(v(0.0, foot + 0.5), v(W, foot + 0.5), &rule, 1.0, None) };
         let mid = foot + FOOTER / 2.0;
         let mut x = 18.0;
-        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], "Run")];
+        // The first Enter on a time chart shows it; only the next one does what the row says.
+        let shows_first = self.items.get(self.selected).is_some_and(|i| i.preview.as_ref().is_some_and(Preview::on_enter))
+            && self.asked.as_ref().map(|(i, _)| *i) != Some(self.selected);
+        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], if shows_first { "Show" } else { "Run" })];
         // What Ctrl+Enter does for the selected item, when it does something.
         if let Some(hint) = footer_hint(self.items.get(self.selected)) {
             keys.push((&["Ctrl Enter"][..], hint));
@@ -1884,7 +1887,11 @@ impl Palette {
         let selected = selected && !item.is_note();
         let ink = if item.is_note() { t.muted } else { t.ink };
         if selected {
-            unsafe { rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 }, &self.brush(rt, t.accent, 0.18)?) };
+            unsafe {
+                rt.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: r, radiusX: 8.0, radiusY: 8.0 }, &self.brush(rt, t.accent, 0.18)?);
+                // The tint is about 1.4:1 against the panel, so a 3px bar in the palette's ink marks the row too, as on the web.
+                rt.FillRectangle(&rect(r.left, r.top + 6.0, r.left + 3.0, r.bottom - 6.0), &self.brush(rt, t.accent, 1.0)?);
+            }
         }
         let mid = (r.top + r.bottom) / 2.0;
         // Icons sit in a 28-pixel box; an app's own is 24 within it.
@@ -1920,8 +1927,11 @@ impl Palette {
         unsafe {
             if selected {
                 rt.FillRoundedRectangle(&shape, &self.brush(rt, t.accent, 0.18)?);
+                // A 2px outline in the palette's ink as well, as on the web.
+                rt.DrawRoundedRectangle(&shape, &self.brush(rt, t.accent, 1.0)?, 2.0, None);
+            } else {
+                rt.DrawRoundedRectangle(&shape, &self.brush(rt, t.rule, 1.0)?, 1.0, None);
             }
-            rt.DrawRoundedRectangle(&shape, &self.brush(rt, t.rule, 1.0)?, 1.0, None);
         }
         let mid = (r.top + r.bottom) / 2.0;
         self.icon(rt, &item.icon, &item.title, r.left + 10.0, mid, 18.0)?;

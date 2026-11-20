@@ -541,6 +541,7 @@ pub fn run() {
             virustotal::test_vt_key,
             virustotal::vt_check_file,
             virustotal::vt_check,
+            virustotal::vt_scan_url,
             virustotal::vt_upload,
             virustotal::vt_follow,
             virustotal::vt_rescan,

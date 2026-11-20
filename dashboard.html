@@ -32,6 +32,8 @@
       <section id="tab-home" class="view" role="tabpanel" aria-labelledby="show-home">
         <div class="focus-strip" id="focus-strip" hidden>
           <p id="focus-text"></p>
+          <!-- Said when a session starts, pauses or ends, not as the minutes left tick down. -->
+          <p class="sr-only" id="focus-said" role="status"></p>
           <button class="btn" id="focus-stop">Stop</button>
         </div>
         <section class="dash-today" id="today" aria-labelledby="today-title">
@@ -49,6 +51,7 @@
           <span class="sr-only">Find a setting</span>
           <input type="search" class="filter" id="settings-find" placeholder="Find a setting" autocomplete="off" />
         </label>
+        <p class="sr-only" id="settings-found" role="status"></p>
         <p class="muted settings-none" id="settings-none" role="status" hidden>No setting matches. Try a word like theme, backup or shortcut.</p>
 
         <div class="settings-group" id="group-apps">
@@ -59,8 +62,8 @@
         </div>
 
         <div class="settings-group" id="group-kairo">
-          <h2 class="settings-group-title">Kairo</h2>
-        <section class="block">
+          <h2 class="settings-group-title">Look and upkeep</h2>
+        <section class="block" data-words="theme dark light colour color ground paper ink night look">
           <h3>Appearance</h3>
           <label class="field">
             Theme
@@ -82,7 +85,7 @@
           </label>
         </section>
 
-        <section class="block">
+        <section class="block" data-words="startup login boot launch automatically">
           <h3 id="autostart-title">Start with Windows</h3>
           <label class="toggle">
             <input type="checkbox" id="autostart-enabled" aria-describedby="autostart-note" />
@@ -91,7 +94,7 @@
           <p class="muted" id="autostart-note">Chrono can only record while Kairo runs, so this keeps your history complete.</p>
         </section>
 
-        <section class="block">
+        <section class="block" data-words="update version upgrade download new release">
           <h3>Updates</h3>
           <p class="muted">Kairo looks for a new version a minute after it starts and every 6 hours, and installs it quietly.</p>
           <div class="row-buttons">
@@ -103,7 +106,7 @@
 
         <div class="settings-group" id="group-shortcuts">
           <h2 class="settings-group-title">Palette and ring</h2>
-        <section class="block" id="palette-settings">
+        <section class="block" id="palette-settings" data-words="shortcut hotkey key keyboard open launcher search files clipboard suggestions glass window">
           <h3>Command palette</h3>
           <div class="row-buttons">
             <span>Open it with</span>
@@ -143,37 +146,7 @@
           <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, kept in memory and gone when Kairo quits. Type <kbd>clip</kbd> in the palette to see the latest, and a space after it to see them all. Turning this off forgets them at once.</p>
         </section>
 
-        <section class="block" id="capture-settings">
-          <h3>Capture</h3>
-          <p class="muted">Keeps what you've copied in Ledger from any window: a short line as a task, anything longer as a note. During a focus session on a task, the note goes on that task. Kairo only reads what's already on the clipboard; it never copies for you.</p>
-          <div class="row-buttons">
-            <span>Capture with</span>
-            <span class="shortcut-keys" id="capture-keys" aria-live="polite"></span>
-            <button class="btn" id="capture-record">Set keys</button>
-            <button class="link-btn" id="capture-clear" hidden>Turn off</button>
-          </div>
-          <p class="muted" id="capture-note" aria-live="polite">Set keys to capture from any window. Without them, type <kbd>capture</kbd> in the palette.</p>
-          <label class="toggle">
-            <input type="checkbox" id="capture-quick" aria-describedby="capture-quick-note" />
-            Read a copied line as I'd type it in Ledger
-          </label>
-          <p class="muted" id="capture-quick-note">Then “Call Leo tomorrow !high” is due tomorrow, at high priority. Off, copied words are kept just as they are.</p>
-        </section>
-
-        <section class="block" id="virustotal-settings">
-          <h3>VirusTotal</h3>
-          <p class="muted">Check files, links and hashes from the palette: type <kbd>scan</kbd> or <kbd>vt</kbd>. A file is looked up by its fingerprint; it's uploaded only if you choose to.</p>
-          <div class="row-buttons">
-            <label class="field">
-              API key
-              <input type="password" class="filter" id="vt-key" autocomplete="off" spellcheck="false" placeholder="Paste your key" />
-            </label>
-            <button class="btn" id="vt-test">Test key</button>
-          </div>
-          <p class="muted" id="vt-note" aria-live="polite">Kept on this computer only, never synced. Free from virustotal.com → your profile → API key.</p>
-        </section>
-
-        <section class="block" id="ring-settings">
+        <section class="block" id="ring-settings" data-words="shortcut hotkey key wheel dial switch apps apps">
           <h3>App ring</h3>
           <div class="row-buttons">
             <span>Open it with</span>
@@ -190,9 +163,42 @@
         </section>
         </div>
 
+        <div class="settings-group" id="group-tools">
+          <h2 class="settings-group-title">Capture and scanning</h2>
+        <section class="block" id="capture-settings" data-words="shortcut hotkey key copy copied clipboard save keep inbox">
+          <h3>Capture</h3>
+          <p class="muted">Keeps what you've copied in Ledger from any window: a short line as a task, anything longer as a note. During a focus session on a task, the note goes on that task. Kairo only reads what's already on the clipboard; it never copies for you.</p>
+          <div class="row-buttons">
+            <span>Capture with</span>
+            <span class="shortcut-keys" id="capture-keys" aria-live="polite"></span>
+            <button class="btn" id="capture-record">Set keys</button>
+            <button class="link-btn" id="capture-clear" hidden>Turn off</button>
+          </div>
+          <p class="muted" id="capture-note" aria-live="polite">Set keys to capture from any window. Without them, type <kbd>capture</kbd> in the palette.</p>
+          <label class="toggle">
+            <input type="checkbox" id="capture-quick" aria-describedby="capture-quick-note" />
+            Read a copied line as I'd type it in Ledger
+          </label>
+          <p class="muted" id="capture-quick-note">Then “Call Leo tomorrow !high” is due tomorrow, at high priority. Off, copied words are kept just as they are.</p>
+        </section>
+
+        <section class="block" id="virustotal-settings" data-words="virus malware scan check file link hash api key">
+          <h3>VirusTotal</h3>
+          <p class="muted">Check files, links and hashes from the palette: type <kbd>scan</kbd> or <kbd>vt</kbd>. A file is looked up by its fingerprint; it's uploaded only if you choose to.</p>
+          <div class="row-buttons">
+            <label class="field">
+              API key
+              <input type="password" class="filter" id="vt-key" autocomplete="off" spellcheck="false" placeholder="Paste your key" />
+            </label>
+            <button class="btn" id="vt-test">Test key</button>
+          </div>
+          <p class="muted" id="vt-note" aria-live="polite">Kept on this computer only, never synced. Free from virustotal.com → your profile → API key.</p>
+        </section>
+        </div>
+
         <div class="settings-group" id="group-data">
           <h2 class="settings-group-title">Data and computers</h2>
-        <section class="block">
+        <section class="block" data-words="backup restore export import delete spreadsheet csv move computer">
           <h3>Your data</h3>
           <p class="muted">Your time as a spreadsheet, or everything in one backup file. A backup is also how you move Kairo to a new computer, Windows, Mac or Linux.</p>
           <div class="row-buttons">
@@ -207,7 +213,7 @@
           </div>
         </section>
 
-        <section class="block">
+        <section class="block" data-words="sync link pair relay fingerprint code folder cloud drive devices">
           <h3>Combine computers</h3>
           <p class="muted">See your time from all your computers together, one of two ways:</p>
           <dl class="sync-ways">

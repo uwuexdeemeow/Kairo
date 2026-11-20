@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clock, mountScan, nameOf, verdictOf, type ScanActions } from "./scan-view";
+import { askable, clock, mountScan, nameOf, verdictOf, type ScanActions } from "./scan-view";
 import type { VtAnswer } from "./virustotal-api";
 
 const verdict = (malicious: number, suspicious = 0, extra: Partial<VtAnswer & { state: "verdict" }> = {}): VtAnswer => ({
@@ -28,6 +28,7 @@ beforeEach(() => {
     checkFile: vi.fn(async () => verdict(3)),
     check: vi.fn(async () => verdict(0)),
     upload: vi.fn(),
+    scanLink: vi.fn(),
     follow: vi.fn(),
     rescan: vi.fn(),
     pickFile: vi.fn(async () => "C:\\Users\\a\\Downloads\\setup.exe"),
@@ -64,7 +65,7 @@ describe("the scan window", () => {
   it("colours a clean answer green and a suspicious one amber", async () => {
     const scan = await mountScan(root, act);
     scan.check("https://example.com");
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean None of the 71 engines flags it."));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged None of the 71 engines flags it."));
     expect(first().classList.contains("clean")).toBe(true);
     expect(first().querySelector(".scan-name")!.textContent).toBe("example.com");
     act.check.mockResolvedValueOnce(verdict(0, 2));
@@ -73,12 +74,81 @@ describe("the scan window", () => {
     expect(first().querySelector(".scan-name")!.textContent).toBe("44d88612fea8…");
   });
 
-  it("checks what's typed in its field, and says why it couldn't", async () => {
+  it("says what isn't a link or a hash under the field, keeps the text and sends nothing", async () => {
     await mountScan(root, act);
-    act.check.mockRejectedValueOnce("That's not a link or a hash.");
     checkTyped("hello there");
-    await vi.waitFor(() => expect(first().textContent).toContain("That's not a link or a hash."));
-    expect(first().classList.contains("error")).toBe(true);
+    expect(act.check).not.toHaveBeenCalled();
+    expect(results()).toHaveLength(0);
+    expect(field().value).toBe("hello there");
+    expect(field().getAttribute("aria-invalid")).toBe("true");
+    expect(root.querySelector(".scan-hint")!.textContent).toBe("That isn't a link or a hash. A link looks like example.com/page.");
+    expect(root.querySelector(".sr-only[aria-live]")!.textContent).toBe("That isn't a link or a hash.");
+    // Typing on takes the line away, and a link goes through.
+    field().dispatchEvent(new Event("input"));
+    expect(root.querySelector(".scan-hint")!.textContent).toBe("");
+    checkTyped("example.com/page");
+    await vi.waitFor(() => expect(act.check).toHaveBeenCalledWith("example.com/page"));
+    expect(field().value).toBe("");
+  });
+
+  it("knows a hash by its length, and a bare host by its ending", () => {
+    for (const ok of ["a".repeat(32), "A".repeat(40), "f".repeat(64), "https://x.test/a%20b", "example.com", "http://example.com", " example.com/page "]) expect(askable(ok), ok).toBe(true);
+    for (const bad of ["a".repeat(33), "example", "no space.com", "foo.1", "ftp://example.com x", "", "   "]) expect(askable(bad), bad).toBe(false);
+  });
+
+  it("looks a link up first, and asks before sending one VirusTotal hasn't seen", async () => {
+    act.check.mockResolvedValueOnce({ state: "linkNotSeen", url: "https://example.com/reset?token=abc" });
+    act.scanLink.mockResolvedValueOnce({ state: "scanning", analysis: "an9", then: "url:xyz" });
+    act.follow.mockResolvedValueOnce(verdict(0));
+    const scan = await mountScan(root, act);
+    scan.check("https://example.com/reset?token=abc");
+    await vi.waitFor(() => expect(first().textContent).toContain("VirusTotal hasn't seen this link."));
+    // Said plainly: scanning sends it, and links can carry private tokens.
+    expect(first().textContent).toContain("Scanning sends it to VirusTotal");
+    expect(first().textContent).toContain("Only scan what you'd be fine with others seeing.");
+    expect(act.scanLink).not.toHaveBeenCalled();
+    first().querySelector<HTMLButtonElement>(".scan-send")!.click();
+    await vi.waitFor(() => expect(act.scanLink).toHaveBeenCalledWith("https://example.com/reset?token=abc"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Scanning on VirusTotal… 0:00"));
+  });
+
+  it("leaves a link that isn't sent, and says so", async () => {
+    act.check.mockResolvedValueOnce({ state: "linkNotSeen", url: "https://example.com/a" });
+    const scan = await mountScan(root, act);
+    scan.check("example.com/a");
+    await vi.waitFor(() => expect(first().textContent).toContain("VirusTotal hasn't seen this link."));
+    first().querySelector<HTMLButtonElement>(".scan-not-now")!.click();
+    expect(first().textContent).toContain("Not sent.");
+    expect(act.scanLink).not.toHaveBeenCalled();
+  });
+
+  it("always says where a link or a file goes, beside the field", async () => {
+    await mountScan(root, act);
+    expect(root.querySelector(".scan-privacy")!.textContent).toBe("A link or hash is only looked up. VirusTotal is sent a link, or a file, only if you choose to scan it.");
+  });
+
+  it("offers Try again only for what trying again can fix, and a way to take a result away", async () => {
+    const scan = await mountScan(root, act);
+    act.check.mockRejectedValueOnce("That's not a link or a hash.");
+    scan.check("https://example.com");
+    await vi.waitFor(() => expect(first().classList.contains("error")).toBe(true));
+    expect(first().querySelector(".scan-retry")).toBeNull();
+    first().querySelector<HTMLButtonElement>(".scan-remove")!.click();
+    expect(results()).toHaveLength(0);
+    expect(root.querySelector(".sr-only[aria-live]")!.textContent).toBe("Removed.");
+    act.check.mockRejectedValueOnce("VirusTotal answered 502. Try again in a moment.");
+    scan.check("https://example.org");
+    await vi.waitFor(() => expect(first().querySelector(".scan-retry")).not.toBeNull());
+  });
+
+  it("lets a result waiting its turn be cancelled", async () => {
+    const scan = await mountScan(root, act);
+    // Four requests use the free minute; the fifth waits.
+    for (let i = 0; i < 4; i++) scan.check(`https://example.com/${i}`);
+    scan.check("https://example.com/five");
+    await vi.waitFor(() => expect(first().querySelector(".scan-time[data-until]")).not.toBeNull());
+    first().querySelector<HTMLButtonElement>(".scan-cancel")!.click();
+    expect(results().some((r) => r.textContent?.includes("example.com/five"))).toBe(false);
   });
 
   it("asks before uploading a file VirusTotal hasn't seen", async () => {
@@ -97,7 +167,7 @@ describe("the scan window", () => {
     await vi.advanceTimersByTimeAsync(20_000);
     expect(act.follow).toHaveBeenCalledWith("an1", "file:fff");
     await vi.advanceTimersByTimeAsync(20_000);
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
   });
 
   it("leaves a file that isn't uploaded, and says when one is too big", async () => {
@@ -119,7 +189,7 @@ describe("the scan window", () => {
     scan.file("/x/setup.exe");
     await vi.waitFor(() => expect(said()).toBe("setup.exe: Malicious. 3 of 71 engines flag it."));
     scan.check("https://example.com");
-    await vi.waitFor(() => expect(said()).toBe("example.com: Clean. None of the 71 engines flags it."));
+    await vi.waitFor(() => expect(said()).toBe("example.com: Nothing flagged. None of the 71 engines flags it."));
   });
 
   it("says when a scan is taking a while, and can stop following it and pick it up again", async () => {
@@ -184,14 +254,14 @@ describe("the scan window", () => {
     first().querySelector<HTMLButtonElement>(".scan-settings-link")!.click();
     expect(act.openSettings).toHaveBeenCalled();
     first().querySelector<HTMLButtonElement>(".scan-retry")!.click();
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
     expect(act.check).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the keyboard on the control it was on as other results change, and lets a newer error not take the lead", async () => {
     await mountScan(root, act);
     checkTyped("https://good.example");
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
     act.check.mockRejectedValueOnce("Couldn't reach VirusTotal. Check your connection and try again.");
     checkTyped("https://offline.example");
     await vi.waitFor(() => expect(first().classList.contains("error")).toBe(true));
@@ -206,7 +276,7 @@ describe("the scan window", () => {
     await vi.waitFor(() => expect(act.check).toHaveBeenCalledTimes(3));
     answer(verdict(0));
     await vi.waitFor(() => expect(results().length).toBe(3));
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
     expect(document.activeElement?.classList.contains("scan-retry")).toBe(true);
     expect(document.activeElement?.closest<HTMLElement>(".scan-result")?.textContent).toContain("offline.example");
   });
@@ -229,7 +299,7 @@ describe("the scan window", () => {
     await vi.waitFor(() => expect(first().querySelector(".scan-rescan")).not.toBeNull());
     first().querySelector<HTMLButtonElement>(".scan-rescan")!.click();
     await vi.waitFor(() => expect(act.rescan).toHaveBeenCalledWith("file:abc"));
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
   });
 
   it("says when there's nothing to check, and names its results for screen readers", async () => {
@@ -244,7 +314,7 @@ describe("the scan window", () => {
     expect(act.check).not.toHaveBeenCalled();
     expect(root.querySelector("h1")!.textContent).toBe("Check a file or link with VirusTotal");
     checkTyped("https://example.com");
-    await vi.waitFor(() => expect(first().textContent).toContain("Clean"));
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
     const name = first().querySelector(".scan-name")!;
     expect(first().getAttribute("aria-labelledby")).toBe(name.id);
     expect(first().querySelector(".scan-report [aria-hidden]")!.textContent).toBe(" ↗");
@@ -263,7 +333,7 @@ describe("the scan window", () => {
 describe("a verdict in words", () => {
   const v = (malicious: number, suspicious = 0, total = 71) => verdictOf({ ...(verdict(malicious, suspicious) as VtAnswer & { state: "verdict" }), total });
   it("is clean with nothing flagged, and calm about a lone engine", () => {
-    expect(v(0)).toMatchObject({ tone: "clean", word: "Clean" });
+    expect(v(0)).toMatchObject({ tone: "clean", word: "Nothing flagged" });
     expect(v(1)).toMatchObject({ tone: "fine", word: "Probably fine" });
     expect(v(0, 1)).toMatchObject({ tone: "fine", word: "Probably fine" });
   });

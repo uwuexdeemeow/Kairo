@@ -156,6 +156,11 @@ export function dayTitle(left: number): string {
   return `${left <= 10 ? COUNT_WORDS[left] : left} ${left === 1 ? "thing" : "things"} left today.`;
 }
 
+/// The day's line when everything on it is already late: "left today" would hide that.
+export function overdueTitle(left: number): string {
+  return `${left <= 10 ? COUNT_WORDS[left] : left} ${left === 1 ? "thing" : "things"} overdue.`;
+}
+
 /// The title Home had last, put back at once on returning from Settings.
 let homeTitle = "";
 
@@ -173,12 +178,24 @@ async function drawFocus(running: Running) {
     return;
   }
   strip.hidden = !session;
-  if (!session) return;
+  if (!session) {
+    // Said once that it ended, and not on every refresh after.
+    if (focusKey !== "") $("#focus-said").textContent = "Focus session ended.";
+    focusKey = "";
+    return;
+  }
   const what = tasks.find((t) => t.id === session.task)?.title ?? session.label;
   const left = session.plannedMs - ((session.pausedAt ?? Date.now()) - session.startMs - session.pausedMs);
   const state = session.pausedAt ? " · paused" : session.plannedMs > 0 ? ` · ${Math.max(1, Math.ceil(left / 60_000))} min left` : "";
   $("#focus-text").textContent = `Focusing${what ? ` on ${what}` : ""}${state}`;
+  // Heard when it starts or pauses or resumes, not as the time left changes.
+  const key = `${what ?? ""}|${session.pausedAt ? "paused" : "running"}`;
+  if (key !== focusKey) $("#focus-said").textContent = `${session.pausedAt ? "Focus session paused" : "Focusing"}${what ? ` on ${what}` : ""}.`;
+  focusKey = key;
 }
+
+/// What the focus strip last said aloud, so only a change is said again.
+let focusKey = "";
 
 /// Home's Today: the open tasks due today or overdue, each opening in Ledger, and the next
 /// reminder still to come today.
@@ -235,7 +252,7 @@ async function drawToday(running: Running) {
     }),
   );
   // The title says how the day stands.
-  homeTitle = dayTitle(due.length);
+  homeTitle = due.length && due.every((t) => t.group === "overdue") ? overdueTitle(due.length) : dayTitle(due.length);
   if (current === "home") $("#dash-title").textContent = homeTitle;
   // Opened on Home with the keyboard on the first tile: today's first task comes before it.
   if (startedOn && document.activeElement === startedOn && shown.length) list.querySelector<HTMLElement>(".today-task")?.focus();
@@ -248,7 +265,8 @@ async function drawToday(running: Running) {
   if (!due.length) {
     const add = h("button", { class: "link-btn" }, "Add a task");
     add.addEventListener("click", () => api.openLedger("add"));
-    list.replaceChildren(h("li", { class: "today-none muted" }, "Nothing due today. ", add));
+    // The title above already says nothing is due.
+    list.replaceChildren(h("li", { class: "today-none muted" }, add));
   }
   // The next reminder still to come today, if any.
   const now = Date.now();

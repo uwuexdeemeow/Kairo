@@ -261,7 +261,7 @@ describe("switches", () => {
     box.click();
     await vi.waitFor(() => expect(box.checked).toBe(false));
     expect(box.closest("label")!.querySelector(".saved-mark")!.textContent).toBe("Couldn't save");
-    expect($("#autostart-note").textContent).toBe("Couldn't change it: not allowed");
+    expect($("#autostart-note").textContent).toBe("Couldn't change it. Try again in a moment. (not allowed)");
   });
 });
 
@@ -388,7 +388,7 @@ describe("combining computers", () => {
     api.stopSync.mockRejectedValue("the folder can't be reached");
     $("#sync-stop").click();
     $("#sync-confirm-yes").click();
-    await vi.waitFor(() => expect($("#sync-status").textContent).toBe("Couldn't stop: the folder can't be reached"));
+    await vi.waitFor(() => expect($("#sync-status").textContent).toBe("Couldn't stop combining. Try again in a moment. (the folder can't be reached)"));
   });
 
   it("offers a code first, and a folder after", () => {
@@ -438,6 +438,26 @@ describe("finding a setting", () => {
     expect($("#settings-none").hidden).toBe(true);
     find("backup");
     expect(visibleSections()).toEqual(["Your data"]);
+  });
+
+  it("finds a setting by the words people use, not only the page's own", () => {
+    find("shortcut");
+    const names = visibleSections();
+    for (const wanted of ["Command palette", "Capture", "App ring"]) expect(names).toContain(wanted);
+    find("startup");
+    expect(visibleSections()).toEqual(["Start with Windows"]);
+    find("hotkey");
+    expect(visibleSections()).toEqual(expect.arrayContaining(["Command palette", "Capture", "App ring"]));
+  });
+
+  it("says how many settings match, for a screen reader", () => {
+    find("shortcut");
+    const n = visibleSections().length;
+    expect($("#settings-found").textContent).toBe(`${n} ${n === 1 ? "setting matches" : "settings match"}.`);
+    find("");
+    expect($("#settings-found").textContent).toBe("");
+    find("zzz");
+    expect($("#settings-found").textContent).toBe("");
   });
 
   it("says when nothing matches, and Esc brings everything back", () => {

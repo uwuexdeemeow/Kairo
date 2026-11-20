@@ -100,7 +100,7 @@ describe("Home", () => {
   it("starts the keyboard on the first tile when nothing is due", async () => {
     api.tasks.mockResolvedValue([]);
     await open();
-    await vi.waitFor(() => expect($("#today-list").textContent).toContain("Nothing due today"));
+    await vi.waitFor(() => expect($("#dash-title").textContent).toBe("Nothing due today."));
     expect(document.activeElement).toBe($('[data-app="chrono"] .app-open'));
   });
 
@@ -208,12 +208,16 @@ describe("Today", () => {
     api.tasks.mockResolvedValue([{ id: "a", title: "Essay", group: "done", remindMs: null }]);
     $<HTMLButtonElement>("#today-list .today-tick").click();
     await vi.waitFor(() => expect(api.setTaskDone).toHaveBeenCalledWith("a", true));
-    await vi.waitFor(() => expect($("#today-list").textContent).toBe("Nothing due today. Add a task"));
+    // The title already says it; the list below is only the way to add something.
+    await vi.waitFor(() => expect($("#today-list").textContent).toBe("Add a task"));
+    expect($("#dash-title").textContent).toBe("Nothing due today.");
   });
 
   it("says in the title how the day stands", async () => {
-    const { dayTitle } = await import("./dashboard");
-    expect([0, 1, 2, 10, 11].map(dayTitle)).toEqual(["Nothing due today.", "One thing left today.", "Two things left today.", "Ten things left today.", "11 things left today."]);
+    const { dayTitle, overdueTitle } = await import("./dashboard");
+    expect([0, 1, 2, 10, 11].map((n) => dayTitle(n))).toEqual(["Nothing due today.", "One thing left today.", "Two things left today.", "Ten things left today.", "11 things left today."]);
+    // All of it late is not "left today".
+    expect([1, 2, 11].map((n) => overdueTitle(n))).toEqual(["One thing overdue.", "Two things overdue.", "11 things overdue."]);
     api.tasks.mockResolvedValue([{ id: "b", title: "Bank", group: "overdue", remindMs: null }, { id: "a", title: "Essay", group: "today", remindMs: null }]);
     await open();
     await vi.waitFor(() => expect($("#dash-title").textContent).toBe("Two things left today."));
@@ -284,7 +288,7 @@ describe("Today", () => {
   it("says when nothing is due, with a way to add something", async () => {
     api.tasks.mockResolvedValue([]);
     await open();
-    await vi.waitFor(() => expect($("#today-list").textContent).toBe("Nothing due today. Add a task"));
+    await vi.waitFor(() => expect($("#today-list").textContent).toBe("Add a task"));
     $<HTMLButtonElement>("#today-list .link-btn").click();
     expect(api.openLedger).toHaveBeenCalledWith("add");
   });

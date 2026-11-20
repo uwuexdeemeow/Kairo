@@ -333,13 +333,14 @@ function wireVirusTotal() {
 /// empty go, and a line says when nothing matches. Esc clears it.
 /// What a setting can be found by: its words, and the names on its controls.
 const wordsOf = (el: HTMLElement) =>
-  `${el.textContent} ${[...el.querySelectorAll("[aria-label], [placeholder]")].map((c) => `${c.getAttribute("aria-label") ?? ""} ${c.getAttribute("placeholder") ?? ""}`).join(" ")}`.toLowerCase();
+  `${el.textContent} ${el.dataset.words ?? ""} ${[...el.querySelectorAll("[aria-label], [placeholder]")].map((c) => `${c.getAttribute("aria-label") ?? ""} ${c.getAttribute("placeholder") ?? ""}`).join(" ")}`.toLowerCase();
 
 function wireFind() {
   const find = $<HTMLInputElement>("#settings-find");
   const filter = () => {
     const q = find.value.trim().toLowerCase();
     let any = false;
+    let count = 0;
     for (const group of document.querySelectorAll<HTMLElement>(".settings-group")) {
       let shown = 0;
       for (const block of group.querySelectorAll<HTMLElement>(".block")) {
@@ -366,8 +367,11 @@ function wireFind() {
       }
       group.hidden = shown === 0;
       any ||= shown > 0;
+      count += shown;
     }
     $("#settings-none").hidden = any;
+    // How many, said once the list has narrowed (nothing for no search, and the line above for none).
+    $("#settings-found").textContent = q && count ? `${count} ${count === 1 ? "setting matches" : "settings match"}.` : "";
   };
   find.addEventListener("input", filter);
   find.addEventListener("keydown", (e) => {
@@ -465,13 +469,13 @@ export function wireKairoSettings(): void {
       await api.checkForUpdates();
       out.textContent = "Checking…";
     } catch (err) {
-      out.textContent = `Couldn't check: ${err}`;
+      out.textContent = plain(err, "check for updates");
     }
   });
   // The answer comes back here, as well as in a notification.
   listen<string>("kairo:update", (e) => ($("#update-status").textContent = e.payload));
 
-  saves("#autostart-enabled", (on) => api.setAutostart(on), (err) => ($("#autostart-note").textContent = `Couldn't change it: ${err}`));
+  saves("#autostart-enabled", (on) => api.setAutostart(on), (err) => ($("#autostart-note").textContent = plain(err, "change it")));
 
   $("#export-time").addEventListener("click", () =>
     dataAction(async () => {
@@ -580,7 +584,7 @@ export function wireKairoSettings(): void {
           renderSync(await api.stopSync());
           out.textContent = "Stopped. Only this computer's time shows here now.";
         } catch (err) {
-          out.textContent = `Couldn't stop: ${err}`;
+          out.textContent = plain(err, "stop combining");
         }
       },
     ),

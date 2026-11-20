@@ -184,7 +184,8 @@ function row(item: PaletteItem, index: number, kind: "row" | "tile" | "chip"): H
     if (sub && kind === "row") text.append(h("span", { class: "palette-sub" }, sub));
     el.append(rowIcon(item), text);
     if (item.detail) el.append(h("span", { class: "palette-detail" }, item.detail));
-    if (isSelected && kind === "row") el.append(h("kbd", {}, "Enter"));
+    // Drawn, not said: the option's name is its title.
+    if (isSelected && kind === "row") el.append(h("kbd", { "aria-hidden": "true" }, "Enter"));
   }
   el.addEventListener("mousemove", () => {
     // A chart asked for has moved the rows; the pointer passing over them doesn't take it away.
@@ -240,17 +241,24 @@ function render(r: PaletteResults) {
   }
   if (r.tiles.length) {
     out.push(label("Recent apps"));
-    out.push(h("div", { class: "palette-tiles" }, ...r.tiles.map((t) => row(t, index++, "tile"))));
+    out.push(h("div", { class: "palette-tiles", role: "presentation" }, ...r.tiles.map((t) => row(t, index++, "tile"))));
   }
   if (r.chips.length) {
     out.push(label("Go to"));
-    out.push(h("div", { class: "palette-chips" }, ...r.chips.map((c) => row(c, index++, "chip"))));
+    out.push(h("div", { class: "palette-chips", role: "presentation" }, ...r.chips.map((c) => row(c, index++, "chip"))));
   }
-  if (!shown.length && typed && !mode) out.push(h("p", { class: "palette-empty" }, "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”."));
+  const nothing = "Nothing matches. Try an app’s name, a day like “last tue”, or “focus 50”.";
+  const empty = !shown.length && typed && !mode;
+  if (empty) out.push(h("p", { class: "palette-empty" }, nothing));
   $("#palette-results").replaceChildren(...out);
+  // Said as well, since the keyboard stays in the box and the line isn't read otherwise.
+  if (empty) $("#palette-said").textContent = nothing;
   // Compact: only the search bar until something's typed or a mode is chosen.
-  $("#palette").classList.toggle("bare", compact && !typed && !mode);
-  input.setAttribute("aria-activedescendant", shown.length ? `palette-item-${selected}` : "");
+  const bare = compact && !typed && !mode;
+  $("#palette").classList.toggle("bare", bare);
+  // The list is hidden while bare, so it isn't open and nothing in it is active.
+  input.setAttribute("aria-expanded", String(!bare && shown.length > 0));
+  input.setAttribute("aria-activedescendant", shown.length && !bare ? `palette-item-${selected}` : "");
   renderHint();
   loadIcons();
   renderPreview();
@@ -261,6 +269,8 @@ function render(r: PaletteResults) {
 function renderHint() {
   const box = $("#palette-second");
   const second = shown[selected]?.second;
+  // The first Enter on a time chart shows it; only the next one does what the row says.
+  $("#palette-enter").textContent = shown[selected]?.again && asked !== selected ? "Show" : "Run";
   box.hidden = !second;
   box.replaceChildren(...(second ? [h("kbd", {}, isMac() ? "⌘" : "Ctrl"), " ", h("kbd", {}, "Enter"), ` ${second}`] : []));
 }
@@ -270,6 +280,7 @@ function putAwayAsked() {
   if (asked === null) return;
   setSub(asked, shown[asked]?.sub ?? null);
   asked = null;
+  renderHint();
   // Emptied, so asking for the same card again is heard again.
   $("#palette-said").textContent = "";
 }
@@ -456,6 +467,8 @@ document.addEventListener("visibilitychange", () => {
 
 function showError(err: unknown) {
   $("#palette-results").prepend(h("p", { class: "palette-error" }, String(err)));
+  // Said too: the keyboard stays in the box, so a line drawn above the results isn't read.
+  $("#palette-said").textContent = String(err);
   fit();
 }
 
@@ -470,6 +483,7 @@ async function run(index: number) {
     if (index !== selected) select(index);
     asked = index;
     setSub(index, again);
+    renderHint();
     void renderPreview();
     return;
   }
@@ -510,6 +524,8 @@ async function refresh() {
   const token = ++queryToken;
   const r = await api.paletteQuery(input.value, mode?.key ?? null).catch(() => null);
   if (r && token === queryToken) render(r);
+  // A search that failed leaves the old rows; say so rather than let them pass for the answer.
+  else if (!r && token === queryToken) showError("Couldn’t search just now. Try again.");
 }
 
 // ---------- wiring ----------

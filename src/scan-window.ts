@@ -17,6 +17,7 @@ void (async () => {
     checkFile: vt.checkFile,
     check: vt.check,
     upload: vt.upload,
+    scanLink: vt.scanLink,
     follow: vt.follow,
     rescan: vt.rescan,
     pickFile: vt.pickFile,

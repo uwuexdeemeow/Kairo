@@ -8,7 +8,14 @@ import { $, followTheme } from "./ui";
 
 followTheme();
 void (async () => {
-  const state = await invoke<RingState>("ring_state");
+  let state: RingState;
+  try {
+    state = await invoke<RingState>("ring_state");
+  } catch {
+    // Nothing to turn: a blank window holding the keyboard is worse than none.
+    void invoke("ring_close").catch(() => {});
+    return;
+  }
   const view = mountRing($("#ring"), state, {
     pick: (index) => void invoke("ring_pick", { index }),
     close: () => void invoke("ring_close"),

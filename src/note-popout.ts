@@ -69,14 +69,15 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     void act.setOnTop(onTop);
   });
   // The same switch, by name, in the menu that holds the window's tools when it's narrow.
-  const pinItem = h("button", { class: "popout-more-item", "aria-pressed": "true" }, glyph("pin"), "Keep above other windows");
+  const pinItem = h("button", { class: "popout-more-item", role: "menuitemcheckbox", "aria-checked": "true" }, glyph("pin"), "Keep above other windows");
   pinItem.addEventListener("click", () => {
     pin.click();
-    closeMore();
+    // Back on ⋯, where the keyboard was: the item it was on is gone with the menu.
+    closeMore(true);
   });
   const drawPin = () => {
     pin.setAttribute("aria-pressed", String(onTop));
-    pinItem.setAttribute("aria-pressed", String(onTop));
+    pinItem.setAttribute("aria-checked", String(onTop));
   };
   drawPin();
   void act.onTop().then((on) => {
@@ -161,13 +162,15 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
       else s.blocked();
     };
     const ledger = noteTool("ledger", "Open in Ledger", glyph("open"), () => void openLedger());
-    const ledgerItem = h("button", { class: "popout-more-item" }, glyph("open"), "Open in Ledger");
+    const ledgerItem = h("button", { class: "popout-more-item", role: "menuitem" }, glyph("open"), "Open in Ledger");
     ledgerItem.addEventListener("click", () => {
       closeMore();
+      // The note keeps the keyboard; Ledger opens beside it.
+      s.editor.focus();
       void openLedger();
     });
     const del = noteTool("delete", "Delete note", glyph("trash"), () => void removeNote(s.note()));
-    const delItem = h("button", { class: "popout-more-item popout-more-delete" }, glyph("trash"), "Delete note");
+    const delItem = h("button", { class: "popout-more-item popout-more-delete", role: "menuitem" }, glyph("trash"), "Delete note");
     delItem.addEventListener("click", () => {
       closeMore();
       void removeNote(s.note());
@@ -186,7 +189,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
 
   // ---------- ⋯, the window's tools when it's narrow ----------
 
-  const moreMenu = h("div", { class: "popout-more-menu", id: "popout-more-menu", hidden: "" });
+  const moreMenu = h("div", { class: "popout-more-menu", id: "popout-more-menu", role: "menu", "aria-label": "Window options", hidden: "" });
   const closeMore = (focus = false) => {
     moreMenu.hidden = true;
     more.setAttribute("aria-expanded", "false");
@@ -200,6 +203,13 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   });
   more.setAttribute("aria-expanded", "false");
   more.setAttribute("aria-controls", "popout-more-menu");
+  more.setAttribute("aria-haspopup", "menu");
+  // The down arrow opens it, as on a menu button.
+  more.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" || !moreMenu.hidden) return;
+    e.preventDefault();
+    more.click();
+  });
   moreMenu.addEventListener("keydown", (e) => {
     // The arrows go from item to item, as the dropdowns' do; Home and End to either end.
     const items = [...moreMenu.querySelectorAll<HTMLButtonElement>("button")];
