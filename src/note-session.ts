@@ -112,7 +112,9 @@ export function openNoteSession(box: HTMLElement, first: Note, act: SessionActio
 
   const drawFoot = () => {
     const words = wordCount(editor.value());
-    const said = held || (failures ? "Not saved yet. Trying again…" : dirty ? "Saving…" : "Saved");
+    // Quiet while typing goes well: a line that flips to "Saving…" on every key is noise, and only
+    // a failure (or its absence, as "Saved") is worth saying.
+    const said = held || (failures ? "Not saved yet. Trying again…" : dirty ? "" : "Saved");
     if (state.textContent !== said) state.textContent = said;
     state.classList.toggle("unsaved", failures > 0);
     rest.replaceChildren(h("span", {}, `${words} word${words === 1 ? "" : "s"}`), ...(hooks.footExtra?.(note) ?? []));

@@ -186,11 +186,14 @@ function renderToday(d: DaySummary) {
 
   const perHour = d.activeMs ? Math.round(d.switches / (d.activeMs / HOUR_MS)) : 0;
   const meetings = meetingLine(d.meetingMs);
+  // Two figures lead, as the week's do; the rest follow smaller, so the row has something to hold.
   $("#today-stats").replaceChildren(
-    ...(meetings ? [stat("Meetings", meetings, "", "Time on the calendar as meetings, overlaps counted once; not time attended")] : []),
     stat("Longest focus", fmtDur(d.longestFocusMs)),
-    stat("Deep-work blocks", String(d.deepBlocks), "", "Stretches of 25 minutes or more of productive time"),
     stat("Distracting", fmtDur(d.distractingMs), "", "Time in apps and sites in the Distracting category"),
+  );
+  $("#today-stats-minor").replaceChildren(
+    ...(meetings ? [stat("Meetings", meetings, "", "Time on the calendar as meetings, overlaps counted once; not time attended")] : []),
+    stat("Deep-work blocks", String(d.deepBlocks), "", "Stretches of 25 minutes or more of productive time"),
     stat("App switches", String(d.switches), d.activeMs ? `${perHour}/h` : ""),
     stat("Focus sessions", String(shownFocus.length), shownFocus.length ? fmtDur(shownFocus.reduce((ms, b) => ms + focusedMs(b), 0)) : ""),
   );

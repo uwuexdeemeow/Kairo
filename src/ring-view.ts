@@ -63,10 +63,30 @@ export function drawRing(root: HTMLElement, ring: Ring, state: Pick<RingState, "
       return `<div class="ring-mark off1" style="left:${p.x.toFixed(1)}px;top:${p.y.toFixed(1)}px">${mark(ring.at(offset), 30, state.paused)}</div>`;
     })
     .join("");
+  // The neighbours' names, under their marks, so the choice beside the lit one can be read.
+  const nearNames = offsets
+    .filter((offset) => Math.abs(offset) === 1)
+    .map((offset) => {
+      const p = middle(offset);
+      return `<span class="ring-near-name" aria-hidden="true" style="left:${p.x.toFixed(1)}px;top:${(p.y + 22).toFixed(1)}px">${esc(state.names[ring.indexAt(offset)] ?? "")}</span>`;
+    })
+    .join("");
+  // The key that picks each (1 to 9 open the first nine), near its outer edge; none past the ninth.
+  const digits = offsets
+    .map((offset) => {
+      const i = ring.indexAt(offset);
+      if (i >= 9) return "";
+      const r = OUTER - 14 + (offset === 0 ? 12 : 0);
+      const a = (offset * STEP * Math.PI) / 180;
+      return `<span class="ring-digit" aria-hidden="true" style="left:${(CENTRE.x + r * Math.sin(a)).toFixed(1)}px;top:${(CENTRE.y - r * Math.cos(a)).toFixed(1)}px">${i + 1}</span>`;
+    })
+    .join("");
   const top = middle(0);
   root.innerHTML =
     `<svg class="ring-arc" viewBox="0 0 ${WIDTH} ${HEIGHT}" width="${WIDTH}" height="${HEIGHT}" aria-hidden="true">${segs}</svg>` +
     marks +
+    nearNames +
+    digits +
     `<div class="ring-lit" style="left:${top.x.toFixed(1)}px;top:${top.y.toFixed(1)}px" aria-hidden="true">` +
     `${mark(ring.segment(), 34, state.paused)}<span class="ring-name">${esc(state.names[ring.lit] ?? "")}</span><span class="ring-line">${esc(state.lines[ring.lit] ?? "")}</span></div>`;
 }

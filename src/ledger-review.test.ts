@@ -162,6 +162,27 @@ describe("the Review view", () => {
     expect(Array.from(root.querySelectorAll("button")).some((b) => b.textContent === "Done reviewing")).toBe(false);
   });
 
+  it("moves between rows with the up and down arrows, staying on the same kind of button", () => {
+    const two = [task("A", { group: "overdue" }), task("B", { moved: 3 }), task("Essay")];
+    const { root } = mount(two);
+    const rows = Array.from(root.querySelectorAll<HTMLElement>(".review-row"));
+    // Two slipped rows (title, Do it, No day, Delete) and then the three picks (title, Pick).
+    expect(rows.map((r) => r.querySelectorAll("button").length)).toEqual([4, 4, 2, 2, 2]);
+    const key = (el: Element, k: string) => el.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    const noDayA = rows[0].querySelectorAll("button")[2];
+    noDayA.focus();
+    key(noDayA, "ArrowDown");
+    expect(document.activeElement).toBe(rows[1].querySelectorAll("button")[2]);
+    key(document.activeElement!, "ArrowDown");
+    // The pick row has fewer buttons: the last one it has.
+    expect(document.activeElement).toBe(rows[2].querySelectorAll("button")[1]);
+    key(document.activeElement!, "ArrowUp");
+    expect(document.activeElement).toBe(rows[1].querySelectorAll("button")[1]);
+    key(rows[0].querySelectorAll("button")[0], "ArrowUp");
+    // Nothing above the first row: it stays.
+    expect(document.activeElement).toBe(rows[1].querySelectorAll("button")[1]);
+  });
+
   it("keeps the keyboard in the search field while the list is redrawn", () => {
     const { root } = mount(week);
     const field = root.querySelector<HTMLInputElement>(".review-search")!;

@@ -74,10 +74,11 @@ describe("the popped-out note", () => {
     const pop = mountPopout(root, act);
     await pop.show("a");
     type("# Essay\n- [ ] intro");
-    expect(foot()).toContain("Saving…");
+    expect(foot()).not.toContain("Saving");
     expect(act.save).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(500);
     expect(act.save).toHaveBeenCalledWith("a", "# Essay\n- [ ] intro");
+    await vi.waitFor(() => expect(foot()).toContain("Saved"));
     expect(act.setTitle).toHaveBeenLastCalledWith("Essay");
     expect(foot()).toContain("Saved");
   });

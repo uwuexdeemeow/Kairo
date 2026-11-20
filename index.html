@@ -113,7 +113,8 @@
               <span class="hero-value" id="today-active"></span>
               <span class="hero-sub" id="today-sub"></span>
             </div>
-            <dl class="stats" id="today-stats"></dl>
+            <dl class="stats stats-lead" id="today-stats"></dl>
+            <dl class="stats stats-minor" id="today-stats-minor"></dl>
           </section>
 
           <section class="block goals" id="goals" aria-label="Goals" hidden>
@@ -292,6 +293,8 @@
 
           <details class="block focus-setup" id="focus-setup">
             <summary>Set up focus: rounds, schedule and block lists</summary>
+            <!-- Where the rest of focus lives, so nobody has to guess which page holds it. -->
+            <p class="muted setup-elsewhere">Blocking on or off, strict mode and break reminders are in <button class="link-btn" data-goto="settings" data-goto-target="#block-enabled">Settings</button>. What counts as distracting is in <button class="link-btn" data-goto="categories" data-goto-target="#categories">Categories</button>.</p>
 
             <div class="setup-part" aria-label="Rounds and breaks">
               <h2>Rounds and breaks</h2>

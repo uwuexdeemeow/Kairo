@@ -195,6 +195,18 @@ pub async fn speed_run(app: AppHandle) {
     }
 }
 
+/// Makes any test running quit at its next step, as a newer one starting would.
+fn stop_current() {
+    RUN.fetch_add(1, Ordering::SeqCst);
+}
+
+/// Stops the test running, and tells the window so it can keep what it measured.
+#[tauri::command]
+pub fn speed_stop(app: AppHandle) {
+    stop_current();
+    let _ = app.emit_to(LABEL, "speed:progress", Progress { phase: "stopped", ..Default::default() });
+}
+
 /// Opens the speed window; its page starts a test as it loads, or now if it's open.
 pub(crate) fn open(app: &AppHandle) {
     let spec = crate::small_window::Spec {
@@ -217,6 +229,15 @@ pub fn open_speed(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopping_a_test_makes_it_quit_at_its_next_step() {
+        let id = RUN.fetch_add(1, Ordering::SeqCst) + 1;
+        assert_eq!(RUN.load(Ordering::SeqCst), id);
+        stop_current();
+        // The running test checks it is still the latest; now it isn't.
+        assert_ne!(RUN.load(Ordering::SeqCst), id);
+    }
 
     #[test]
     fn speed_is_megabits_a_second() {

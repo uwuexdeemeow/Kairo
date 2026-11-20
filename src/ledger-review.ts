@@ -115,6 +115,20 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
   });
   const body = h("div", { class: "review" });
   root.replaceChildren(said, body);
+  // Up and down walk the rows, on the same button of the next (the last it has, in a row with
+  // fewer), so a page of three or four buttons a row isn't forty Tab stops.
+  body.addEventListener("keydown", (e) => {
+    if ((e.key !== "ArrowDown" && e.key !== "ArrowUp") || e.defaultPrevented) return;
+    const here = (e.target as HTMLElement).closest<HTMLElement>(".review-row");
+    if (!here || (e.target as HTMLElement).tagName !== "BUTTON") return;
+    const rows = Array.from(body.querySelectorAll<HTMLElement>(".review-row"));
+    const there = rows[rows.indexOf(here) + (e.key === "ArrowDown" ? 1 : -1)];
+    if (!there) return;
+    e.preventDefault();
+    const from = Array.from(here.querySelectorAll("button")).indexOf(e.target as HTMLButtonElement);
+    const buttons = there.querySelectorAll("button");
+    buttons[Math.min(from, buttons.length - 1)]?.focus();
+  });
 
   const button = (label: string, aria: string, onClick: () => void, cls = "btn") => {
     const b = h("button", { class: cls, type: "button", "aria-label": aria }, label) as HTMLButtonElement;

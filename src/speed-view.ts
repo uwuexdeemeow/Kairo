@@ -5,7 +5,7 @@ import { h } from "./ui";
 /// here step by step.
 
 export type SpeedProgress = {
-  phase: "ping" | "download" | "upload" | "done" | "error";
+  phase: "ping" | "download" | "upload" | "done" | "error" | "stopped";
   pingMs: number | null;
   jitterMs: number | null;
   downMbps: number | null;
@@ -15,7 +15,8 @@ export type SpeedProgress = {
   error: string | null;
 };
 
-export type SpeedActions = { run(): void };
+/// `stop` ends a test that is running; a window without one offers none.
+export type SpeedActions = { run(): void; stop?(): void };
 export type SpeedView = { update(p: SpeedProgress): void; start(): void };
 
 const SAYS: Record<SpeedProgress["phase"], string> = {
@@ -24,6 +25,7 @@ const SAYS: Record<SpeedProgress["phase"], string> = {
   upload: "Testing upload…",
   done: "Done",
   error: "",
+  stopped: "Stopped.",
 };
 
 /// What a finished test says: "Done: 313 Mbps down, 41.3 up".
@@ -53,7 +55,10 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
   const status = h("p", { class: "speed-status", "aria-live": "polite" });
   const used = h("span", { class: "speed-used muted" });
   const again = h("button", { class: "btn speed-again" }, "Run again") as HTMLButtonElement;
-  root.replaceChildren(h("div", { class: "speed" }, h("h1", { class: "sr-only" }, "Speed test"), h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, used)));
+  // Ends a test that is spending data, rather than waiting for it or closing the window.
+  const stopButton = h("button", { class: "link-btn speed-stop", hidden: "" }, "Stop") as HTMLButtonElement;
+  stopButton.addEventListener("click", () => act.stop?.());
+  root.replaceChildren(h("div", { class: "speed" }, h("h1", { class: "sr-only" }, "Speed test"), h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, stopButton, used)));
 
   /// The last figures heard, which a failure keeps: its event carries nothing measured.
   let last: SpeedProgress | null = null;
@@ -61,7 +66,7 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
     update: (heard) => {
       // A failure falls back on what was measured before it, so a lost upload doesn't wipe the download.
       const p: SpeedProgress =
-        heard.phase === "error" && last
+        (heard.phase === "error" || heard.phase === "stopped") && last
           ? { ...heard, pingMs: heard.pingMs ?? last.pingMs, jitterMs: heard.jitterMs ?? last.jitterMs, downMbps: heard.downMbps ?? last.downMbps, upMbps: heard.upMbps ?? last.upMbps, usedBytes: heard.usedBytes || last.usedBytes, server: heard.server ?? last.server }
           : heard;
       last = p.phase === "ping" && p.downMbps === null && p.pingMs === null ? null : p;
@@ -76,7 +81,8 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
       status.classList.toggle("error", p.phase === "error");
       used.textContent = p.usedBytes ? `Used about ${Math.round(p.usedBytes / 1e6)} MB` : "";
       // Held back while a test runs, but not disabled: a disabled button would drop the keyboard.
-      const testing = p.phase !== "done" && p.phase !== "error";
+      const testing = p.phase !== "done" && p.phase !== "error" && p.phase !== "stopped";
+      stopButton.hidden = !testing;
       again.setAttribute("aria-disabled", String(testing));
       again.textContent = testing ? "Testing…" : p.phase === "error" ? "Try again" : "Run again";
     },

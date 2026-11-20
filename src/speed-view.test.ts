@@ -63,6 +63,26 @@ describe("the speed window", () => {
     expect(text(".speed-used")).toBe("");
   });
 
+  it("offers Stop while a test runs, and keeps what it had when stopped", () => {
+    const stop = vi.fn();
+    const view = mountSpeed(root, { run, stop });
+    const button = () => root.querySelector<HTMLButtonElement>(".speed-stop")!;
+    // Not while idle or done.
+    expect(button().hidden).toBe(true);
+    view.update(p({ phase: "download", pingMs: 12.4, downMbps: 250 }));
+    expect(button().hidden).toBe(false);
+    button().click();
+    expect(stop).toHaveBeenCalledTimes(1);
+    // What the backend then says: stopped, with nothing measured in the event itself.
+    view.update(p({ phase: "stopped" }));
+    expect(text(".speed-status")).toBe("Stopped.");
+    expect(text(".speed-down .speed-figure")).toBe("250");
+    expect(text(".speed-ping")).toBe("Ping 12 ms");
+    expect(button().hidden).toBe(true);
+    expect(text(".speed-again")).toBe("Run again");
+    expect(root.querySelector(".speed-again")!.getAttribute("aria-disabled")).toBe("false");
+  });
+
   it("never rounds a speed up into a precision it doesn't have", () => {
     expect(figure(99.96)).toBe("100");
     expect(figure(99.94)).toBe("99.9");

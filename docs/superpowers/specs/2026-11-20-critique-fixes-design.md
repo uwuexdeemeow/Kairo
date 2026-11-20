@@ -52,13 +52,20 @@ what 1.31.62 did about them, and what it left.
   welcome page says the browser extension is optional.
 - "Clean" is "Nothing flagged".
 
-## Left, with the reason
-- The ring's neighbours' names and the digit shortcuts: a layout change that the native ring must
-  match, and it can't be checked on a machine from here.
-- The speed test's running figure and a Stop: needs progress events from the backend.
-- The note window's "Saving…" flicker, always-on-top default and double-booked pin: the save status
-  was designed around its tests; the default needs a decision.
-- "Your apps" stays the first Settings group.
-- Today's stat row still has no lead tier, and Focus's doubled presets and scattered settings are
-  not changed.
-- Review's rows have no arrow-key movement beyond Tab.
+## Done in 1.31.63, the items first left over
+- The ring names the two segments beside the lit one and shows the key (1 to 9) that picks each, in
+  the web ring and, drawn the same way, in the Windows one (compiled and tested, not seen on screen).
+- The speed test has a Stop (`speed_stop`), which keeps what was measured. Its figures already
+  updated after every transfer, so no running figure was needed.
+- The note footer says nothing while typing goes well and "Saved" once kept; a failure still says
+  so. Floating has its own glyph, and its state is in its tooltip ("on" or "off"). It still floats by
+  default, which is what a pop-out is for.
+- "Your apps" is the last Settings group, so Settings opens on settings.
+- Today's stats have a lead row (Longest focus, Distracting) and a smaller one, as Week's do.
+- "Set up focus" says where blocking, strict mode and break reminders live, with links, instead of
+  moving settings whose loading belongs to their page.
+- Review's rows move with the up and down arrows, on the same button of the next row.
+
+## Left on purpose
+- Focus's sidebar presets and its page presets stay both: the sidebar starts a session now, with a
+  four-second Undo; the page's set a length to start with, and they are different jobs.

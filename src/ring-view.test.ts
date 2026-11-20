@@ -31,6 +31,29 @@ describe("the web ring", () => {
     expect(root.querySelector('.ring-seg[data-segment="palette"]')).not.toBeNull();
   });
 
+  it("numbers each segment as its key picks it, and names the two beside the lit one", () => {
+    open(1);
+    const digits = [...root.querySelectorAll(".ring-digit")].map((d) => d.textContent);
+    // Lit is Ledger, second on the ring; Chrono first, Palette third; Dashboard fourth; Focus seventh.
+    expect(digits.sort()).toEqual(["1", "2", "3", "4", "7"]);
+    expect([...root.querySelectorAll(".ring-near-name")].map((n) => n.textContent).sort()).toEqual(["Chrono", "Palette"]);
+    // Drawn, not said: the status line says what is lit, and the keys are in Settings.
+    for (const el of [...root.querySelectorAll(".ring-digit, .ring-near-name")]) expect(el.closest("[aria-hidden='true']") ?? el.getAttribute("aria-hidden")).toBeTruthy();
+    // Turning moves the numbers with the segments: Palette lit, Ledger beside it.
+    key("keydown", "ArrowRight");
+    expect([...root.querySelectorAll(".ring-near-name")].map((n) => n.textContent).sort()).toEqual(["Dashboard", "Ledger"]);
+  });
+
+  it("gives no digit to an item past the ninth, which no key picks", () => {
+    const many = ["chrono", "ledger", "palette", "dashboard", "task", "note", "focus", "notes", "week", "settings"] as const;
+    mountRing(root, { items: [...many], lit: 9, names: [...many], lines: [...many], focusRunning: false }, act, () => clock);
+    const digits = [...root.querySelectorAll(".ring-digit")].map((d) => d.textContent);
+    // Lit is the tenth: no digit; its neighbours are the ninth and the first.
+    expect(digits).not.toContain("10");
+    expect(digits).toContain("9");
+    expect(digits).toContain("1");
+  });
+
   it("tells a screen reader what's lit from one line that stays put as it turns", () => {
     open(1);
     const said = document.querySelector('[role="status"]')!;

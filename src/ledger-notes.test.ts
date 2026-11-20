@@ -219,7 +219,9 @@ describe("the open note's sheet", () => {
     expect(foot()).toContain("2 words");
     area.value = "# Plan\nintro and more";
     area.dispatchEvent(new Event("input"));
-    expect(foot()).toContain("Saving…");
+    // Nothing said while it is going well, and the count follows the text.
+    expect(foot()).not.toContain("Saved");
+    expect(foot()).not.toContain("Saving");
     expect(foot()).toContain("4 words");
     vi.advanceTimersByTime(500);
     await vi.waitFor(() => expect(foot()).toContain("Saved"));

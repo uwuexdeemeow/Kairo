@@ -548,6 +548,7 @@ pub fn run() {
             virustotal::vt_pick_file,
             virustotal::vt_open_report,
             speedtest::speed_run,
+            speedtest::speed_stop,
             speedtest::open_speed,
             commands::ring_settings,
             commands::set_ring_shortcut,

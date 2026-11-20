@@ -15,10 +15,11 @@ const view = mountSpeed($("#speed"), {
     running = true;
     void invoke("speed_run");
   },
+  stop: () => void invoke("speed_stop"),
 });
 listen<SpeedProgress>("speed:progress", (e) => {
   view.update(e.payload);
-  if (e.payload.phase === "done" || e.payload.phase === "error") running = false;
+  if (e.payload.phase === "done" || e.payload.phase === "error" || e.payload.phase === "stopped") running = false;
 });
 // Asked for again from the palette while open: another test, unless one is running.
 listen("speed:again", () => {

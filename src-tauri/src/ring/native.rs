@@ -199,6 +199,17 @@ impl Painter {
             let size = 26.0 + 8.0 * lit;
             let mark_y = if lit > 0.0 { y - 22.0 * lit } else { y };
             self.mark(rt, segment, scene.paused, x, mark_y, size, alpha * if lit > 0.0 { 1.0 } else { 0.55 }, scale, &t, &inks)?;
+            // The ones beside the lit one say who they are, as the web ring's do, fading with the segment.
+            if lit < 0.4 && near <= 1.5 {
+                let a = (1.5 - near).clamp(0.0, 1.0);
+                self.text(rt, &scene.names[index], &self.line, x, mark_y + size / 2.0 + 4.0, t.ink_2, a)?;
+            }
+            // The key that picks each (1 to 9 open the first nine), near its outer edge; none past the ninth.
+            if index < 9 {
+                let rd = OUTER - 14.0 + PROUD * lit;
+                let (dx, dy) = (CENTRE.0 + rd * deg.to_radians().sin(), CENTRE.1 - rd * deg.to_radians().cos());
+                self.text(rt, &(index + 1).to_string(), &self.line, dx, dy - 8.0, t.ink_2, alpha)?;
+            }
             if lit > 0.6 {
                 let a = (lit - 0.6) / 0.4;
                 self.text(rt, &scene.names[index], &self.name, x, mark_y + size / 2.0 + 2.0, t.ink, a)?;

@@ -63,13 +63,13 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
 
   // Floating is the window's, whatever it shows.
   let onTop = true;
-  const pin = noteTool("on-top", "Keep above other windows", glyph("pin"), () => {
+  const pin = noteTool("on-top", "Keep above other windows", glyph("float"), () => {
     onTop = !onTop;
     drawPin();
     void act.setOnTop(onTop);
   });
   // The same switch, by name, in the menu that holds the window's tools when it's narrow.
-  const pinItem = h("button", { class: "popout-more-item", role: "menuitemcheckbox", "aria-checked": "true" }, glyph("pin"), "Keep above other windows");
+  const pinItem = h("button", { class: "popout-more-item", role: "menuitemcheckbox", "aria-checked": "true" }, glyph("float"), "Keep above other windows");
   pinItem.addEventListener("click", () => {
     pin.click();
     // Back on ⋯, where the keyboard was: the item it was on is gone with the menu.
@@ -78,6 +78,8 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   const drawPin = () => {
     pin.setAttribute("aria-pressed", String(onTop));
     pinItem.setAttribute("aria-checked", String(onTop));
+    // The state in words too, not only a tint: "on" or "off" is what the pointer finds.
+    pin.title = `Keep above other windows: ${onTop ? "on" : "off"}`;
   };
   drawPin();
   void act.onTop().then((on) => {

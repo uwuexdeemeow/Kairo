@@ -54,16 +54,9 @@
         <p class="sr-only" id="settings-found" role="status"></p>
         <p class="muted settings-none" id="settings-none" role="status" hidden>No setting matches. Try a word like theme, backup or shortcut.</p>
 
-        <div class="settings-group" id="group-apps">
-          <h2 class="settings-group-title">Your apps</h2>
-        <section class="block settings-first" aria-label="Each app's settings">
-          <ul class="app-settings" id="app-settings"></ul>
-        </section>
-        </div>
-
         <div class="settings-group" id="group-kairo">
           <h2 class="settings-group-title">Look and upkeep</h2>
-        <section class="block" data-words="theme dark light colour color ground paper ink night look">
+        <section class="block settings-first" data-words="theme dark light colour color ground paper ink night look">
           <h3>Appearance</h3>
           <label class="field">
             Theme
@@ -256,6 +249,13 @@
             <button class="link-btn" id="sync-over" hidden>Unlink every computer</button>
             <span class="muted" id="sync-status" aria-live="polite"></span>
           </div>
+        </section>
+        </div>
+
+        <div class="settings-group" id="group-apps">
+          <h2 class="settings-group-title">Your apps</h2>
+        <section class="block" aria-label="Each app's settings">
+          <ul class="app-settings" id="app-settings"></ul>
         </section>
         </div>
 

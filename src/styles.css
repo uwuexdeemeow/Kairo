@@ -5936,6 +5936,28 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   opacity: 0.55;
 }
 
+/* The neighbours' names under their marks, and the key that picks each on its outer edge. Drawn
+   and not said: the status line names what is lit, and Settings lists the keys. */
+.ring-near-name,
+.ring-digit {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  color: var(--ink-2);
+}
+
+.ring-near-name {
+  max-width: 76px;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ring-digit {
+  font: 600 10px var(--mono);
+}
+
 .ring-lit {
   display: flex;
   flex-direction: column;

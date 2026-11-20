@@ -12,6 +12,8 @@ const PATHS = {
   close: '<path d="M7 7l10 10M17 7L7 17" />',
   list: '<path d="M5 7h14M5 12h14M5 17h14" />',
   pin: '<path d="M9 4h6l-1 5 3 3H7l3-3z" /><path d="M12 12v8" />',
+  // One window floating over another: the note pop-out's "keep above other windows", apart from a pinned note.
+  float: '<rect x="3.5" y="9.5" width="11" height="11" rx="2" /><path d="M9.5 6.5v-1a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-1" />',
   open: '<path d="M14 4h6v6M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />',
   out: '<path d="M9 6h9v9M18 6L6 18" />',
   up: '<path d="M12 19V5M6 11l6-6 6 6" />',
