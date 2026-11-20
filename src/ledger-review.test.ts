@@ -103,19 +103,46 @@ describe("the Review view", () => {
   it("counts the week, lists what slipped and offers the actions", () => {
     const { root, calls, click } = mount(week);
     expect(root.textContent).toContain("1 done");
+    expect(root.textContent).toContain("Overdue, or moved to a later day twice or more.");
     expect(root.querySelector(".review-why")?.textContent).toBe("Overdue · moved 3 times");
+    // The reason is read with the task's own button.
+    const title = root.querySelector<HTMLButtonElement>(".review-title")!;
+    expect(root.querySelector(`#${title.getAttribute("aria-describedby")}`)?.textContent).toBe("Overdue · moved 3 times");
     click("Open this week in Chrono");
     click("Put “Taxes” on Mon 9");
-    click("Take the day off “Taxes”");
-    click("Delete “Taxes”");
+    click("No day");
+    click("Delete");
     expect(calls).toEqual([["chrono", "2026-11-02"], ["move", "Taxes", "2026-11-09", null], ["move", "Taxes", null, null], ["remove", "Taxes"]]);
+  });
+
+  it("says nothing finished without 'yet', for a week that may already be over", () => {
+    const { root } = mount([task("Essay")]);
+    expect(root.textContent).toContain("Nothing was finished this week.");
+    expect(root.textContent).not.toContain("this week yet");
+  });
+
+  it("offers three candidates, more on request, and one day for the picks", () => {
+    const { root, calls, click } = mount(week);
+    const rows = () => Array.from(root.querySelectorAll(".review-row")).filter((r) => r.querySelector(".review-pick"));
+    expect(rows()).toHaveLength(3);
+    // The day is chosen once, Monday to start with, and says next week plainly.
+    expect(root.textContent).toContain("Next week starts Mon 9 Nov.");
+    const chips = Array.from(root.querySelectorAll<HTMLButtonElement>("[aria-label='Day for the picks'] button"));
+    expect(chips.map((c) => [c.textContent, c.getAttribute("aria-pressed")])).toEqual([["Mon 9", "true"], ["Tue 10", "false"], ["Wed 11", "false"], ["Thu 12", "false"], ["Fri 13", "false"]]);
+    click("Tue 10");
+    click("Put “Essay” on Tue 10");
+    expect(calls).toEqual([["move", "Essay", "2026-11-10", null]]);
+    // Five open tasks could be picked and one was, so four are left: the fourth waits behind a
+    // button that was drawn before the pick, which is still asking to show two.
+    click("Show 2 more");
+    expect(rows()).toHaveLength(4);
   });
 
   it("lets three tasks be picked for next week, then says so", () => {
     const { root, calls, click, view } = mount(week);
     const picked: string[] = [];
-    for (const [title, day] of [["Essay", "Mon 9"], ["Mail", "Tue 10"], ["Gym", "Wed 11"]] as const) {
-      click(`Put “${title}” on ${day}`);
+    for (const title of ["Essay", "Mail", "Gym"]) {
+      click(`Put “${title}” on Mon 9`);
       picked.push(title);
       // The page draws again once the task has its day.
       view.render(week.map((t) => (picked.includes(t.id) ? { ...t, dueDay: "2026-11-09" } : t)), null);

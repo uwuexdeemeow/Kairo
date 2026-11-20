@@ -202,6 +202,8 @@ function renderToday(d: DaySummary) {
 let shownFocus: FocusBlock[] = [];
 /// Its meetings from the connected calendars, which keep them for a good while after.
 let shownMeetings: CalendarEvent[] = [];
+/// Whether reading them failed, which is not the same as a day with none.
+let meetingsFailed = false;
 
 /// The whole hours the day's graph spans: from the hour activity began to the hour it ended (or
 /// now), at least three hours wide, so short stretches are wide enough to see and point at. A day
@@ -330,9 +332,10 @@ function renderTimeline(d: DaySummary, isToday: boolean) {
       lane.append(el);
     }
     rove(marks);
-    parts.unshift(lane);
-    if (more) parts.push(h("p", { class: "muted meeting-more" }, `and ${more} more ${more === 1 ? "meeting" : "meetings"}`));
+    // Under the lane it describes, so the count is read with it.
+    parts.unshift(...(more ? [lane, h("p", { class: "muted meeting-more" }, `and ${more} more ${more === 1 ? "meeting" : "meetings"}`)] : [lane]));
   }
+  if (meetingsFailed) parts.push(h("p", { class: "muted meeting-more", role: "status" }, "The calendar couldn't be read, so meetings aren't shown."));
   // Focus sessions run as a thin lane above the activity they covered.
   if (shownFocus.length) {
     const lane = h("div", { class: "focus-lane", role: "group", "aria-label": `${shownFocus.length} focus ${shownFocus.length === 1 ? "session" : "sessions"}` });
@@ -1998,7 +2001,11 @@ async function load(v: View = view) {
       // The day's meetings, from midnight to the next midnight; none when no calendar is connected.
       const first = parseDate(selectedDay ?? todayIso());
       const next = new Date(first.getFullYear(), first.getMonth(), first.getDate() + 1);
-      shownMeetings = await api.calendarEvents(first.getTime(), next.getTime()).catch(() => []);
+      meetingsFailed = false;
+      shownMeetings = await api.calendarEvents(first.getTime(), next.getTime()).catch(() => {
+        meetingsFailed = true;
+        return [] as CalendarEvent[];
+      });
       renderToday(day);
       renderGoals(goals, selectedDay === null);
       renderAway(away);

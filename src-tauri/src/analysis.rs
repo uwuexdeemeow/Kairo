@@ -888,7 +888,7 @@ pub fn meeting_insight(meetings: &[(i64, i64)], days: usize) -> Option<Insight> 
         Insight::new(
             InsightKind::Info,
             format!("Meetings fill {range}"),
-            format!("The calendar has you in meetings for {}% of {range} on the days you were at the computer, so deep work is better planned outside it.", pct(share)),
+            format!("In meetings {}% of {range} on days you were here. Plan deep work elsewhere.", pct(share)),
         )
         .with_metric(format!("{}%", pct(share)), format!("in meetings, {range}")),
     )

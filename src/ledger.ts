@@ -520,10 +520,8 @@ async function followOpen() {
 }
 
 type View = "tasks" | "calendar" | "notes" | "done" | "plan" | "review" | "settings";
-/// The tabs in the order they stand, for the arrow keys.
+/// The tabs in the order they stand: the arrow keys walk them, and Ctrl+1 to 7 open them.
 const VIEWS: View[] = ["tasks", "calendar", "notes", "done", "plan", "review", "settings"];
-/// What Ctrl+1 to 7 open: Settings kept its Ctrl+6 when Review came.
-const SHORTCUTS: View[] = ["tasks", "calendar", "notes", "done", "plan", "settings", "review"];
 
 /// The tabs as one Tab stop, the chosen one; the arrows move between them.
 function markTabs() {
@@ -684,7 +682,7 @@ document.addEventListener("keydown", (e) => {
   // Ctrl+1 to 7: the views.
   if (ctrl && ["1", "2", "3", "4", "5", "6", "7"].includes(e.key)) {
     e.preventDefault();
-    return show(SHORTCUTS[Number(e.key) - 1]);
+    return show(VIEWS[Number(e.key) - 1]);
   }
   // Ctrl+N: a new note in Notes; elsewhere, the add field, ready to type a task.
   if (ctrl && e.key.toLowerCase() === "n") {
