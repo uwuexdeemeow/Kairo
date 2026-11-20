@@ -1467,7 +1467,7 @@ mod tests {
         assert!(crate::blocking::settings(&conn).unwrap().enabled);
         // Asked again as usual, the row is back to naming its page.
         let again = session.query(&session.last().0, None);
-        assert_eq!(again.rows[at].sub.as_deref(), Some("Chrono settings"));
+        assert_eq!(again.rows[at].sub.as_deref(), Some("Chrono's Focus page"));
     }
 
     #[test]

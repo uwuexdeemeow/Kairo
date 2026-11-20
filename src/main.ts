@@ -2064,21 +2064,7 @@ async function load(v: View = view) {
       paintTimer();
       renderFocusPage(await api.focusOverview());
       await drawTasks();
-      // Slots name the apps, sites and saved lists they block, so those come first.
-      await loadBlockChoices();
-      const blocks = await api.blockLists();
-      renderBlockLists(blocks);
-      renderSchedule(await api.focusSchedule());
-      renderModes(await api.focusModes(), blocks.lists.map((l) => l.name));
-    }
-    if (v === "settings") {
-      renderBrowsers(await api.browsers());
-      renderRetention(await api.retention());
-      titleDays.render(await api.titleDays());
-      renderGoalSettings(await api.goalSettings());
-      renderCalendar(await api.calendar());
-      renderProjects(await api.projects());
-      await refreshExtension();
+      // Blocking and break reminders sit with the rest of setting focus up, not on Settings.
       const blocking = await api.focusBlocking();
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
@@ -2094,6 +2080,21 @@ async function load(v: View = view) {
           out.textContent = `Couldn't save. ${why(e)}`;
         }
       };
+      // Slots name the apps, sites and saved lists they block, so those come first.
+      await loadBlockChoices();
+      const blocks = await api.blockLists();
+      renderBlockLists(blocks);
+      renderSchedule(await api.focusSchedule());
+      renderModes(await api.focusModes(), blocks.lists.map((l) => l.name));
+    }
+    if (v === "settings") {
+      renderBrowsers(await api.browsers());
+      renderRetention(await api.retention());
+      titleDays.render(await api.titleDays());
+      renderGoalSettings(await api.goalSettings());
+      renderCalendar(await api.calendar());
+      renderProjects(await api.projects());
+      await refreshExtension();
       $<HTMLInputElement>("#nudges-enabled").checked = await api.nudgesEnabled();
       const evening = await api.eveningSummary();
       $<HTMLInputElement>("#evening-enabled").checked = evening.enabled;

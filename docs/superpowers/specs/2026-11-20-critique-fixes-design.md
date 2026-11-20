@@ -62,8 +62,9 @@ what 1.31.62 did about them, and what it left.
   default, which is what a pop-out is for.
 - "Your apps" is the last Settings group, so Settings opens on settings.
 - Today's stats have a lead row (Longest focus, Distracting) and a smaller one, as Week's do.
-- "Set up focus" says where blocking, strict mode and break reminders live, with links, instead of
-  moving settings whose loading belongs to their page.
+- Blocking (its switches and strict mode) and break reminders moved from Chrono's Settings into
+  "Set up focus" on the Focus page (1.31.65), and are loaded with it. The palette's entries for
+  them (and Find's) now point at the Focus page, and the palette can still flip blocking.
 - Review's rows move with the up and down arrows, on the same button of the next row.
 
 ## Left on purpose

@@ -60,6 +60,11 @@ fn focus_page(title: &'static str, words: &'static str, control: &'static str) -
     Entry { title, words, page: Page::Focus, control, switch: None, runs: None }
 }
 
+/// A setting on Chrono's Focus page that is also a switch the palette can flip.
+fn focus_switch(title: &'static str, words: &'static str, control: &'static str, switch: Switch) -> Entry {
+    Entry { title, words, page: Page::Focus, control, switch: Some(switch), runs: None }
+}
+
 fn kairo(title: &'static str, words: &'static str, control: &'static str, switch: Option<Switch>, runs: Option<Action>) -> Entry {
     Entry { title, words, page: Page::Kairo, control, switch, runs }
 }
@@ -80,10 +85,10 @@ pub fn entries() -> Vec<Entry> {
         chrono("Browser extension", "chrome firefox edge sites tabs", "ext-open", None),
         chrono("Focus nudges", "nudge notification heads up reminder", "nudges-enabled", Some(Nudges)),
         chrono("Evening summary", "recap end of day notification time", "evening-enabled", Some(Evening)),
-        chrono("Focus blocking", "block distracting apps sites session", "block-enabled", Some(Blocking)),
-        chrono("Block launchers too", "game steam epic launcher close", "block-launchers", Some(Launchers)),
-        chrono("Strict blocking", "strict mode lock session", "block-strict", None),
-        chrono("Breaks", "break rest reminder every", "break-every", None),
+        focus_switch("Focus blocking", "block distracting apps sites session", "block-enabled", Blocking),
+        focus_switch("Block launchers too", "game steam epic launcher close", "block-launchers", Launchers),
+        focus_page("Strict blocking", "strict mode lock session", "block-strict"),
+        focus_page("Breaks", "break rest reminder every", "break-every"),
         focus_page("Pomodoro break length", "pomodoro rounds short rest minutes cycle", "pomodoro-break-min"),
         focus_page("Pomodoro long break", "pomodoro rounds long rest minutes cycle", "pomodoro-long-min"),
         focus_page("Rounds before the long break", "pomodoro cycle rounds how many", "pomodoro-rounds"),
@@ -278,7 +283,19 @@ mod tests {
             assert_eq!(found.action, Action::Setting(control), "{query}");
             assert_eq!(found.sub.as_deref(), Some("Chrono's Focus page"));
         }
-        assert!(entries().iter().filter(|e| e.page == Page::Focus).all(|e| e.control.starts_with("pomodoro-")));
+        // The Focus page holds the rounds' lengths, and blocking and break reminders, set up there.
+        assert!(entries().iter().filter(|e| e.page == Page::Focus).all(|e| e.control.starts_with("pomodoro-") || e.control.starts_with("block-") || e.control == "break-every"));
+    }
+
+    #[test]
+    fn blocking_and_breaks_are_on_the_focus_page_and_blocking_can_still_be_flipped_in_the_palette() {
+        for (control, switch) in [("block-enabled", Some(Switch::Blocking)), ("block-launchers", Some(Switch::Launchers)), ("block-strict", None), ("break-every", None)] {
+            let e = entries().into_iter().find(|e| e.control == control).unwrap_or_else(|| panic!("{control} missing"));
+            assert_eq!((e.page, e.switch), (Page::Focus, switch), "{control}");
+        }
+        let found = &search("strict blocking", &[])[0];
+        assert_eq!(found.action, Action::Setting("block-strict"));
+        assert_eq!(found.sub.as_deref(), Some("Chrono's Focus page"));
     }
 
     #[test]
