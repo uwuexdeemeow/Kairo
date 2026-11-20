@@ -515,6 +515,14 @@ impl Patterns {
         }
         self
     }
+
+    /// Adds what the calendar says about the hours, once there are real insights to sit beside.
+    pub fn with_meetings(mut self, meetings: &[(i64, i64)]) -> Self {
+        if self.days_with_data >= MIN_DAYS_FOR_INSIGHTS {
+            self.insights.extend(meeting_insight(meetings, self.days_with_data));
+        }
+        self
+    }
 }
 
 /// Per-hour totals, the weekday x hour grid, and the days with meaningful activity.
@@ -851,6 +859,41 @@ fn hour_parts(h: usize) -> (usize, &'static str) {
 }
 
 /// "9–11am", "11am–1pm".
+/// Meetings must come to this much of the days at the computer, and to this many hours in all,
+/// before they are called a pattern.
+const MEETING_PATTERN_SHARE: f64 = 0.25;
+const MEETING_PATTERN_MS: i64 = 3 * 60 * MIN_MS;
+
+/// The two-hour stretch the calendar fills most on the days at the computer, when it fills enough
+/// of it to plan around: "Meetings fill 10am–12pm". `meetings` are the calendar's stretches, made
+/// one where they overlap; `days` the days with data. None for a calendar that is nearly empty or
+/// thinly spread.
+pub fn meeting_insight(meetings: &[(i64, i64)], days: usize) -> Option<Insight> {
+    let mut hourly = [0i64; 24];
+    for &(start, end) in meetings {
+        for (t0, t1) in split_by_hour(start, end) {
+            hourly[local(t0).hour() as usize] += t1 - t0;
+        }
+    }
+    if days == 0 || hourly.iter().sum::<i64>() < MEETING_PATTERN_MS {
+        return None;
+    }
+    let (h, ms) = (0..23).map(|h| (h, hourly[h] + hourly[h + 1])).max_by_key(|&(_, ms)| ms)?;
+    let share = (ms as f64 / (days as i64 * 2 * 60 * MIN_MS) as f64).min(1.0);
+    if share < MEETING_PATTERN_SHARE {
+        return None;
+    }
+    let range = hour_range(h, h + 2);
+    Some(
+        Insight::new(
+            InsightKind::Info,
+            format!("Meetings fill {range}"),
+            format!("The calendar has you in meetings for {}% of {range} on the days you were at the computer, so deep work is better planned outside it.", pct(share)),
+        )
+        .with_metric(format!("{}%", pct(share)), format!("in meetings, {range}")),
+    )
+}
+
 fn hour_range(from: usize, to: usize) -> String {
     let ((a, sa), (b, sb)) = (hour_parts(from), hour_parts(to));
     if sa == sb { format!("{a}–{b}{sb}") } else { format!("{a}{sa}–{b}{sb}") }
@@ -871,6 +914,30 @@ mod tests {
             category,
             app_category: category,
         }
+    }
+
+    fn local_ms(day: u32, hour: u32) -> i64 {
+        use chrono::TimeZone;
+        Local.with_ymd_and_hms(2026, 10, day, hour, 0, 0).unwrap().timestamp_millis()
+    }
+
+    #[test]
+    fn meetings_that_fill_a_stretch_of_the_day_are_pointed_out() {
+        // Five days with meetings from 10 to 12, and a short one at 15 on two of them.
+        let mut meetings: Vec<(i64, i64)> = (19..24).map(|d| (local_ms(d, 10), local_ms(d, 12))).collect();
+        meetings.push((local_ms(19, 15), local_ms(19, 16)));
+        meetings.push((local_ms(20, 15), local_ms(20, 16)));
+        let said = meeting_insight(&meetings, 5).expect("a window with meetings");
+        assert_eq!(said.title, "Meetings fill 10am–12pm");
+        assert_eq!(said.metric, "100%");
+        assert!(said.detail.contains("100% of 10am–12pm"), "{}", said.detail);
+        // Spread thin, or too few, is not a pattern.
+        let thin: Vec<(i64, i64)> = (19..24).map(|d| (local_ms(d, 10), local_ms(d, 10) + 15 * 60_000)).collect();
+        assert!(meeting_insight(&thin, 5).is_none());
+        assert!(meeting_insight(&meetings[..1], 5).is_none());
+        // Against more days at the computer, the same meetings fill less of it.
+        let sparse = meeting_insight(&meetings, 10).unwrap();
+        assert_eq!(sparse.metric, "50%");
     }
 
     #[test]

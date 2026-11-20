@@ -211,17 +211,21 @@ pub fn review_nudge(tasks: &[Task], now_local: NaiveDateTime, day_to: NaiveTime,
     if !on_time || reviewed == Some(week.as_str()) || last == Some(week.as_str()) {
         return None;
     }
+    let body = review_line(tasks, from_ms, to_ms)?;
+    Some(("Review the week?".into(), body, week))
+}
+
+/// What the review nudge says: "4 done this week · 2 slipped"; None when there is nothing in the
+/// week from `from_ms` to `to_ms` to say.
+pub fn review_line(tasks: &[Task], from_ms: i64, to_ms: i64) -> Option<String> {
     let done = tasks.iter().filter(|t| t.done_ms.is_some_and(|d| d >= from_ms && d < to_ms)).count();
     let slipping = tasks.iter().filter(|t| slipped(t)).count();
-    if done == 0 && slipping == 0 {
-        return None;
+    match (done, slipping) {
+        (0, 0) => None,
+        (d, 0) => Some(format!("{d} done this week")),
+        (0, s) => Some(format!("{s} slipped")),
+        (d, s) => Some(format!("{d} done this week · {s} slipped")),
     }
-    let body = match (done, slipping) {
-        (d, 0) => format!("{d} done this week"),
-        (0, s) => format!("{s} slipped"),
-        (d, s) => format!("{d} done this week · {s} slipped"),
-    };
-    Some(("Review the week?".into(), body, week))
 }
 
 /// The mark a moment reminder leaves: its moment, with no spaces (marks are space-separated).
@@ -570,6 +574,9 @@ mod tests {
         // Not on other days, and not for a week with nothing in it.
         assert_eq!(nudge(NaiveDate::from_ymd_opt(2026, 11, 6).unwrap().and_hms_opt(18, 0, 0).unwrap(), None, None), None);
         assert_eq!(review_nudge(&[], sunday(18, 0), six, from, to, None, None), None);
+        // The line alone, as the test button sends it.
+        assert_eq!(review_line(&tasks, from, to).as_deref(), Some("1 done this week · 2 slipped"));
+        assert_eq!(review_line(&[], from, to), None);
         // Only what's done: no "slipped" in the line.
         assert_eq!(review_nudge(&[done], sunday(18, 0), six, from, to, None, None).unwrap().1, "1 done this week");
     }

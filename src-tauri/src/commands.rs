@@ -108,7 +108,8 @@ pub fn get_patterns(state: State<AppState>, days: u32) -> CmdResult<Patterns> {
     let rows = analysis::load_rows_of(&conn, from, now, &sync::shown(&conn)?).map_err(err)?;
     let blocks = focus::blocks(&conn, from, now, now).map_err(err)?;
     let focused_ms = blocks.iter().map(focus::Block::ms).sum();
-    Ok(analysis::patterns(&rows).with_focus(blocks.len(), focused_ms, focus::insights(&blocks, now)))
+    let meetings = calendar::merged(&conn, from, now).map_err(err)?;
+    Ok(analysis::patterns(&rows).with_focus(blocks.len(), focused_ms, focus::insights(&blocks, now)).with_meetings(&meetings))
 }
 
 #[derive(Serialize)]
@@ -1507,6 +1508,21 @@ pub fn send_test_nudge(app: AppHandle, state: State<AppState>) -> CmdResult<()> 
     let conn = state.db.lock().map_err(err)?;
     let message = nudge::heads_up_ignoring_time(&conn, &state.window_cache).unwrap_or_else(nudge::sample);
     nudge::notify(&app, &message).map_err(err)
+}
+
+/// Sends the weekly review notification now, with this week's real line (or a note that there is
+/// nothing yet), so the switch can be tried without waiting for Sunday. It marks nothing.
+#[tauri::command]
+pub fn send_test_review_nudge(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
+    use tauri_plugin_notification::NotificationExt;
+    let conn = state.db.lock().map_err(err)?;
+    let today = Local::now().date_naive();
+    let monday = crate::recap::week_start(today);
+    let from = day_bounds(monday).map_or(0, |b| b.0);
+    let to = day_bounds(monday + chrono::Days::new(6)).map_or(i64::MAX, |b| b.1);
+    let tasks = tasks::list(&conn, now_ms(), &tasks::today()).map_err(err)?;
+    let body = reminders::review_line(&tasks, from, to).unwrap_or_else(|| "Nothing done or slipped yet this week".into());
+    app.notification().builder().title("Review the week?").body(body).extra(reminders::OPENS, "review").show().map_err(err)
 }
 
 #[derive(Serialize)]

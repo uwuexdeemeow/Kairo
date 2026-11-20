@@ -5,9 +5,9 @@ network beyond the addresses already read. Built in 1.31.59, with these differen
 the timeline draws meetings as a lane under the focus lane, not as bands behind the app blocks
 (it reads the same way the focus lane does and every meeting can be reached with the arrow keys);
 the palette answers through the existing answer card with Meetings as a subject, so there is no
-new card and no native-palette change; the week's data carries the total and the Sunday
-notification says it, while the month and year notifications and the Patterns "mostly meetings"
-line are left for later.
+new card and no native-palette change; the week's, month's and year's data and notifications carry
+the total; and Patterns says "Meetings fill 10am–12pm" for the two-hour stretch the calendar fills
+most, instead of marking a weak hour as "mostly meetings".
 
 ## Why this, and not "calendar as a source of time" from scratch
 Most of that idea exists. `calendar.rs` reads private iCal addresses (Google's secret address,

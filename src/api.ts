@@ -645,6 +645,8 @@ export const api = {
   setPlanNudge: (on: boolean) => invoke<LedgerSettings>("set_plan_nudge", { on }),
   setWrapNudge: (on: boolean) => invoke<LedgerSettings>("set_wrap_nudge", { on }),
   setReviewNudge: (on: boolean) => invoke<LedgerSettings>("set_review_nudge", { on }),
+  /** Sends the review notification now, marking nothing. */
+  testReviewNudge: () => invoke<void>("send_test_review_nudge"),
   /** The last week (its Monday) marked as reviewed; null before the first. */
   reviewedWeek: () => invoke<string | null>("get_reviewed_week"),
   /** Marks a week (its Monday) reviewed; the later of two computers' weeks is kept. */

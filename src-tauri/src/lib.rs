@@ -504,6 +504,7 @@ pub fn run() {
             commands::set_plan_nudge,
             commands::set_wrap_nudge,
             commands::set_review_nudge,
+            commands::send_test_review_nudge,
             commands::get_reviewed_week,
             commands::mark_week_reviewed,
             commands::get_notes,

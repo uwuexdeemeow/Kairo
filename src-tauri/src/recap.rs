@@ -406,6 +406,9 @@ fn month_message(m: &Period) -> (String, String) {
     if let Some(p) = m.top_projects.first() {
         parts.push(format!("Top project: {}.", p.name));
     }
+    if m.meeting_ms > 0 {
+        parts.push(format!("Meetings: {}.", fmt_dur(m.meeting_ms)));
+    }
     (title, parts.join(" "))
 }
 
@@ -424,6 +427,9 @@ fn year_message(y: &Period) -> (String, String) {
     }
     if let Some(p) = y.top_projects.first() {
         parts.push(format!("Top project: {}.", p.name));
+    }
+    if y.meeting_ms > 0 {
+        parts.push(format!("Meetings: {}.", fmt_dur(y.meeting_ms)));
     }
     (title, parts.join(" "))
 }
@@ -522,6 +528,24 @@ mod tests {
         let start = analysis::day_bounds(date).unwrap().0 + 10 * 60 * MIN_MS;
         let row = db::NewSession { app, exe, title: "", site: None, start_ms: start, end_ms: start + minutes * MIN_MS, idle: false, demo: false };
         db::insert_session(conn, &row).unwrap();
+    }
+
+    #[test]
+    fn a_month_and_a_year_say_their_meetings_when_there_were_any() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let date = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+        let at = |d: NaiveDate| analysis::day_bounds(d).unwrap().0 + 10 * 60 * MIN_MS;
+        session(&conn, "cursor", "Cursor", date(10, 6), 120);
+        let now = analysis::day_bounds(date(12, 31)).unwrap().0;
+        let (month_quiet, year_quiet) = (month(&conn, date(10, 1), now).unwrap(), year(&conn, date(1, 1), now).unwrap());
+        assert!(!month_message(&month_quiet).1.contains("Meetings") && !year_message(&year_quiet).1.contains("Meetings"));
+        crate::calendar::store(&conn, &[
+            crate::calendar::Event { start_ms: at(date(10, 7)), end_ms: at(date(10, 7)) + 90 * MIN_MS, title: "m".into() },
+            crate::calendar::Event { start_ms: at(date(3, 2)), end_ms: at(date(3, 2)) + 60 * MIN_MS, title: "m".into() },
+        ]).unwrap();
+        let (m, y) = (month(&conn, date(10, 1), now).unwrap(), year(&conn, date(1, 1), now).unwrap());
+        assert!(month_message(&m).1.contains("Meetings: 1h 30m."), "{}", month_message(&m).1);
+        assert!(year_message(&y).1.contains("Meetings: 2h 30m."), "{}", year_message(&y).1);
     }
 
     #[test]

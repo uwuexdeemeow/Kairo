@@ -641,6 +641,15 @@ for (const [box, save] of [
     }
   });
 }
+$("#ledger-review-test").addEventListener("click", async () => {
+  const out = $("#ledger-review-test-status");
+  try {
+    await api.testReviewNudge();
+    out.textContent = "Sent. Check your notifications.";
+  } catch {
+    out.textContent = "Couldn't send. Check that Kairo may show notifications.";
+  }
+});
 $("#ledger-day-from").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 $("#ledger-day-to").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 markTabs();
