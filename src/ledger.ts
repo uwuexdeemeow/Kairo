@@ -8,7 +8,7 @@ import { mountCalendar, type CalendarView } from "./ledger-calendar";
 import { loadLine, paceLine, paceRatio, plannedMinutes } from "./ledger-cost";
 import { dayHours, USUAL_DAY, type Hours } from "./ledger-free";
 import { mountPlan, movedSaid, planTitle, type PlanView } from "./ledger-plan";
-import { mountReview, type ReviewView } from "./ledger-review";
+import { mountReview, reviewedNow, type ReviewView } from "./ledger-review";
 import { filterBar, filterSummary, matches, NO_FILTER, type Filter } from "./ledger-labels";
 import { mountNotes, type NotesView } from "./ledger-notes";
 import type { NoteChange } from "./note-popout";
@@ -229,6 +229,13 @@ let reviewView: ReviewView | null = null;
 /// The week last marked reviewed, as the page last heard.
 let reviewedAt: string | null = null;
 
+/// The tick on the Review tab: shown once the week in hand has been reviewed.
+function markReviewTab() {
+  const done = reviewedNow(reviewedAt, Date.now());
+  $("#review-check").toggleAttribute("hidden", !done);
+  $("#review-check-said").textContent = done ? " (reviewed this week)" : "";
+}
+
 /// The Review view, made the first time it's shown, drawn with the tasks as they are now. Moving
 /// and deleting are Plan's and Done's own, with their Undo.
 function drawReview() {
@@ -256,6 +263,7 @@ function drawReview() {
     chrono: (monday) => void api.openChrono("week", monday).catch(() => {}),
     finish: async (monday) => {
       reviewedAt = await api.markWeekReviewed(monday);
+      markReviewTab();
       drawReview();
     },
   });
@@ -265,6 +273,7 @@ function drawReview() {
     .then((week) => {
       if (week === reviewedAt) return;
       reviewedAt = week;
+      markReviewTab();
       if (shown === "review") reviewView?.render(tasks.filter((t) => !deletingTasks.has(t.id)), reviewedAt);
     })
     .catch(() => {});
@@ -651,6 +660,14 @@ $("#ledger-review-test").addEventListener("click", async () => {
 $("#ledger-day-from").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 $("#ledger-day-to").addEventListener("change", () => saveSettings("#ledger-planning-note"));
 markTabs();
+// Whether this week is reviewed shows on the tab from the start, not only once Review is opened.
+void api
+  .reviewedWeek()
+  .then((week) => {
+    reviewedAt = week;
+    markReviewTab();
+  })
+  .catch(() => {});
 // Find a task: the list narrows as it's typed; Esc clears it, then leaves it.
 $("#task-search").addEventListener("input", () => draw());
 $("#task-search").addEventListener("keydown", (e) => {

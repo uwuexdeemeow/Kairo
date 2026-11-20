@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "./api";
-import { MAX_PICKS, mountReview, nextWeekDays, nextWorkday, pickable, plannedNext, reviewedWeek, slipLine, slippedTasks } from "./ledger-review";
+import { MAX_PICKS, mountReview, nextWeekDays, nextWorkday, pickable, plannedNext, reviewedNow, reviewedWeek, slipLine, slippedTasks } from "./ledger-review";
 
 const task = (id: string, extra: Partial<Task> = {}): Task =>
   ({ id, title: id, createdMs: 0, doneMs: null, position: 0, focusedMs: 0, dueDay: null, priority: 1, remindMs: null, reminded: "", note: null, steps: [], repeat: null, tags: [], project: null, remindWhen: null, estimateMin: null, moved: 0, group: "none", ...extra }) as Task;
@@ -14,6 +14,18 @@ describe("the week under review", () => {
     expect(reviewedWeek(at("2026-11-08", 20))).toBe("2026-11-02");
     expect(reviewedWeek(at("2026-11-09", 9))).toBe("2026-11-02");
     expect(reviewedWeek(at("2026-11-09", 17))).toBe("2026-11-09");
+  });
+});
+
+describe("whether the week in hand is reviewed", () => {
+  it("is so only once a review of this week, or a later one, is marked", () => {
+    const wed = at("2026-11-04");
+    expect(reviewedNow(null, wed)).toBe(false);
+    expect(reviewedNow("2026-10-26", wed)).toBe(false);
+    expect(reviewedNow("2026-11-02", wed)).toBe(true);
+    // Monday morning is still the week just ended, so last week's review is the one that counts.
+    expect(reviewedNow("2026-11-02", at("2026-11-09", 9))).toBe(true);
+    expect(reviewedNow("2026-11-02", at("2026-11-09", 17))).toBe(false);
   });
 });
 
@@ -181,6 +193,17 @@ describe("the Review view", () => {
     key(rows[0].querySelectorAll("button")[0], "ArrowUp");
     // Nothing above the first row: it stays.
     expect(document.activeElement).toBe(rows[1].querySelectorAll("button")[1]);
+  });
+
+  it("says when the last review was, once an earlier week's is the latest", () => {
+    // Sunday 8 November: the week of the 2nd is in hand, and the 26th of October was the last review.
+    const { root } = mount(week, "2026-10-26");
+    expect(root.textContent).toContain("Last reviewed the week of 26 Oct.");
+    // Reviewed this week, or never: nothing to say about an earlier one.
+    const done = mount(week, "2026-11-02");
+    expect(done.root.textContent).not.toContain("Last reviewed");
+    const never = mount(week, null);
+    expect(never.root.textContent).not.toContain("Last reviewed");
   });
 
   it("keeps the keyboard in the search field while the list is redrawn", () => {

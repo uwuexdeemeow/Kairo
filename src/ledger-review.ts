@@ -28,6 +28,12 @@ export function reviewedWeek(ms: number): string {
   return isoDate(new Date(lookBack ? weekStart(thisWeek - DAY_MS / 2) : thisWeek));
 }
 
+/// Whether the week in hand at `ms` has been reviewed: the latest week marked reviewed is that
+/// week or a later one.
+export function reviewedNow(reviewed: string | null, ms: number): boolean {
+  return reviewed !== null && reviewed >= reviewedWeek(ms);
+}
+
 /// The open tasks that slipped, the most moved first.
 export function slippedTasks(tasks: Task[]): Task[] {
   return tasks.filter((t) => t.doneMs === null && (t.group === "overdue" || t.moved >= SLIP_MOVES)).sort((a, b) => b.moved - a.moved);
@@ -239,7 +245,11 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
     if (reviewed !== null && reviewed >= monday) {
       finish.append(h("h2", { id: "review-h-finish", class: "plan-head" }, "Reviewed"), h("p", { class: "muted" }, total ? `Next week has ${total} ${total === 1 ? "thing" : "things"}.` : "Next week is open."));
     } else {
-      finish.append(h("h2", { id: "review-h-finish", class: "plan-head" }, "Finish"), button("Done reviewing", "Mark this week reviewed", () => void act.finish(monday).then(() => say("Week reviewed.")), "btn primary"));
+      // When the one before was, so a skipped week is seen, not guessed.
+      const before = reviewed ? parseDate(reviewed) : null;
+      finish.append(h("h2", { id: "review-h-finish", class: "plan-head" }, "Finish"));
+      if (before) finish.append(h("p", { class: "muted" }, `Last reviewed the week of ${before.getDate()} ${before.toLocaleDateString([], { month: "short" })}.`));
+      finish.append(button("Done reviewing", "Mark this week reviewed", () => void act.finish(monday).then(() => say("Week reviewed.")), "btn primary"));
     }
     sections.push(finish);
 

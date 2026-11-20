@@ -1069,3 +1069,51 @@ doing something else.
    word (like `res` or `shu`) offer them below the apps.
 8. **Linux.** `lock`, `sleep` and a shut-down confirmation on a desktop with systemd. *Expect:* as
    above; on a desktop without `loginctl`, the lock row says it couldn't.
+
+## Any system: meetings, the weekly review and the critique fixes (1.31.59 to 1.31.63)
+
+On Windows, a Mac and Linux. Connect a calendar first (Chrono's Settings, Calendar) with a few
+meetings today and some from last week. No focus session involved except where said.
+
+1. **Meetings on Today.** Open Chrono's Today. *Expect:* a quiet lane of bars under the focus lane,
+   one per meeting, a Meetings figure among the smaller stats, and Longest focus and Distracting as
+   the two larger ones. Hover and Tab to a bar. *Expect:* its name, time and length; a visible ring
+   on focus. Look at a day from last week. *Expect:* its meetings too, older than two weeks as well.
+2. **Forgetting.** In Chrono's Settings, Calendar, press Forget past meetings. *Expect:* it asks to
+   press again; then past days lose their bars, today's later meetings stay.
+3. **Asking about meetings.** In the palette type `meetings this week`. *Expect:* an answer with a
+   total and a bar a day, and no "daily limit" row. On Windows, also check the same on the native
+   palette.
+4. **The weekly review.** In Ledger press Ctrl+6 (or Review). *Expect:* four steps: the week, what
+   slipped (overdue, or moved to a later day twice or more), next week, Finish. Use Do it, No day
+   and Delete on a slipped task, then Undo. Pick up to three tasks for one day of next week.
+   Up and down arrows move between rows. Press Done reviewing. *Expect:* a tick on the Review tab,
+   and "Reviewed" with how many things next week holds. Settings is now Ctrl+7.
+5. **The review nudge.** In Ledger's settings tick Offer a weekly review and press Send a test.
+   *Expect:* a notification, "Review the week?"; clicking it opens Ledger on Review.
+6. **Scanning a link.** In the scan window paste `https://example.com/never-seen-` plus random
+   letters. *Expect:* "VirusTotal hasn't seen this link" with Scan this link and Not now, and
+   nothing sent until you press Scan this link. Paste `hello there`. *Expect:* a line under the
+   field, your text kept, no result card. A line under the field always says what is sent where.
+7. **The palette's selection.** Move down the results. *Expect:* the selected row has a bar on its
+   left as well as a tint; a tile has an outline. On a time chart row the footer says "Show" until
+   the chart is open, then "Run". On Windows, check the native palette draws the same.
+8. **The ring.** Open the ring. *Expect:* the two segments beside the lit one are named, and each
+   segment shows its key (1 to 9). Hover a segment on a Mac or Linux: a pointer and an outline.
+   Press a number. *Expect:* that item opens. **Windows only:** the names and numbers are drawn
+   natively and were never seen when written: look for overlap with marks and the lit name.
+9. **The blocked window in strict mode.** With strict mode on, start a focus session, open a
+   blocked app and press Allow 5 minutes. *Expect:* the button stays focused and dims, a line says
+   to try again in so many seconds, and after the wait the button says Confirm. Press Tab and
+   Enter: it works from the keyboard.
+10. **The note pop-out.** Open a note's ⋯ menu from the keyboard (down arrow on ⋯), choose Keep
+    above other windows. *Expect:* focus goes back to ⋯, and Esc and Ctrl+N still work. Write a
+    note longer than the window. *Expect:* its lines stay aligned with the text on the paper.
+11. **The speed test.** Open it and press Stop during the download. *Expect:* it stops, says
+    "Stopped.", keeps the figures it had, and the button says Run again.
+12. **Settings.** Open Kairo's Settings. *Expect:* it opens on Look and upkeep; Your apps is last.
+    Type `shortcut` in Find. *Expect:* the palette, Capture and ring blocks, and a count. Type
+    `startup`: Start with Windows (or Start at login).
+13. **Colour in both themes.** In Chrono's Today and Week, in the dark and the paper theme, look at
+    the grey (neutral) time in the timeline and the legend dot. *Expect:* visible against the
+    ground, not nearly the same as the track.

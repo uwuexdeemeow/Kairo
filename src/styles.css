@@ -4752,6 +4752,14 @@ body:not(.keys) .dash .app-open:focus-visible::after {
   color: var(--ink-2);
 }
 
+/* A quiet tick on the Review tab once this week is reviewed. */
+.tab-check {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--ink-2);
+}
+
 /* Review: one page of four short steps, read top to bottom. */
 .ledger-review {
   max-width: 640px;
