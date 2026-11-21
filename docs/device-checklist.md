@@ -789,12 +789,12 @@ On Windows, a Mac and Linux. Needs a free key from virustotal.com → profile �
 
 On Windows, a Mac and Linux. Uses up to about 100 MB of data.
 
-1. **Run.** Type `speed test` in the palette. *Expect:* a Speed test window that starts at once:
-   "Measuring ping…", then "Testing download…" with Download filling in and its box outlined,
+1. **Run.** Type `speed test` in the palette. *Expect:* a Speed test window that waits, saying "Uses
+   up to 100 MB of data." with a Start test button. Click it. *Expect:* "Measuring ping…", then "Testing download…" with Download filling in and its box outlined,
    then upload, then "Done", ping and jitter in ms, "Cloudflare · " and a place code, and "Used
    about N MB" (at most 100).
 2. **Again.** Run again is greyed while a test runs; once done it clears the figures and runs
-   another. Typing `speed test` again while one runs doesn't start a second.
+   another. Typing `speed test` again while the window is open starts nothing.
 3. **Offline.** Turn off Wi-Fi and Run again. *Expect:* "Couldn't reach the speed test. Check your
    connection." Closing the window mid-test stops it.
 
@@ -1126,3 +1126,14 @@ meetings today and some from last week. No focus session involved except where s
     `strict blocking`. *Expect:* its row says "Chrono's Focus page", and Enter opens Focus with the
     switch in view. Type `focus blocking` and press Enter. *Expect:* it flips from the palette as before.
     In Kairo's Settings, search `strict`. *Expect:* "Strict mode" takes you to the Focus page.
+15. **Speed test, Scan and the palette's ends.** Type `speed test`. *Expect:* the window opens
+    saying "Uses up to 100 MB of data." with Start test, and nothing runs until you click it; press
+    Stop mid-test and the keyboard moves to Run again. In the Scan window, check a link one engine
+    flags. *Expect:* "Probably fine" with a tick in a broken ring, not the clean tick; a failed
+    check shows a question mark, not the "!" of Suspicious; a file over 32 MB has Remove. In the
+    palette (Windows and web), press Ctrl+End then Ctrl+Home. *Expect:* the last, then the first
+    result is selected; plain Home and End still move the caret in the box.
+16. **Review, on a Monday morning.** Open Review before 5 pm on a Monday. *Expect:* "Last week" and
+    "the week before", not "This week". Press "Do it" on a slipped task. *Expect:* the keyboard
+    stays on a button in the list, not on the page. In the note pop-out, type a search. *Expect:*
+    a screen reader says how many notes match, or "No notes match".

@@ -164,6 +164,29 @@ describe("the Review view", () => {
     expect(root.querySelector(".review-search")).toBeNull();
   });
 
+  it("calls the week this week, and on Monday morning last week", () => {
+    expect(mount(week).root.textContent).toContain("This week");
+    vi.setSystemTime(new Date("2026-11-09T09:00:00"));
+    const { root } = mount(week);
+    expect(root.textContent).toContain("Last week");
+    expect(root.textContent).not.toContain("This week");
+  });
+
+  it("keeps the keyboard on a button when the page is rebuilt, even if its row went", () => {
+    const two = [...week, task("Extra", { group: "overdue", moved: 3 })];
+    const { root, view } = mount(two);
+    const rows = () => Array.from(root.querySelectorAll<HTMLElement>(".review-row[data-task]"));
+    expect(rows().length).toBeGreaterThan(1);
+    const first = rows()[0];
+    first.querySelectorAll("button")[1].focus();
+    view.render(two.filter((t) => t.id !== first.dataset.task), null);
+    const now = document.activeElement as HTMLElement;
+    // Not dropped to the page: on a button of the review, in the row that took its place.
+    expect(now.tagName).toBe("BUTTON");
+    expect(root.contains(now)).toBe(true);
+    expect(now.closest(".review-row")).toBe(rows()[0]);
+  });
+
   it("names every button with the words it shows, so voice control can say them", () => {
     const { root } = mount(week);
     const buttons = Array.from(root.querySelectorAll("button"));

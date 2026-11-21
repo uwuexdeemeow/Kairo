@@ -245,6 +245,8 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
   // What went wrong last, said under the bar until the next try.
   const status = h("p", { class: "popout-status", role: "status" });
   const say = (text: string) => (status.textContent = text);
+  // How many notes a search found, read aloud as it's typed; the list itself changes silently.
+  const count = h("p", { class: "sr-only", role: "status" });
 
   /// A new note, opened ready to type: what's searched for becomes its title.
   const startNote = async () => {
@@ -316,6 +318,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
     // Only the latest answer, should an earlier search finish after it; and only while listing.
     if (mine !== asked || !listing) return;
     listed = found;
+    count.textContent = search.value.trim() ? (found.length ? `${found.length} ${found.length === 1 ? "note" : "notes"}` : "No notes match") : "";
     if (!found.length) {
       const q = search.value.trim();
       rows.replaceChildren(h("p", { class: "muted popout-empty" }, q ? `No notes match. + New starts one called “${q}”.` : "No notes yet. + New starts one."));
@@ -364,7 +367,7 @@ export function mountPopout(root: HTMLElement, act: PopoutActions): Popout {
       if (!(await putAway())) return;
       listing = true;
       act.setTitle("Notes");
-      shell.replaceChildren(h("div", { class: "popout-bar" }, search, newNote, h("span", { class: "popout-window-tools" }, pin)), status, rows);
+      shell.replaceChildren(h("div", { class: "popout-bar" }, search, newNote, h("span", { class: "popout-window-tools" }, pin)), status, count, rows);
       await loadList();
       search.focus();
     },

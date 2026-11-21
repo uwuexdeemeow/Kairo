@@ -133,9 +133,9 @@ const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 let ids = 0;
 
-/// Each tone's stamp: a tick for clean or a lone engine, a cross for malicious, a mark for
-/// suspicious or an error, a dash when there's nothing to say.
-const SEAL: Record<string, Glyph> = { clean: "seal-clean", fine: "seal-clean", bad: "seal-bad", odd: "seal-odd", error: "seal-odd", none: "seal-none" };
+/// Each tone's stamp: a tick for clean, the same in a broken ring for a lone engine, a cross for
+/// malicious, a mark for suspicious, a question for an error, a dash when there's nothing to say.
+const SEAL: Record<string, Glyph> = { clean: "seal-clean", fine: "seal-fine", bad: "seal-bad", odd: "seal-odd", error: "seal-error", none: "seal-none" };
 
 /// A verdict's line: its stamp, its word, and the count or reason behind it.
 const verdictLine = (tone: string, word: string, detail: string) =>
@@ -269,7 +269,7 @@ export async function mountScan(root: HTMLElement, act: ScanActions): Promise<Sc
       );
     }
     if (a.state === "notSeen") {
-      if (a.tooBig) return card(e, "", h("p", {}, "VirusTotal hasn't seen this file, and it's bigger than the 32 MB a free key can upload."));
+      if (a.tooBig) return card(e, "", h("p", {}, "VirusTotal hasn't seen this file, and it's bigger than the 32 MB a free key can upload."), h("p", { class: "scan-foot" }, takeAway()));
       const upload = h("button", { class: "btn scan-upload" }, "Upload and scan");
       upload.addEventListener("click", () => void run(e, () => act.upload(e.path!)));
       const notNow = button("scan-not-now", "Not now", () => {

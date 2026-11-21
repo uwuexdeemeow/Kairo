@@ -299,6 +299,24 @@ describe("the list of notes in the pop-out", () => {
     expect(document.activeElement).toBe(area());
   });
 
+  it("says how many notes a search found, for a screen reader, and nothing for an empty box", async () => {
+    const pop = mountPopout(root, act);
+    await pop.list();
+    await vi.waitFor(() => expect(rows().length).toBe(2));
+    const said = () => root.querySelector(".sr-only[role=status]")!.textContent;
+    expect(said()).toBe("");
+    const search = root.querySelector<HTMLInputElement>(".popout-search")!;
+    search.value = "shop";
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(said()).toBe("1 note"));
+    search.value = "zzzz";
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(said()).toBe("No notes match"));
+    search.value = "";
+    search.dispatchEvent(new Event("input"));
+    await vi.waitFor(() => expect(said()).toBe(""));
+  });
+
   it("goes through the list from the keyboard: Enter opens the top match, the arrows move", async () => {
     const pop = mountPopout(root, act);
     await pop.list();

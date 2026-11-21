@@ -97,6 +97,17 @@ describe("the compact look", () => {
 });
 
 describe("the glass", () => {
+  it("goes to the first and last result with Ctrl+Home and Ctrl+End, and leaves Home and End to the box", async () => {
+    await open(results(1, [item("Open Chrono"), item("Settings"), item("Open Ledger")]));
+    const selected = () => $(".selected .palette-title").textContent;
+    key("End", { ctrlKey: true });
+    expect(selected()).toBe("Open Ledger");
+    key("Home", { ctrlKey: true });
+    expect(selected()).toBe("Open Chrono");
+    key("End");
+    expect(selected()).toBe("Open Chrono");
+  });
+
   it("wears the chosen ground", async () => {
     api.paletteOpen.mockResolvedValue({ appearance: "walnut", footer: "", compact: false });
     await open(results(1, [item("Open Chrono")]));

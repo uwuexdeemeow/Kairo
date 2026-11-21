@@ -34,6 +34,29 @@ export function reviewedNow(reviewed: string | null, ms: number): boolean {
   return reviewed !== null && reviewed >= reviewedWeek(ms);
 }
 
+/// Where the keyboard was in the review: the button's place in its row, the row's place on the page
+/// and what it said, so the page can be rebuilt and the keyboard put back near it.
+type Held = { row: number; at: number; text: string };
+
+function heldButton(body: HTMLElement): Held | null {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLButtonElement) || !body.contains(el)) return null;
+  const rows = Array.from(body.querySelectorAll(".review-row"));
+  const row = el.closest(".review-row");
+  return { row: row ? rows.indexOf(row) : -1, at: row ? Array.from(row.querySelectorAll("button")).indexOf(el) : 0, text: el.textContent ?? "" };
+}
+
+/// The same button if it is still there; else the same place in the row now at that spot (the task
+/// that moved or went leaves one behind), else a button that says the same, else the first.
+function putBack(body: HTMLElement, held: Held): void {
+  const buttons = Array.from(body.querySelectorAll("button"));
+  const rows = Array.from(body.querySelectorAll(".review-row"));
+  const inRow = held.row >= 0 ? rows[Math.min(held.row, rows.length - 1)]?.querySelectorAll("button") : undefined;
+  const sameRow = inRow && Array.from(inRow).find((b) => b.textContent === held.text);
+  const there = sameRow ?? (inRow && inRow[Math.min(held.at, inRow.length - 1)]) ?? buttons.find((b) => b.textContent === held.text) ?? buttons[0];
+  there?.focus();
+}
+
 /// The open tasks that slipped, the most moved first.
 export function slippedTasks(tasks: Task[]): Task[] {
   return tasks.filter((t) => t.doneMs === null && (t.group === "overdue" || t.moved >= SLIP_MOVES)).sort((a, b) => b.moved - a.moved);
@@ -162,10 +185,15 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
     const before = totals(tasks, start - 7 * DAY_MS, start);
     const sections: HTMLElement[] = [];
 
+    // On Monday morning the week in hand is the one that just ended, and is said so.
+    const ended = monday !== isoDate(new Date(weekStart(t)));
+    const thisWeek = ended ? "Last week" : "This week";
+    const priorWeek = ended ? "the week before" : "last week";
+
     // 1. The week.
     const week = h("section", { class: "review-step", "aria-labelledby": "review-h-week" }, h("h2", { id: "review-h-week", class: "plan-head" }, "The week"));
-    if (mine.done === 0 && before.done === 0) week.append(h("p", { class: "muted" }, "Nothing was finished this week."));
-    else week.append(h("p", {}, h("strong", {}, "This week "), totalsLine(mine), h("span", { class: "muted" }, ` · last week ${totalsLine(before)}`)));
+    if (mine.done === 0 && before.done === 0) week.append(h("p", { class: "muted" }, `Nothing was finished ${ended ? "last week" : "this week"}.`));
+    else week.append(h("p", {}, h("strong", {}, `${thisWeek} `), totalsLine(mine), h("span", { class: "muted" }, ` · ${priorWeek} ${totalsLine(before)}`)));
     week.append(button("The week in Chrono", null, () => act.chrono(monday), "btn link"));
     sections.push(week);
 
@@ -255,12 +283,14 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
     }
     sections.push(finish);
 
+    // Noted before the page is rebuilt, which drops the keyboard from a button that was on it.
+    const held = heldButton(body);
     // The field stays the same element, but moving it drops the keyboard from it.
     body.replaceChildren(...sections);
     if (typing && search.isConnected) {
       search.focus();
       search.setSelectionRange(caret, caret);
-    }
+    } else if (held) putBack(body, held);
   }
 
   return {

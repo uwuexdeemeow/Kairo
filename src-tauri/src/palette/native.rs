@@ -41,7 +41,7 @@ use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    keybd_event, GetKeyState, SetFocus, KEYEVENTF_KEYUP, VK_BACK, VK_CONTROL, VK_DOWN, VK_ESCAPE, VK_MENU, VK_RETURN, VK_SHIFT, VK_TAB, VK_UP,
+    keybd_event, GetKeyState, SetFocus, KEYEVENTF_KEYUP, VK_BACK, VK_CONTROL, VK_DOWN, VK_END, VK_ESCAPE, VK_HOME, VK_MENU, VK_RETURN, VK_SHIFT, VK_TAB, VK_UP,
 };
 use windows::Win32::UI::Controls::{EM_SETSEL, MARGINS};
 use windows::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
@@ -680,6 +680,11 @@ unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam
             with(|p| p.select_by(-1));
             LRESULT(0)
         }
+        // Plain Home and End move the caret in the box; with Ctrl they go to the first and last result.
+        (WM_KEYDOWN, k) if ctrl && (k == VK_HOME.0 || k == VK_END.0) => {
+            with(|p| p.select_edge(k == VK_HOME.0));
+            LRESULT(0)
+        }
         // Ctrl+Enter does an item's second thing, like showing a file in its folder.
         (WM_KEYDOWN, k) if k == VK_RETURN.0 => {
             with(|p| if ctrl { p.run_second(p.selected) } else { p.run(p.selected) });
@@ -1149,6 +1154,14 @@ impl Palette {
     /// Moves the selection by `step`, passing over notes; nowhere when only notes are shown.
     fn select_by(&mut self, step: i32) {
         if let Some(i) = choosable(&self.items, self.selected as i64 + step as i64, step.signum()) {
+            self.select(i);
+        }
+    }
+
+    /// The first or the last result, skipping a note row; Ctrl+Home and Ctrl+End.
+    fn select_edge(&mut self, first: bool) {
+        let from = if first { 0 } else { self.items.len() as i64 - 1 };
+        if let Some(i) = choosable(&self.items, from, if first { 1 } else { -1 }) {
             self.select(i);
         }
     }

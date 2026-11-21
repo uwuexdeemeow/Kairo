@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { mountSpeed, type SpeedProgress } from "./speed-view";
 import { $, followTheme } from "./ui";
 
-// The speed test window: a test starts as it opens.
+// The speed test window: it opens ready, and a test starts on one click, since it spends data.
 
 followTheme();
 
@@ -21,8 +21,7 @@ listen<SpeedProgress>("speed:progress", (e) => {
   view.update(e.payload);
   if (e.payload.phase === "done" || e.payload.phase === "error" || e.payload.phase === "stopped") running = false;
 });
-// Asked for again from the palette while open: another test, unless one is running.
+// Asked for from the palette while open: the button is ready, nothing starts by itself.
 listen("speed:again", () => {
-  if (!running) view.start();
+  if (!running) view.focus();
 });
-view.start();

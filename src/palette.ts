@@ -563,6 +563,11 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     const to = choosable(selected - 1, -1);
     if (to >= 0) select(to);
+  } else if ((e.key === "Home" || e.key === "End") && (e.ctrlKey || e.metaKey)) {
+    // Plain Home and End move the caret in the box; with Ctrl they go to the first and last result.
+    e.preventDefault();
+    const to = e.key === "Home" ? choosable(0, 1) : choosable(shown.length - 1, -1);
+    if (to >= 0) select(to);
   } else if (e.key === "Enter" && !e.isComposing) {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) runSecond(selected);

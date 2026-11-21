@@ -25,6 +25,10 @@ const PATHS = {
   "seal-clean": '<circle cx="12" cy="12" r="9.5" /><path d="M8 12.4l2.7 2.7 5.3-6" />',
   "seal-bad": '<circle cx="12" cy="12" r="9.5" /><path d="M9 9l6 6M15 9l-6 6" />',
   "seal-odd": '<circle cx="12" cy="12" r="9.5" /><path d="M12 7.5v5.5M12 16.3v.2" />',
+  // A lone engine's flag is a false alarm more often than not: the tick in a broken ring, calmer than a clean one.
+  "seal-fine": '<circle cx="12" cy="12" r="9.5" stroke-dasharray="4 3" /><path d="M8 12.4l2.7 2.7 5.3-6" />',
+  // Couldn't check: a question, not a finding.
+  "seal-error": '<circle cx="12" cy="12" r="9.5" /><path d="M9.6 9.6a2.6 2.6 0 1 1 3.7 2.3c-.8.4-1.3.9-1.3 1.8M12 16.6v.2" />',
   "seal-none": '<circle cx="12" cy="12" r="9.5" /><path d="M8.5 12h7" />',
 } as const;
 

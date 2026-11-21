@@ -17,7 +17,11 @@ export type SpeedProgress = {
 
 /// `stop` ends a test that is running; a window without one offers none.
 export type SpeedActions = { run(): void; stop?(): void };
-export type SpeedView = { update(p: SpeedProgress): void; start(): void };
+/// `idle` is the window as it opens, before anything is spent; `focus` puts the keyboard on the button.
+export type SpeedView = { update(p: SpeedProgress): void; start(): void; idle(): void; focus(): void };
+
+/// The most a test downloads and uploads, said before it starts since it spends data.
+export const MOST_MB = 100;
 
 const SAYS: Record<SpeedProgress["phase"], string> = {
   ping: "Measuring ping…",
@@ -50,7 +54,8 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
   };
   const down = dial("speed-down", "↓", "Download");
   const up = dial("speed-up", "↑", "Upload");
-  const ping = h("p", { class: "speed-ping" });
+  // Jitter is not a word everyone has.
+  const ping = h("p", { class: "speed-ping", title: "Jitter is how much the ping varies" });
   const server = h("p", { class: "speed-server muted" });
   const status = h("p", { class: "speed-status", "aria-live": "polite" });
   const used = h("span", { class: "speed-used muted" });
@@ -82,10 +87,20 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
       used.textContent = p.usedBytes ? `Used about ${Math.round(p.usedBytes / 1e6)} MB` : "";
       // Held back while a test runs, but not disabled: a disabled button would drop the keyboard.
       const testing = p.phase !== "done" && p.phase !== "error" && p.phase !== "stopped";
+      // Stop is hidden when the test ends: the keyboard goes to the button that follows it, not the page.
+      if (!testing && document.activeElement === stopButton) again.focus();
       stopButton.hidden = !testing;
       again.setAttribute("aria-disabled", String(testing));
       again.textContent = testing ? "Testing…" : p.phase === "error" ? "Try again" : "Run again";
     },
+    idle: () => {
+      last = null;
+      status.textContent = `Uses up to ${MOST_MB} MB of data.`;
+      status.classList.remove("error");
+      again.textContent = "Start test";
+      again.setAttribute("aria-disabled", "false");
+    },
+    focus: () => again.focus(),
     start: () => {
       view.update({ phase: "ping", pingMs: null, jitterMs: null, downMbps: null, upMbps: null, usedBytes: 0, server: null, error: null });
       act.run();
@@ -94,7 +109,8 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
   again.addEventListener("click", () => {
     if (again.getAttribute("aria-disabled") !== "true") view.start();
   });
-  // The window's one control has the keyboard from the start, so Enter runs it again when done.
+  // The window's one control has the keyboard from the start, so Enter starts the test, and runs it again when done.
+  view.idle();
   again.focus();
   return view;
 }

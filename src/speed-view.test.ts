@@ -13,6 +13,29 @@ beforeEach(() => {
 });
 
 describe("the speed window", () => {
+  it("opens ready, says what a test costs, and starts nothing by itself", () => {
+    const view = mountSpeed(root, { run });
+    expect(run).not.toHaveBeenCalled();
+    expect(text(".speed-status")).toBe("Uses up to 100 MB of data.");
+    const button = root.querySelector<HTMLButtonElement>(".speed-again")!;
+    expect(button.textContent).toBe("Start test");
+    expect(document.activeElement).toBe(button);
+    button.click();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(text(".speed-status")).toBe("Measuring ping…");
+    view.idle();
+    expect(text(".speed-status")).toBe("Uses up to 100 MB of data.");
+  });
+
+  it("gives the keyboard to the button when Stop goes away", () => {
+    const view = mountSpeed(root, { run, stop: vi.fn() });
+    view.update(p({ phase: "download" }));
+    const stop = root.querySelector<HTMLButtonElement>(".speed-stop")!;
+    stop.focus();
+    view.update(p({ phase: "stopped" }));
+    expect(document.activeElement).toBe(root.querySelector(".speed-again"));
+  });
+
   it("shows speeds to a sensible precision", () => {
     expect(figure(null)).toBe("—");
     expect(figure(48.94)).toBe("48.9");

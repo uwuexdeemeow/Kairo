@@ -180,6 +180,27 @@ describe("the scan window", () => {
     scan.file("/a/two.iso");
     await vi.waitFor(() => expect(first().textContent).toContain("bigger than the 32 MB a free key can upload"));
     expect(first().querySelector(".scan-upload")).toBeNull();
+    // Not a dead end: the stack keeps ten, so it can be taken away.
+    first().querySelector<HTMLButtonElement>(".scan-remove")!.click();
+    expect(results()).toHaveLength(1);
+  });
+
+  it("gives an error, a lone engine and a clean file each their own mark", async () => {
+    const scan = await mountScan(root, act);
+    act.check.mockRejectedValueOnce("That's not a link or a hash.");
+    scan.check("https://example.com");
+    await vi.waitFor(() => expect(first().classList.contains("error")).toBe(true));
+    const mark = () => first().querySelector(".scan-verdict svg")!.innerHTML;
+    const error = mark();
+    act.check.mockResolvedValueOnce(verdict(1));
+    scan.check("https://example.org");
+    await vi.waitFor(() => expect(first().textContent).toContain("Probably fine"));
+    const lone = mark();
+    act.check.mockResolvedValueOnce(verdict(0));
+    scan.check("https://example.net");
+    await vi.waitFor(() => expect(first().textContent).toContain("Nothing flagged"));
+    const clean = mark();
+    expect(new Set([error, lone, clean]).size).toBe(3);
   });
 
   it("tells screen readers only the result that changed", async () => {
