@@ -14,7 +14,7 @@ import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
 import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
-import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
+import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, flash, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
@@ -1873,7 +1873,7 @@ for (const sel of Object.values(pomodoroFields)) {
       pomodoroLengths = saved;
       paintPomodoroPlan();
       // Saving starts nothing, and says where starting is.
-      $("#pomodoro-status").textContent = "Saved. Tick “Rounds with breaks” by Start focus to use them.";
+      flash($("#pomodoro-status"), "Saved. Tick “Rounds with breaks” above Start focus to use them.");
     } catch {
       $("#pomodoro-status").textContent = "Couldn't save";
     }
@@ -2075,7 +2075,7 @@ async function load(v: View = view) {
         const out = $("#break-status");
         try {
           await api.setBreakMinutes(Number(breaks.value));
-          out.textContent = "Saved";
+          flash(out, "Saved");
         } catch (e) {
           out.textContent = `Couldn't save. ${why(e)}`;
         }

@@ -30,6 +30,15 @@ export function why(err: unknown): string {
   return !text || /TypeError|ReferenceError|SyntaxError|undefined|\bnull\b|Cannot read|not a function|not defined|\binvoke\b|sqlite|database|panicked|\[object/i.test(text) ? "Try again in a moment." : text;
 }
 
+/// A confirmation beside the control that made it, gone after a few seconds so a stale "Saved"
+/// doesn't sit there. A newer message put there in the meantime is left alone.
+export function flash(el: HTMLElement, text: string, ms = 4000): void {
+  el.textContent = text;
+  setTimeout(() => {
+    if (el.textContent === text) el.textContent = "";
+  }, ms);
+}
+
 /// Makes `items` one stop for the Tab key, with the arrow keys moving between them (Home and End
 /// too, and up and down by a row when `columns` is given). For charts: dozens of bars, cells or
 /// segments that would otherwise be dozens of Tab stops, or none.

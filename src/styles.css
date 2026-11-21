@@ -7599,7 +7599,8 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .more > summary,
-.focus-setup > summary {
+.focus-setup > summary,
+.setup-part > summary {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -7614,17 +7615,20 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 .more > summary:hover,
-.focus-setup > summary:hover {
+.focus-setup > summary:hover,
+.setup-part > summary:hover {
   color: var(--ink);
 }
 
 .more > summary::-webkit-details-marker,
-.focus-setup > summary::-webkit-details-marker {
+.focus-setup > summary::-webkit-details-marker,
+.setup-part > summary::-webkit-details-marker {
   display: none;
 }
 
 .more > summary::before,
-.focus-setup > summary::before {
+.focus-setup > summary::before,
+.setup-part > summary::before {
   content: "";
   flex: none;
   width: 6px;
@@ -7641,7 +7645,8 @@ details[open] > summary::before {
 
 @media (prefers-reduced-motion: reduce) {
   .more > summary::before,
-  .focus-setup > summary::before {
+  .focus-setup > summary::before,
+  .setup-part > summary::before {
     transition: none;
   }
 }
@@ -7668,20 +7673,22 @@ summary:focus-visible {
   margin-bottom: 14px;
 }
 
-.setup-part + .setup-part {
-  margin-top: 28px;
-  padding-top: 22px;
+.setup-part {
+  margin-top: 12px;
+  padding-top: 8px;
   border-top: 1px solid var(--rule);
 }
 
-.setup-part h2 {
-  margin: 0 0 6px;
+.setup-part > summary {
+  min-height: 32px;
   font-family: var(--display);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: 0;
-  text-transform: none;
   color: var(--ink);
+}
+
+.setup-part[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* The week's three figures lead; the rest follow smaller. */

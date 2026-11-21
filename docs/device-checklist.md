@@ -1117,10 +1117,12 @@ meetings today and some from last week. No focus session involved except where s
 13. **Colour in both themes.** In Chrono's Today and Week, in the dark and the paper theme, look at
     the grey (neutral) time in the timeline and the legend dot. *Expect:* visible against the
     ground, not nearly the same as the track.
-14. **Focus settings in one place.** In Chrono open Focus and open "Set up focus". *Expect:* Blocking
-    (the three switches, and how it works) and Break reminders come first, then rounds, schedule,
-    block lists and modes; Settings no longer has a Focus group. Flip Strict mode and pick a break
-    time. *Expect:* each says Saved, and they are as set after a restart. In the palette type
+14. **Focus settings in one place.** In Chrono open Focus and open "Set up focus". *Expect:* six
+    folds, Blocking (open: the three switches, and how it works), Rest reminders, Rounds and breaks,
+    Schedule, Block lists and Modes, each opening on its own; Settings no longer has a Focus group.
+    Flip Strict mode and pick a rest time. *Expect:* the rest time says Saved, which goes after a few
+    seconds, and both are as set after a restart. Search `rest` in Kairo's Settings. *Expect:* it
+    opens Focus with the right fold open. In the palette type
     `strict blocking`. *Expect:* its row says "Chrono's Focus page", and Enter opens Focus with the
     switch in view. Type `focus blocking` and press Enter. *Expect:* it flips from the palette as before.
     In Kairo's Settings, search `strict`. *Expect:* "Strict mode" takes you to the Focus page.

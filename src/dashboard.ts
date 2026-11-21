@@ -50,7 +50,7 @@ const CHRONO_FINDS: Find[] = (
     ["Browser extension", "sites chrome brave edge firefox", "settings", "ext-open"],
     ["Focus blocking", "block blocked distracting apps sites launchers", "focus", "block-enabled"],
     ["Strict mode", "end early wait blocking", "focus", "block-strict"],
-    ["Breaks", "break reminder rest", "focus", "break-every"],
+    ["Rest reminders", "break breaks reminder rest", "focus", "break-every"],
     ["Focus nudges", "nudge notification distracted", "settings", "nudges-enabled"],
     ["Evening summary", "notification daily recap", "settings", "evening-enabled"],
     ["Keep history for", "retention privacy older days forever", "settings", "retention"],
