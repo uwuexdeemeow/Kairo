@@ -136,8 +136,10 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
     buttons[Math.min(from, buttons.length - 1)]?.focus();
   });
 
-  const button = (label: string, aria: string, onClick: () => void, cls = "btn") => {
-    const b = h("button", { class: cls, type: "button", "aria-label": aria }, label) as HTMLButtonElement;
+  // The accessible name starts with what the button says, so voice control can say what it sees; the
+  // title after it tells rows with the same button apart.
+  const button = (label: string, aria: string | null, onClick: () => void, cls = "btn") => {
+    const b = h("button", { class: cls, type: "button", ...(aria ? { "aria-label": aria } : {}) }, label) as HTMLButtonElement;
     b.addEventListener("click", onClick);
     return b;
   };
@@ -164,7 +166,7 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
     const week = h("section", { class: "review-step", "aria-labelledby": "review-h-week" }, h("h2", { id: "review-h-week", class: "plan-head" }, "The week"));
     if (mine.done === 0 && before.done === 0) week.append(h("p", { class: "muted" }, "Nothing was finished this week."));
     else week.append(h("p", {}, h("strong", {}, "This week "), totalsLine(mine), h("span", { class: "muted" }, ` · last week ${totalsLine(before)}`)));
-    week.append(button("The week in Chrono", "Open this week in Chrono", () => act.chrono(monday), "btn link"));
+    week.append(button("The week in Chrono", null, () => act.chrono(monday), "btn link"));
     sections.push(week);
 
     // 2. What slipped.
@@ -179,12 +181,12 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
         const open = button(s.title, `Open “${s.title}”`, () => act.openTask(s.id), "review-title");
         // The reason is read with the task's name.
         open.setAttribute("aria-describedby", why.id);
-        const doIt = button(`Do it ${dayName(day)}`, `Put “${s.title}” on ${dayName(day)}`, () => {
+        const doIt = button(`Do it ${dayName(day)}`, `Do it ${dayName(day)}: “${s.title}”`, () => {
           say(`Put ${s.title} on ${dayName(day)}.`);
           act.move(s.id, day, day === shiftDate(todayIso(), 1) ? remindTomorrow(s.remindMs) : null);
         });
         // What it does: the task stays, with no day.
-        const noDay = button("No day", `Take the day off “${s.title}”`, () => {
+        const noDay = button("No day", `No day: “${s.title}”`, () => {
           say(`${s.title} has no day now.`);
           act.move(s.id, null, null);
         });
@@ -211,7 +213,7 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
       // The day is chosen once, for every pick.
       const chosen = days[Math.min(pickDay, days.length - 1)];
       const chips = days.map((d, i) => {
-        const chip = button(dayName(d), `Use ${longDay(d)}`, () => {
+        const chip = button(dayName(d), null, () => {
           pickDay = i;
           draw();
         }, `btn chip-btn${d === chosen ? " on" : ""}`);
@@ -222,7 +224,7 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
       const found = pickable(tasks, monday, query, picks);
       const shownFound = expanded ? found : found.slice(0, FIRST_OFFERED);
       const rows = shownFound.map((p) => {
-        const pick = button("Pick", `Put “${p.title}” on ${dayName(chosen)}`, () => {
+        const pick = button("Pick", `Pick “${p.title}” for ${dayName(chosen)}`, () => {
           picks = [...picks, p.id];
           say(`Put ${p.title} on ${dayName(chosen)}.`);
           act.move(p.id, chosen, null);
@@ -249,7 +251,7 @@ export function mountReview(root: HTMLElement, act: ReviewActions, now: () => nu
       const before = reviewed ? parseDate(reviewed) : null;
       finish.append(h("h2", { id: "review-h-finish", class: "plan-head" }, "Finish"));
       if (before) finish.append(h("p", { class: "muted" }, `Last reviewed the week of ${before.getDate()} ${before.toLocaleDateString([], { month: "short" })}.`));
-      finish.append(button("Done reviewing", "Mark this week reviewed", () => void act.finish(monday).then(() => say("Week reviewed.")), "btn primary"));
+      finish.append(button("Done reviewing", null, () => void act.finish(monday).then(() => say("Week reviewed.")), "btn primary"));
     }
     sections.push(finish);
 

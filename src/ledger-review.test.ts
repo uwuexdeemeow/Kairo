@@ -120,8 +120,8 @@ describe("the Review view", () => {
     // The reason is read with the task's own button.
     const title = root.querySelector<HTMLButtonElement>(".review-title")!;
     expect(root.querySelector(`#${title.getAttribute("aria-describedby")}`)?.textContent).toBe("Overdue · moved 3 times");
-    click("Open this week in Chrono");
-    click("Put “Taxes” on Mon 9");
+    click("The week in Chrono");
+    click("Do it Mon 9: “Taxes”");
     click("No day");
     click("Delete");
     expect(calls).toEqual([["chrono", "2026-11-02"], ["move", "Taxes", "2026-11-09", null], ["move", "Taxes", null, null], ["remove", "Taxes"]]);
@@ -142,7 +142,7 @@ describe("the Review view", () => {
     const chips = Array.from(root.querySelectorAll<HTMLButtonElement>("[aria-label='Day for the picks'] button"));
     expect(chips.map((c) => [c.textContent, c.getAttribute("aria-pressed")])).toEqual([["Mon 9", "true"], ["Tue 10", "false"], ["Wed 11", "false"], ["Thu 12", "false"], ["Fri 13", "false"]]);
     click("Tue 10");
-    click("Put “Essay” on Tue 10");
+    click("Pick “Essay” for Tue 10");
     expect(calls).toEqual([["move", "Essay", "2026-11-10", null]]);
     // Five open tasks could be picked and one was, so four are left: the fourth waits behind a
     // button that was drawn before the pick, which is still asking to show two.
@@ -154,7 +154,7 @@ describe("the Review view", () => {
     const { root, calls, click, view } = mount(week);
     const picked: string[] = [];
     for (const title of ["Essay", "Mail", "Gym"]) {
-      click(`Put “${title}” on Mon 9`);
+      click(`Pick “${title}” for Mon 9`);
       picked.push(title);
       // The page draws again once the task has its day.
       view.render(week.map((t) => (picked.includes(t.id) ? { ...t, dueDay: "2026-11-09" } : t)), null);
@@ -164,9 +164,16 @@ describe("the Review view", () => {
     expect(root.querySelector(".review-search")).toBeNull();
   });
 
+  it("names every button with the words it shows, so voice control can say them", () => {
+    const { root } = mount(week);
+    const buttons = Array.from(root.querySelectorAll("button"));
+    expect(buttons.length).toBeGreaterThan(3);
+    for (const b of buttons) expect(b.getAttribute("aria-label") ?? b.textContent).toContain(b.textContent!);
+  });
+
   it("marks the week reviewed once, and then says what next week holds", () => {
     const { root, calls, click, view } = mount(week);
-    click("Mark this week reviewed");
+    click("Done reviewing");
     expect(calls[calls.length - 1]).toEqual(["finish", "2026-11-02"]);
     view.render(week, "2026-11-02");
     expect(root.textContent).toContain("Reviewed");

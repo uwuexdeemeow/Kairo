@@ -319,7 +319,7 @@ function select(index: number) {
     el.classList.toggle("selected", on);
     el.setAttribute("aria-selected", String(on));
     el.querySelector("kbd")?.remove();
-    if (on && el.classList.contains("palette-row")) el.append(h("kbd", {}, "Enter"));
+    if (on && el.classList.contains("palette-row")) el.append(h("kbd", { "aria-hidden": "true" }, "Enter"));
   }
   input.setAttribute("aria-activedescendant", `palette-item-${selected}`);
   document.getElementById(`palette-item-${selected}`)?.scrollIntoView({ block: "nearest" });

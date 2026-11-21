@@ -15,7 +15,7 @@ import type { NoteChange } from "./note-popout";
 import { renderDetail, renderTaskList, taskSummary, type LedgerActions, type NoteName, type RunningSession } from "./ledger-tasks";
 import { logo } from "./logos";
 import { replaceTimeInputs } from "./time-select";
-import { $, followTheme, savedTimerMinutes } from "./ui";
+import { $, flash, followTheme, savedTimerMinutes } from "./ui";
 import { mountUndo } from "./undo";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
@@ -637,13 +637,14 @@ for (const [box, save] of [
   ["#ledger-review-nudge", api.setReviewNudge],
 ] as const) {
   $(box).addEventListener("change", async () => {
-    const note = $("#ledger-settings-note");
-    window.clearTimeout(savedFade);
+    const input = $<HTMLInputElement>(box);
+    const note = $(`${box}-status`);
     try {
-      await save($<HTMLInputElement>(box).checked);
-      note.textContent = "Saved";
-      savedFade = window.setTimeout(() => (note.textContent = ""), 2500);
+      await save(input.checked);
+      flash(note, "Saved");
     } catch {
+      // The box shows what is saved, so a failed save puts it back.
+      input.checked = !input.checked;
       note.textContent = "Couldn't save this. Try again in a moment.";
     }
   });
