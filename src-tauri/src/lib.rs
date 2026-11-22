@@ -12,6 +12,7 @@ mod collector;
 mod commands;
 mod currency;
 mod custom_commands;
+mod scripts;
 mod snap;
 mod linux_notes;
 mod pause_schedule;
@@ -541,6 +542,7 @@ pub fn run() {
             commands::get_layouts,
             commands::set_layout_focus_label,
             commands::remove_layout,
+            commands::open_scripts_folder,
             commands::save_focus_mode,
             commands::remove_focus_mode,
             commands::get_installed_apps,

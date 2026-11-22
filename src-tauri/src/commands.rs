@@ -890,6 +890,17 @@ pub fn remove_custom_command(state: State<AppState>, name: String) -> CmdResult<
     custom_commands::list(&conn).map_err(err)
 }
 
+/// Makes the scripts folder (with an example the first time), opens it, and gives its path.
+#[tauri::command]
+pub fn open_scripts_folder(app: AppHandle) -> CmdResult<String> {
+    let dir = crate::scripts::ensure_folder(&app).ok_or("Kairo couldn't make its scripts folder.")?;
+    let path = dir.to_string_lossy().into_owned();
+    if !platform::open_path(&path) {
+        return Err(format!("Couldn't open {path}.").into());
+    }
+    Ok(path)
+}
+
 /// The saved window layouts.
 #[tauri::command]
 pub fn get_layouts(state: State<AppState>) -> CmdResult<Vec<crate::snap::Layout>> {

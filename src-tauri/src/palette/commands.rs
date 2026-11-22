@@ -100,6 +100,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(super::tools::snap_rows(ctx, query));
     items.extend(super::tools::layout_rows(ctx, query));
     items.extend(super::emoji::rows(ctx, query));
+    items.extend(super::tools::script_rows(ctx, query));
     items
 }
 

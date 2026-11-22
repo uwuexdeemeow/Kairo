@@ -138,7 +138,7 @@
             <input type="checkbox" id="clipboard-history" aria-describedby="clipboard-history-note" />
             Remember what I copy
           </label>
-          <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, kept in memory and gone when Kairo quits. Type <kbd>clip</kbd> in the palette to see the latest, and a space after it to see them all. Turning this off forgets them at once.</p>
+          <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, each with the app it came from, kept in memory and gone when Kairo quits. Copies a password manager marks are never kept. Type <kbd>clip</kbd> in the palette to see the latest; Enter pastes one, and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> pins it. Pins are the one thing kept on this computer after Kairo quits, until you unpin them. Turning this off forgets the rest at once.</p>
         </section>
 
         <section class="block" id="custom-commands" data-words="commands custom your own alias aliases shortcut quick link quicklink snippet snippets text paste open copy folder file app query">
@@ -157,6 +157,22 @@
           <div class="row-buttons">
             <button class="btn" id="custom-add" type="button">Add</button>
             <span class="muted" id="custom-status" aria-live="polite"></span>
+          </div>
+        </section>
+
+        <section class="block" id="layout-settings" data-words="window windows layout layouts snap arrange move tile half maximize">
+          <h3>Window layouts</h3>
+          <p class="muted" id="layouts-note">Type <kbd>save layout writing</kbd> in the palette to keep where your open windows are, and <kbd>layout writing</kbd> to put them back. Give a layout a focus label and it's put back when a focus session with that label starts. <kbd>left half</kbd>, <kbd>maximize</kbd>, <kbd>next display</kbd> and <kbd>restore</kbd> move the window you were in.</p>
+          <div id="layouts-list"></div>
+          <span class="muted" id="layouts-status" aria-live="polite"></span>
+        </section>
+
+        <section class="block" id="script-settings" data-words="scripts script commands run shell powershell python automation">
+          <h3>Scripts</h3>
+          <p class="muted" id="scripts-note">Your own scripts as palette commands. Put one in the scripts folder with a line like <kbd># @kairo.title Deploy site</kbd> near its top, and type its title in the palette. <kbd>@kairo.argument</kbd> asks for words after the title, and <kbd>@kairo.output</kbd> says what to do with what it prints: <kbd>notify</kbd>, <kbd>copy</kbd>, <kbd>paste</kbd> or <kbd>silent</kbd>. A script runs only when you press Enter on it, and stays on this computer.</p>
+          <div class="row-buttons">
+            <button class="btn" id="scripts-open" type="button">Open scripts folder</button>
+            <span class="muted" id="scripts-status" aria-live="polite"></span>
           </div>
         </section>
 

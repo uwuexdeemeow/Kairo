@@ -1,5 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { loadCustomCommands, setUpCustomForm } from "./custom-commands";
+import { loadLayouts, wireScripts } from "./desk-settings";
 import { api, type Appearance, type Linking, type PaletteLook, type SyncState } from "./api";
 import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
@@ -400,6 +401,7 @@ export function wireKairoSettings(): void {
   wireFind();
   wireVirusTotal();
   setUpCustomForm();
+  wireScripts();
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
     $("#autostart-title").textContent = "Open at login";
@@ -649,6 +651,7 @@ export async function loadKairoSettings(): Promise<void> {
       $<HTMLInputElement>("#clipboard-history").checked = await api.clipboardHistory();
     }),
     fill("#custom-list", loadCustomCommands),
+    fill("#layouts-list", loadLayouts),
     fill("#capture-keys", async () => {
       const keys = await api.captureShortcut();
       showShortcut(CAPTURE, keys);

@@ -616,6 +616,13 @@ export interface CustomCommand {
   target: string;
 }
 
+/** A saved window layout: where the open windows were, and the focus label that puts it back. */
+export interface WindowLayout {
+  name: string;
+  windows: { app: string; title: string }[];
+  focusLabel: string | null;
+}
+
 export interface BlockLists {
   lists: BlockList[];
   /** The list sessions started by hand block; null blocks as usual. */
@@ -771,6 +778,11 @@ export const api = {
   /** A path from the system dialog: a file or app, or a folder; null when cancelled. */
   pickCommandPath: (folder: boolean) => invoke<string | null>("pick_command_path", { folder }),
   customCommands: () => invoke<CustomCommand[]>("get_custom_commands"),
+  layouts: () => invoke<WindowLayout[]>("get_layouts"),
+  setLayoutFocusLabel: (name: string, label: string | null) => invoke<WindowLayout[]>("set_layout_focus_label", { name, label }),
+  removeLayout: (name: string) => invoke<WindowLayout[]>("remove_layout", { name }),
+  /** Makes the scripts folder (with an example) and opens it; gives its path. */
+  openScriptsFolder: () => invoke<string>("open_scripts_folder"),
   saveCustomCommand: (old: string | null, name: string, kind: CustomKind, target: string) => invoke<CustomCommand[]>("save_custom_command", { old, name, kind, target }),
   removeCustomCommand: (name: string) => invoke<CustomCommand[]>("remove_custom_command", { name }),
   focusModes: () => invoke<FocusMode[]>("get_focus_modes"),

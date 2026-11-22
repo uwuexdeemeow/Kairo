@@ -554,6 +554,11 @@ pub enum Action {
     Snippet(String, Option<String>, bool),
     /// Pastes an emoji into the window that was in front, by its id, and counts the use.
     Emoji(String, Option<String>),
+    /// Runs one of your scripts, by its path, with what was typed after its title, for the window
+    /// that was in front (where its output may be pasted).
+    RunScript(String, Option<String>, Option<String>),
+    /// Opens the folder your scripts go in, made with an example the first time.
+    OpenScripts,
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -609,7 +614,7 @@ impl Action {
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..) | Action::ShowBlocked)
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenScripts | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..) | Action::ShowBlocked)
     }
 
     /// Whether the palette stays open after it, to show the new state. A row with nothing to do
@@ -823,6 +828,8 @@ pub struct Context {
     pub layouts: Vec<crate::snap::Layout>,
     /// The emoji you've used, most first, with how often.
     pub emoji_uses: Vec<(String, i64)>,
+    /// Your scripts, by title (scripts.rs).
+    pub scripts: Vec<crate::scripts::Script>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1614,6 +1621,7 @@ pub(super) mod tests {
             custom: Vec::new(),
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
+            scripts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

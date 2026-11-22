@@ -406,6 +406,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         custom: crate::custom_commands::list(conn).unwrap_or_default(),
         layouts: crate::snap::list(conn).unwrap_or_default(),
         emoji_uses: emoji::used(conn).unwrap_or_default(),
+        scripts: crate::scripts::folder(app).map(|d| crate::scripts::list(&d)).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -671,6 +672,18 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             paste_after_hiding(app, window.clone());
             Ok(())
         }
+        Action::OpenScripts => {
+            let dir = crate::scripts::ensure_folder(app).ok_or("Kairo couldn't make its scripts folder.")?;
+            crate::platform::open_path(&dir.to_string_lossy()).then_some(()).ok_or_else(|| "Couldn't open the scripts folder.".into())
+        }
+        Action::RunScript(path, argument, window) => {
+            let dir = crate::scripts::folder(app).ok_or("Kairo couldn't find its scripts folder.")?;
+            // Only a script that is still in the folder, as it reads now.
+            let script = crate::scripts::list(&dir).into_iter().find(|s| &s.path == path).ok_or("That script is gone from the scripts folder.")?;
+            let (app, argument, window) = (app.clone(), argument.clone(), window.clone());
+            std::thread::spawn(move || run_script(&app, &script, argument.as_deref(), window));
+            Ok(())
+        }
         Action::Snap(snap, id) => {
             // Said at once, while the palette can still show it.
             if let Some(why) = crate::platform::cant_move_windows() {
@@ -802,6 +815,31 @@ fn paste_after_hiding(app: &AppHandle, window: Option<String>) {
             crate::blocking::notify(&app, "Copied", &format!("Press {keys} to paste it."));
         }
     });
+}
+
+/// Runs a script and does with its output what the script says: a notification, the clipboard,
+/// pasted, or nothing. A failure is always said.
+fn run_script(app: &AppHandle, script: &crate::scripts::Script, argument: Option<&str>, window: Option<String>) {
+    use crate::scripts::Output;
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    match crate::scripts::run(script, argument) {
+        Err(why) => crate::blocking::notify(app, &format!("{} didn't work", script.title), &why),
+        Ok(out) => match script.output {
+            Output::Silent => {}
+            Output::Notify => crate::blocking::notify(app, &script.title, &if out.is_empty() { "Done.".to_string() } else { crate::scripts::first_lines(&out) }),
+            Output::Copy if out.is_empty() => crate::blocking::notify(app, &script.title, "Done, with nothing to copy."),
+            Output::Copy => {
+                let _ = app.clipboard().write_text(out.clone());
+                crate::blocking::notify(app, &format!("{}: copied", script.title), &crate::scripts::first_lines(&out));
+            }
+            Output::Paste if out.is_empty() => {}
+            Output::Paste => {
+                if app.clipboard().write_text(out).is_ok() {
+                    paste_after_hiding(app, window);
+                }
+            }
+        },
+    }
 }
 
 /// Runs a data action off the palette's thread, since it waits on a file dialog, and says how it
@@ -1427,6 +1465,7 @@ mod tests {
             custom: Vec::new(),
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
+            scripts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

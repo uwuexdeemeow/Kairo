@@ -7718,6 +7718,28 @@ summary:focus-visible {
   margin-top: 8px;
 }
 
+/* Window layouts: a name, how many windows, and the focus label that puts it back. */
+.layout-row .layout-label {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+}
+
+.layout-row strong {
+  font-weight: 600;
+}
+
+#layouts-list .empty-note {
+  margin: 4px 0;
+}
+
+#scripts-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 /* Linux only: what this desktop can't do, as a short list under the shortcut. */
 .linux-notes {
   margin: 4px 0 8px;
