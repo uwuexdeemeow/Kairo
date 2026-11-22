@@ -1,5 +1,6 @@
-//! The palette's calculator: whether a query is maths or a unit conversion, and its answer,
-//! worked out offline by fend. No drawing here, so all of it can be tested.
+//! The palette's calculator: whether a query is maths, a unit conversion or a currency
+//! conversion, and its answer, worked out by fend: offline, but for the exchange rates
+//! (currency.rs). No drawing here, so all of it can be tested.
 
 use std::time::{Duration, Instant};
 
@@ -46,6 +47,8 @@ pub struct Answer {
     pub text: String,
     /// The number alone, like "3.10686"; None when the answer has no unit.
     pub number: Option<String>,
+    /// For money, the day of the exchange rates it used.
+    pub rates: Option<chrono::NaiveDate>,
 }
 
 /// Where a conversion's `in`, `to` or `as` sits among the words: a number and a unit before it
@@ -120,7 +123,12 @@ pub fn rewrite(query: &str) -> String {
         match unit(&word[digits..]) {
             Some(size) if digits > 0 => words.extend([word[..digits].to_string(), size.to_string()]),
             Some(size) => words.push(size.to_string()),
-            None => words.push(word.to_string()),
+            // fend knows currencies by their codes in capitals: "20usd" and "eur" as "20 USD", "EUR".
+            None => match crate::currency::code(&word[digits..]) {
+                Some(code) if digits > 0 => words.extend([word[..digits].to_string(), code.to_string()]),
+                Some(code) => words.push(code.to_string()),
+                None => words.push(word.to_string()),
+            },
         }
     }
     let solid: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -202,12 +210,17 @@ pub fn evaluate(query: &str) -> Option<Answer> {
         return None;
     }
     let deadline = Deadline(Instant::now() + limit());
-    let ask = |q: &str| fend_core::evaluate_with_interrupt(&rewrite(q), &mut fend_core::Context::new(), &deadline).ok();
+    let ask = |q: &str| {
+        let mut ctx = fend_core::Context::new();
+        ctx.set_exchange_rate_handler_v2(crate::currency::Handler);
+        fend_core::evaluate_with_interrupt(&rewrite(q), &mut ctx, &deadline).ok()
+    };
     let q = query.trim();
     // fend's units are lower case ("km"); typed in capitals, they're asked again in lower case.
     let result = ask(q).or_else(|| q.chars().any(char::is_uppercase).then(|| ask(&q.to_lowercase())).flatten())?;
     let (text, number) = format(result.get_main_result())?;
-    Some(Answer { text, number })
+    let rates = crate::currency::mentions_currency(q).then(crate::currency::rates_date).flatten();
+    Some(Answer { text, number, rates })
 }
 
 /// A number rounded to `DIGITS` significant digits without trailing zeros, in scientific notation
@@ -265,6 +278,23 @@ fn format(result: &str) -> Option<(String, Option<String>)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn money_is_converted_with_the_rates_of_the_day_they_say() {
+        let mut per_euro = std::collections::HashMap::new();
+        per_euro.insert("USD".to_string(), 1.25);
+        per_euro.insert("GBP".to_string(), 0.8);
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        crate::currency::set_for_test(Some(crate::currency::Rates { date: day, per_euro, fetched_ms: 0 }));
+        let a = super::answer("20 usd in eur").unwrap();
+        assert_eq!((a.text.as_str(), a.number.as_deref(), a.rates), ("16 EUR", Some("16"), Some(day)));
+        assert_eq!(super::answer("10 eur to gbp").unwrap().text, "8 GBP");
+        assert_eq!(super::answer("8gbp in usd").unwrap().text, "12.5 USD");
+        // Units stay units, with no rates said.
+        assert_eq!(super::answer("5 km in m").unwrap().rates, None);
+        crate::currency::set_for_test(None);
+        assert!(super::answer("20 usd in eur").is_none());
+    }
+
     use super::*;
 
     #[test]

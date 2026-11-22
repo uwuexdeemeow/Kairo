@@ -22,6 +22,7 @@ use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 pub mod calc;
 pub mod cards;
 pub mod commands;
+pub mod emoji;
 pub mod files;
 pub mod mode;
 #[cfg(windows)]
@@ -404,6 +405,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         modes: crate::focus_modes::list(conn).unwrap_or_default(),
         custom: crate::custom_commands::list(conn).unwrap_or_default(),
         layouts: crate::snap::list(conn).unwrap_or_default(),
+        emoji_uses: emoji::used(conn).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -660,6 +662,13 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             if *paste {
                 paste_after_hiding(app, window.clone());
             }
+            Ok(())
+        }
+        Action::Emoji(ch, window) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            let _ = emoji::note_use(conn, ch, now_ms());
+            app.clipboard().write_text(ch.clone()).map_err(|e| e.to_string())?;
+            paste_after_hiding(app, window.clone());
             Ok(())
         }
         Action::Snap(snap, id) => {
@@ -1417,6 +1426,7 @@ mod tests {
             modes: Vec::new(),
             custom: Vec::new(),
             layouts: Vec::new(),
+            emoji_uses: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

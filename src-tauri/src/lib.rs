@@ -10,6 +10,7 @@ mod browser;
 mod classify;
 mod collector;
 mod commands;
+mod currency;
 mod custom_commands;
 mod snap;
 mod linux_notes;
@@ -291,6 +292,7 @@ pub fn run() {
             app.manage(clipboard::Shared::new(clipboard::enabled(&conn)?));
             app.manage(system::PendingPower::default());
             clipboard::spawn(app.handle().clone());
+            currency::init(app.handle());
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
             reminders::follow_clicks(app.handle());

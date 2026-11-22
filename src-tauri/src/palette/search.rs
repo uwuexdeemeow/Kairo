@@ -552,6 +552,8 @@ pub enum Action {
     /// A snippet: its text with `{date}`, `{time}` and `{clipboard}` filled in as it runs, for
     /// the window that was in front; pasted when true, else copied.
     Snippet(String, Option<String>, bool),
+    /// Pastes an emoji into the window that was in front, by its id, and counts the use.
+    Emoji(String, Option<String>),
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -819,6 +821,8 @@ pub struct Context {
     pub custom: Vec<crate::custom_commands::CustomCommand>,
     /// The saved window layouts, in the order they were made.
     pub layouts: Vec<crate::snap::Layout>,
+    /// The emoji you've used, most first, with how often.
+    pub emoji_uses: Vec<(String, i64)>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1268,11 +1272,12 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
         Mode::Calc => match calc::evaluate(q) {
             Some(answer) => {
                 let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
-                item.sub = Some(q.to_string());
+                item.sub = Some(with_rates(q, answer.rates));
                 item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
                 vec![item]
             }
-            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80 or 5 km in mi", Glyph::Calc, "Calculator")],
+            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80, 5 km in mi or 20 usd in eur", Glyph::Calc, "Calculator")],
+            None if crate::currency::mentions_currency(q) => money_note(ctx.live.now).into_iter().collect(),
             None => vec![note_row("Not a sum yet", Glyph::Calc, "Calculator")],
         },
         Mode::Web(i) => {
@@ -1320,15 +1325,45 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
     }
 }
 
+/// The calculator's second line: what was typed, and for money the day of the rates, which a
+/// download a day keeps fresh.
+fn with_rates(typed: &str, rates: Option<NaiveDate>) -> String {
+    match rates {
+        Some(day) => format!("{typed} · Rates from {} (European Central Bank)", day.format("%-d %b")),
+        None => typed.to_string(),
+    }
+}
+
+/// What a currency conversion with no answer says: rates are coming, or couldn't be had. Asking
+/// starts the download. None when there are rates (the currency is one the bank doesn't give).
+fn money_note(now: NaiveDateTime) -> Option<Item> {
+    crate::currency::refresh_if_old(now.and_utc().timestamp_millis());
+    if crate::currency::rates_date().is_some() {
+        return None;
+    }
+    let says = if crate::currency::fetching() { "Getting today's exchange rates… type again in a moment" } else { "Couldn't get exchange rates. Check your connection" };
+    let mut item = note_row(says, Glyph::Calc, "Calculator");
+    item.score = 2000.0;
+    Some(item)
+}
+
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
 
     // Maths leads with its answer; a command or a day keeps its own meaning.
     if focus_command(query).is_none() && !commands::leads(query) && parse_day(query, ctx.today).is_none() {
+        let money = calc::is_maths(query) && crate::currency::mentions_currency(query);
+        if money {
+            // Old rates still answer; a fresh set is asked for at most once a day.
+            crate::currency::refresh_if_old(ctx.live.now.and_utc().timestamp_millis());
+        }
+        if money && calc::answer(query).is_none() {
+            items.extend(money_note(ctx.live.now));
+        }
         if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
-            item.sub = Some(query.trim().to_string());
+            item.sub = Some(with_rates(query.trim(), answer.rates));
             item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
             item.score = 2000.0;
             items.push(item);
@@ -1578,6 +1613,7 @@ pub(super) mod tests {
             modes: Vec::new(),
             custom: Vec::new(),
             layouts: Vec::new(),
+            emoji_uses: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

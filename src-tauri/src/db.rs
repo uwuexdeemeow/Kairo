@@ -165,6 +165,12 @@ pub fn open(path: &Path) -> Result<Connection> {
              from_app TEXT,
              at_ms    INTEGER NOT NULL
          );
+         -- How often each emoji was chosen in the palette (palette/emoji.rs), so those lead.
+         CREATE TABLE IF NOT EXISTS emoji_uses (
+             emoji   TEXT    PRIMARY KEY,
+             uses    INTEGER NOT NULL,
+             last_ms INTEGER NOT NULL
+         );
          -- Window layouts (snap.rs): where the open windows were, by a name, and the focus label
          -- that puts them back.
          CREATE TABLE IF NOT EXISTS window_layouts (
