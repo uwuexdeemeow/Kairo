@@ -5,14 +5,15 @@ import "./fonts";
 import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { blockedWatch } from "./chrono-look";
-import { confirmNote, FAILED_NOTE, holdNote, limitLine } from "./blocked-copy";
+import { confirmNote, FAILED_NOTE, holdNote, limitLine, PAUSE } from "./blocked-copy";
 
 interface Blocked {
   label: string;
   key: string;
   untilMs: number;
-  /** "focus" for a focus session, "limit" for a daily limit that's been passed. */
-  reason: "focus" | "limit";
+  /** "focus" for a focus session, "limit" for a daily limit that's been passed, "pause" outside a
+   *  session when distracting apps ask for a short pause first. */
+  reason: "focus" | "limit" | "bump";
 }
 
 declare global {
@@ -32,21 +33,24 @@ function paint() {
   const left = Math.max(0, current.untilMs - Date.now());
   const minutes = Math.ceil(left / 60_000);
   const until = new Date(current.untilMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  $("#blocked-title").textContent = `${current.label} is blocked`;
   const limit = current.reason === "limit";
-  document.title = limit ? "Blocked for today" : "Blocked during focus";
+  const pause = current.reason === "bump";
+  $("#blocked-title").textContent = pause ? PAUSE.title(current.label) : `${current.label} is blocked`;
+  document.title = pause ? PAUSE.eyebrow : limit ? "Blocked for today" : "Blocked during focus";
   // Past a limit it's more of the same day's time, not an exception to a session; while strict
   // mode holds the button back it says so instead.
   const allow = $("#blocked-allow");
-  if (!allow.dataset.timer) allow.textContent = limit ? "5 more minutes" : "Allow 5 minutes";
-  $("#blocked-eyebrow").textContent = limit ? "Daily limit" : "Focus session";
-  $("#blocked-detail").textContent = limit
-    ? limitLine()
-    : `Your focus session runs until ${until}, ${minutes} ${minutes === 1 ? "minute" : "minutes"} from now.`;
-  // A limit has no session to end, and no watch: it lasts the day.
-  $("#blocked-end").hidden = limit;
-  $("#blocked-watch").hidden = limit;
-  if (!limit) {
+  if (!allow.dataset.timer) allow.textContent = pause ? PAUSE.allow : limit ? "5 more minutes" : "Allow 5 minutes";
+  $("#blocked-eyebrow").textContent = pause ? PAUSE.eyebrow : limit ? "Daily limit" : "Focus session";
+  $("#blocked-detail").textContent = pause
+    ? PAUSE.detail
+    : limit
+      ? limitLine()
+      : `Your focus session runs until ${until}, ${minutes} ${minutes === 1 ? "minute" : "minutes"} from now.`;
+  // A limit has no session to end, and no watch: it lasts the day. A pause has neither.
+  $("#blocked-end").hidden = limit || pause;
+  $("#blocked-watch").hidden = limit || pause;
+  if (!limit && !pause) {
     const watch = blockedWatch(current.untilMs, Date.now());
     $("#blocked-ring").innerHTML = watch.svg;
     $("#blocked-minutes").textContent = watch.minutes;
@@ -65,7 +69,7 @@ const say = (text: string) => ($("#blocked-note").textContent = text);
 /// Strict mode answers with a time to come back; the line says so and counts down, then asks to
 /// confirm. The button is held back with aria-disabled rather than disabled, so the keyboard stays
 /// on it instead of falling to the page when it is pressed.
-function hold(btn: HTMLButtonElement, what: "allow" | "end", readyAt: number) {
+function hold(btn: HTMLButtonElement, what: "allow" | "end", readyAt: number, pause = false) {
   const label = btn.dataset.label ?? btn.textContent ?? "";
   btn.dataset.label = label;
   window.clearInterval(Number(btn.dataset.timer));
@@ -75,7 +79,7 @@ function hold(btn: HTMLButtonElement, what: "allow" | "end", readyAt: number) {
     const left = readyAt - Date.now();
     if (left > 0) {
       btn.setAttribute("aria-disabled", "true");
-      note.textContent = holdNote(what, left);
+      note.textContent = holdNote(what, left, pause);
       // Read out once, when the wait starts; the count that follows is for the eyes.
       if (!started) {
         started = true;
@@ -103,8 +107,8 @@ $("#blocked-back").addEventListener("click", () => invoke("close_blocked"));
 allowBtn.addEventListener("click", async () => {
   if (!current || held(allowBtn)) return;
   try {
-    const waitUntil = await invoke<number | null>("allow_blocked", { key: current.key });
-    if (waitUntil) hold(allowBtn, "allow", waitUntil);
+    const waitUntil = await invoke<number | null>("allow_blocked", { key: current.key, reason: current.reason });
+    if (waitUntil) hold(allowBtn, "allow", waitUntil, current.reason === "bump");
   } catch {
     say(FAILED_NOTE);
   }

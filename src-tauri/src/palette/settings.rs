@@ -89,6 +89,7 @@ pub fn entries() -> Vec<Entry> {
         focus_switch("Focus blocking", "block distracting apps sites session", "block-enabled", Blocking),
         focus_switch("Block launchers too", "game steam epic launcher close", "block-launchers", Launchers),
         focus_page("Strict blocking", "strict mode lock session", "block-strict"),
+        focus_page("Pause before distracting apps", "wait speed bump friction pause distracting outside focus", "block-bump"),
         focus_page("Rest reminders", "break breaks rest reminder every", "break-every"),
         focus_page("Pomodoro break length", "pomodoro rounds short rest minutes cycle", "pomodoro-break-min"),
         focus_page("Pomodoro long break", "pomodoro rounds long rest minutes cycle", "pomodoro-long-min"),

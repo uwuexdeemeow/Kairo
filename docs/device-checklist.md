@@ -1193,3 +1193,15 @@ meetings today and some from last week. No focus session involved except where s
     two computers combined: make a link and a text on one. *Expect:* both appear on the other
     within a minute or two, a folder command made on one never does, and a folder command of the
     same name on the other is kept. Remove the link. *Expect:* it goes from both.
+20. **A pause before distracting apps, and "what to do now" (1.31.73).** In Chrono's Focus page,
+    Set up focus, Blocking, tick "Ask me to wait before distracting apps and sites outside focus
+    sessions" (the header then says "On · pause"). With no session running, open a distracting app
+    (set one in Categories). *Expect:* it is minimized and a small window says "Still want it?";
+    "Back to work" closes it; "Open it for 15 minutes" starts a ten second wait ("Wait 10 seconds…"),
+    then Confirm lets you through, and the app comes back from the taskbar and is not held up
+    again for 15 minutes. Click another app while the window is up. *Expect:* it goes away. In a
+    browser with the extension reloaded, open a distracting site. *Expect:* the same pause on a tab
+    page, "Wait Ns", then the site. A game, a full-screen app, and a focus session (which blocks
+    outright, with Allow 5 minutes) are not changed. With a task due today in Ledger, open the
+    palette and type nothing. *Expect:* the first suggestion is "Focus on" that task, as long as its
+    estimate and shorter if a meeting is near; during a session the suggestion says how long is left.

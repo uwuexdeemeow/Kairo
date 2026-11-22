@@ -1473,6 +1473,30 @@ pub struct Suggestions {
     pub chips: Vec<Item>,
 }
 
+/// With no session running, what to do now: the first task due today or past due, as a focus
+/// session as long as its estimate (25 minutes without one) and cut to end five minutes before
+/// the next meeting. None with nothing due, or a meeting too near to start anything.
+fn next_up(ctx: &Context) -> Option<Item> {
+    let today = ctx.today.format("%Y-%m-%d").to_string();
+    let task = ctx.tasks.iter().find(|t| t.due_day.as_deref().is_some_and(|d| d <= today.as_str()))?;
+    let wanted = task.estimate_min.map_or(25, |m| m.clamp(10, 120)) as u32;
+    let mut minutes = wanted;
+    let mut sub = if task.due_day.as_deref() == Some(today.as_str()) { "Due today".to_string() } else { "Overdue".to_string() };
+    if let Some((meeting, _, in_ms)) = &ctx.next_meeting {
+        let free = in_ms / 60_000 - 5;
+        if free < 10 {
+            return None;
+        }
+        if free < wanted as i64 {
+            minutes = free as u32;
+            sub.push_str(&format!(" · ends before {meeting}"));
+        }
+    }
+    let mut item = Item::new(format!("Focus on “{}”", task.title), Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::StartFocus(minutes, Some(task.title.clone()), Some(task.id.clone())));
+    item.sub = Some(format!("{minutes} min · {sub}"));
+    Some(item)
+}
+
 pub fn suggestions(ctx: &Context) -> Suggestions {
     if ctx.compact {
         return Suggestions { rows: Vec::new(), tiles: Vec::new(), chips: Vec::new() };
@@ -1490,10 +1514,16 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
     match &ctx.live.session {
         Some(session) => {
             let mut item = Item::new("Focus session in progress", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::Go("focus", None));
-            item.sub = Some(session.label.as_ref().map_or("Open the timer".into(), |l| format!("“{l}”")));
+            // How long is left, so the palette answers "how long until I can stop" without opening Chrono.
+            let left = format!("{}{} left", if session.paused { "Paused · " } else { "" }, fmt_dur(session.left_ms));
+            item.sub = Some(session.label.as_ref().map_or(left.clone(), |l| format!("“{l}” · {left}")));
             rows.push(item);
         }
         None => {
+            // The thing to do now, when Ledger and the calendar say there is one.
+            if let Some(next) = next_up(ctx) {
+                rows.push(next);
+            }
             let mut item = Item::new("Start a 25-minute focus session", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::StartFocus(25, None, None));
             item.sub = Some("Or type “focus 50 essay” for any length and a label".into());
             rows.push(item);
@@ -1644,6 +1674,61 @@ pub(super) mod tests {
         assert!(found[1..].iter().all(|i| i.section == "Actions" || i.section == "Settings" || i.title == "Focus until Design review"));
         // Nothing of Kairo's matches; only the web is offered.
         assert_eq!(search(&c, "zzzq").iter().map(|i| i.section).collect::<Vec<_>>(), ["Web"]);
+    }
+
+    fn due(id: &str, title: &str, day: Option<&str>, estimate: Option<i64>) -> crate::tasks::Task {
+        crate::tasks::Task { id: id.into(), title: title.into(), due_day: day.map(Into::into), estimate_min: estimate, ..Default::default() }
+    }
+
+    #[test]
+    fn with_a_task_due_the_palette_suggests_focusing_on_it_for_as_long_as_it_takes() {
+        let mut c = ctx();
+        c.next_meeting = None;
+        let today = c.today.format("%Y-%m-%d").to_string();
+        // Nothing due: only the usual start.
+        c.tasks = vec![due("a", "Someday", None, None), due("b", "Later", Some("2999-01-01"), None)];
+        assert_eq!(titles(&suggestions(&c).rows)[0], "Start a 25-minute focus session");
+        c.tasks.insert(0, due("t1", "Write the essay", Some(&today), Some(50)));
+        let rows = suggestions(&c).rows;
+        assert_eq!(rows[0].title, "Focus on “Write the essay”");
+        assert_eq!(rows[0].sub.as_deref(), Some("50 min · Due today"));
+        assert_eq!(rows[0].action, Action::StartFocus(50, Some("Write the essay".into()), Some("t1".into())));
+        // The usual start still follows.
+        assert_eq!(rows[1].title, "Start a 25-minute focus session");
+        // Overdue counts, with no estimate it is 25 minutes, and a long one is held to two hours.
+        c.tasks = vec![due("t2", "Taxes", Some("2000-01-01"), None)];
+        assert_eq!(suggestions(&c).rows[0].sub.as_deref(), Some("25 min · Overdue"));
+        c.tasks = vec![due("t3", "Thesis", Some(&today), Some(600))];
+        assert_eq!(suggestions(&c).rows[0].action, Action::StartFocus(120, Some("Thesis".into()), Some("t3".into())));
+    }
+
+    #[test]
+    fn the_suggested_session_ends_before_the_next_meeting_or_stays_out_of_its_way() {
+        let mut c = ctx();
+        let today = c.today.format("%Y-%m-%d").to_string();
+        c.tasks = vec![due("t1", "Write the essay", Some(&today), Some(50))];
+        let at = c.today.and_hms_opt(14, 0, 0).unwrap();
+        // A meeting in 35 minutes: 30 of them, ending five before it.
+        c.next_meeting = Some(("Design review".into(), at, 35 * 60_000));
+        let rows = suggestions(&c).rows;
+        assert_eq!(rows[0].action, Action::StartFocus(30, Some("Write the essay".into()), Some("t1".into())));
+        assert_eq!(rows[0].sub.as_deref(), Some("30 min · Due today · ends before Design review"));
+        // Plenty of time: the estimate stands, with nothing said of the meeting.
+        c.next_meeting = Some(("Design review".into(), at, 3 * 60 * 60_000));
+        assert_eq!(suggestions(&c).rows[0].sub.as_deref(), Some("50 min · Due today"));
+        // Too near to start anything worth the name: only the usual row.
+        c.next_meeting = Some(("Design review".into(), at, 12 * 60_000));
+        assert_eq!(suggestions(&c).rows[0].title, "Start a 25-minute focus session");
+    }
+
+    #[test]
+    fn a_running_session_says_how_long_is_left_and_whether_it_is_paused() {
+        let mut c = ctx();
+        c.live.session = Some(SessionNow { label: Some("essay".into()), left_ms: 28 * 60_000, paused: false });
+        let rows = suggestions(&c).rows;
+        assert_eq!((rows[0].title.as_str(), rows[0].sub.as_deref()), ("Focus session in progress", Some("“essay” · 28m left")));
+        c.live.session = Some(SessionNow { label: None, left_ms: 9 * 60_000, paused: true });
+        assert_eq!(suggestions(&c).rows[0].sub.as_deref(), Some("Paused · 9m left"));
     }
 
     #[test]
