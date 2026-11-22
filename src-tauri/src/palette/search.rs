@@ -559,6 +559,9 @@ pub enum Action {
     RunScript(String, Option<String>, Option<String>),
     /// Opens the folder your scripts go in, made with an example the first time.
     OpenScripts,
+    /// Puts this text in the search box, with the palette left open: Enter on a link or script
+    /// that wants words after its name types the name for you.
+    Type(String),
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -621,6 +624,7 @@ impl Action {
             Action::Snap(..) | Action::RestoreLayout(..) => "Snap",
             Action::SaveLayout(..) => "Save",
             Action::EnterMode(..) => "Choose",
+            Action::Type(..) => "Type after it",
             Action::Toggle(..) => "Turn on or off",
             Action::PinClip(..) => "Pin",
             Action::Nothing => "",
@@ -638,7 +642,7 @@ impl Action {
     /// Whether the palette stays open after it, to show the new state. A row with nothing to do
     /// on Enter (a running timer, which Ctrl+Enter cancels) leaves the palette as it is too.
     pub fn keeps_palette_open(&self) -> bool {
-        matches!(self, Action::Toggle(..) | Action::EnterMode(..) | Action::Nothing) || self.acts_in_place()
+        matches!(self, Action::Toggle(..) | Action::EnterMode(..) | Action::Type(..) | Action::Nothing) || self.acts_in_place()
     }
 
     /// Whether it changes something the palette shows and leaves the palette open, which then

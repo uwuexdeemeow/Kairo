@@ -1250,6 +1250,12 @@ impl Palette {
             }
             return;
         }
+        // Words wanted after a name: the name is typed for you, the caret after it.
+        if let Action::Type(text) = &item.action {
+            set_edit_text(self.edit, text);
+            self.refresh();
+            return;
+        }
         // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
         if let Action::EnterMode(mode) = item.action {
             self.set_mode(Some(mode));

@@ -120,7 +120,7 @@ pub fn script_rows(ctx: &Context, query: &str) -> Vec<Item> {
             };
             let mut item = row(sc.title.clone(), Glyph::Script, "Scripts", Action::RunScript(sc.path.clone(), None, window.clone()), says, place);
             if let Some(arg) = &sc.argument {
-                item.action = Action::Nothing;
+                item.action = Action::Type(format!("{} ", sc.title));
                 item.sub = Some(format!("Type the {} after “{} ”", arg.to_lowercase(), sc.title));
                 item.second = Some((Action::RunScript(sc.path.clone(), None, window.clone()), "Run without"));
             }
@@ -190,7 +190,7 @@ mod tests {
         // Its title alone asks for the argument.
         let found = search(&c, "deploy");
         assert_eq!(found[0].sub.as_deref(), Some("Type the branch after “Deploy site ”"));
-        assert_eq!(found[0].action, Action::Nothing);
+        assert_eq!(found[0].action, Action::Type("Deploy site ".into()));
         let found = search(&c, "clean");
         assert_eq!((found[0].action.clone(), found[0].sub.as_deref()), (Action::RunScript("/s/Clean downloads.sh".into(), None, Some("42".into())), Some("Runs Clean downloads.sh")));
         // `scripts` lists them and the folder.

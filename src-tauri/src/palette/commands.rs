@@ -160,7 +160,7 @@ fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
             }
             // A link with a slot opened with nothing typed asks for what goes in it.
             if c.takes_query() {
-                item.action = Action::Nothing;
+                item.action = Action::Type(format!("{} ", c.name));
                 item.sub = Some(format!("Type what goes in after “{} ”", c.name));
                 item.second = Some((Action::OpenUrl(crate::custom_commands::fill_link(&c.target, "")), "Open without"));
             }
@@ -842,7 +842,7 @@ mod tests {
         assert_eq!(found[0].sub.as_deref(), Some("Opens jira.example.com/browse/KAI%2012"));
         // The name alone asks for what goes in, and Ctrl+Enter opens it empty.
         let found = search(&c, "jira");
-        assert!(found[0].is_note() == false && found[0].action == Action::Nothing);
+        assert_eq!(found[0].action, Action::Type("jira ".into()));
         assert_eq!(found[0].sub.as_deref(), Some("Type what goes in after “jira ”"));
     }
 

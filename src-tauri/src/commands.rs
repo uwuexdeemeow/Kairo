@@ -1831,6 +1831,12 @@ pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette:
     if let palette::search::Action::EnterMode(mode) = item.action {
         return Ok(Some(session.query("", Some(mode))));
     }
+    // Words wanted after a name: the name goes in the box, and its results come back.
+    if let palette::search::Action::Type(text) = &item.action {
+        let mut results = session.query(text, None);
+        results.set_text(text);
+        return Ok(Some(results));
+    }
     if let palette::search::Action::Toggle(switch) = item.action {
         let flipped = palette::settings::flip(&app, &*state.db.lock().map_err(err)?, switch);
         let (query, mode) = session.last();

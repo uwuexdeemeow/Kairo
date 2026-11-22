@@ -778,8 +778,8 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::set_paused(app, false, None);
             Ok(())
         }
-        // The palettes put themselves in the mode before it would get here.
-        Action::EnterMode(_) | Action::Nothing => Ok(()),
+        // The palettes put themselves in the mode, or type the text, before it would get here.
+        Action::EnterMode(_) | Action::Type(_) | Action::Nothing => Ok(()),
     }
 }
 
@@ -1001,6 +1001,11 @@ pub struct Results {
 }
 
 impl Results {
+    /// Says the input should now hold `text`.
+    pub fn set_text(&mut self, text: &str) {
+        self.text = Some(text.to_string());
+    }
+
     /// Which query these answer.
     pub fn seq(&self) -> u64 {
         self.seq

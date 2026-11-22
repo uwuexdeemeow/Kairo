@@ -144,10 +144,24 @@ impl Shared {
     }
 }
 
+/// What Kairo itself put on the clipboard last, so the watcher says it came from Kairo rather than
+/// from whatever app was in front.
+static WRITTEN: Mutex<Option<String>> = Mutex::new(None);
+
 /// Puts text on the clipboard for Kairo itself (a palette answer, a paste). The watcher keeps it
-/// in the history like any copy.
+/// in the history like any copy, as from Kairo.
 pub fn write(app: &AppHandle, text: &str) -> std::result::Result<(), String> {
+    *WRITTEN.lock().unwrap_or_else(|e| e.into_inner()) = Some(text.to_string());
     app.clipboard().write_text(text.to_string()).map_err(|e| e.to_string())
+}
+
+/// Where a copy seen on the clipboard came from: Kairo when it is what Kairo wrote, else the app
+/// in front.
+fn source_of(text: &str) -> Option<String> {
+    if WRITTEN.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(text) {
+        return Some("Kairo".into());
+    }
+    copied_in()
 }
 
 fn now_ms() -> i64 {
@@ -179,7 +193,7 @@ pub fn spawn(app: AppHandle) {
                     (false, None) => primed = true,
                     // A password manager's copy is seen, so it isn't asked about again, but never kept.
                     (true, Some(t)) => {
-                        history.take(&t, now_ms(), crate::platform::clipboard_concealed, copied_in);
+                        history.take(&t, now_ms(), crate::platform::clipboard_concealed, || source_of(&t));
                     }
                     (true, None) => {}
                 }
@@ -363,6 +377,13 @@ mod tests {
         assert_eq!(shared.snapshot(10_000), Some(vec![]));
         // Turned back on, what was last seen is forgotten too (the watcher primes again).
         assert!(shared.lock().push("c", 11_000));
+    }
+
+    #[test]
+    fn what_kairo_wrote_is_said_to_come_from_kairo() {
+        *WRITTEN.lock().unwrap() = Some("🎉".into());
+        assert_eq!(source_of("🎉"), Some("Kairo".into()));
+        assert_ne!(source_of("something else"), Some("Kairo".into()));
     }
 
     #[test]
