@@ -535,6 +535,9 @@ pub enum Action {
     CopyAnswer(Subject, Period, Option<Period>),
     /// Puts this text on the clipboard.
     Copy(String),
+    /// Puts this text on the clipboard and pastes it into the window the palette gave the
+    /// keyboard back to.
+    Paste(String),
     /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
     /// with the system's file dialog.
     ExportTime,
@@ -1204,7 +1207,7 @@ fn window_rows(ctx: &Context, q: &str, all: bool) -> Vec<Item> {
 
 /// Text made safe for a web address: everything but ASCII letters, digits and `-_.~` written as
 /// %XX bytes, spaces included.
-fn url_escape(text: &str) -> String {
+pub(super) fn url_escape(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 

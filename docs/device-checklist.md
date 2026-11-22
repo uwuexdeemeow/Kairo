@@ -1205,3 +1205,13 @@ meetings today and some from last week. No focus session involved except where s
     outright, with Allow 5 minutes) are not changed. With a task due today in Ledger, open the
     palette and type nothing. *Expect:* the first suggestion is "Focus on" that task, as long as its
     estimate and shorter if a meeting is near; during a session the suggestion says how long is left.
+21. **Commands that take words and commands that paste (1.31.73).** In Your commands, add a link
+    called `yt` to `youtube.com/results?search_query={query}` and a "Pastes text" command called
+    `sig` with two lines. In the palette type `yt lofi beats & more`. *Expect:* a row "yt · lofi
+    beats & more" under Commands; Enter opens YouTube's results for exactly that (the & kept). Type
+    `yt` alone. *Expect:* a row saying to type what to look for after it. Open a text editor, put
+    the cursor in it, open the palette and run `sig`. *Expect:* the palette goes away and the
+    signature appears in the editor with its line break. On a Mac, the first time asks to allow
+    Automation, and needs Accessibility access to press keys. On Linux with X11 and `xdotool` it
+    pastes; on Wayland or without `xdotool` it says "Copied. This system doesn't let Kairo press
+    Ctrl+V for you, so paste it yourself." and the text is on the clipboard.

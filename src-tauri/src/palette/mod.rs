@@ -632,6 +632,17 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             use tauri_plugin_clipboard_manager::ClipboardExt;
             app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())
         }
+        // Copied first, then pasted once the palette is away; where the keys can't be pressed it
+        // stays copied and says so.
+        Action::Paste(text) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())?;
+            if crate::paste::soon() {
+                Ok(())
+            } else {
+                Err(crate::paste::COPIED_INSTEAD.into())
+            }
+        }
         Action::ExportTime | Action::Backup | Action::Restore => {
             with_file_dialog(app, action.clone());
             Ok(())

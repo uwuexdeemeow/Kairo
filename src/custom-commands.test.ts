@@ -52,6 +52,17 @@ describe("Your commands in Kairo's settings", () => {
     await vi.waitFor(() => expect($("#custom-status").textContent).toContain("There's already a command called gh."));
   });
 
+  it("offers pasting text beside copying it", () => {
+    setUpCustomForm();
+    const kinds = [...$<HTMLSelectElement>("#custom-new-kind").options].map((o) => [o.value, o.textContent]);
+    expect(kinds).toEqual([["link", "Opens a link"], ["open", "Opens a file, folder or app"], ["text", "Copies text"], ["paste", "Pastes text"]]);
+    $<HTMLSelectElement>("#custom-new-kind").value = "paste";
+    $<HTMLSelectElement>("#custom-new-kind").dispatchEvent(new Event("change"));
+    expect($<HTMLTextAreaElement>("#custom-new-target").placeholder).toContain("paste");
+    // Only a path gets the dialogs.
+    expect($("#custom-new-pick").hidden).toBe(true);
+  });
+
   it("changes what it does", async () => {
     api.saveCustomCommand.mockResolvedValueOnce([{ ...tax, kind: "text" }]);
     renderCustomCommands([tax]);

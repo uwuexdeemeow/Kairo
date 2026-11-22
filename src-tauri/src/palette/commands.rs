@@ -113,6 +113,16 @@ fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
         .iter()
         .enumerate()
         .filter_map(|(i, c)| {
+            // A link that takes what you type: its name, then the words, as `yt lofi beats`.
+            if c.takes_text() {
+                if let Some(rest) = after(q, &format!("{} ", c.name)).map(str::trim).filter(|r| !r.is_empty()) {
+                    let url = c.target.replace(crate::custom_commands::QUERY, &super::search::url_escape(rest));
+                    let at = fuzzy(q, &format!("{} · {rest}", c.name)).map(|m| m.at).unwrap_or_default();
+                    let mut item = row(format!("{} · {rest}", c.name), Glyph::Search, "Commands", Action::OpenUrl(url), format!("Opens {}", c.site()), (LEAD - i as f64 / 100.0, at));
+                    item.icon = Icon::Glyph(Glyph::Search, Tone::Accent);
+                    return Some(item);
+                }
+            }
             let exact = c.name.eq_ignore_ascii_case(q);
             let starts = c.name.to_lowercase().starts_with(&q.to_lowercase());
             let (score, at) = if exact || starts {
@@ -122,11 +132,14 @@ fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
                 let (score, at) = placed(q, &[], &c.name, "")?;
                 (score - i as f64 / 100.0, at)
             };
-            let mut item = row(c.name.clone(), Glyph::Tag, "Commands", c.action(), c.says(), (score, at));
+            // Just its name, a link that takes words opens with none, and says what to add.
+            let action = if c.takes_text() { Action::OpenUrl(c.target.replace(crate::custom_commands::QUERY, "")) } else { c.action() };
+            let sub = if c.takes_text() { format!("Type what to look for after it, like “{} lofi”", c.name) } else { c.says() };
+            let mut item = row(c.name.clone(), Glyph::Tag, "Commands", action, sub, (score, at));
             item.icon = match c.kind {
                 crate::custom_commands::Kind::Link => Icon::Glyph(Glyph::Search, Tone::Accent),
                 crate::custom_commands::Kind::Open => Icon::File(c.target.clone()),
-                crate::custom_commands::Kind::Text => Icon::Glyph(Glyph::Tag, Tone::Accent),
+                crate::custom_commands::Kind::Text | crate::custom_commands::Kind::Paste => Icon::Glyph(Glyph::Tag, Tone::Accent),
             };
             Some(item)
         })
@@ -744,6 +757,30 @@ mod tests {
         assert_eq!(found[0].sub.as_deref(), Some("Opens github.com/tauri-apps/tauri/issues"));
         assert_eq!(search(&c, "sig")[0].action, Action::Copy("Best,\nAmos".into()));
         assert_eq!(search(&c, "sig")[0].sub.as_deref(), Some("Copies “Best,…”"));
+    }
+
+    #[test]
+    fn a_link_that_takes_words_fills_in_what_is_typed_after_its_name() {
+        use crate::custom_commands::{CustomCommand, Kind};
+        let mut c = ctx();
+        c.custom = vec![
+            CustomCommand { name: "yt".into(), kind: Kind::Link, target: "https://www.youtube.com/results?search_query={query}".into() },
+            CustomCommand { name: "gh".into(), kind: Kind::Link, target: "https://github.com".into() },
+        ];
+        let found = search(&c, "yt lofi beats & more");
+        let row = found.iter().find(|i| i.section == "Commands").unwrap();
+        assert_eq!(row.title, "yt · lofi beats & more");
+        assert_eq!(row.action, Action::OpenUrl("https://www.youtube.com/results?search_query=lofi%20beats%20%26%20more".into()));
+        assert_eq!(row.sub.as_deref(), Some("Opens www.youtube.com"));
+        // In any case, and the words are trimmed.
+        assert_eq!(search(&c, "YT  kairo ").iter().find(|i| i.section == "Commands").unwrap().action, Action::OpenUrl("https://www.youtube.com/results?search_query=kairo".into()));
+        // The name alone opens it with nothing filled in, and says what to add.
+        let bare = search(&c, "yt");
+        let bare = bare.iter().find(|i| i.section == "Commands").unwrap();
+        assert_eq!(bare.action, Action::OpenUrl("https://www.youtube.com/results?search_query=".into()));
+        assert_eq!(bare.sub.as_deref(), Some("Type what to look for after it, like “yt lofi”"));
+        // A link that takes no words isn't filled in, and words after its name find nothing.
+        assert!(!search(&c, "gh issues").iter().any(|i| i.section == "Commands"));
     }
 
     #[test]

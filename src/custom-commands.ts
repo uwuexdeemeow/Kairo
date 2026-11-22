@@ -7,9 +7,10 @@ import { $, h, why } from "./ui";
 
 /// What each kind says it does, and what its box asks for.
 export const KINDS: { kind: CustomKind; label: string; asks: string }[] = [
-  { kind: "link", label: "Opens a link", asks: "Where it goes, like github.com/you/repo/issues" },
+  { kind: "link", label: "Opens a link", asks: "Where it goes, like github.com/you/repo/issues. Put {query} where what you type after the name goes, like youtube.com/results?search_query={query}" },
   { kind: "open", label: "Opens a file, folder or app", asks: "Its path, like C:\\Users\\you\\Documents\\Tax" },
   { kind: "text", label: "Copies text", asks: "The text to copy" },
+  { kind: "paste", label: "Pastes text", asks: "The text to paste where you were, like your signature" },
 ];
 
 /// Buttons that fill a path box from the system's dialog, so a path is picked, not typed; `chosen`

@@ -13,6 +13,9 @@ pub const MAX_COMMANDS: usize = 50;
 const MAX_NAME_CHARS: usize = 30;
 const MAX_TARGET_CHARS: usize = 2000;
 
+/// Where in a link what you type after the command's name goes: `youtube.com/results?search_query={query}`.
+pub const QUERY: &str = "{query}";
+
 /// What a command does when run.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +26,8 @@ pub enum Kind {
     Open,
     /// Puts text on the clipboard.
     Text,
+    /// Puts text on the clipboard and pastes it where you were.
+    Paste,
 }
 
 impl Kind {
@@ -31,11 +36,12 @@ impl Kind {
             Kind::Link => "link",
             Kind::Open => "open",
             Kind::Text => "text",
+            Kind::Paste => "paste",
         }
     }
 
     fn from_key(key: &str) -> Option<Kind> {
-        [Kind::Link, Kind::Open, Kind::Text].into_iter().find(|k| k.key() == key)
+        [Kind::Link, Kind::Open, Kind::Text, Kind::Paste].into_iter().find(|k| k.key() == key)
     }
 }
 
@@ -54,20 +60,33 @@ impl CustomCommand {
             Kind::Link => Action::OpenUrl(self.target.clone()),
             Kind::Open => Action::OpenFile(self.target.clone()),
             Kind::Text => Action::Copy(self.target.clone()),
+            Kind::Paste => Action::Paste(self.target.clone()),
         }
+    }
+
+    /// Whether it is a link that takes what you type after its name.
+    pub fn takes_text(&self) -> bool {
+        self.kind == Kind::Link && self.target.contains(QUERY)
+    }
+
+    /// The site a link goes to, without the scheme or the rest of the address.
+    pub fn site(&self) -> &str {
+        let t = self.target.trim_start_matches("https://").trim_start_matches("http://").trim_start_matches("mailto:");
+        t.split(['/', '?', '#']).next().unwrap_or(t)
     }
 
     /// What it does, in a line under its name: where a link goes, what a path opens, the start of a
     /// text it copies.
     pub fn says(&self) -> String {
         match self.kind {
+            Kind::Link if self.takes_text() => format!("Opens {} with what you type after it", self.site()),
             Kind::Link => format!("Opens {}", self.target.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/')),
             Kind::Open => format!("Opens {}", self.target),
-            Kind::Text => {
+            Kind::Text | Kind::Paste => {
                 let first = self.target.lines().next().unwrap_or("");
                 let cut: String = first.chars().take(60).collect();
                 let more = if cut.chars().count() < first.chars().count() || self.target.lines().nth(1).is_some() { "…" } else { "" };
-                format!("Copies “{cut}{more}”")
+                format!("{} “{cut}{more}”", if self.kind == Kind::Paste { "Pastes" } else { "Copies" })
             }
         }
     }
@@ -123,13 +142,14 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, kind: Kind, target
         },
         Kind::Open => target.trim().trim_matches('"').to_string(),
         // Text keeps its line breaks and spaces: a signature is made of them.
-        Kind::Text => target.trim_matches(['\r', '\n']).to_string(),
+        Kind::Text | Kind::Paste => target.trim_matches(['\r', '\n']).to_string(),
     };
     if target.trim().is_empty() {
         return Ok(Err(match kind {
             Kind::Link => "Say where the link goes.",
             Kind::Open => "Say which file, folder or app it opens.",
             Kind::Text => "Write the text it copies.",
+            Kind::Paste => "Write the text it pastes.",
         }
         .into()));
     }
@@ -222,6 +242,26 @@ mod tests {
     }
 
     #[test]
+    fn a_link_may_say_where_what_you_type_goes() {
+        let c = conn();
+        saved(&c, "yt", Kind::Link, "youtube.com/results?search_query={query}").unwrap();
+        let cmd = find(&c, "yt").unwrap().unwrap();
+        // The placeholder is kept as it is, for the palette to fill in.
+        assert_eq!(cmd.target, "https://youtube.com/results?search_query={query}");
+        assert!(cmd.takes_text());
+        assert_eq!(cmd.site(), "youtube.com");
+        assert_eq!(cmd.says(), "Opens youtube.com with what you type after it");
+        // A plain link, a path and a text don't take any.
+        saved(&c, "gh", Kind::Link, "github.com").unwrap();
+        saved(&c, "tax", Kind::Open, "C:\\{query}").unwrap();
+        saved(&c, "sig", Kind::Text, "{query}").unwrap();
+        for name in ["gh", "tax", "sig"] {
+            assert!(!find(&c, name).unwrap().unwrap().takes_text(), "{name}");
+        }
+        assert_eq!(find(&c, "gh").unwrap().unwrap().site(), "github.com");
+    }
+
+    #[test]
     fn a_link_is_a_web_address_and_nothing_that_starts_a_program() {
         let c = conn();
         assert!(saved(&c, "a", Kind::Link, "http://example.com").is_ok());
@@ -283,6 +323,20 @@ mod tests {
         remove(&c, "C3").unwrap();
         saved(&c, "one more", Kind::Text, "x").unwrap();
         assert_eq!(list(&c).unwrap().len(), MAX_COMMANDS);
+    }
+
+    #[test]
+    fn a_command_can_paste_and_says_so() {
+        let c = conn();
+        saved(&c, "sig", Kind::Paste, "\nBest,\nAmos\n").unwrap();
+        let cmd = find(&c, "sig").unwrap().unwrap();
+        assert_eq!(cmd.kind, Kind::Paste);
+        assert_eq!(cmd.target, "Best,\nAmos");
+        assert_eq!(cmd.action(), Action::Paste("Best,\nAmos".into()));
+        assert_eq!(cmd.says(), "Pastes “Best,…”");
+        assert_eq!(saved(&c, "empty", Kind::Paste, " \n"), Err("Write the text it pastes.".into()));
+        // Like text, it is shared with combined computers, and held to the same rules.
+        assert!(to_json(&c).unwrap().contains("\"paste\""));
     }
 
     #[test]
