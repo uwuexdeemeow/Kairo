@@ -95,6 +95,18 @@ pub fn paste() -> bool {
     !wayland() && x11::paste()
 }
 
+/// Whether the window with this id (as `open_windows` names it) is the one in front. On a Mac,
+/// where the front is known by app, its app being in front counts.
+pub fn in_front(id: &str) -> bool {
+    let Some(front) = foreground() else { return false };
+    #[cfg(target_os = "macos")]
+    return id.split_once(':').is_some_and(|(pid, _)| pid == front.window.to_string());
+    #[cfg(not(target_os = "macos"))]
+    {
+        front.window.to_string() == id
+    }
+}
+
 /// Why windows can't be moved here, when they can't.
 pub fn cant_move_windows() -> Option<&'static str> {
     #[cfg(target_os = "macos")]
@@ -1868,8 +1880,12 @@ mod x11 {
         const PRESS: u8 = 2;
         const RELEASE: u8 = 3;
         let mut ok = true;
+        // Spaced as a person's keys would be: some apps miss a V that comes in the same instant
+        // as its Ctrl.
         for (kind, key) in [(PRESS, ctrl), (PRESS, v), (RELEASE, v), (RELEASE, ctrl)] {
             ok &= x.conn.xtest_fake_input(kind, key, 0, x.root, 0, 0, 0).is_ok();
+            ok &= x.conn.flush().is_ok();
+            std::thread::sleep(std::time::Duration::from_millis(15));
         }
         ok && x.conn.flush().is_ok()
     }
@@ -2145,3 +2161,4 @@ mod linux_window_tests {
         assert_eq!(super::x11::window_of("g12"), None);
     }
 }
+

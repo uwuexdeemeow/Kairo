@@ -54,6 +54,7 @@ pub struct History {
 impl History {
     /// Takes note of the clipboard's text. Returns whether it was added: not when it is what was
     /// seen last, blank, or too long. A copy already in the list moves to the top.
+    #[cfg(test)]
     pub fn push(&mut self, text: &str, now: i64) -> bool {
         self.push_from(text, now, None)
     }
@@ -141,6 +142,12 @@ impl Shared {
     pub fn snapshot(&self, now: i64) -> Option<Vec<(String, i64, Option<String>)>> {
         self.on.load(Ordering::Relaxed).then(|| self.lock().entries().map(|e| (e.text.clone(), (now - e.at_ms).max(0), e.from.clone())).collect())
     }
+}
+
+/// Puts text on the clipboard for Kairo itself (a palette answer, a paste). The watcher keeps it
+/// in the history like any copy.
+pub fn write(app: &AppHandle, text: &str) -> std::result::Result<(), String> {
+    app.clipboard().write_text(text.to_string()).map_err(|e| e.to_string())
 }
 
 fn now_ms() -> i64 {

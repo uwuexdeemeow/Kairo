@@ -623,6 +623,7 @@ impl Action {
             Action::EnterMode(..) => "Choose",
             Action::Toggle(..) => "Turn on or off",
             Action::PinClip(..) => "Pin",
+            Action::Nothing => "",
             Action::UnpinClip(..) => "Unpin",
             _ => "Run",
         }

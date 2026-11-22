@@ -642,16 +642,11 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::CopyAnswer(subject, period, against) => {
-            use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(cards::answer(conn, subject, *period, *against).text).map_err(|e| e.to_string())
+            crate::clipboard::write(app, &cards::answer(conn, subject, *period, *against).text)
         }
-        Action::Copy(text) => {
-            use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())
-        }
+        Action::Copy(text) => crate::clipboard::write(app, text),
         Action::Paste(text, window) => {
-            use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())?;
+            crate::clipboard::write(app, text)?;
             paste_after_hiding(app, window.clone());
             Ok(())
         }
@@ -659,16 +654,15 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             use tauri_plugin_clipboard_manager::ClipboardExt;
             let clipboard = app.clipboard().read_text().ok();
             let text = crate::custom_commands::expand(template, Local::now().naive_local(), clipboard.as_deref());
-            app.clipboard().write_text(text).map_err(|e| e.to_string())?;
+            crate::clipboard::write(app, &text)?;
             if *paste {
                 paste_after_hiding(app, window.clone());
             }
             Ok(())
         }
         Action::Emoji(ch, window) => {
-            use tauri_plugin_clipboard_manager::ClipboardExt;
             let _ = emoji::note_use(conn, ch, now_ms());
-            app.clipboard().write_text(ch.clone()).map_err(|e| e.to_string())?;
+            crate::clipboard::write(app, ch)?;
             paste_after_hiding(app, window.clone());
             Ok(())
         }
@@ -806,10 +800,29 @@ fn after_hiding(then: impl FnOnce() + Send + 'static) {
 fn paste_after_hiding(app: &AppHandle, window: Option<String>) {
     let app = app.clone();
     after_hiding(move || {
-        if let Some(id) = window {
-            crate::platform::activate_window(&id);
-            std::thread::sleep(std::time::Duration::from_millis(60));
+        // The keyboard goes back by itself to whatever had it, a dialog included, which the
+        // palette's list of windows leaves out; keys pressed before then go nowhere, so that is
+        // waited for. Only if it doesn't happen is the window that was in front asked forward.
+        let ours = |front: &crate::platform::Foreground| std::env::current_exe().ok().is_some_and(|me| std::path::Path::new(&front.exe_path) == me);
+        let back = || crate::platform::foreground().is_some_and(|f| !ours(&f));
+        let mut waited = 0;
+        while !back() && waited < 20 {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            waited += 1;
         }
+        if !back() {
+            if let Some(id) = window {
+                crate::platform::activate_window(&id);
+                for _ in 0..20 {
+                    if crate::platform::in_front(&id) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            }
+        }
+        // A moment more for the window to take the keyboard as well as the front.
+        std::thread::sleep(std::time::Duration::from_millis(100));
         if !crate::platform::paste() {
             let keys = if cfg!(target_os = "macos") { "Command+V" } else { "Ctrl+V" };
             crate::blocking::notify(&app, "Copied", &format!("Press {keys} to paste it."));
@@ -821,7 +834,6 @@ fn paste_after_hiding(app: &AppHandle, window: Option<String>) {
 /// pasted, or nothing. A failure is always said.
 fn run_script(app: &AppHandle, script: &crate::scripts::Script, argument: Option<&str>, window: Option<String>) {
     use crate::scripts::Output;
-    use tauri_plugin_clipboard_manager::ClipboardExt;
     match crate::scripts::run(script, argument) {
         Err(why) => crate::blocking::notify(app, &format!("{} didn't work", script.title), &why),
         Ok(out) => match script.output {
@@ -829,12 +841,12 @@ fn run_script(app: &AppHandle, script: &crate::scripts::Script, argument: Option
             Output::Notify => crate::blocking::notify(app, &script.title, &if out.is_empty() { "Done.".to_string() } else { crate::scripts::first_lines(&out) }),
             Output::Copy if out.is_empty() => crate::blocking::notify(app, &script.title, "Done, with nothing to copy."),
             Output::Copy => {
-                let _ = app.clipboard().write_text(out.clone());
+                let _ = crate::clipboard::write(app, &out);
                 crate::blocking::notify(app, &format!("{}: copied", script.title), &crate::scripts::first_lines(&out));
             }
             Output::Paste if out.is_empty() => {}
             Output::Paste => {
-                if app.clipboard().write_text(out).is_ok() {
+                if crate::clipboard::write(app, &out).is_ok() {
                     paste_after_hiding(app, window);
                 }
             }

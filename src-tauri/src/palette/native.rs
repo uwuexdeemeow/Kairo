@@ -1746,7 +1746,12 @@ impl Palette {
         // The first Enter on a time chart shows it; only the next one does what the row says.
         let shows_first = self.items.get(self.selected).is_some_and(|i| i.preview.as_ref().is_some_and(Preview::on_enter))
             && self.asked.as_ref().map(|(i, _)| *i) != Some(self.selected);
-        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], if shows_first { "Show" } else { self.items.get(self.selected).map_or("Run", |i| i.action.verb()) })];
+        let verb = if shows_first { "Show" } else { self.items.get(self.selected).map_or("Run", |i| i.action.verb()) };
+        let mut keys = vec![(&["↑", "↓"][..], "Move")];
+        // A row with nothing for Enter to do offers no Enter.
+        if !verb.is_empty() {
+            keys.push((&["Enter"][..], verb));
+        }
         // What Ctrl+Enter does for the selected item, when it does something.
         if let Some(hint) = footer_hint(self.items.get(self.selected)) {
             keys.push((&["Ctrl Enter"][..], hint));

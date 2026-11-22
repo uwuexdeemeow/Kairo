@@ -275,6 +275,8 @@ function renderHint() {
   const second = shown[selected]?.second;
   // The first Enter on a time chart shows it; only the next one does what the row says.
   $("#palette-enter").textContent = shown[selected]?.again && asked !== selected ? "Show" : (shown[selected]?.verb ?? "Run");
+  // A row with nothing for Enter to do (a note, a link waiting for what goes in it) offers no Enter.
+  $("#palette-enter").parentElement!.hidden = !shown[selected] || (shown[selected].verb === "" && !shown[selected].again);
   box.hidden = !second;
   box.replaceChildren(...(second ? [h("kbd", {}, isMac() ? "⌘" : "Ctrl"), " ", h("kbd", {}, "Enter"), ` ${second}`] : []));
 }
