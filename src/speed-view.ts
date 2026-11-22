@@ -61,7 +61,7 @@ export function mountSpeed(root: HTMLElement, act: SpeedActions): SpeedView {
   const used = h("span", { class: "speed-used muted" });
   const again = h("button", { class: "btn speed-again" }, "Run again") as HTMLButtonElement;
   // Ends a test that is spending data, rather than waiting for it or closing the window.
-  const stopButton = h("button", { class: "link-btn speed-stop", hidden: "" }, "Stop") as HTMLButtonElement;
+  const stopButton = h("button", { class: "btn speed-stop", hidden: "" }, "Stop") as HTMLButtonElement;
   stopButton.addEventListener("click", () => act.stop?.());
   root.replaceChildren(h("div", { class: "speed" }, h("h1", { class: "sr-only" }, "Speed test"), h("div", { class: "speed-dials" }, down.box, up.box), ping, server, status, h("div", { class: "row-buttons" }, again, stopButton, used)));
 

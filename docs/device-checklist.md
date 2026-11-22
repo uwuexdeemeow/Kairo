@@ -89,6 +89,30 @@ and Open dashboard and Check for updates work as above.
    "Open the command palette".
 5. **Focus blocking**, as on GNOME, step 7.
 
+## Linux: the gaps the code read found (X11, a stock tray, other Wayland desktops)
+
+Nothing here has run on a real machine; each step is a guess the code makes.
+
+1. **X11 session.** Log in to "Ubuntu on Xorg" (or any X11 session). *Expect:* tracking, idle and the
+   palette shortcut all work without any extension or manual shortcut, and the palette is
+   transparent over the desktop (it is "tinted", not frosted). Without a compositor, say whether it
+   draws on a solid box.
+2. **Stock GNOME tray.** On GNOME without the AppIndicator extension, open Kairo's Settings.
+   *Expect:* under the palette shortcut, a line about the AppIndicator extension and
+   `kairo --dashboard`. Run `kairo --dashboard` from a terminal. *Expect:* the dashboard opens.
+3. **Palette focus on Wayland.** Press the shortcut with another app in front. *Expect:* the palette
+   opens and typing goes into it at once. If the keys go to the app behind, say so: Wayland may
+   ignore the focus request.
+4. **Another Wayland desktop** (Sway, Hyprland). *Expect:* a native app isn't tracked, only
+   XWayland ones; idle never shows; Settings lists both, and says to add a shortcut running
+   `kairo --palette` (and `kairo --ring`).
+5. **A shortcut that's taken.** On X11, give another program Ctrl+Space and start Kairo. *Expect:*
+   Settings says another program is holding the palette's keys.
+6. **Clipboard tools.** Without `wl-clipboard` and `xclip` installed, Settings says to install one.
+   With one installed, copy a password from a manager. *Expect:* it isn't in the palette's `clip`.
+7. **Reminder buttons.** When a reminder shows, click its action. *Expect:* it works, or say it
+   doesn't: notification actions on Linux are assumed unsupported.
+
 ## Palette: files and settings
 
 On Windows, a Mac and Linux. Open the palette with Ctrl+Space (Option+Space on a Mac). Below,
@@ -1122,14 +1146,17 @@ meetings today and some from last week. No focus session involved except where s
     Schedule, Block lists and Modes, each opening on its own; Settings no longer has a Focus group.
     Flip Strict mode and pick a rest time. *Expect:* the rest time says Saved, which goes after a few
     seconds, and both are as set after a restart. Search `rest` in Kairo's Settings. *Expect:* it
-    opens Focus with the right fold open. In the palette type
+    opens Focus with the right fold open. With the folds closed, each header says what it holds:
+    Blocking "On" or "On · strict", Rest reminders "Every 1 h", Rounds "On" or "Off", and the counts
+    ("2 schedules", "1 list", "None") for the rest. Pick a Pomodoro length. *Expect:* "Saved" goes
+    after a few seconds, and Show me jumps to the "Rounds with breaks" box. In the palette type
     `strict blocking`. *Expect:* its row says "Chrono's Focus page", and Enter opens Focus with the
     switch in view. Type `focus blocking` and press Enter. *Expect:* it flips from the palette as before.
     In Kairo's Settings, search `strict`. *Expect:* "Strict mode" takes you to the Focus page.
 15. **Speed test, Scan and the palette's ends.** Type `speed test`. *Expect:* the window opens
     saying "Uses up to 100 MB of data." with Start test, and nothing runs until you click it; press
     Stop mid-test and the keyboard moves to Run again. In the Scan window, check a link one engine
-    flags. *Expect:* "Probably fine" with a tick in a broken ring, not the clean tick; a failed
+    flags. *Expect:* "Probably fine" with a tick in an open ring, not the clean tick; a failed
     check shows a question mark, not the "!" of Suspicious; a file over 32 MB has Remove. In the
     palette (Windows and web), press Ctrl+End then Ctrl+Home. *Expect:* the last, then the first
     result is selected; plain Home and End still move the caret in the box.

@@ -296,7 +296,7 @@
             <p class="muted setup-elsewhere">What counts as distracting is set in <button class="link-btn" data-goto="categories" data-goto-target="#categories">Categories</button>.</p>
 
             <details class="setup-part" open>
-              <summary>Blocking</summary>
+              <summary>Blocking<span class="setup-state muted" id="state-blocking"></span></summary>
               <label class="toggle">
                 <input type="checkbox" id="block-enabled" />
                 Block distracting apps and sites during focus sessions
@@ -320,7 +320,7 @@
             </details>
 
             <details class="setup-part">
-              <summary>Rest reminders</summary>
+              <summary>Rest reminders<span class="setup-state muted" id="state-rest"></span></summary>
               <label class="field">
                 Remind me to rest after
                 <select id="break-every"></select>
@@ -330,8 +330,8 @@
             </details>
 
             <details class="setup-part">
-              <summary>Rounds and breaks</summary>
-              <p class="muted">Tick "Rounds with breaks" above to work in rounds (a Pomodoro). Nothing is blocked during a break. In the palette: <kbd>pomodoro 50 10 essay</kbd>.</p>
+              <summary>Rounds and breaks<span class="setup-state muted" id="state-rounds"></span></summary>
+              <p class="muted">Work in rounds, a Pomodoro, when "Rounds with breaks" is ticked beside Start focus. <button class="link-btn" type="button" id="pomodoro-goto">Show me</button> Nothing is blocked during a break. In the palette: <kbd>pomodoro 50 10 essay</kbd>.</p>
               <div class="row-buttons pomodoro-lengths">
                 <label class="field">Break <input class="filter" type="number" id="pomodoro-break-min" min="1" max="30" step="1" aria-label="Break minutes" /> min</label>
                 <label class="field">Long break <input class="filter" type="number" id="pomodoro-long-min" min="5" max="60" step="1" aria-label="Long break minutes" /> min</label>
@@ -341,7 +341,7 @@
             </details>
 
             <details class="setup-part">
-              <summary>Schedule</summary>
+              <summary>Schedule<span class="setup-state muted" id="state-schedule"></span></summary>
               <p class="muted">Start sessions on their own at set times, like weekdays 9 to 12, when you're at the computer. Ending one early keeps it off until its next day.</p>
               <div id="schedule-list"></div>
               <div class="row-buttons schedule-add">
@@ -361,7 +361,7 @@
             </details>
 
             <details class="setup-part">
-              <summary>Block lists</summary>
+              <summary>Block lists<span class="setup-state muted" id="state-lists"></span></summary>
               <p class="muted">Save a set of apps and sites, like Social or Games, to block instead of everything distracting. Name one when you start a session: <kbd>focus 50 social</kbd>.</p>
               <label class="field">
                 Sessions you start block
@@ -376,7 +376,7 @@
             </details>
 
             <details class="setup-part">
-              <summary>Modes</summary>
+              <summary>Modes<span class="setup-state muted" id="state-modes"></span></summary>
               <p class="muted">Name a way of working, like Study, and start it from the command palette by typing its name: it focuses for as long as you say, blocks the list you choose and opens the apps you pick. Modes stay on this computer.</p>
               <div id="modes"></div>
               <div class="row-buttons mode-add">

@@ -409,7 +409,13 @@ export function wireKairoSettings(): void {
     $("#autostart-label").textContent = "Start Kairo quietly in the tray when I log in";
     // Wayland keeps keys from apps; GNOME and Plasma take the shortcut into their own settings.
     $("#palette-note").textContent =
-      "Works everywhere, even with Kairo's windows closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
+      "Works on X11, even with Kairo's windows closed. On Wayland, GNOME and KDE Plasma keep it with their own keyboard shortcuts; on other Wayland desktops, add a shortcut in the keyboard settings that runs kairo --palette.";
+    // What this desktop can't do, named where the shortcut is rather than left to a log.
+    void api.linuxNotes().then((notes) => {
+      const list = $("#linux-notes");
+      list.replaceChildren(...notes.map((n) => h("li", {}, n)));
+      list.hidden = notes.length === 0;
+    }).catch(() => {});
   }
 
   if (IS_LINUX) {

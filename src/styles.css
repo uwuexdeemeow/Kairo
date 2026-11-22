@@ -7691,6 +7691,20 @@ summary:focus-visible {
   margin-bottom: 8px;
 }
 
+/* Linux only: what this desktop can't do, as a short list under the shortcut. */
+.linux-notes {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+/* What the fold holds, said while it is closed. */
+.setup-state {
+  margin-left: auto;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 400;
+}
+
 /* The week's three figures lead; the rest follow smaller. */
 .stats-lead dd {
   font-size: 30px;

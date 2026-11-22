@@ -1,6 +1,6 @@
 import { api, type FocusMode, type InstalledApp } from "./api";
 import { confirmTwice } from "./confirm";
-import { $, fmtDur, h, why } from "./ui";
+import { $, countOf, fmtDur, foldState, h, why } from "./ui";
 
 // Chrono's Focus page, Modes: each a name for a way of working, with how long to focus, the block
 // list that applies and the apps to open. Typed in the palette by its name, a mode starts the
@@ -20,6 +20,7 @@ export function forgetInstalledApps(): void {
 /// Draws the modes, `lists` the saved block lists' names to choose from. A change saves, then
 /// redraws what was kept; a failure says why in the line beside the Add button.
 export function renderModes(modes: FocusMode[], lists: string[]): void {
+  foldState("modes", countOf(modes.length, "mode"));
   const status = $("#mode-status");
   const run = async (change: () => Promise<FocusMode[]>) => {
     try {

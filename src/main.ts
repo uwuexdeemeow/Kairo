@@ -14,7 +14,7 @@ import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
 import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
-import { $, IS_LINUX, IS_MAC, combinedWithOthers, esc, flash, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
+import { $, IS_LINUX, IS_MAC, combinedWithOthers, countOf, esc, flash, foldState, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
 
 // Times of day as Kairo's dropdowns rather than the system's time fields; first, before anything
 // takes hold of the fields it replaces.
@@ -1640,6 +1640,7 @@ function keyPicker(keys: string[], save: (keys: string[]) => void, say: (text: s
 }
 
 function renderSchedule(slots: FocusSlot[]) {
+  foldState("schedule", countOf(slots.length, "schedule"));
   const root = $("#schedule-list");
   if (!slots.length) {
     root.replaceChildren();
@@ -1738,6 +1739,7 @@ let pendingOnly: number | null = null;
 /// block.
 function renderBlockLists(b: BlockLists) {
   savedLists = b.lists;
+  foldState("lists", countOf(b.lists.length, "list"));
   const status = $("#block-list-status");
   const run = async (change: () => Promise<BlockLists>) => {
     try {
@@ -1849,9 +1851,11 @@ function paintPomodoroPlan() {
   const plan = $("#pomodoro-plan");
   const l = pomodoroLengths;
   plan.hidden = !($("#timer-pomodoro") as HTMLInputElement).checked || !l;
+  foldState("rounds", ($("#timer-pomodoro") as HTMLInputElement).checked ? "On" : "Off");
   if (l) plan.textContent = `Rounds of ${timerMinutes}m with ${l.breakMin}m breaks, and a ${l.longMin}m break after every ${l.rounds}, until you end it.`;
 }
 $("#timer-pomodoro").addEventListener("change", paintPomodoroPlan);
+$("#pomodoro-goto").addEventListener("click", () => jumpTo("timer-pomodoro"));
 
 async function showPomodoroLengths() {
   try {
@@ -1873,7 +1877,7 @@ for (const sel of Object.values(pomodoroFields)) {
       pomodoroLengths = saved;
       paintPomodoroPlan();
       // Saving starts nothing, and says where starting is.
-      flash($("#pomodoro-status"), "Saved. Tick “Rounds with breaks” above Start focus to use them.");
+      flash($("#pomodoro-status"), "Saved");
     } catch {
       $("#pomodoro-status").textContent = "Couldn't save";
     }
@@ -2069,12 +2073,15 @@ async function load(v: View = view) {
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
+      paintBlockingState();
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
+      paintRestState(Number(breaks.value));
       breaks.onchange = async () => {
         const out = $("#break-status");
         try {
           await api.setBreakMinutes(Number(breaks.value));
+          paintRestState(Number(breaks.value));
           flash(out, "Saved");
         } catch (e) {
           out.textContent = `Couldn't save. ${why(e)}`;
@@ -2252,12 +2259,24 @@ listen("kairo:navigate", () => followNavigation());
 // Kairo's settings window can change what Chrono's Settings shows too.
 listen("kairo:settings", () => view === "settings" && load());
 
+/// Blocking's header says whether it is on, and strict, while the fold is closed.
+function paintBlockingState() {
+  const on = $<HTMLInputElement>("#block-enabled").checked;
+  foldState("blocking", on ? ($<HTMLInputElement>("#block-strict").checked ? "On · strict" : "On") : "Off");
+}
+
+/// Rest reminders' header: how long before one, or off.
+function paintRestState(min: number) {
+  foldState("rest", min === 0 ? "Off" : min % 60 === 0 ? `Every ${min / 60} h` : `Every ${min} min`);
+}
+
 for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
   $<HTMLInputElement>(id).addEventListener("change", async (e) => {
     const box = e.target as HTMLInputElement;
     try {
       await api.setFocusBlocking(which, box.checked);
       $("#block-note").textContent = "";
+      paintBlockingState();
     } catch (err) {
       // Strict mode keeps these as they are mid-session.
       box.checked = !box.checked;

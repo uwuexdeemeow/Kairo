@@ -823,6 +823,8 @@ export const api = {
   setPaletteLook: (look: PaletteLook) => invoke<void>("set_palette_look", { look }),
   /** Refused, keeping the old shortcut, when another app holds the keys. */
   setPaletteShortcut: (shortcut: string) => invoke<void>("set_palette_shortcut", { shortcut }),
+  /** What Linux can't do on this desktop; empty elsewhere. */
+  linuxNotes: () => invoke<string[]>("linux_notes"),
   /** Settings is recording a shortcut (or has stopped); on Windows Alt+Space then isn't taken by the window menu. */
   recordingShortcut: (on: boolean) => invoke<void>("recording_shortcut", { on }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),

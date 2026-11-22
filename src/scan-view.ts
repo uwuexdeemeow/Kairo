@@ -133,7 +133,7 @@ const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
 let ids = 0;
 
-/// Each tone's stamp: a tick for clean, the same in a broken ring for a lone engine, a cross for
+/// Each tone's stamp: a tick for clean, the same in an open ring for a lone engine, a cross for
 /// malicious, a mark for suspicious, a question for an error, a dash when there's nothing to say.
 const SEAL: Record<string, Glyph> = { clean: "seal-clean", fine: "seal-fine", bad: "seal-bad", odd: "seal-odd", error: "seal-error", none: "seal-none" };
 

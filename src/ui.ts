@@ -33,11 +33,25 @@ export function why(err: unknown): string {
 /// A confirmation beside the control that made it, gone after a few seconds so a stale "Saved"
 /// doesn't sit there. A newer message put there in the meantime is left alone.
 export function flash(el: HTMLElement, text: string, ms = 4000): void {
+  window.clearTimeout(flashing.get(el));
   el.textContent = text;
-  setTimeout(() => {
-    if (el.textContent === text) el.textContent = "";
-  }, ms);
+  flashing.set(
+    el,
+    window.setTimeout(() => {
+      if (el.textContent === text) el.textContent = "";
+    }, ms),
+  );
 }
+const flashing = new WeakMap<HTMLElement, number>();
+
+/// What a closed fold of Set up focus says about itself ("On · strict", "2 schedules"), beside its name.
+export function foldState(part: string, text: string): void {
+  const el = document.getElementById(`state-${part}`);
+  if (el) el.textContent = text;
+}
+
+/// "None", "1 list", "3 lists": a count for a fold's header.
+export const countOf = (n: number, one: string, many = `${one}s`): string => (n === 0 ? "None" : `${n} ${n === 1 ? one : many}`);
 
 /// Makes `items` one stop for the Tab key, with the arrow keys moving between them (Home and End
 /// too, and up and down by a row when `columns` is given). For charts: dozens of bars, cells or

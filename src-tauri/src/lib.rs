@@ -10,6 +10,7 @@ mod browser;
 mod classify;
 mod collector;
 mod commands;
+mod linux_notes;
 mod crashlog;
 mod db;
 mod demo;
@@ -340,11 +341,13 @@ pub fn run() {
             if !platform::desktop_palette_shortcut(&palette_shortcut) {
                 if let Err(e) = app.global_shortcut().register(palette_shortcut.as_str()) {
                     eprintln!("palette: cannot use {palette_shortcut}: {e}");
+                    linux_notes::shortcut_refused("the palette", &palette_shortcut);
                 }
             }
             if !platform::desktop_ring_shortcut(&ring_shortcut) {
                 if let Err(e) = app.global_shortcut().register(ring_shortcut.as_str()) {
                     eprintln!("ring: cannot use {ring_shortcut}: {e}");
+                    linux_notes::shortcut_refused("the app ring", &ring_shortcut);
                 }
             }
             capture::register_saved(app.handle(), &capture_shortcut);
@@ -480,6 +483,7 @@ pub fn run() {
             commands::palette_glass,
             commands::get_palette_settings,
             commands::set_palette_shortcut,
+            linux_notes::linux_notes,
             commands::recording_shortcut,
             commands::set_palette_suggestions,
             commands::set_palette_search_files,
