@@ -20,7 +20,18 @@ fn short(title: &str) -> String {
 /// "Left half", "maximize", "next display" and the rest, for the window that was in front when
 /// the palette opened. Nothing when there was none.
 pub fn snap_rows(ctx: &Context, query: &str) -> Vec<Item> {
-    let Some(front) = ctx.windows.first() else { return Vec::new() };
+    let Some(front) = ctx.windows.first() else {
+        // Asked for outright with no other window open: say so, rather than nothing.
+        let asked = Snap::ALL.into_iter().find(|s| s.exact().iter().any(|e| query.trim().eq_ignore_ascii_case(e)));
+        return asked
+            .map(|s| {
+                let mut item = note_row(format!("{}: no window to move. Open the palette from the window you want to move", s.title()), Glyph::Window, "Window");
+                item.score = LEAD;
+                item
+            })
+            .into_iter()
+            .collect();
+    };
     let says = format!("Moves “{}”", short(&front.title));
     Snap::ALL
         .into_iter()
@@ -118,7 +129,7 @@ pub fn script_rows(ctx: &Context, query: &str) -> Vec<Item> {
         .collect();
     if listing || placed(q, &[], "Open scripts folder", "scripts folder your own").is_some() {
         let place = if listing { (LEAD - 2.0, Vec::new()) } else { placed(q, &[], "Open scripts folder", "scripts folder your own").unwrap_or_default() };
-        let sub = if ctx.scripts.is_empty() { "Put a script there to run it from here; an example is inside" } else { "Where your scripts are" };
+        let sub = if ctx.scripts.is_empty() { "Put a script there to run it from here. Opening it adds an example" } else { "Where your scripts are" };
         items.push(row("Open scripts folder", Glyph::Script, "Scripts", Action::OpenScripts, sub, place));
     }
     items
@@ -147,6 +158,7 @@ mod tests {
         assert_eq!(search(&c, "maximize")[0].action, Action::Snap(Snap::Maximize, "42".into()));
         assert_eq!(search(&c, "next display")[0].action, Action::Snap(Snap::NextDisplay, "42".into()));
         assert_eq!(search(&c, "restore")[0].action, Action::Snap(Snap::Restore, "42".into()));
+        assert_eq!(search(&c, "left half")[0].action.verb(), "Snap");
         // Found loosely too.
         assert!(search(&c, "snap").iter().any(|i| i.section == "Window"));
     }
@@ -154,7 +166,11 @@ mod tests {
     #[test]
     fn with_no_window_in_front_nothing_offers_to_move_one() {
         let c = ctx();
-        assert!(!search(&c, "left half").iter().any(|i| i.section == "Window"));
+        let found = search(&c, "left half");
+        assert!(found[0].is_note() && found[0].title.starts_with("Left half: no window to move"));
+        assert!(!found.iter().any(|i| matches!(i.action, Action::Snap(..))));
+        // Not for words merely like one.
+        assert!(!search(&c, "lef").iter().any(|i| i.section == "Window"));
     }
 
     fn layout(name: &str, label: Option<&str>) -> Layout {

@@ -1785,6 +1785,12 @@ mod x11 {
             }
         }
 
+        /// Whether the window manager has the window maximized either way.
+        fn is_maximized(&self, w: Window) -> bool {
+            let (Some(vert), Some(horz)) = (self.atom("_NET_WM_STATE_MAXIMIZED_VERT"), self.atom("_NET_WM_STATE_MAXIMIZED_HORZ")) else { return false };
+            self.property(w, "_NET_WM_STATE", AtomEnum::ATOM, 64).and_then(|p| p.value32().map(|v| v.collect::<Vec<u32>>())).is_some_and(|states| states.contains(&vert) || states.contains(&horz))
+        }
+
         /// Takes a window out of being maximized, or puts it in, both ways at once.
         fn maximized(&self, w: Window, on: bool) -> bool {
             let (Some(vert), Some(horz)) = (self.atom("_NET_WM_STATE_MAXIMIZED_VERT"), self.atom("_NET_WM_STATE_MAXIMIZED_HORZ")) else { return false };
@@ -1805,8 +1811,15 @@ mod x11 {
     /// north-west gravity: the frame's corner, the window's own size).
     pub fn place_window(id: &str, r: super::Rect) -> bool {
         let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        // Only when it is: a window manager may answer an un-maximize after the move that follows
+        // and put the window back where it was (Openbox does).
+        if x.is_maximized(w) {
+            x.maximized(w, false);
+            let _ = x.conn.flush();
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
+        // Read after un-maximizing: a maximized window's frame is often thinner.
         let [l, rt, t, b] = x.frame_extents(w);
-        x.maximized(w, false);
         const NORTH_WEST: u32 = 1;
         const ALL: u32 = 0b1111 << 8;
         const PAGER: u32 = 2 << 12;

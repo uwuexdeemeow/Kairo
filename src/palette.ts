@@ -274,7 +274,7 @@ function renderHint() {
   const box = $("#palette-second");
   const second = shown[selected]?.second;
   // The first Enter on a time chart shows it; only the next one does what the row says.
-  $("#palette-enter").textContent = shown[selected]?.again && asked !== selected ? "Show" : "Run";
+  $("#palette-enter").textContent = shown[selected]?.again && asked !== selected ? "Show" : (shown[selected]?.verb ?? "Run");
   box.hidden = !second;
   box.replaceChildren(...(second ? [h("kbd", {}, isMac() ? "⌘" : "Ctrl"), " ", h("kbd", {}, "Enter"), ` ${second}`] : []));
 }

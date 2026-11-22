@@ -160,6 +160,8 @@ export interface PaletteItem {
   preview: boolean;
   /** For a card that waits for Enter (a time chart): the row's second line once it's showing. */
   again?: string | null;
+  /** What Enter does, in a word: "Paste", "Open", "Run". */
+  verb?: string;
   /** Whether it only says something ("Not a sum yet"): drawn as a note, never chosen. */
   note?: boolean;
 }

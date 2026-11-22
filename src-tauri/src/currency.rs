@@ -56,11 +56,10 @@ static APP: OnceLock<AppHandle> = OnceLock::new();
 static FETCHING: AtomicBool = AtomicBool::new(false);
 
 /// Reads the kept rates, and remembers the app so a download can be started from the calculator.
-pub fn init(app: &AppHandle) {
+/// Called as Kairo starts, before its state is managed, so it is handed the database itself.
+pub fn init(app: &AppHandle, conn: &rusqlite::Connection) {
     let _ = APP.set(app.clone());
-    let state = app.state::<crate::AppState>();
-    let Ok(conn) = state.db.lock() else { return };
-    if let Some(rates) = crate::db::get_setting(&conn, KEY).ok().flatten().and_then(|json| serde_json::from_str::<Rates>(&json).ok()) {
+    if let Some(rates) = crate::db::get_setting(conn, KEY).ok().flatten().and_then(|json| serde_json::from_str::<Rates>(&json).ok()) {
         *RATES.write().unwrap_or_else(|e| e.into_inner()) = Some(rates);
     }
 }

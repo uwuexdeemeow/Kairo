@@ -885,6 +885,8 @@ pub struct ItemView {
     again: Option<String>,
     /// The label of what Ctrl+Enter does instead.
     second: Option<&'static str>,
+    /// What Enter does, in a word ("Paste", "Open", "Run").
+    verb: &'static str,
     /// Whether it only says something: drawn as a note, not chosen (`Item::is_note`).
     note: bool,
 }
@@ -926,6 +928,7 @@ impl From<&Item> for ItemView {
             preview: item.preview.is_some(),
             again: item.preview.as_ref().filter(|p| p.on_enter()).map(|_| search::enter_again(item.sub.as_deref())),
             second: item.second.as_ref().map(|(_, label)| *label),
+            verb: item.action.verb(),
             note: item.is_note(),
         }
     }

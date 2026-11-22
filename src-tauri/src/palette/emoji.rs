@@ -155,6 +155,7 @@ mod tests {
         assert_eq!(found[0].title, "🔥  Fire");
         assert_eq!(found[0].section, "Emoji");
         assert_eq!(found[0].action, Action::Emoji("🔥".into(), None));
+        assert_eq!(found[0].action.verb(), "Paste");
         assert_eq!(found[0].second, Some((Action::Copy("🔥".into()), "Copy")));
         // Other words find it too.
         assert!(search(&c, "emoji flame").iter().take(3).any(|i| i.title == "🔥  Fire"));

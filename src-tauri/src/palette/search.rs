@@ -611,6 +611,23 @@ pub enum SessionDo {
 }
 
 impl Action {
+    /// What Enter does, in a word, for the palette's footer.
+    pub fn verb(&self) -> &'static str {
+        match self {
+            Action::Paste(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
+            Action::Copy(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
+            Action::Launch(..) | Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenFile(..) | Action::OpenLedger | Action::OpenPlan | Action::OpenReview | Action::OpenRing | Action::OpenNote(..) | Action::PopOutNote(..) | Action::OpenScripts | Action::Setting(..) => "Open",
+            Action::FocusWindow(..) => "Switch",
+            Action::Snap(..) | Action::RestoreLayout(..) => "Snap",
+            Action::SaveLayout(..) => "Save",
+            Action::EnterMode(..) => "Choose",
+            Action::Toggle(..) => "Turn on or off",
+            Action::PinClip(..) => "Pin",
+            Action::UnpinClip(..) => "Unpin",
+            _ => "Run",
+        }
+    }
+
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {

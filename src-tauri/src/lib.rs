@@ -293,7 +293,7 @@ pub fn run() {
             app.manage(clipboard::Shared::new(clipboard::enabled(&conn)?));
             app.manage(system::PendingPower::default());
             clipboard::spawn(app.handle().clone());
-            currency::init(app.handle());
+            currency::init(app.handle(), &conn);
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
             reminders::follow_clicks(app.handle());
