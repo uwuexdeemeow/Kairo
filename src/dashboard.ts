@@ -53,6 +53,7 @@ const CHRONO_FINDS: Find[] = (
     ["Rest reminders", "break breaks reminder rest", "focus", "break-every"],
     ["Focus nudges", "nudge notification distracted", "settings", "nudges-enabled"],
     ["Evening summary", "notification daily recap", "settings", "evening-enabled"],
+    ["Quiet hours", "pause tracking schedule night weekend private off", "settings", "quiet-start"],
     ["Keep history for", "retention privacy older days forever", "settings", "retention"],
     ["Erase tracked time", "delete history clear remove privacy", "settings", "delete-range"],
     ["Demo data", "sample made-up try", "settings", "demo-load"],

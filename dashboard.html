@@ -143,13 +143,17 @@
 
         <section class="block" id="custom-commands" data-words="commands custom your own alias shortcut quick link snippet text open copy folder file app">
           <h3>Your commands</h3>
-          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, or copies some text. They stay on this computer.</p>
+          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, or copies some text. Links and text go to the computers you've combined; files, folders and apps stay on this one.</p>
           <div id="custom-list"></div>
           <div class="row-buttons custom-add">
             <input class="filter" id="custom-new-name" maxlength="30" placeholder="Name, like tax" aria-label="Command name" autocomplete="off" />
             <select id="custom-new-kind" aria-label="What it does"></select>
           </div>
           <textarea class="filter custom-target" id="custom-new-target" rows="2" spellcheck="false"></textarea>
+          <p class="custom-pick" id="custom-new-pick" hidden>
+            <button class="link-btn" id="custom-pick-file" type="button">Choose a file or app…</button>
+            <button class="link-btn" id="custom-pick-folder" type="button">Choose a folder…</button>
+          </p>
           <div class="row-buttons">
             <button class="btn" id="custom-add" type="button">Add</button>
             <span class="muted" id="custom-status" aria-live="polite"></span>

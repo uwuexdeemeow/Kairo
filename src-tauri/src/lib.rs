@@ -12,6 +12,7 @@ mod collector;
 mod commands;
 mod custom_commands;
 mod linux_notes;
+mod pause_schedule;
 mod crashlog;
 mod db;
 mod demo;
@@ -527,6 +528,10 @@ pub fn run() {
             commands::set_task_when,
             commands::set_task_estimate,
             commands::get_focus_modes,
+            commands::get_pause_schedule,
+            commands::add_pause_window,
+            commands::remove_pause_window,
+            custom_commands::pick_command_path,
             commands::get_custom_commands,
             commands::save_custom_command,
             commands::remove_custom_command,

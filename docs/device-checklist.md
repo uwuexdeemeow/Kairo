@@ -1181,3 +1181,15 @@ meetings today and some from last week. No focus session involved except where s
     the folder, then run `tax`. *Expect:* "Couldn't open it: it was moved or deleted." Search
     `custom` in the palette. *Expect:* "Your commands" takes you to its name box. Back up and
     restore. *Expect:* they are still there. On Linux and a Mac, also try an app's path.
+19. **Quiet hours, the file picker and shared commands (1.31.72).** In Chrono's Settings, under
+    Privacy and data, add a Quiet hours window starting two minutes from now, for 15 minutes,
+    today's day only. *Expect:* within a few seconds the tray says "Resume tracking" and Today stops
+    growing; the palette's "resume tracking" works, and tracking then stays on for the rest of
+    that window. Add one that started a minute ago and ends in an hour and one across midnight
+    (22:00 for 8 hours). *Expect:* the list shows 22:00–06:00; at night tracking pauses and
+    resumes itself at 06:00. Remove them. In Kairo's Settings, Your commands, choose "Opens a file,
+    folder or app". *Expect:* "Choose a file or app…" and "Choose a folder…" open the system's
+    dialog and fill the box; cancelling changes nothing; a link or text command shows neither. With
+    two computers combined: make a link and a text on one. *Expect:* both appear on the other
+    within a minute or two, a folder command made on one never does, and a folder command of the
+    same name on the other is kept. Remove the link. *Expect:* it goes from both.

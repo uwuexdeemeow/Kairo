@@ -145,6 +145,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              apps     TEXT    NOT NULL DEFAULT '[]',
              position INTEGER NOT NULL DEFAULT 0
          );
+         -- Quiet hours (pause_schedule.rs): times tracking pauses by itself, by day of the week.
+         CREATE TABLE IF NOT EXISTS pause_schedule (
+             id        INTEGER PRIMARY KEY AUTOINCREMENT,
+             days      INTEGER NOT NULL,
+             start_min INTEGER NOT NULL,
+             minutes   INTEGER NOT NULL
+         );
          -- Your own palette commands (custom_commands.rs): a name that opens a link, a path or copies text.
          CREATE TABLE IF NOT EXISTS custom_commands (
              name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,

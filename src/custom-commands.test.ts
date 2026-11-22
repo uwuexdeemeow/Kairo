@@ -4,6 +4,7 @@ const api = vi.hoisted(() => ({
   customCommands: vi.fn(),
   saveCustomCommand: vi.fn(),
   removeCustomCommand: vi.fn(),
+  pickCommandPath: vi.fn(),
 }));
 vi.mock("./api", () => ({ api }));
 
@@ -17,7 +18,7 @@ const tax: CustomCommand = { name: "tax", kind: "open", target: "C:\\Users\\me\\
 const gh: CustomCommand = { name: "gh", kind: "link", target: "https://github.com" };
 
 beforeEach(() => {
-  document.body.innerHTML = `<div id="custom-list"></div><input id="custom-new-name" /><select id="custom-new-kind"></select><textarea id="custom-new-target"></textarea><button id="custom-add"></button><span id="custom-status"></span>`;
+  document.body.innerHTML = `<div id="custom-list"></div><input id="custom-new-name" /><select id="custom-new-kind"></select><textarea id="custom-new-target"></textarea><p id="custom-new-pick" hidden><button id="custom-pick-file"></button><button id="custom-pick-folder"></button></p><button id="custom-add"></button><span id="custom-status"></span>`;
   for (const fn of Object.values(api)) fn.mockReset();
 });
 
@@ -79,6 +80,49 @@ describe("Your commands in Kairo's settings", () => {
     expect($<HTMLInputElement>("#custom-new-name").value).toBe("");
     expect(target.value).toBe("");
     expect(document.activeElement).toBe($("#custom-new-name"));
+  });
+
+  it("offers the system's file and folder dialogs only for a path, and fills the box from them", async () => {
+    setUpCustomForm();
+    const picks = $("#custom-new-pick");
+    // A link is typed; a path is picked.
+    expect(picks.hidden).toBe(true);
+    const kind = $<HTMLSelectElement>("#custom-new-kind");
+    kind.value = "open";
+    kind.dispatchEvent(new Event("change"));
+    expect(picks.hidden).toBe(false);
+    api.pickCommandPath.mockResolvedValueOnce("C:\Users\me\Tax");
+    $<HTMLButtonElement>("#custom-pick-folder").click();
+    expect(api.pickCommandPath).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(() => expect($<HTMLTextAreaElement>("#custom-new-target").value).toBe("C:\Users\me\Tax"));
+    // Cancelled: what was there stays.
+    api.pickCommandPath.mockResolvedValueOnce(null);
+    $<HTMLButtonElement>("#custom-pick-file").click();
+    expect(api.pickCommandPath).toHaveBeenLastCalledWith(false);
+    await settle();
+    expect($<HTMLTextAreaElement>("#custom-new-target").value).toBe("C:\Users\me\Tax");
+    kind.value = "text";
+    kind.dispatchEvent(new Event("change"));
+    expect(picks.hidden).toBe(true);
+  });
+
+  it("puts a picked path on a command that opens one, and saves it", async () => {
+    renderCustomCommands([tax, gh]);
+    // Only the command that opens a path has the dialogs.
+    expect(document.querySelectorAll(".custom-pick").length).toBe(1);
+    api.pickCommandPath.mockResolvedValueOnce("D:\Tax");
+    api.saveCustomCommand.mockResolvedValueOnce([{ ...tax, target: "D:\Tax" }, gh]);
+    document.querySelector<HTMLButtonElement>(".custom-pick .link-btn")!.click();
+    await vi.waitFor(() => expect(api.saveCustomCommand).toHaveBeenCalledWith("tax", "tax", "open", "D:\Tax"));
+  });
+
+  it("says why the dialog couldn't open", async () => {
+    setUpCustomForm();
+    $<HTMLSelectElement>("#custom-new-kind").value = "open";
+    $<HTMLSelectElement>("#custom-new-kind").dispatchEvent(new Event("change"));
+    api.pickCommandPath.mockRejectedValueOnce("Try again in a moment.");
+    $<HTMLButtonElement>("#custom-pick-file").click();
+    await vi.waitFor(() => expect($("#custom-status").textContent).toBe("Try again in a moment."));
   });
 
   it("keeps what was typed and says why when adding is refused", async () => {

@@ -550,6 +550,9 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool) -> std:
         notify(app, &title, &body);
     }
     crate::resume_if_due(app, now);
+    // Quiet hours pause tracking when one begins; after the timed pause above, so one that ends
+    // with its window is over before the next look.
+    crate::pause_schedule::apply(app, conn);
 
     let completed = complete_if_due(conn, now)?;
     // A cycle starts its break when a round ends and its next round when the break does.

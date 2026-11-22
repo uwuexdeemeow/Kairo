@@ -1,7 +1,7 @@
 //! Your own palette commands: a name you choose that opens a link, opens a file, folder or app, or
 //! copies a piece of text. Typing the name (or its start) shows a row, and Enter does it, with the
-//! palette's own actions for each. They stay on the computer they were made on, like focus modes:
-//! a path means something only there.
+//! palette's own actions for each. Links and text go to the computers you've combined; files,
+//! folders and apps stay on the one they were made on, since a path means something only there.
 
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
@@ -158,6 +158,36 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, kind: Kind, target
     Ok(Ok(()))
 }
 
+/// The commands that mean the same on any computer, as text for sharing: links and text, never
+/// paths.
+pub fn to_json(conn: &Connection) -> Result<String> {
+    let shared: Vec<CustomCommand> = list(conn)?.into_iter().filter(|c| c.kind != Kind::Open).collect();
+    Ok(serde_json::to_string(&shared).unwrap_or_else(|_| "[]".into()))
+}
+
+/// Takes another computer's links and texts in place of this one's. The paths made here stay, and
+/// win a name they share; what doesn't pass the rules for a command is left out.
+pub fn replace_from_json(conn: &Connection, json: &str) -> std::result::Result<(), String> {
+    let theirs: Vec<CustomCommand> = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM custom_commands WHERE kind != 'open'", []).map_err(|e| e.to_string())?;
+    for c in theirs.into_iter().filter(|c| c.kind != Kind::Open) {
+        // A name taken by a path here, or one past the most, is skipped rather than failing the rest.
+        let _ = save(&tx, None, &c.name, c.kind, &c.target).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
+}
+
+/// Asks for a file or app, or with `folder` a folder, in the system's own dialog; None when it is
+/// cancelled. The path is typed into the command for you, so it can't be mistyped.
+#[tauri::command]
+pub fn pick_command_path(app: tauri::AppHandle, folder: bool) -> Option<String> {
+    use tauri_plugin_dialog::DialogExt;
+    let dialog = app.dialog().file().set_title(if folder { "Choose a folder" } else { "Choose a file or app" });
+    let chosen = if folder { dialog.blocking_pick_folder() } else { dialog.blocking_pick_file() };
+    chosen?.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+}
+
 pub fn remove(conn: &Connection, name: &str) -> Result<()> {
     conn.execute("DELETE FROM custom_commands WHERE name = ?1 COLLATE NOCASE", [name])?;
     Ok(())
@@ -253,6 +283,42 @@ mod tests {
         remove(&c, "C3").unwrap();
         saved(&c, "one more", Kind::Text, "x").unwrap();
         assert_eq!(list(&c).unwrap().len(), MAX_COMMANDS);
+    }
+
+    #[test]
+    fn only_links_and_text_are_shared_never_paths() {
+        let c = conn();
+        saved(&c, "tax", Kind::Open, "C:\\tax").unwrap();
+        saved(&c, "gh", Kind::Link, "github.com").unwrap();
+        saved(&c, "sig", Kind::Text, "Best,\nAmos").unwrap();
+        let shared: Vec<CustomCommand> = serde_json::from_str(&to_json(&c).unwrap()).unwrap();
+        assert_eq!(shared.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["gh", "sig"]);
+        assert!(!to_json(&c).unwrap().contains("tax"));
+    }
+
+    #[test]
+    fn another_computers_commands_replace_the_shared_ones_and_keep_the_paths_made_here() {
+        let c = conn();
+        saved(&c, "tax", Kind::Open, "C:\\tax").unwrap();
+        saved(&c, "old", Kind::Link, "old.example.com").unwrap();
+        let theirs = r#"[{"name":"gh","kind":"link","target":"https://github.com"},{"name":"sig","kind":"text","target":"Best"},{"name":"TAX","kind":"text","target":"clash"},{"name":"nope","kind":"open","target":"D:\\x"}]"#;
+        replace_from_json(&c, theirs).unwrap();
+        let all = list(&c).unwrap();
+        // The old link is gone, the path made here stays and keeps its name, and a path from
+        // elsewhere is never taken.
+        assert_eq!(all.iter().map(|c| (c.name.as_str(), c.kind)).collect::<Vec<_>>(), vec![("tax", Kind::Open), ("gh", Kind::Link), ("sig", Kind::Text)]);
+        assert_eq!(find(&c, "tax").unwrap().unwrap().target, "C:\\tax");
+    }
+
+    #[test]
+    fn what_arrives_is_held_to_the_same_rules_and_a_bad_file_changes_nothing() {
+        let c = conn();
+        saved(&c, "gh", Kind::Link, "github.com").unwrap();
+        let hostile = r#"[{"name":"x","kind":"link","target":"javascript:alert(1)"},{"name":"ok","kind":"link","target":"example.com"}]"#;
+        replace_from_json(&c, hostile).unwrap();
+        assert_eq!(list(&c).unwrap().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["ok"]);
+        assert!(replace_from_json(&c, "not json").is_err());
+        assert_eq!(list(&c).unwrap().len(), 1);
     }
 
     #[test]

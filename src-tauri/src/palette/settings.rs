@@ -78,6 +78,7 @@ pub fn entries() -> Vec<Entry> {
         chrono("Daily focus target", "goal target hours day focus sessions streak", "goal-focus", None),
         chrono("Weekly productive goal", "goal target hours week productive", "goal-week-productive", None),
         chrono("Weekly distracting limit", "goal limit cap hours week distracting", "goal-week-distracting", None),
+        chrono("Quiet hours", "pause tracking schedule night weekend private off times", "quiet-start", None),
         chrono("Keep time for", "retention history how long delete old data", "retention", None),
         chrono("Delete time", "erase remove clear range data history", "delete-range", None),
         chrono("Projects", "project goals name track", "project-name", None),

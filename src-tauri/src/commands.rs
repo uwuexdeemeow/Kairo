@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, custom_commands, db, demo, evening, focus, focus_modes, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, custom_commands, db, demo, pause_schedule, evening, focus, focus_modes, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -845,6 +845,27 @@ pub fn remove_block_list(state: State<AppState>, name: String) -> CmdResult<Bloc
     block_lists(&conn)
 }
 
+/// The times tracking pauses by itself.
+#[tauri::command]
+pub fn get_pause_schedule(state: State<AppState>) -> CmdResult<Vec<pause_schedule::Window>> {
+    let conn = state.db.lock().map_err(err)?;
+    pause_schedule::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn add_pause_window(state: State<AppState>, days: u8, start_min: u32, minutes: u32) -> CmdResult<Vec<pause_schedule::Window>> {
+    let conn = state.db.lock().map_err(err)?;
+    pause_schedule::add(&conn, days, start_min, minutes).map_err(err)??;
+    pause_schedule::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_pause_window(state: State<AppState>, id: i64) -> CmdResult<Vec<pause_schedule::Window>> {
+    let conn = state.db.lock().map_err(err)?;
+    pause_schedule::remove(&conn, id).map_err(err)?;
+    pause_schedule::list(&conn).map_err(err)
+}
+
 /// The palette commands you made yourself.
 #[tauri::command]
 pub fn get_custom_commands(state: State<AppState>) -> CmdResult<Vec<custom_commands::CustomCommand>> {
@@ -857,6 +878,7 @@ pub fn get_custom_commands(state: State<AppState>) -> CmdResult<Vec<custom_comma
 pub fn save_custom_command(state: State<AppState>, old: Option<String>, name: String, kind: custom_commands::Kind, target: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
     let conn = state.db.lock().map_err(err)?;
     custom_commands::save(&conn, old.as_deref(), &name, kind, &target).map_err(err)??;
+    sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
     custom_commands::list(&conn).map_err(err)
 }
 
@@ -864,6 +886,7 @@ pub fn save_custom_command(state: State<AppState>, old: Option<String>, name: St
 pub fn remove_custom_command(state: State<AppState>, name: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
     let conn = state.db.lock().map_err(err)?;
     custom_commands::remove(&conn, &name).map_err(err)?;
+    sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
     custom_commands::list(&conn).map_err(err)
 }
 

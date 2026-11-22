@@ -12,6 +12,8 @@ import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay,
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
+import { loadQuietHours, setUpQuietForm } from "./quiet-hours";
+import { WEEKDAYS, clockOf, daysText } from "./week-text";
 import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
 import { renderTaskPicker, type PickerActions } from "./tasks";
 import { $, IS_LINUX, IS_MAC, combinedWithOthers, countOf, esc, flash, foldState, fmtClock, fmtDur, followTheme, h, pct, rove, s, why } from "./ui";
@@ -22,7 +24,6 @@ replaceTimeInputs();
 
 const CATEGORIES: Category[] = ["productive", "neutral", "distracting"];
 const LABELS: Record<Category, string> = { productive: "Productive", neutral: "Neutral", distracting: "Distracting" };
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const RAMP_STEPS = 7;
 /// Heatmap cells with less tracked time than this are too thin to colour.
 const MIN_CELL_MS = 15 * 60_000;
@@ -1588,17 +1589,6 @@ const focusedMs = (b: FocusBlock) => Math.max(0, b.end - b.start - b.pausedMs);
 
 const SCHEDULE_LENGTHS = [30, 45, 60, 90, 120, 180, 240];
 
-/// "Weekdays", "Every day", "Weekends" or the days themselves.
-function daysText(days: number): string {
-  if (days === 0x7f) return "Every day";
-  if (days === 0x1f) return "Weekdays";
-  if (days === 0x60) return "Weekends";
-  return WEEKDAYS.filter((_, i) => days & (1 << i)).join(", ");
-}
-
-/// Minutes after midnight as "09:00"; past midnight wraps to the next day's time.
-const clockOf = (min: number) => `${String(Math.floor(min / 60) % 24).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
-
 /// The slot whose block list is open for changing, if any.
 let editingSlot: number | null = null;
 /// Apps and sites Kairo has seen, to pick block lists from; fetched when first needed.
@@ -1816,6 +1806,7 @@ function setUpScheduleForm() {
   });
 }
 setUpScheduleForm();
+setUpQuietForm();
 setUpModeForm(() => savedLists.map((l) => l.name));
 
 /// The pomodoro cycle as the Focus page last read it, and when that was, so a break's countdown can
@@ -2097,6 +2088,7 @@ async function load(v: View = view) {
     if (v === "settings") {
       renderBrowsers(await api.browsers());
       renderRetention(await api.retention());
+      await loadQuietHours().catch(() => {});
       titleDays.render(await api.titleDays());
       renderGoalSettings(await api.goalSettings());
       renderCalendar(await api.calendar());

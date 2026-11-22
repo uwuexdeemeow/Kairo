@@ -34,11 +34,13 @@ find it loosely like the actions. The folder kind draws the file's own icon.
 
 ## Non-goals and calls left out
 
-- **Local only, not synced.** Like focus modes: a path means something on one computer. Syncing
-  links and text but not paths is the obvious next step if wanted.
+- **Links and text sync, paths don't** (added in 1.31.72). They travel as the `commands:custom`
+  choice like the focus schedule does: the other computer's links and texts replace the shared
+  ones here, its paths are never taken, and a path made here keeps its name. What arrives is held
+  to the same rules as what is typed. A Kairo that doesn't know the choice leaves it waiting.
+- **A file and folder picker** (also 1.31.72) fills a path from the system's dialog.
 - **No arguments, no scripts, no running a program with options.** "Open" opens; it does not run
   a command line. That would be a different feature with a different risk.
-- **No file picker** in settings: the path is typed or pasted. Added only if typing paths annoys.
 - **Names are not unique across the palette.** A command named like an app ranks first when typed
   outright; the app is still found by other letters.
 

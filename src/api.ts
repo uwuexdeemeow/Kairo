@@ -597,6 +597,16 @@ export interface FocusMode {
 
 export type InstalledApp = ModeApp;
 
+/** A time each week when tracking pauses by itself. */
+export interface PauseWindow {
+  id: number;
+  /** Which days it starts on, Monday in bit 0. */
+  days: number;
+  /** Minutes after midnight. */
+  startMin: number;
+  minutes: number;
+}
+
 export type CustomKind = "link" | "open" | "text";
 
 /** A palette command you made: a name that opens a link, opens a path or copies text. */
@@ -755,6 +765,11 @@ export const api = {
   /** Adds a list, or with `old`, changes the list of that name. Refused for a name in use. */
   saveBlockList: (old: string | null, name: string, keys: string[]) => invoke<BlockLists>("save_block_list", { old, name, keys }),
   removeBlockList: (name: string) => invoke<BlockLists>("remove_block_list", { name }),
+  pauseSchedule: () => invoke<PauseWindow[]>("get_pause_schedule"),
+  addPauseWindow: (days: number, startMin: number, minutes: number) => invoke<PauseWindow[]>("add_pause_window", { days, startMin, minutes }),
+  removePauseWindow: (id: number) => invoke<PauseWindow[]>("remove_pause_window", { id }),
+  /** A path from the system dialog: a file or app, or a folder; null when cancelled. */
+  pickCommandPath: (folder: boolean) => invoke<string | null>("pick_command_path", { folder }),
   customCommands: () => invoke<CustomCommand[]>("get_custom_commands"),
   saveCustomCommand: (old: string | null, name: string, kind: CustomKind, target: string) => invoke<CustomCommand[]>("save_custom_command", { old, name, kind, target }),
   removeCustomCommand: (name: string) => invoke<CustomCommand[]>("remove_custom_command", { name }),

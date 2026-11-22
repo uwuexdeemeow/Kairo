@@ -627,6 +627,25 @@
             </div>
           </section>
 
+          <section class="block" id="quiet-hours">
+            <h3 class="block-title">Quiet hours</h3>
+            <p class="muted">Tracking pauses by itself at these times, like every night or on weekends, and shows as paused in the tray. Resume it there, in the palette or from the ring, and it stays on until the next one.</p>
+            <div id="quiet-list"></div>
+            <div class="row-buttons schedule-add">
+              <div class="schedule-days" id="quiet-days" role="group" aria-label="Days it starts on"></div>
+              <label class="field">
+                From
+                <input type="time" id="quiet-start" value="22:00" />
+              </label>
+              <label class="field">
+                For
+                <select id="quiet-length"></select>
+              </label>
+              <button class="btn" id="quiet-add" type="button">Add</button>
+              <span class="muted" id="quiet-status" aria-live="polite"></span>
+            </div>
+          </section>
+
           <section class="block demo">
             <h3 class="block-title">Demo data</h3>
             <p class="muted">Load three weeks of made-up activity to try the insights. It can be cleared without touching your real history.</p>

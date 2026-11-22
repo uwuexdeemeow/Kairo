@@ -12,6 +12,24 @@ export const KINDS: { kind: CustomKind; label: string; asks: string }[] = [
   { kind: "text", label: "Copies text", asks: "The text to copy" },
 ];
 
+/// Buttons that fill a path box from the system's dialog, so a path is picked, not typed; `chosen`
+/// is given what was picked.
+function pickButtons(chosen: (path: string) => void, status: HTMLElement): HTMLElement {
+  const pick = (label: string, folder: boolean) => {
+    const button = h("button", { class: "link-btn", type: "button" }, label) as HTMLButtonElement;
+    button.addEventListener("click", async () => {
+      try {
+        const path = await api.pickCommandPath(folder);
+        if (path) chosen(path);
+      } catch (err) {
+        status.textContent = why(err);
+      }
+    });
+    return button;
+  };
+  return h("p", { class: "custom-pick" }, pick("Choose a file or app…", false), pick("Choose a folder…", true));
+}
+
 const kindSelect = (cls: string, label: string): HTMLSelectElement =>
   h("select", { class: cls, "aria-label": label }, ...KINDS.map((k) => h("option", { value: k.kind }, k.label))) as HTMLSelectElement;
 
@@ -39,7 +57,9 @@ export function renderCustomCommands(commands: CustomCommand[]): void {
       target.addEventListener("change", () => save({ target: target.value }));
       const remove = h("button", { class: "link-btn", type: "button" }, "Remove") as HTMLButtonElement;
       confirmTwice(remove, () => "Press again to remove", () => run(() => api.removeCustomCommand(c.name)));
-      return h("div", { class: "block-list custom-command" }, h("div", { class: "row-buttons" }, name, kind, remove), target);
+      // A path is picked from the dialog and saved at once, like any other change.
+      const pick = c.kind === "open" ? [pickButtons((path) => save({ target: path }), status)] : [];
+      return h("div", { class: "block-list custom-command" }, h("div", { class: "row-buttons" }, name, kind, remove), target, ...pick);
     }),
   );
 }
@@ -48,11 +68,29 @@ export function renderCustomCommands(commands: CustomCommand[]): void {
 export function setUpCustomForm(): void {
   const kind = $<HTMLSelectElement>("#custom-new-kind");
   const target = $<HTMLTextAreaElement>("#custom-new-target");
+  const picks = $("#custom-new-pick");
   const ask = () => {
     const asks = KINDS.find((k) => k.kind === kind.value)?.asks ?? "";
     target.placeholder = asks;
     target.setAttribute("aria-label", asks);
+    // The dialog is for a path, which is what only one kind asks for.
+    picks.hidden = kind.value !== "open";
   };
+  const picked = (path: string) => {
+    target.value = path;
+    target.focus();
+  };
+  const [file, folder] = [...picks.querySelectorAll<HTMLButtonElement>("button")];
+  for (const [button, isFolder] of [[file, false], [folder, true]] as const) {
+    button.addEventListener("click", async () => {
+      try {
+        const path = await api.pickCommandPath(isFolder);
+        if (path) picked(path);
+      } catch (err) {
+        $("#custom-status").textContent = why(err);
+      }
+    });
+  }
   kind.replaceChildren(...KINDS.map((k) => h("option", { value: k.kind }, k.label)));
   kind.addEventListener("change", ask);
   ask();
