@@ -786,6 +786,8 @@ pub struct Context {
     pub block_lists: Vec<String>,
     /// The saved focus modes, in the order they were made.
     pub modes: Vec<crate::focus_modes::FocusMode>,
+    /// The commands you made yourself, in the order you made them.
+    pub custom: Vec<crate::custom_commands::CustomCommand>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1543,6 +1545,7 @@ pub(super) mod tests {
             week_goals: Some("7h 53m of 15h 00m productive".into()),
             block_lists: vec!["Social".into()],
             modes: Vec::new(),
+            custom: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

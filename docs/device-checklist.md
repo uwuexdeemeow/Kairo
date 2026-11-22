@@ -1169,3 +1169,15 @@ meetings today and some from last week. No focus session involved except where s
     "the week before", not "This week". Press "Do it" on a slipped task. *Expect:* the keyboard
     stays on a button in the list, not on the page. In the note pop-out, type a search. *Expect:*
     a screen reader says how many notes match, or "No notes match".
+18. **Your own palette commands (1.31.71).** In Kairo's Settings, under Palette and ring, add
+    "Your commands": a link called `gh` (type `github.com`), a folder called `tax` (a real path,
+    with or without quotes) and a text called `sig` (two lines). *Expect:* each appears in the list,
+    and Add clears the form. In the palette type `gh`, `tax` and `sig`. *Expect:* each row is
+    under "Commands" with a line saying what it does (the folder row has the folder's icon); Enter
+    opens the link, opens the folder, and copies the text with its line break (paste it to check).
+    Type `ta`. *Expect:* `tax` shows from its first letters. Try a link `file:///C:/Windows` and
+    `javascript:1`. *Expect:* turned down, saying a link starts with http://. Add a second
+    command with the same name in other case. *Expect:* "There's already a command called…". Delete
+    the folder, then run `tax`. *Expect:* "Couldn't open it: it was moved or deleted." Search
+    `custom` in the palette. *Expect:* "Your commands" takes you to its name box. Back up and
+    restore. *Expect:* they are still there. On Linux and a Mac, also try an app's path.

@@ -141,6 +141,21 @@
           <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, kept in memory and gone when Kairo quits. Type <kbd>clip</kbd> in the palette to see the latest, and a space after it to see them all. Turning this off forgets them at once.</p>
         </section>
 
+        <section class="block" id="custom-commands" data-words="commands custom your own alias shortcut quick link snippet text open copy folder file app">
+          <h3>Your commands</h3>
+          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, or copies some text. They stay on this computer.</p>
+          <div id="custom-list"></div>
+          <div class="row-buttons custom-add">
+            <input class="filter" id="custom-new-name" maxlength="30" placeholder="Name, like tax" aria-label="Command name" autocomplete="off" />
+            <select id="custom-new-kind" aria-label="What it does"></select>
+          </div>
+          <textarea class="filter custom-target" id="custom-new-target" rows="2" spellcheck="false"></textarea>
+          <div class="row-buttons">
+            <button class="btn" id="custom-add" type="button">Add</button>
+            <span class="muted" id="custom-status" aria-live="polite"></span>
+          </div>
+        </section>
+
         <section class="block" id="ring-settings" data-words="shortcut hotkey key wheel dial switch apps apps">
           <h3>App ring</h3>
           <div class="row-buttons">

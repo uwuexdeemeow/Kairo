@@ -95,6 +95,7 @@ pub fn entries() -> Vec<Entry> {
         chrono("Demo data", "sample example fake try", "demo-load", None),
         kairo("Kairo settings", "preferences options dashboard", "appearance", None, Some(Action::Dashboard(Some("settings")))),
         kairo("Theme", "appearance dark mode light system colors", "appearance", None, None),
+        kairo("Your commands", "custom own alias quick link snippet open copy palette word", "custom-new-name", None, None),
         kairo("Palette shortcut", "command palette keys hotkey keyboard", "palette-record", None, None),
         kairo("Palette suggestions", "suggested recent apps when it opens", "palette-suggestions", Some(Suggestions), None),
         kairo("Open over full screen", "fullscreen games palette", "palette-over-fullscreen", Some(OverFullscreen), None),

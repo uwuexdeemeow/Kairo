@@ -145,6 +145,13 @@ pub fn open(path: &Path) -> Result<Connection> {
              apps     TEXT    NOT NULL DEFAULT '[]',
              position INTEGER NOT NULL DEFAULT 0
          );
+         -- Your own palette commands (custom_commands.rs): a name that opens a link, a path or copies text.
+         CREATE TABLE IF NOT EXISTS custom_commands (
+             name     TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+             kind     TEXT    NOT NULL,
+             target   TEXT    NOT NULL,
+             position INTEGER NOT NULL DEFAULT 0
+         );
          -- Weekly review notes (notes.rs), by the week's Monday.
          CREATE TABLE IF NOT EXISTS week_notes (
              monday TEXT PRIMARY KEY,

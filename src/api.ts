@@ -597,6 +597,15 @@ export interface FocusMode {
 
 export type InstalledApp = ModeApp;
 
+export type CustomKind = "link" | "open" | "text";
+
+/** A palette command you made: a name that opens a link, opens a path or copies text. */
+export interface CustomCommand {
+  name: string;
+  kind: CustomKind;
+  target: string;
+}
+
 export interface BlockLists {
   lists: BlockList[];
   /** The list sessions started by hand block; null blocks as usual. */
@@ -746,6 +755,9 @@ export const api = {
   /** Adds a list, or with `old`, changes the list of that name. Refused for a name in use. */
   saveBlockList: (old: string | null, name: string, keys: string[]) => invoke<BlockLists>("save_block_list", { old, name, keys }),
   removeBlockList: (name: string) => invoke<BlockLists>("remove_block_list", { name }),
+  customCommands: () => invoke<CustomCommand[]>("get_custom_commands"),
+  saveCustomCommand: (old: string | null, name: string, kind: CustomKind, target: string) => invoke<CustomCommand[]>("save_custom_command", { old, name, kind, target }),
+  removeCustomCommand: (name: string) => invoke<CustomCommand[]>("remove_custom_command", { name }),
   focusModes: () => invoke<FocusMode[]>("get_focus_modes"),
   /** Adds a mode, or with `old`, changes the mode of that name. Refused for a name in use or a length a session can't have. */
   saveFocusMode: (old: string | null, name: string, minutes: number, list: string | null, apps: ModeApp[]) => invoke<FocusMode[]>("save_focus_mode", { old, name, minutes, list, apps }),

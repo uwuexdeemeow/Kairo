@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::analysis::{self, day_bounds, Category, DaySummary, Patterns};
 use crate::privacy::{self, Mode};
-use crate::{appearance, away, backup, blocking, calendar, browser, classify, db, demo, evening, focus, focus_modes, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
+use crate::{appearance, away, backup, blocking, calendar, browser, classify, custom_commands, db, demo, evening, focus, focus_modes, goals, lists, notes, nudge, palette, platform, projects, recap, reminders, schedule, startup, sync, tasks, updater, AppState, Navigation};
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
@@ -843,6 +843,28 @@ pub fn remove_block_list(state: State<AppState>, name: String) -> CmdResult<Bloc
     lists::remove(&conn, &name).map_err(err)?;
     record_lists(&conn)?;
     block_lists(&conn)
+}
+
+/// The palette commands you made yourself.
+#[tauri::command]
+pub fn get_custom_commands(state: State<AppState>) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+    let conn = state.db.lock().map_err(err)?;
+    custom_commands::list(&conn).map_err(err)
+}
+
+/// Adds a palette command, or with `old` changes the one of that name; says why when it can't.
+#[tauri::command]
+pub fn save_custom_command(state: State<AppState>, old: Option<String>, name: String, kind: custom_commands::Kind, target: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+    let conn = state.db.lock().map_err(err)?;
+    custom_commands::save(&conn, old.as_deref(), &name, kind, &target).map_err(err)??;
+    custom_commands::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_custom_command(state: State<AppState>, name: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+    let conn = state.db.lock().map_err(err)?;
+    custom_commands::remove(&conn, &name).map_err(err)?;
+    custom_commands::list(&conn).map_err(err)
 }
 
 /// The saved focus modes.

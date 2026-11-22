@@ -96,7 +96,41 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(tracking_rows(ctx, query));
     items.extend(meeting_rows(ctx, query));
     items.extend(mode_rows(ctx, query));
+    items.extend(custom_rows(ctx, query));
     items
+}
+
+// ---------- your own commands ----------
+
+/// Each command you made, when what's typed is its name or the start of it: Enter does what it
+/// says. Found by its start from the first letter, since you chose the word to be quick to type.
+fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    ctx.custom
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| {
+            let exact = c.name.eq_ignore_ascii_case(q);
+            let starts = c.name.to_lowercase().starts_with(&q.to_lowercase());
+            let (score, at) = if exact || starts {
+                (LEAD - if exact { 0.0 } else { 1.0 } - i as f64 / 100.0, fuzzy(q, &c.name).map(|m| m.at).unwrap_or_default())
+            } else {
+                // Found loosely like the actions, once a couple of letters are typed.
+                let (score, at) = placed(q, &[], &c.name, "")?;
+                (score - i as f64 / 100.0, at)
+            };
+            let mut item = row(c.name.clone(), Glyph::Tag, "Commands", c.action(), c.says(), (score, at));
+            item.icon = match c.kind {
+                crate::custom_commands::Kind::Link => Icon::Glyph(Glyph::Search, Tone::Accent),
+                crate::custom_commands::Kind::Open => Icon::File(c.target.clone()),
+                crate::custom_commands::Kind::Text => Icon::Glyph(Glyph::Tag, Tone::Accent),
+            };
+            Some(item)
+        })
+        .collect()
 }
 
 // ---------- focus modes ----------
@@ -682,6 +716,50 @@ mod tests {
             FocusMode { name: "Write".into(), minutes: 25, list: None, apps: vec![] },
         ];
         c
+    }
+
+    fn with_custom() -> Context {
+        use crate::custom_commands::{CustomCommand, Kind};
+        let mut c = ctx();
+        c.custom = vec![
+            CustomCommand { name: "gh issues".into(), kind: Kind::Link, target: "https://github.com/tauri-apps/tauri/issues".into() },
+            CustomCommand { name: "tax".into(), kind: Kind::Open, target: "C:\\Users\\me\\Tax".into() },
+            CustomCommand { name: "sig".into(), kind: Kind::Text, target: "Best,\nAmos".into() },
+        ];
+        c
+    }
+
+    #[test]
+    fn your_own_command_is_found_by_its_name_or_its_start_and_does_what_it_says() {
+        let c = with_custom();
+        let found = search(&c, "tax");
+        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("tax", Action::OpenFile("C:\\Users\\me\\Tax".into())));
+        assert_eq!(found[0].section, "Commands");
+        assert_eq!(found[0].sub.as_deref(), Some("Opens C:\\Users\\me\\Tax"));
+        // Its own icon, for what it opens.
+        assert_eq!(found[0].icon, Icon::File("C:\\Users\\me\\Tax".into()));
+        // The start of the name from the first letter, in any case.
+        let found = search(&c, "GH");
+        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("gh issues", Action::OpenUrl("https://github.com/tauri-apps/tauri/issues".into())));
+        assert_eq!(found[0].sub.as_deref(), Some("Opens github.com/tauri-apps/tauri/issues"));
+        assert_eq!(search(&c, "sig")[0].action, Action::Copy("Best,\nAmos".into()));
+        assert_eq!(search(&c, "sig")[0].sub.as_deref(), Some("Copies “Best,…”"));
+    }
+
+    #[test]
+    fn a_name_that_is_typed_outright_leads_a_name_that_is_only_begun() {
+        let mut c = with_custom();
+        c.custom.push(crate::custom_commands::CustomCommand { name: "taxes".into(), kind: crate::custom_commands::Kind::Text, target: "x".into() });
+        let found = search(&c, "tax");
+        let custom: Vec<&str> = found.iter().filter(|i| i.section == "Commands").map(|i| i.title.as_str()).collect();
+        assert_eq!(custom, vec!["tax", "taxes"]);
+    }
+
+    #[test]
+    fn nothing_typed_or_nothing_like_a_command_finds_none() {
+        let c = with_custom();
+        assert!(!search(&c, "zzz").iter().any(|i| i.section == "Commands"));
+        assert!(!suggestions(&c).rows.iter().any(|i| i.section == "Commands"));
     }
 
     #[test]

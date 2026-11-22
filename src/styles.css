@@ -7697,6 +7697,27 @@ summary:focus-visible {
   margin-bottom: 8px;
 }
 
+/* Your commands: a name, what it does and where, one under another. */
+.custom-command .custom-name {
+  width: 160px;
+}
+
+.custom-target {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+  height: auto;
+  margin-top: 8px;
+  padding: 8px 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.custom-add {
+  margin-top: 8px;
+}
+
 /* Linux only: what this desktop can't do, as a short list under the shortcut. */
 .linux-notes {
   margin: 4px 0 8px;

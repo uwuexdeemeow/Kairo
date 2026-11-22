@@ -10,6 +10,7 @@ mod browser;
 mod classify;
 mod collector;
 mod commands;
+mod custom_commands;
 mod linux_notes;
 mod crashlog;
 mod db;
@@ -526,6 +527,9 @@ pub fn run() {
             commands::set_task_when,
             commands::set_task_estimate,
             commands::get_focus_modes,
+            commands::get_custom_commands,
+            commands::save_custom_command,
+            commands::remove_custom_command,
             commands::save_focus_mode,
             commands::remove_focus_mode,
             commands::get_installed_apps,

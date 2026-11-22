@@ -401,6 +401,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         week_goals: week_goals(conn, today, now),
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         modes: crate::focus_modes::list(conn).unwrap_or_default(),
+        custom: crate::custom_commands::list(conn).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -1318,6 +1319,7 @@ mod tests {
             week_goals: None,
             block_lists: Vec::new(),
             modes: Vec::new(),
+            custom: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),
