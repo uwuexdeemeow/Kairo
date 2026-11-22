@@ -412,6 +412,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
             .collect(),
         windows,
         can_close_windows: crate::platform::can_close_windows(),
+        can_place: crate::place::can(),
         programs: crate::system::programs(&crate::platform::processes(), std::process::id()),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
@@ -692,6 +693,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::blocking::close_window(app);
             Ok(())
         }
+        Action::Place(place, id) => crate::place::apply(id, *place),
         Action::ShowBlocked => {
             crate::blocking::bring_forward(app);
             Ok(())
@@ -1336,6 +1338,7 @@ mod tests {
             notes: Vec::new(),
             windows: Vec::new(),
             can_close_windows: false,
+            can_place: false,
             next_meeting: None,
             programs: Vec::new(),
         }

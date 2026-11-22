@@ -97,7 +97,28 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(meeting_rows(ctx, query));
     items.extend(mode_rows(ctx, query));
     items.extend(custom_rows(ctx, query));
+    items.extend(place_rows(ctx, query));
     items
+}
+
+// ---------- window placement ----------
+
+/// Moving the window you were in: `left`, `right half`, `maximize`, `center`, `next screen`. The
+/// window is the one in front when the palette opened. Only where Kairo can move windows at all.
+fn place_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    if !ctx.can_place || query.trim().is_empty() {
+        return Vec::new();
+    }
+    let Some(window) = ctx.windows.first() else { return Vec::new() };
+    let name = if window.title.is_empty() { window.app.clone() } else { window.title.chars().take(40).collect() };
+    crate::place::Place::ALL
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &place)| {
+            let (score, at) = placed(query, place.words(), place.title(), place.also())?;
+            Some(row(place.title(), Glyph::Day, "Layout", Action::Place(place, window.id.clone()), format!("Moves “{name}”"), (score - i as f64 / 100.0, at)))
+        })
+        .collect()
 }
 
 // ---------- your own commands ----------
@@ -729,6 +750,46 @@ mod tests {
             FocusMode { name: "Write".into(), minutes: 25, list: None, apps: vec![] },
         ];
         c
+    }
+
+    fn with_windows() -> Context {
+        use super::super::search::WindowEntry;
+        let mut c = ctx();
+        c.windows = vec![
+            WindowEntry { id: "4242".into(), title: "Quarterly plan - Word".into(), app: "Word".into(), icon: None },
+            WindowEntry { id: "7".into(), title: "Inbox".into(), app: "Outlook".into(), icon: None },
+        ];
+        c
+    }
+
+    #[test]
+    fn a_place_typed_moves_the_window_that_was_in_front() {
+        use crate::place::Place;
+        let c = with_windows();
+        let found = search(&c, "left");
+        let left = found.iter().find(|i| i.section == "Layout").unwrap();
+        assert_eq!((left.title.as_str(), left.action.clone()), ("Left half", Action::Place(Place::Left, "4242".into())));
+        assert_eq!(left.sub.as_deref(), Some("Moves “Quarterly plan - Word”"));
+        for (typed, place) in [("right half", Place::Right), ("max", Place::Maximize), ("center", Place::Center), ("next screen", Place::NextScreen), ("top", Place::Top), ("bottom half", Place::Bottom)] {
+            let found = search(&c, typed);
+            let row = found.iter().find(|i| i.section == "Layout").unwrap_or_else(|| panic!("{typed}"));
+            assert_eq!(row.action, Action::Place(place, "4242".into()), "{typed}");
+        }
+        // Typed outright it leads; some other word finds nothing of the kind.
+        assert_eq!(search(&c, "maximize")[0].section, "Layout");
+        assert!(!search(&c, "zzzq").iter().any(|i| i.section == "Layout"));
+    }
+
+    #[test]
+    fn nothing_is_offered_where_windows_cant_be_moved_or_there_is_none_to_move() {
+        let mut c = with_windows();
+        c.can_place = false;
+        assert!(!search(&c, "left").iter().any(|i| i.section == "Layout"));
+        let mut none = ctx();
+        none.windows = Vec::new();
+        assert!(!search(&none, "left").iter().any(|i| i.section == "Layout"));
+        // Nothing typed shows no placements among the suggestions either.
+        assert!(!suggestions(&with_windows()).rows.iter().any(|i| i.section == "Layout"));
     }
 
     fn with_custom() -> Context {

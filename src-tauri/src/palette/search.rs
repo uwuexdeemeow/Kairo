@@ -535,6 +535,9 @@ pub enum Action {
     CopyAnswer(Subject, Period, Option<Period>),
     /// Puts this text on the clipboard.
     Copy(String),
+    /// Moves the open window with this id (the one in front when the palette opened) to a place on
+    /// its screen, or to the next screen.
+    Place(crate::place::Place, String),
     /// Puts this text on the clipboard and pastes it into the window the palette gave the
     /// keyboard back to.
     Paste(String),
@@ -801,6 +804,8 @@ pub struct Context {
     pub windows: Vec<WindowEntry>,
     /// Whether a window can be asked to close here (not on a Mac without Accessibility).
     pub can_close_windows: bool,
+    /// Whether a window can be moved to a place on the screen from here (place.rs).
+    pub can_place: bool,
     /// The next meeting on the user's calendars: its title, when it starts, and how far off that
     /// is from now, in milliseconds.
     pub next_meeting: Option<(String, NaiveDateTime, i64)>,
@@ -1584,6 +1589,7 @@ pub(super) mod tests {
             notes: Vec::new(),
             windows: Vec::new(),
             can_close_windows: true,
+            can_place: true,
             next_meeting: Some(("Design review".into(), NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(14, 0, 0).unwrap(), 35 * 60_000)),
             programs: Vec::new(),
         }

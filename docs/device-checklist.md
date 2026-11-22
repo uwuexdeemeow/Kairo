@@ -1215,3 +1215,14 @@ meetings today and some from last week. No focus session involved except where s
     Automation, and needs Accessibility access to press keys. On Linux with X11 and `xdotool` it
     pastes; on Wayland or without `xdotool` it says "Copied. This system doesn't let Kairo press
     Ctrl+V for you, so paste it yourself." and the text is on the clipboard.
+22. **Placing a window from the palette (1.31.73, Windows).** Put a normal window, like Notepad
+    or a browser, in front, open the palette and type `left`. *Expect:* a "Left half" row under
+    Layout saying which window it moves; Enter puts that window on the left half of the screen
+    above the taskbar, with no gap at the screen's left edge or in the middle (Windows draws
+    invisible borders, which the move allows for). Then `right`, `top`, `bottom half`, `center`
+    and `max`. *Expect:* right and left meet with no gap; center is two thirds of the screen; max
+    fills it; and `left` on a maximized window first brings it back, then halves it. With two
+    screens, `next screen`. *Expect:* it moves with its place and share of the screen kept, and a
+    third press goes round. With one screen: "There's only one screen." Try Task Manager run as
+    administrator. *Expect:* "Windows won't let Kairo move that one". On a Mac and Linux the rows
+    don't appear at all.

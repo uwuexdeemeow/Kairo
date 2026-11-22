@@ -14,6 +14,7 @@ mod custom_commands;
 mod linux_notes;
 mod pause_schedule;
 mod paste;
+mod place;
 mod crashlog;
 mod db;
 mod demo;
