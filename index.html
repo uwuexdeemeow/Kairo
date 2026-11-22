@@ -154,7 +154,7 @@
             </section>
           </div>
 
-          <section class="block" id="today-projects-box" aria-label="Projects" hidden>
+          <section class="block block-minor" id="today-projects-box" aria-label="Projects" hidden>
             <h2>Projects</h2>
             <div id="today-projects"></div>
           </section>
@@ -208,12 +208,12 @@
             </section>
           </div>
 
-          <section class="block" id="week-projects-box" aria-label="Projects" hidden>
+          <section class="block block-minor" id="week-projects-box" aria-label="Projects" hidden>
             <h2>Projects</h2>
             <div id="week-projects"></div>
           </section>
 
-          <section class="block" id="week-notes-box" aria-label="Notes">
+          <section class="block block-minor" id="week-notes-box" aria-label="Notes">
             <div class="section-head">
               <h2>Notes</h2>
               <span class="muted" id="week-notes-status" aria-live="polite"></span>
@@ -230,7 +230,7 @@
             </div>
           </section>
 
-          <section class="block" id="period-notes-box" aria-label="Notes from its weeks" hidden>
+          <section class="block block-minor" id="period-notes-box" aria-label="Notes from its weeks" hidden>
             <h2>Notes from its weeks</h2>
             <div id="period-notes"></div>
           </section>
@@ -291,7 +291,12 @@
 
           <section class="block focus-tasks" id="focus-tasks" aria-label="Tasks"></section>
 
-          <details class="block focus-setup" id="focus-setup">
+          <section class="block block-minor" aria-label="Recent sessions">
+            <h2>Recent sessions</h2>
+            <div id="focus-history"></div>
+          </section>
+
+          <details class="block block-minor focus-setup" id="focus-setup">
             <summary>Set up focus</summary>
             <p class="muted setup-elsewhere">What counts as distracting is set in <button class="link-btn" data-goto="categories" data-goto-target="#categories">Categories</button>.</p>
 
@@ -386,11 +391,6 @@
               </div>
             </details>
           </details>
-
-          <section class="block" aria-label="Recent sessions">
-            <h2>Recent sessions</h2>
-            <div id="focus-history"></div>
-          </section>
         </section>
 
         <section id="view-patterns" class="view" hidden>

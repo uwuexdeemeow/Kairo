@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.31.69"
+version = "1.31.70"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -127,3 +127,12 @@ windows = { version = "0.62", features = [
   "Win32_UI_WindowsAndMessaging",
 ] }
 windows-numerics = "0.3"
+
+# A small program is the point, and Kairo is not CPU-bound (it samples once a second), so releases
+# are built for size with the whole program linked as one. Measured on Windows: 26.7 MB -> 18.3 MB.
+# Not panic = "abort": a stray panic in one thread must not take down the tray app.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

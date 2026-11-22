@@ -638,6 +638,12 @@ h2 {
   margin-top: 64px;
 }
 
+/* Reference sections (projects, notes, history, setup) sit closer than the sections that lead,
+   so a page reads in tiers instead of one spacing repeated. */
+.block-minor {
+  margin-top: 40px;
+}
+
 /* Chrono's settings: sections closer within a group, as Kairo's are, so the groups' wider gap
    (.group-head) is what sets them apart. */
 #view-settings .block {

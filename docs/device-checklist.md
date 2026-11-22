@@ -1160,7 +1160,12 @@ meetings today and some from last week. No focus session involved except where s
     check shows a question mark, not the "!" of Suspicious; a file over 32 MB has Remove. In the
     palette (Windows and web), press Ctrl+End then Ctrl+Home. *Expect:* the last, then the first
     result is selected; plain Home and End still move the caret in the box.
-16. **Review, on a Monday morning.** Open Review before 5 pm on a Monday. *Expect:* "Last week" and
+16. **A smaller build (1.31.70) and a quieter rhythm.** Install it. *Expect:* Kairo starts, tracks,
+    and the palette opens as fast as before; the installed exe is about 18 MB, not 26 (check
+    `kairo.exe` in its folder). In Chrono's Focus page the order is the timer, tasks, Recent
+    sessions, then Set up focus last, and on Today and Week the Projects and Notes sections sit
+    closer to what is above them than the leading sections do. Say if it reads as one clump.
+17. **Review, on a Monday morning.** Open Review before 5 pm on a Monday. *Expect:* "Last week" and
     "the week before", not "This week". Press "Do it" on a slipped task. *Expect:* the keyboard
     stays on a button in the list, not on the page. In the note pop-out, type a search. *Expect:*
     a screen reader says how many notes match, or "No notes match".
