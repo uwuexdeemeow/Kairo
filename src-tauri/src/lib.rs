@@ -11,6 +11,7 @@ mod classify;
 mod collector;
 mod commands;
 mod custom_commands;
+mod snap;
 mod linux_notes;
 mod pause_schedule;
 mod crashlog;
@@ -535,6 +536,9 @@ pub fn run() {
             commands::get_custom_commands,
             commands::save_custom_command,
             commands::remove_custom_command,
+            commands::get_layouts,
+            commands::set_layout_focus_label,
+            commands::remove_layout,
             commands::save_focus_mode,
             commands::remove_focus_mode,
             commands::get_installed_apps,

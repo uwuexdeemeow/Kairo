@@ -240,3 +240,66 @@ fn find(pid: i32, firefox: bool) -> Option<Owned> {
     }
     None
 }
+
+// ---------- moving windows (snap.rs) ----------
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CgPoint {
+    x: f64,
+    y: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CgSize {
+    width: f64,
+    height: f64,
+}
+
+/// The Accessibility API's kinds of value for a point and a size.
+const POINT_VALUE: u32 = 1;
+const SIZE_VALUE: u32 = 2;
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXValueCreate(kind: u32, value: *const c_void) -> CFTypeRef;
+    fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
+}
+
+/// Where a window is and how big, in screen points from the top left of the main display:
+/// (x, y, width, height).
+pub fn frame(pid: i32, number: u32, title: &str) -> Option<(f64, f64, f64, f64)> {
+    let window = window_titled(pid, number, title)?;
+    let mut at = CgPoint::default();
+    let mut size = CgSize::default();
+    let position = attribute(window.0, "AXPosition")?;
+    let extent = attribute(window.0, "AXSize")?;
+    unsafe {
+        if !AXValueGetValue(position.0, POINT_VALUE, (&mut at as *mut CgPoint).cast()) || !AXValueGetValue(extent.0, SIZE_VALUE, (&mut size as *mut CgSize).cast()) {
+            return None;
+        }
+    }
+    Some((at.x, at.y, size.width, size.height))
+}
+
+/// Moves and sizes a window. The size is set on both sides of the move, since an app keeps a
+/// window from growing past the screen it is on until it has moved.
+pub fn set_frame(pid: i32, number: u32, title: &str, x: f64, y: f64, width: f64, height: f64) -> bool {
+    let Some(window) = window_titled(pid, number, title) else { return false };
+    let at = CgPoint { x, y };
+    let size = CgSize { width, height };
+    let (Some(point), Some(extent)) = (
+        Owned::new(unsafe { AXValueCreate(POINT_VALUE, (&at as *const CgPoint).cast()) }),
+        Owned::new(unsafe { AXValueCreate(SIZE_VALUE, (&size as *const CgSize).cast()) }),
+    ) else {
+        return false;
+    };
+    let (position_name, size_name) = (cf_string("AXPosition"), cf_string("AXSize"));
+    unsafe {
+        AXUIElementSetAttributeValue(window.0, size_name.0, extent.0);
+        let moved = AXUIElementSetAttributeValue(window.0, position_name.0, point.0) == 0;
+        let sized = AXUIElementSetAttributeValue(window.0, size_name.0, extent.0) == 0;
+        moved && sized
+    }
+}

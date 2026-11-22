@@ -12,7 +12,7 @@ use crate::system::Power;
 use crate::timers::MAX_RUNNING;
 
 /// Where a command typed outright sits: at the top, with the focus command.
-const LEAD: f64 = 1000.0;
+pub(super) const LEAD: f64 = 1000.0;
 /// Found by other words, a command ranks with the actions, this far below an equal match.
 const LOOSE_PENALTY: f64 = 8.0;
 /// A command is found by other words once this many characters are typed.
@@ -58,7 +58,7 @@ fn found(query: &str, title: &str, words: &str) -> Option<(f64, Vec<usize>)> {
 
 /// Where a command's row sits for `query`: at the top when the query is one of `exact`, with the
 /// actions when its title or `words` are found, nowhere otherwise.
-fn placed(query: &str, exact: &[&str], title: &str, words: &str) -> Option<(f64, Vec<usize>)> {
+pub(super) fn placed(query: &str, exact: &[&str], title: &str, words: &str) -> Option<(f64, Vec<usize>)> {
     let q = query.trim();
     if exact.iter().any(|e| q.eq_ignore_ascii_case(e)) {
         return Some((LEAD, fuzzy(q, title).map(|m| m.at).unwrap_or_default()));
@@ -69,7 +69,7 @@ fn placed(query: &str, exact: &[&str], title: &str, words: &str) -> Option<(f64,
     found(q, title, words).map(|(score, at)| (score - LOOSE_PENALTY, at))
 }
 
-fn row(title: impl Into<String>, glyph: Glyph, section: &'static str, action: Action, sub: impl Into<String>, (score, at): (f64, Vec<usize>)) -> Item {
+pub(super) fn row(title: impl Into<String>, glyph: Glyph, section: &'static str, action: Action, sub: impl Into<String>, (score, at): (f64, Vec<usize>)) -> Item {
     let mut item = Item::new(title, Icon::Glyph(glyph, Tone::Accent), section, action);
     item.sub = Some(sub.into());
     item.score = score;
@@ -97,22 +97,44 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(meeting_rows(ctx, query));
     items.extend(mode_rows(ctx, query));
     items.extend(custom_rows(ctx, query));
+    items.extend(super::tools::snap_rows(ctx, query));
+    items.extend(super::tools::layout_rows(ctx, query));
     items
 }
 
 // ---------- your own commands ----------
 
+thread_local! {
+    /// Set while an alias's words are being searched, so an alias can't run another alias (or
+    /// itself) round and round.
+    static IN_ALIAS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Each command you made, when what's typed is its name or the start of it: Enter does what it
 /// says. Found by its start from the first letter, since you chose the word to be quick to type.
+/// A link with a slot takes what's typed after its name (`jira 123`); an alias does what the
+/// palette offers first for its words.
 fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
     if q.is_empty() {
         return Vec::new();
     }
+    let window = ctx.windows.first().map(|w| w.id.clone());
+    let in_alias = IN_ALIAS.with(|f| f.get());
     ctx.custom
         .iter()
         .enumerate()
+        .filter(|(_, c)| !(in_alias && c.kind == crate::custom_commands::Kind::Alias))
         .filter_map(|(i, c)| {
+            // "jira 123": the name, a space, and what goes in the slot.
+            if c.takes_query() {
+                if let Some(typed) = after(q, &format!("{} ", c.name)).map(str::trim).filter(|t| !t.is_empty()) {
+                    let url = crate::custom_commands::fill_link(&c.target, typed);
+                    let mut item = row(format!("{} {typed}", c.name), Glyph::Link, "Commands", Action::OpenUrl(url.clone()), format!("Opens {}", crate::custom_commands::site(&url)), (LEAD + 1.0 - i as f64 / 100.0, Vec::new()));
+                    item.at = (0..c.name.chars().count()).collect();
+                    return Some(item);
+                }
+            }
             let exact = c.name.eq_ignore_ascii_case(q);
             let starts = c.name.to_lowercase().starts_with(&q.to_lowercase());
             let (score, at) = if exact || starts {
@@ -122,15 +144,51 @@ fn custom_rows(ctx: &Context, query: &str) -> Vec<Item> {
                 let (score, at) = placed(q, &[], &c.name, "")?;
                 (score - i as f64 / 100.0, at)
             };
-            let mut item = row(c.name.clone(), Glyph::Tag, "Commands", c.action(), c.says(), (score, at));
+            if c.kind == crate::custom_commands::Kind::Alias {
+                return alias_row(ctx, c, (score, at));
+            }
+            let mut item = row(c.name.clone(), Glyph::Tag, "Commands", c.action(window.clone()), c.says(), (score, at));
             item.icon = match c.kind {
-                crate::custom_commands::Kind::Link => Icon::Glyph(Glyph::Search, Tone::Accent),
+                crate::custom_commands::Kind::Link => Icon::Glyph(Glyph::Link, Tone::Accent),
                 crate::custom_commands::Kind::Open => Icon::File(c.target.clone()),
-                crate::custom_commands::Kind::Text => Icon::Glyph(Glyph::Tag, Tone::Accent),
+                _ => Icon::Glyph(Glyph::Tag, Tone::Accent),
             };
+            if c.kind == crate::custom_commands::Kind::Text {
+                item.second = Some((Action::Snippet(c.target.clone(), None, false), "Copy"));
+            }
+            // A link with a slot opened with nothing typed asks for what goes in it.
+            if c.takes_query() {
+                item.action = Action::Nothing;
+                item.sub = Some(format!("Type what goes in after “{} ”", c.name));
+                item.second = Some((Action::OpenUrl(crate::custom_commands::fill_link(&c.target, "")), "Open without"));
+            }
             Some(item)
         })
         .collect()
+}
+
+/// An alias's row: what the palette offers first for its words, under the alias's name.
+fn alias_row(ctx: &Context, c: &crate::custom_commands::CustomCommand, (score, at): (f64, Vec<usize>)) -> Option<Item> {
+    IN_ALIAS.with(|f| f.set(true));
+    let found = super::search::search(ctx, &c.target);
+    IN_ALIAS.with(|f| f.set(false));
+    let top = found.into_iter().filter(|i| !i.is_note()).max_by(|a, b| a.score.total_cmp(&b.score));
+    let mut item = match top {
+        Some(top) => {
+            let sub = format!("Runs “{}”", top.title);
+            let mut item = top;
+            item.title = c.name.clone();
+            item.sub = Some(sub);
+            item.detail = None;
+            item.preview = None;
+            item
+        }
+        None => note_row(format!("“{}” finds nothing to run", c.target), Glyph::Tag, "Commands"),
+    };
+    item.section = "Commands";
+    item.score = score;
+    item.at = at;
+    Some(item)
 }
 
 // ---------- focus modes ----------
@@ -419,15 +477,38 @@ fn kill_rows(ctx: &Context, q: &str) -> Vec<Item> {
 /// `clip` shows this many of the latest copies, with a row for the rest.
 const RECENT_CLIPS: usize = 5;
 
-/// A row for a copy: its first line, how long ago and how big. Enter puts it on the clipboard.
-fn clip_row(clip: &super::search::ClipNow, place: f64) -> Item {
+/// A row for a copy: its first line, then whether it's pinned, the app it came from, how long ago
+/// and how big. Enter pastes it into the window that was in front; Ctrl+Enter pins or unpins it.
+fn clip_row(ctx: &Context, clip: &super::search::ClipNow, place: f64) -> Item {
     let age = if clip.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(clip.age_ms)) };
-    let sub = format!("{age} · {}", crate::clipboard::size_of(&clip.text));
-    row(crate::clipboard::title_of(&clip.text), Glyph::Tag, "Clipboard", Action::Copy(clip.text.clone()), sub, (place, Vec::new()))
+    let mut said: Vec<String> = Vec::new();
+    if clip.pinned {
+        said.push("Pinned".into());
+    }
+    if let Some(app) = &clip.from {
+        said.push(format!("from {app}"));
+    }
+    said.push(if clip.pinned { format!("pinned {age}") } else { age });
+    said.push(crate::clipboard::size_of(&clip.text));
+    let paste = Action::Paste(clip.text.clone(), ctx.windows.first().map(|w| w.id.clone()));
+    let mut item = row(crate::clipboard::title_of(&clip.text), Glyph::Tag, "Clipboard", paste, said.join(" · "), (place, Vec::new()));
+    if clip.pinned {
+        item.icon = Icon::Glyph(Glyph::Tag, Tone::Warm);
+    }
+    item.second = Some(if clip.pinned { (Action::UnpinClip(clip.text.clone()), "Unpin") } else { (Action::PinClip(clip.text.clone(), clip.from.clone()), "Pin") });
+    item
 }
 
-fn clear_clips_row(count: usize, place: f64) -> Item {
-    row("Clear clipboard history", Glyph::Tag, "Clipboard", Action::ClearClips, format!("Forget {count} copied"), (place, Vec::new()))
+/// The copies that aren't pinned, which clearing forgets.
+fn unpinned(clips: &[super::search::ClipNow]) -> usize {
+    clips.iter().filter(|c| !c.pinned).count()
+}
+
+fn clear_clips_row(clips: &[super::search::ClipNow], place: f64) -> Option<Item> {
+    let count = unpinned(clips);
+    let pins = clips.len() - count;
+    let sub = if pins > 0 { format!("Forget {count} copied; pins stay") } else { format!("Forget {count} copied") };
+    (count > 0).then(|| row("Clear clipboard history", Glyph::Tag, "Clipboard", Action::ClearClips, sub, (place, Vec::new())))
 }
 
 fn clip_note(text: &str) -> Vec<Item> {
@@ -444,8 +525,8 @@ fn clip_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let q = query.trim();
     if q.to_lowercase().starts_with("clear clip") {
         return match &ctx.live.clips {
-            Some(clips) if !clips.is_empty() => vec![clear_clips_row(clips.len(), LEAD)],
-            _ => Vec::new(),
+            Some(clips) => clear_clips_row(clips, LEAD).into_iter().collect(),
+            None => Vec::new(),
         };
     }
     let Some(filter) = crate::clipboard::led_by(q) else { return Vec::new() };
@@ -454,22 +535,24 @@ fn clip_rows(ctx: &Context, query: &str) -> Vec<Item> {
         return clip_note("Nothing copied since Kairo started");
     }
     if !filter.is_empty() {
-        return matching_clips(clips, filter);
+        return matching_clips(ctx, clips, filter);
     }
-    let mut items: Vec<Item> = clips.iter().take(RECENT_CLIPS).enumerate().map(|(i, c)| clip_row(c, LEAD - i as f64 / 100.0)).collect();
+    let mut items: Vec<Item> = clips.iter().take(RECENT_CLIPS).enumerate().map(|(i, c)| clip_row(ctx, c, LEAD - i as f64 / 100.0)).collect();
     if clips.len() > RECENT_CLIPS {
         let mut more = row(format!("Show all {} copies", clips.len()), Glyph::Tag, "Clipboard", Action::EnterMode(Mode::Clipboard), "Everything copied, to choose from", (LEAD - 0.4, Vec::new()));
         more.second = None;
         items.push(more);
     }
-    items.push(clear_clips_row(clips.len(), LEAD - 0.5));
+    items.extend(clear_clips_row(clips, LEAD - 0.5));
     items
 }
 
-/// The copies containing `filter`, any case, newest first; a note when none do.
-fn matching_clips(clips: &[super::search::ClipNow], filter: &str) -> Vec<Item> {
+/// The copies containing `filter`, or copied in an app of that name, any case, pins then newest;
+/// a note when none do.
+fn matching_clips(ctx: &Context, clips: &[super::search::ClipNow], filter: &str) -> Vec<Item> {
     let wanted = filter.to_lowercase();
-    let items: Vec<Item> = clips.iter().filter(|c| c.text.to_lowercase().contains(&wanted)).enumerate().map(|(i, c)| clip_row(c, LEAD - i as f64 / 100.0)).collect();
+    let has = |c: &&super::search::ClipNow| c.text.to_lowercase().contains(&wanted) || c.from.as_deref().is_some_and(|a| a.to_lowercase().starts_with(&wanted));
+    let items: Vec<Item> = clips.iter().filter(has).enumerate().map(|(i, c)| clip_row(ctx, c, LEAD - i as f64 / 100.0)).collect();
     if items.is_empty() {
         clip_note(&format!("No copies contain “{filter}”"))
     } else {
@@ -488,9 +571,9 @@ pub(super) fn clipboard_mode_rows(ctx: &Context, text: &str) -> Vec<Item> {
         return clip_note("Nothing copied since Kairo started");
     }
     let q = text.trim();
-    let mut items = matching_clips(clips, q);
+    let mut items = matching_clips(ctx, clips, q);
     if q.is_empty() {
-        items.push(clear_clips_row(clips.len(), LEAD - 0.5));
+        items.extend(clear_clips_row(clips, LEAD - 0.5));
     }
     items
 }
@@ -742,8 +825,42 @@ mod tests {
         let found = search(&c, "GH");
         assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("gh issues", Action::OpenUrl("https://github.com/tauri-apps/tauri/issues".into())));
         assert_eq!(found[0].sub.as_deref(), Some("Opens github.com/tauri-apps/tauri/issues"));
-        assert_eq!(search(&c, "sig")[0].action, Action::Copy("Best,\nAmos".into()));
-        assert_eq!(search(&c, "sig")[0].sub.as_deref(), Some("Copies “Best,…”"));
+        assert_eq!(search(&c, "sig")[0].action, Action::Snippet("Best,\nAmos".into(), None, true));
+        assert_eq!(search(&c, "sig")[0].sub.as_deref(), Some("Pastes “Best,…”"));
+        assert_eq!(search(&c, "sig")[0].second, Some((Action::Snippet("Best,\nAmos".into(), None, false), "Copy")));
+    }
+
+    #[test]
+    fn a_link_with_a_slot_opens_with_what_is_typed_after_its_name() {
+        use crate::custom_commands::{CustomCommand, Kind};
+        let mut c = ctx();
+        c.custom = vec![CustomCommand { name: "jira".into(), kind: Kind::Link, target: "https://jira.example.com/browse/{query}".into() }];
+        let found = search(&c, "jira KAI 12");
+        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("jira KAI 12", Action::OpenUrl("https://jira.example.com/browse/KAI%2012".into())));
+        assert_eq!(found[0].sub.as_deref(), Some("Opens jira.example.com/browse/KAI%2012"));
+        // The name alone asks for what goes in, and Ctrl+Enter opens it empty.
+        let found = search(&c, "jira");
+        assert!(found[0].is_note() == false && found[0].action == Action::Nothing);
+        assert_eq!(found[0].sub.as_deref(), Some("Type what goes in after “jira ”"));
+    }
+
+    #[test]
+    fn an_alias_runs_what_its_words_find_first() {
+        use crate::custom_commands::{CustomCommand, Kind};
+        let mut c = ctx();
+        c.custom = vec![
+            CustomCommand { name: "fw".into(), kind: Kind::Alias, target: "focus 50 writing".into() },
+            CustomCommand { name: "loop".into(), kind: Kind::Alias, target: "fw".into() },
+            CustomCommand { name: "nada".into(), kind: Kind::Alias, target: "zzzqqq".into() },
+        ];
+        let found = search(&c, "fw");
+        assert_eq!(found[0].title, "fw");
+        assert_eq!(found[0].action, Action::StartFocus(50, Some("writing".into()), None));
+        assert_eq!(found[0].sub.as_deref(), Some("Runs “Start a 50-minute focus session”"));
+        assert_eq!(found[0].section, "Commands");
+        // An alias doesn't run another alias.
+        assert!(search(&c, "loop")[0].action != Action::StartFocus(50, Some("writing".into()), None));
+        assert_eq!(search(&c, "nada")[0].title, "nada");
     }
 
     #[test]
@@ -1081,7 +1198,7 @@ mod tests {
     fn clip_lists_the_latest_copies_and_only_when_asked_for() {
         use super::super::search::ClipNow;
         let mut c = ctx();
-        let clip = |text: &str, age_ms: i64| ClipNow { text: text.into(), age_ms };
+        let clip = |text: &str, age_ms: i64| ClipNow { text: text.into(), age_ms, ..Default::default() };
         c.live.clips = Some(vec![clip("Invoice 4471\nTotal due", 30_000), clip("https://example.com/a-long-address", 5 * 60_000), clip("x", 3_600_000)]);
         let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
         let shown: Vec<_> = rows.iter().map(|i| (i.title.as_str(), i.sub.as_deref())).collect();
@@ -1094,7 +1211,8 @@ mod tests {
                 ("Clear clipboard history", Some("Forget 3 copied")),
             ]
         );
-        assert_eq!(rows[0].action, Action::Copy("Invoice 4471\nTotal due".into()));
+        assert_eq!(rows[0].action, Action::Paste("Invoice 4471\nTotal due".into(), None));
+        assert_eq!(rows[0].second, Some((Action::PinClip("Invoice 4471\nTotal due".into(), None), "Pin")));
         assert_eq!(rows[3].action, Action::ClearClips);
         assert_eq!(search(&c, "clipboard")[0].title, "Invoice 4471");
         // A filter shows only what contains it, and no Clear row.
@@ -1110,6 +1228,29 @@ mod tests {
     }
 
     #[test]
+    fn pinned_copies_lead_say_where_they_came_from_and_survive_clearing() {
+        use super::super::search::{ClipNow, WindowEntry};
+        let mut c = ctx();
+        c.windows = vec![WindowEntry { id: "7".into(), title: "Mail".into(), app: "Mail".into(), icon: None }];
+        c.live.clips = Some(vec![
+            ClipNow { text: "12 Harbour Rd".into(), age_ms: 2 * 86_400_000, from: Some("Notes".into()), pinned: true },
+            ClipNow { text: "ticket 88".into(), age_ms: 120_000, from: Some("Chrome".into()), pinned: false },
+        ]);
+        let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
+        assert_eq!(rows[0].sub.as_deref(), Some("Pinned · from Notes · pinned 48h 00m ago · 13 characters"));
+        assert_eq!(rows[0].second, Some((Action::UnpinClip("12 Harbour Rd".into()), "Unpin")));
+        assert_eq!(rows[1].sub.as_deref(), Some("from Chrome · 2m ago · 9 characters"));
+        // Enter pastes into the window that was in front.
+        assert_eq!(rows[1].action, Action::Paste("ticket 88".into(), Some("7".into())));
+        assert_eq!(rows[2].sub.as_deref(), Some("Forget 1 copied; pins stay"));
+        // An app's name finds what was copied in it.
+        assert_eq!(search(&c, "clip chrome")[0].title, "ticket 88");
+        // With only pins left, there's nothing to clear.
+        c.live.clips = Some(vec![ClipNow { text: "a".into(), pinned: true, ..Default::default() }]);
+        assert!(!search(&c, "clip").iter().any(|i| i.action == Action::ClearClips));
+    }
+
+    #[test]
     fn clip_says_so_when_there_is_nothing_or_it_is_off() {
         let mut c = ctx();
         c.live.clips = Some(Vec::new());
@@ -1122,7 +1263,7 @@ mod tests {
     fn clip_shows_the_latest_five_and_a_row_for_all_of_them() {
         use super::super::search::ClipNow;
         let mut c = ctx();
-        c.live.clips = Some((0..9).map(|i| ClipNow { text: format!("copy number {i}"), age_ms: (i + 1) * 120_000 }).collect());
+        c.live.clips = Some((0..9).map(|i| ClipNow { text: format!("copy number {i}"), age_ms: (i + 1) * 120_000, ..Default::default() }).collect());
         let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
         let titles: Vec<_> = rows.iter().map(|i| i.title.as_str()).collect();
         assert_eq!(titles, ["copy number 0", "copy number 1", "copy number 2", "copy number 3", "copy number 4", "Show all 9 copies", "Clear clipboard history"]);
@@ -1131,7 +1272,7 @@ mod tests {
         let all = search_in(&c, Mode::Clipboard, "");
         assert_eq!(all.len(), 10);
         assert_eq!(all[8].title, "copy number 8");
-        assert_eq!(all[8].action, Action::Copy("copy number 8".into()));
+        assert_eq!(all[8].action, Action::Paste("copy number 8".into(), None));
         assert_eq!(all[9].action, Action::ClearClips);
         // Typing filters them, with no Clear row among the matches.
         let found = search_in(&c, Mode::Clipboard, "NUMBER 7");

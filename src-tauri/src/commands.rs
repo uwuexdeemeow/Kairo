@@ -890,6 +890,28 @@ pub fn remove_custom_command(state: State<AppState>, name: String) -> CmdResult<
     custom_commands::list(&conn).map_err(err)
 }
 
+/// The saved window layouts.
+#[tauri::command]
+pub fn get_layouts(state: State<AppState>) -> CmdResult<Vec<crate::snap::Layout>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::snap::list(&conn).map_err(err)
+}
+
+/// Which focus label puts a layout back; empty for none.
+#[tauri::command]
+pub fn set_layout_focus_label(state: State<AppState>, name: String, label: Option<String>) -> CmdResult<Vec<crate::snap::Layout>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::snap::set_focus_label(&conn, &name, label.as_deref()).map_err(err)?;
+    crate::snap::list(&conn).map_err(err)
+}
+
+#[tauri::command]
+pub fn remove_layout(state: State<AppState>, name: String) -> CmdResult<Vec<crate::snap::Layout>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::snap::remove(&conn, &name).map_err(err)?;
+    crate::snap::list(&conn).map_err(err)
+}
+
 /// The saved focus modes.
 #[tauri::command]
 pub fn get_focus_modes(state: State<AppState>) -> CmdResult<Vec<focus_modes::FocusMode>> {

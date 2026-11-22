@@ -441,6 +441,14 @@ pub enum Glyph {
     Alert,
     Calc,
     Search,
+    /// A window on a screen: moving windows and layouts.
+    Window,
+    /// A smiling face: emoji.
+    Smile,
+    /// A prompt: your own scripts.
+    Script,
+    /// Two links of a chain: your quicklinks.
+    Link,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -535,6 +543,21 @@ pub enum Action {
     CopyAnswer(Subject, Period, Option<Period>),
     /// Puts this text on the clipboard.
     Copy(String),
+    /// Puts this text on the clipboard and pastes it into the window that was in front before
+    /// the palette opened, by its id; only copies where the system won't let Kairo press keys.
+    Paste(String, Option<String>),
+    /// Pins a copy from the clipboard history, with the app it came from; and unpins one.
+    PinClip(String, Option<String>),
+    UnpinClip(String),
+    /// A snippet: its text with `{date}`, `{time}` and `{clipboard}` filled in as it runs, for
+    /// the window that was in front; pasted when true, else copied.
+    Snippet(String, Option<String>, bool),
+    /// Moves the window that was in front, by its id.
+    Snap(crate::snap::Snap, String),
+    /// Saves where the open windows are as a layout, by name.
+    SaveLayout(String),
+    /// Puts a saved layout's windows back, by name.
+    RestoreLayout(String),
     /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
     /// with the system's file dialog.
     ExportTime,
@@ -606,6 +629,8 @@ impl Action {
                 | Action::CancelPower
                 | Action::PauseTracking(..)
                 | Action::ResumeTracking
+                | Action::PinClip(..)
+                | Action::UnpinClip(..)
         )
     }
 }
@@ -701,11 +726,15 @@ pub struct SessionNow {
 }
 
 /// One thing copied lately, for the `clip` command.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClipNow {
     pub text: String,
-    /// How long ago it was copied.
+    /// How long ago it was copied, or pinned.
     pub age_ms: i64,
+    /// The app it was copied in, when known.
+    pub from: Option<String>,
+    /// Whether you pinned it, which keeps it until unpinned.
+    pub pinned: bool,
 }
 
 /// A pomodoro cycle that's on, as the palette says it.
@@ -788,6 +817,8 @@ pub struct Context {
     pub modes: Vec<crate::focus_modes::FocusMode>,
     /// The commands you made yourself, in the order you made them.
     pub custom: Vec<crate::custom_commands::CustomCommand>,
+    /// The saved window layouts, in the order they were made.
+    pub layouts: Vec<crate::snap::Layout>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1546,6 +1577,7 @@ pub(super) mod tests {
             block_lists: vec!["Social".into()],
             modes: Vec::new(),
             custom: Vec::new(),
+            layouts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

@@ -607,9 +607,9 @@ export interface PauseWindow {
   minutes: number;
 }
 
-export type CustomKind = "link" | "open" | "text";
+export type CustomKind = "link" | "open" | "text" | "alias";
 
-/** A palette command you made: a name that opens a link, opens a path or copies text. */
+/** A palette command you made: a name that opens a link, opens a path, pastes text or runs other words. */
 export interface CustomCommand {
   name: string;
   kind: CustomKind;

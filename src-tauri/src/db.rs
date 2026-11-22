@@ -159,6 +159,20 @@ pub fn open(path: &Path) -> Result<Connection> {
              target   TEXT    NOT NULL,
              position INTEGER NOT NULL DEFAULT 0
          );
+         -- Copies pinned in the clipboard history (clipboard.rs), by choice; never synced.
+         CREATE TABLE IF NOT EXISTS clipboard_pins (
+             text     TEXT    NOT NULL UNIQUE,
+             from_app TEXT,
+             at_ms    INTEGER NOT NULL
+         );
+         -- Window layouts (snap.rs): where the open windows were, by a name, and the focus label
+         -- that puts them back.
+         CREATE TABLE IF NOT EXISTS window_layouts (
+             name        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+             windows     TEXT    NOT NULL DEFAULT '[]',
+             focus_label TEXT,
+             position    INTEGER NOT NULL DEFAULT 0
+         );
          -- Weekly review notes (notes.rs), by the week's Monday.
          CREATE TABLE IF NOT EXISTS week_notes (
              monday TEXT PRIMARY KEY,

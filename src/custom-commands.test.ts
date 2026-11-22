@@ -69,7 +69,7 @@ describe("Your commands in Kairo's settings", () => {
     expect(target.placeholder).toContain("github.com");
     kind.value = "text";
     kind.dispatchEvent(new Event("change"));
-    expect(target.placeholder).toBe("The text to copy");
+    expect(target.placeholder).toBe("The text to paste. {date}, {time} and {clipboard} are filled in");
 
     api.saveCustomCommand.mockResolvedValueOnce([{ name: "sig", kind: "text", target: "Best," }]);
     $<HTMLInputElement>("#custom-new-name").value = "sig";

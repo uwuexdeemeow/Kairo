@@ -20,6 +20,94 @@ pub struct OpenWindow {
     pub path: Option<String>,
 }
 
+/// A window's place on screen, or a display's: from its top left, in the system's own units
+/// (pixels on Windows and X11, points on a Mac).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Rect {
+    pub fn intersect(&self, o: &Rect) -> Option<Rect> {
+        let (x, y) = (self.x.max(o.x), self.y.max(o.y));
+        let (r, b) = ((self.x + self.w).min(o.x + o.w), (self.y + self.h).min(o.y + o.h));
+        (r > x && b > y).then_some(Rect { x, y, w: r - x, h: b - y })
+    }
+
+    pub fn area(&self) -> i64 {
+        self.w.max(0) as i64 * self.h.max(0) as i64
+    }
+}
+
+// Moving windows and pasting (snap.rs and the palette's paste): each system gives
+// `window_rect`, `place_window`, `maximize_window`, `work_areas` and `paste`.
+#[cfg(windows)]
+pub use win::{maximize_window, paste, place_window, window_rect, work_areas};
+
+#[cfg(target_os = "macos")]
+pub use mac::{paste, place_window, window_rect};
+
+/// A Mac has no maximize but its green button's full screen; snap.rs fills the screen instead.
+#[cfg(target_os = "macos")]
+pub fn maximize_window(_id: &str) -> bool {
+    false
+}
+
+/// AppKit answers about screens only on the main thread; elsewhere this is empty and snap.rs
+/// asks from the main thread.
+#[cfg(target_os = "macos")]
+pub fn work_areas() -> Vec<Rect> {
+    objc2_foundation::MainThreadMarker::new().map(mac::work_areas).unwrap_or_default()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn window_rect(id: &str) -> Option<Rect> {
+    if wayland() {
+        return None;
+    }
+    x11::window_rect(id)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn place_window(id: &str, r: Rect) -> bool {
+    !wayland() && x11::place_window(id, r)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn maximize_window(id: &str) -> bool {
+    !wayland() && x11::maximize_window(id)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn work_areas() -> Vec<Rect> {
+    if wayland() {
+        return Vec::new();
+    }
+    x11::work_areas()
+}
+
+/// On Wayland no program may press keys for another, so the palette copies instead.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn paste() -> bool {
+    !wayland() && x11::paste()
+}
+
+/// Why windows can't be moved here, when they can't.
+pub fn cant_move_windows() -> Option<&'static str> {
+    #[cfg(target_os = "macos")]
+    if !mac::accessibility_trusted() {
+        return Some("Kairo needs Accessibility access to move windows: System Settings, Privacy & Security, Accessibility.");
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    if wayland() {
+        return Some("Wayland doesn't let apps move other apps' windows. On an X11 session, this works.");
+    }
+    None
+}
+
 /// Window titles past this are cut, so one odd window can't stretch the palette.
 const MAX_WINDOW_TITLE: usize = 200;
 
@@ -355,6 +443,82 @@ mod win {
     pub fn window_exists(id: &str) -> bool {
         use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
         hwnd(id).is_some_and(|hwnd| unsafe { IsWindow(hwnd) != 0 })
+    }
+
+    /// The window's rectangle as Windows keeps it, and the frame a person sees. Windows 10 and
+    /// 11 pad windows with an invisible border for resizing, which the visible frame leaves out.
+    fn rects(hwnd: windows_sys::Win32::Foundation::HWND) -> Option<(windows_sys::Win32::Foundation::RECT, windows_sys::Win32::Foundation::RECT)> {
+        use windows_sys::Win32::Foundation::RECT;
+        use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        let mut outer: RECT = unsafe { std::mem::zeroed() };
+        if unsafe { GetWindowRect(hwnd, &mut outer) } == 0 {
+            return None;
+        }
+        let mut seen = outer;
+        let read = unsafe { DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS as u32, (&mut seen as *mut RECT).cast(), std::mem::size_of::<RECT>() as u32) };
+        Some((outer, if read == 0 { seen } else { outer }))
+    }
+
+    /// Where a window's visible frame is, in screen pixels.
+    pub fn window_rect(id: &str) -> Option<super::Rect> {
+        let (_, seen) = rects(hwnd(id)?)?;
+        Some(super::Rect { x: seen.left, y: seen.top, w: seen.right - seen.left, h: seen.bottom - seen.top })
+    }
+
+    /// Puts a window's visible frame at `r`, out of being maximized first.
+    pub fn place_window(id: &str, r: super::Rect) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, IsWindow, IsZoomed, SetWindowPos, ShowWindow, SWP_NOACTIVATE, SWP_NOZORDER, SW_RESTORE};
+        let Some(hwnd) = hwnd(id) else { return false };
+        unsafe {
+            if IsWindow(hwnd) == 0 {
+                return false;
+            }
+            if IsZoomed(hwnd) != 0 || IsIconic(hwnd) != 0 {
+                ShowWindow(hwnd, SW_RESTORE);
+            }
+            let Some((outer, seen)) = rects(hwnd) else { return false };
+            let (left, top) = (seen.left - outer.left, seen.top - outer.top);
+            let (right, bottom) = (outer.right - seen.right, outer.bottom - seen.bottom);
+            SetWindowPos(hwnd, std::ptr::null_mut(), r.x - left, r.y - top, r.w + left + right, r.h + top + bottom, SWP_NOZORDER | SWP_NOACTIVATE) != 0
+        }
+    }
+
+    pub fn maximize_window(id: &str) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{IsWindow, ShowWindow, SW_MAXIMIZE};
+        let Some(hwnd) = hwnd(id) else { return false };
+        unsafe { IsWindow(hwnd) != 0 && { ShowWindow(hwnd, SW_MAXIMIZE); true } }
+    }
+
+    /// Each display's work area: the screen less the taskbar.
+    pub fn work_areas() -> Vec<super::Rect> {
+        use windows_sys::Win32::Foundation::{BOOL, LPARAM, RECT};
+        use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+        unsafe extern "system" fn each(monitor: HMONITOR, _: HDC, _: *mut RECT, found: LPARAM) -> BOOL {
+            let found = &mut *(found as *mut Vec<super::Rect>);
+            let mut info: MONITORINFO = std::mem::zeroed();
+            info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+            if GetMonitorInfoW(monitor, &mut info) != 0 {
+                let w = info.rcWork;
+                found.push(super::Rect { x: w.left, y: w.top, w: w.right - w.left, h: w.bottom - w.top });
+            }
+            1
+        }
+        let mut found: Vec<super::Rect> = Vec::new();
+        unsafe { EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(each), &mut found as *mut Vec<super::Rect> as LPARAM) };
+        found
+    }
+
+    /// Presses Ctrl+V for the window that has the keyboard.
+    pub fn paste() -> bool {
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_CONTROL};
+        const V: u16 = 0x56;
+        let key = |vk: u16, up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: if up { KEYEVENTF_KEYUP } else { 0 }, time: 0, dwExtraInfo: 0 } },
+        };
+        let inputs = [key(VK_CONTROL, false), key(V, false), key(V, true), key(VK_CONTROL, true)];
+        unsafe { SendInput(inputs.len() as u32, inputs.as_ptr(), std::mem::size_of::<INPUT>() as i32) == inputs.len() as u32 }
     }
 
     /// Minimizes a window; false when Windows refuses, as it does for programs running with more
@@ -842,6 +1006,66 @@ mod mac {
 
     fn number_of(id: &str) -> u32 {
         window_of(id).map_or(0, |(_, number)| number)
+    }
+
+    pub fn accessibility_trusted() -> bool {
+        ax::trusted()
+    }
+
+    /// Where a window is, in points from the top left of the main display; Accessibility only.
+    pub fn window_rect(id: &str) -> Option<super::Rect> {
+        let (pid, number) = window_of(id)?;
+        let (x, y, w, h) = ax::frame(pid, number, &title_of(id).unwrap_or_default())?;
+        Some(super::Rect { x: x.round() as i32, y: y.round() as i32, w: w.round() as i32, h: h.round() as i32 })
+    }
+
+    pub fn place_window(id: &str, r: super::Rect) -> bool {
+        let Some((pid, number)) = window_of(id) else { return false };
+        ax::trusted() && ax::set_frame(pid, number, &title_of(id).unwrap_or_default(), r.x as f64, r.y as f64, r.w as f64, r.h as f64)
+    }
+
+    /// The part of each display that windows may cover (without the menu bar and the Dock), in
+    /// the same points as `window_rect`. AppKit counts up from the bottom of the main display,
+    /// so each is turned over. Only on the main thread, which `mtm` proves.
+    pub fn work_areas(mtm: objc2_foundation::MainThreadMarker) -> Vec<super::Rect> {
+        let screens = objc2_app_kit::NSScreen::screens(mtm);
+        let Some(main) = screens.firstObject() else { return Vec::new() };
+        let main_h = main.frame().size.height;
+        screens
+            .iter()
+            .map(|s| {
+                let v = s.visibleFrame();
+                super::Rect { x: v.origin.x.round() as i32, y: (main_h - v.origin.y - v.size.height).round() as i32, w: v.size.width.round() as i32, h: v.size.height.round() as i32 }
+            })
+            .collect()
+    }
+
+    /// Presses Command+V for the app in front; macOS lets it through only with Accessibility.
+    pub fn paste() -> bool {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventCreateKeyboardEvent(source: *const c_void, key: u16, down: bool) -> *mut c_void;
+            fn CGEventSetFlags(event: *mut c_void, flags: u64);
+            fn CGEventPost(tap: u32, event: *mut c_void);
+        }
+        const KEY_V: u16 = 9;
+        const COMMAND: u64 = 1 << 20;
+        const HID_TAP: u32 = 0;
+        if !ax::trusted() {
+            return false;
+        }
+        unsafe {
+            for down in [true, false] {
+                let event = CGEventCreateKeyboardEvent(std::ptr::null(), KEY_V, down);
+                if event.is_null() {
+                    return false;
+                }
+                CGEventSetFlags(event, COMMAND);
+                CGEventPost(HID_TAP, event);
+                CFRelease(event as CFTypeRef);
+            }
+        }
+        true
     }
 
     fn title_of(id: &str) -> Option<String> {
@@ -1548,6 +1772,93 @@ mod x11 {
     /// Time since the last keyboard or mouse input, from the X server's screen saver.
     pub fn idle_ms() -> i64 {
         Display::open().and_then(|x| x.conn.screensaver_query_info(x.root).ok()?.reply().ok()).map_or(0, |info| info.ms_since_user_input as i64)
+    }
+
+    impl Display {
+        /// The window manager's frame around a window: left, right, top, bottom.
+        fn frame_extents(&self, w: Window) -> [i32; 4] {
+            let e: Vec<u32> = self.property(w, "_NET_FRAME_EXTENTS", AtomEnum::CARDINAL, 4).and_then(|p| p.value32().map(|v| v.collect())).unwrap_or_default();
+            if e.len() == 4 {
+                [e[0] as i32, e[1] as i32, e[2] as i32, e[3] as i32]
+            } else {
+                [0; 4]
+            }
+        }
+
+        /// Takes a window out of being maximized, or puts it in, both ways at once.
+        fn maximized(&self, w: Window, on: bool) -> bool {
+            let (Some(vert), Some(horz)) = (self.atom("_NET_WM_STATE_MAXIMIZED_VERT"), self.atom("_NET_WM_STATE_MAXIMIZED_HORZ")) else { return false };
+            self.ask(w, "_NET_WM_STATE", [on as u32, vert, horz, 2, 0])
+        }
+    }
+
+    /// Where a window is with its frame, in the root window's pixels.
+    pub fn window_rect(id: &str) -> Option<super::Rect> {
+        let (x, w) = (Display::open()?, window_of(id)?);
+        let g = x.conn.get_geometry(w).ok()?.reply().ok()?;
+        let at = x.conn.translate_coordinates(w, x.root, 0, 0).ok()?.reply().ok()?;
+        let [l, r, t, b] = x.frame_extents(w);
+        Some(super::Rect { x: at.dst_x as i32 - l, y: at.dst_y as i32 - t, w: g.width as i32 + l + r, h: g.height as i32 + t + b })
+    }
+
+    /// Moves and sizes a window, frame and all, as a pager would (_NET_MOVERESIZE_WINDOW with
+    /// north-west gravity: the frame's corner, the window's own size).
+    pub fn place_window(id: &str, r: super::Rect) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        let [l, rt, t, b] = x.frame_extents(w);
+        x.maximized(w, false);
+        const NORTH_WEST: u32 = 1;
+        const ALL: u32 = 0b1111 << 8;
+        const PAGER: u32 = 2 << 12;
+        let data = [NORTH_WEST | ALL | PAGER, r.x.max(0) as u32, r.y.max(0) as u32, (r.w - l - rt).max(1) as u32, (r.h - t - b).max(1) as u32];
+        x.ask(w, "_NET_MOVERESIZE_WINDOW", data)
+    }
+
+    pub fn maximize_window(id: &str) -> bool {
+        let (Some(x), Some(w)) = (Display::open(), window_of(id)) else { return false };
+        x.maximized(w, true)
+    }
+
+    /// Each monitor, less the panels the window manager keeps windows off (its work area).
+    pub fn work_areas() -> Vec<super::Rect> {
+        use x11rb::protocol::randr::ConnectionExt as _;
+        let Some(x) = Display::open() else { return Vec::new() };
+        let monitors: Vec<super::Rect> = x
+            .conn
+            .randr_get_monitors(x.root, true)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .map(|r| r.monitors.iter().map(|m| super::Rect { x: m.x as i32, y: m.y as i32, w: m.width as i32, h: m.height as i32 }).collect())
+            .unwrap_or_default();
+        let desktop = x.property(x.root, "_NET_CURRENT_DESKTOP", AtomEnum::CARDINAL, 1).and_then(|p| p.value32()?.next()).unwrap_or(0) as usize;
+        let areas: Vec<u32> = x.property(x.root, "_NET_WORKAREA", AtomEnum::CARDINAL, 256).and_then(|p| p.value32().map(|v| v.collect())).unwrap_or_default();
+        let work = areas.chunks(4).nth(desktop).filter(|a| a.len() == 4).map(|a| super::Rect { x: a[0] as i32, y: a[1] as i32, w: a[2] as i32, h: a[3] as i32 });
+        match (monitors.is_empty(), work) {
+            (true, Some(work)) => vec![work],
+            (_, Some(work)) => monitors.iter().map(|m| m.intersect(&work).unwrap_or(*m)).collect(),
+            (_, None) => monitors,
+        }
+    }
+
+    /// Presses Ctrl+V for the window that has the keyboard, through the XTEST extension.
+    pub fn paste() -> bool {
+        use x11rb::protocol::xtest::ConnectionExt as _;
+        const CONTROL_L: u32 = 0xffe3;
+        const V: u32 = 0x0076;
+        let Some(x) = Display::open() else { return false };
+        let setup = x.conn.setup();
+        let (min, max) = (setup.min_keycode, setup.max_keycode);
+        let Some(map) = x.conn.get_keyboard_mapping(min, max - min + 1).ok().and_then(|c| c.reply().ok()) else { return false };
+        let per = map.keysyms_per_keycode.max(1) as usize;
+        let code = |sym: u32| map.keysyms.chunks(per).position(|syms| syms.contains(&sym)).map(|i| min + i as u8);
+        let (Some(ctrl), Some(v)) = (code(CONTROL_L), code(V)) else { return false };
+        const PRESS: u8 = 2;
+        const RELEASE: u8 = 3;
+        let mut ok = true;
+        for (kind, key) in [(PRESS, ctrl), (PRESS, v), (RELEASE, v), (RELEASE, ctrl)] {
+            ok &= x.conn.xtest_fake_input(kind, key, 0, x.root, 0, 0, 0).is_ok();
+        }
+        ok && x.conn.flush().is_ok()
     }
 }
 

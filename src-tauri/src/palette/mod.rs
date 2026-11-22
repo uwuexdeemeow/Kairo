@@ -28,6 +28,7 @@ pub mod mode;
 pub mod native;
 pub mod search;
 pub mod settings;
+pub mod tools;
 #[cfg(not(windows))]
 pub mod web;
 
@@ -402,6 +403,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         modes: crate::focus_modes::list(conn).unwrap_or_default(),
         custom: crate::custom_commands::list(conn).unwrap_or_default(),
+        layouts: crate::snap::list(conn).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -421,6 +423,16 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     (ctx, footer)
 }
 
+/// The pins, then the copies made while Kairo ran that aren't pinned, newest first; None while
+/// the history is off.
+fn clips_now(app: &AppHandle, conn: &Connection, now: i64) -> Option<Vec<search::ClipNow>> {
+    let copies = tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now)?;
+    let pins = crate::clipboard::pins(conn).unwrap_or_default();
+    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true }).collect();
+    all.extend(copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false }));
+    Some(all)
+}
+
 /// How the things the palette's own commands change stand now: the focus session, tracking, the
 /// quick timers, what's blocked and the theme. Read as the palette opens and again after a
 /// command that leaves it open.
@@ -432,7 +444,7 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
         session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
         cycle: crate::pomodoro::current(conn, now).ok().flatten().map(|c| search::CycleNow { round: c.round, rounds: c.rounds, on_break: c.on_break, left_ms: c.break_left_ms, waiting: c.waiting }),
         pending_power: tauri::Manager::state::<crate::system::PendingPower>(app).get(),
-        clips: tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now).map(|all| all.into_iter().map(|(text, age_ms)| search::ClipNow { text, age_ms }).collect()),
+        clips: clips_now(app, conn, now),
         strict: crate::blocking::strict_now(conn).unwrap_or(false),
         tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
         blocked: crate::blocking::showing(app),
@@ -546,6 +558,8 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::Kill(name) => crate::system::kill_named(name).map(|_| ()),
+        Action::PinClip(text, from) => crate::clipboard::pin(conn, text, from.as_deref(), now_ms()).map_err(|e| e.to_string()),
+        Action::UnpinClip(text) => crate::clipboard::unpin(conn, text).map_err(|e| e.to_string()),
         Action::ClearClips => {
             tauri::Manager::state::<crate::clipboard::Shared>(app).clear();
             Ok(())
@@ -632,6 +646,56 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             use tauri_plugin_clipboard_manager::ClipboardExt;
             app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())
         }
+        Action::Paste(text, window) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())?;
+            paste_after_hiding(app, window.clone());
+            Ok(())
+        }
+        Action::Snippet(template, window, paste) => {
+            use tauri_plugin_clipboard_manager::ClipboardExt;
+            let clipboard = app.clipboard().read_text().ok();
+            let text = crate::custom_commands::expand(template, Local::now().naive_local(), clipboard.as_deref());
+            app.clipboard().write_text(text).map_err(|e| e.to_string())?;
+            if *paste {
+                paste_after_hiding(app, window.clone());
+            }
+            Ok(())
+        }
+        Action::Snap(snap, id) => {
+            // Said at once, while the palette can still show it.
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let (app, id, snap) = (app.clone(), id.clone(), *snap);
+            after_hiding(move || {
+                if let Err(e) = crate::snap::apply(&app, &id, snap) {
+                    crate::blocking::notify(&app, "Couldn't move that window", &e);
+                }
+            });
+            Ok(())
+        }
+        Action::SaveLayout(name) => {
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let count = crate::snap::save(conn, name, crate::snap::current()).map_err(|e| e.to_string())??;
+            crate::blocking::notify(app, "Layout saved", &format!("“{}” keeps where {count} {} are. Type “layout {}” to put them back.", name.trim(), if count == 1 { "window" } else { "windows" }, name.trim()));
+            Ok(())
+        }
+        Action::RestoreLayout(name) => {
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let layout = crate::snap::find(conn, name).map_err(|e| e.to_string())?.ok_or("That layout is gone.")?;
+            let app = app.clone();
+            after_hiding(move || match crate::snap::restore(&layout) {
+                Ok(0) => crate::blocking::notify(&app, "Nothing to put back", &format!("None of the apps in “{}” are open.", layout.name)),
+                Ok(_) => {}
+                Err(e) => crate::blocking::notify(&app, "Couldn't put the layout back", &e),
+            });
+            Ok(())
+        }
         Action::ExportTime | Action::Backup | Action::Restore => {
             with_file_dialog(app, action.clone());
             Ok(())
@@ -701,6 +765,34 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
         // The palettes put themselves in the mode before it would get here.
         Action::EnterMode(_) | Action::Nothing => Ok(()),
     }
+}
+
+/// How long the palette takes to be gone and the window before it to have the keyboard again.
+const AFTER_HIDING: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Runs `then` once the palette is out of the way: the caller hides it as `perform` returns.
+fn after_hiding(then: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        std::thread::sleep(AFTER_HIDING);
+        then();
+    });
+}
+
+/// Presses the system's paste keys for the window that was in front, once the palette is gone.
+/// Where Kairo may not press keys (Wayland, a Mac without Accessibility), what was put on the
+/// clipboard stays there and a notification says so.
+fn paste_after_hiding(app: &AppHandle, window: Option<String>) {
+    let app = app.clone();
+    after_hiding(move || {
+        if let Some(id) = window {
+            crate::platform::activate_window(&id);
+            std::thread::sleep(std::time::Duration::from_millis(60));
+        }
+        if !crate::platform::paste() {
+            let keys = if cfg!(target_os = "macos") { "Command+V" } else { "Ctrl+V" };
+            crate::blocking::notify(&app, "Copied", &format!("Press {keys} to paste it."));
+        }
+    });
 }
 
 /// Runs a data action off the palette's thread, since it waits on a file dialog, and says how it
@@ -804,6 +896,10 @@ fn glyph_name(glyph: Glyph) -> &'static str {
         Glyph::Alert => "alert",
         Glyph::Calc => "calc",
         Glyph::Search => "search",
+        Glyph::Window => "window",
+        Glyph::Smile => "smile",
+        Glyph::Script => "script",
+        Glyph::Link => "link",
     }
 }
 
@@ -1320,6 +1416,7 @@ mod tests {
             block_lists: Vec::new(),
             modes: Vec::new(),
             custom: Vec::new(),
+            layouts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

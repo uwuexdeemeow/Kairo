@@ -1,7 +1,11 @@
-//! Your own palette commands: a name you choose that opens a link, opens a file, folder or app, or
-//! copies a piece of text. Typing the name (or its start) shows a row, and Enter does it, with the
-//! palette's own actions for each. Links and text go to the computers you've combined; files,
-//! folders and apps stay on the one they were made on, since a path means something only there.
+//! Your own palette commands: a name you choose that opens a link, opens a file, folder or app,
+//! pastes a piece of text (a snippet), or runs another palette command (an alias). Typing the name
+//! (or its start) shows a row, and Enter does it, with the palette's own actions for each.
+//!
+//! A link may hold `{query}`, filled with what's typed after the name: `jira 123` opens ticket
+//! 123. Text may hold `{date}`, `{time}` and `{clipboard}`, filled in as it is pasted. Links, text
+//! and aliases go to the computers you've combined; files, folders and apps stay on the one they
+//! were made on, since a path means something only there.
 
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
@@ -21,8 +25,10 @@ pub enum Kind {
     Link,
     /// Opens a file, a folder or an app, by its path.
     Open,
-    /// Puts text on the clipboard.
+    /// Pastes text into the window that was in front, its placeholders filled in.
     Text,
+    /// Runs what the palette offers first for other words: `vs` for "visual studio code".
+    Alias,
 }
 
 impl Kind {
@@ -31,11 +37,12 @@ impl Kind {
             Kind::Link => "link",
             Kind::Open => "open",
             Kind::Text => "text",
+            Kind::Alias => "alias",
         }
     }
 
     fn from_key(key: &str) -> Option<Kind> {
-        [Kind::Link, Kind::Open, Kind::Text].into_iter().find(|k| k.key() == key)
+        [Kind::Link, Kind::Open, Kind::Text, Kind::Alias].into_iter().find(|k| k.key() == key)
     }
 }
 
@@ -47,30 +54,68 @@ pub struct CustomCommand {
     pub target: String,
 }
 
+/// The slot in a link that what's typed after its name fills.
+pub const QUERY: &str = "{query}";
+
 impl CustomCommand {
-    /// What running it does, as the palette's action.
-    pub fn action(&self) -> Action {
+    /// What running it does, as the palette's action, for the window that was in front (which
+    /// text is pasted into). An alias's action is the palette's to find.
+    pub fn action(&self, window: Option<String>) -> Action {
         match self.kind {
-            Kind::Link => Action::OpenUrl(self.target.clone()),
+            Kind::Link => Action::OpenUrl(fill_link(&self.target, "")),
             Kind::Open => Action::OpenFile(self.target.clone()),
-            Kind::Text => Action::Copy(self.target.clone()),
+            Kind::Text => Action::Snippet(self.target.clone(), window, true),
+            Kind::Alias => Action::Nothing,
         }
     }
 
+    /// Whether the link has a slot for what's typed after the name.
+    pub fn takes_query(&self) -> bool {
+        self.kind == Kind::Link && self.target.contains(QUERY)
+    }
+
     /// What it does, in a line under its name: where a link goes, what a path opens, the start of a
-    /// text it copies.
+    /// text it pastes, the words an alias runs.
     pub fn says(&self) -> String {
         match self.kind {
-            Kind::Link => format!("Opens {}", self.target.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/')),
+            Kind::Link if self.takes_query() => format!("Opens {} with what you type after “{}”", site(&self.target.replace(QUERY, "…")), self.name),
+            Kind::Link => format!("Opens {}", site(&self.target)),
             Kind::Open => format!("Opens {}", self.target),
-            Kind::Text => {
-                let first = self.target.lines().next().unwrap_or("");
-                let cut: String = first.chars().take(60).collect();
-                let more = if cut.chars().count() < first.chars().count() || self.target.lines().nth(1).is_some() { "…" } else { "" };
-                format!("Copies “{cut}{more}”")
-            }
+            Kind::Text => format!("Pastes “{}”", first_line(&self.target)),
+            Kind::Alias => format!("Runs “{}”", self.target),
         }
     }
+}
+
+/// A web address without its scheme or a closing slash, as a row says it.
+pub fn site(url: &str) -> String {
+    url.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/').to_string()
+}
+
+fn first_line(text: &str) -> String {
+    let first = text.lines().next().unwrap_or("");
+    let cut: String = first.chars().take(60).collect();
+    let more = if cut.chars().count() < first.chars().count() || text.lines().nth(1).is_some() { "…" } else { "" };
+    format!("{cut}{more}")
+}
+
+/// A link with what was typed put in its slot, made safe for an address: `jira 1 2` gives
+/// `…browse/1%202`. A link without a slot is as it was.
+pub fn fill_link(target: &str, typed: &str) -> String {
+    let mut encoded = String::new();
+    for b in typed.trim().bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => encoded.push(b as char),
+            _ => encoded.push_str(&format!("%{b:02X}")),
+        }
+    }
+    target.replace(QUERY, &encoded)
+}
+
+/// Text with its placeholders filled: `{date}` as 2026-11-22, `{time}` as 14:05, `{clipboard}` as
+/// what is on the clipboard (nothing when there's no text there).
+pub fn expand(text: &str, now: chrono::NaiveDateTime, clipboard: Option<&str>) -> String {
+    text.replace("{date}", &now.format("%Y-%m-%d").to_string()).replace("{time}", &now.format("%H:%M").to_string()).replace("{clipboard}", clipboard.unwrap_or(""))
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<CustomCommand>> {
@@ -124,12 +169,17 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, kind: Kind, target
         Kind::Open => target.trim().trim_matches('"').to_string(),
         // Text keeps its line breaks and spaces: a signature is made of them.
         Kind::Text => target.trim_matches(['\r', '\n']).to_string(),
+        Kind::Alias => target.trim().to_string(),
     };
+    if kind == Kind::Alias && target.eq_ignore_ascii_case(&name) {
+        return Ok(Err("An alias can't run itself. Write the words it stands for, like “visual studio code”.".into()));
+    }
     if target.trim().is_empty() {
         return Ok(Err(match kind {
             Kind::Link => "Say where the link goes.",
             Kind::Open => "Say which file, folder or app it opens.",
-            Kind::Text => "Write the text it copies.",
+            Kind::Text => "Write the text it pastes.",
+            Kind::Alias => "Write what it stands for, like “visual studio code” or “focus 50 writing”.",
         }
         .into()));
     }
@@ -217,7 +267,7 @@ mod tests {
         saved(&c, "gh", Kind::Link, "github.com/tauri-apps/tauri/issues").unwrap();
         let cmd = find(&c, "GH").unwrap().unwrap();
         assert_eq!(cmd.target, "https://github.com/tauri-apps/tauri/issues");
-        assert_eq!(cmd.action(), Action::OpenUrl("https://github.com/tauri-apps/tauri/issues".into()));
+        assert_eq!(cmd.action(None), Action::OpenUrl("https://github.com/tauri-apps/tauri/issues".into()));
         assert_eq!(cmd.says(), "Opens github.com/tauri-apps/tauri/issues");
     }
 
@@ -238,7 +288,7 @@ mod tests {
         saved(&c, "tax", Kind::Open, "\"C:\\Users\\me\\Documents\\Tax 2026\"").unwrap();
         let cmd = find(&c, "tax").unwrap().unwrap();
         assert_eq!(cmd.target, "C:\\Users\\me\\Documents\\Tax 2026");
-        assert_eq!(cmd.action(), Action::OpenFile("C:\\Users\\me\\Documents\\Tax 2026".into()));
+        assert_eq!(cmd.action(None), Action::OpenFile("C:\\Users\\me\\Documents\\Tax 2026".into()));
     }
 
     #[test]
@@ -247,8 +297,8 @@ mod tests {
         saved(&c, "sig", Kind::Text, "\nBest,\nAmos\n").unwrap();
         let cmd = find(&c, "sig").unwrap().unwrap();
         assert_eq!(cmd.target, "Best,\nAmos");
-        assert_eq!(cmd.action(), Action::Copy("Best,\nAmos".into()));
-        assert_eq!(cmd.says(), "Copies “Best,…”");
+        assert_eq!(cmd.action(Some("9".into())), Action::Snippet("Best,\nAmos".into(), Some("9".into()), true));
+        assert_eq!(cmd.says(), "Pastes “Best,…”");
     }
 
     #[test]
@@ -257,7 +307,7 @@ mod tests {
         assert_eq!(saved(&c, "  ", Kind::Text, "x"), Err("Give the command a name.".into()));
         saved(&c, "Tax", Kind::Open, "C:\\tax").unwrap();
         assert_eq!(saved(&c, "tax", Kind::Text, "x"), Err("There's already a command called tax.".into()));
-        assert_eq!(saved(&c, "x", Kind::Text, ""), Err("Write the text it copies.".into()));
+        assert_eq!(saved(&c, "x", Kind::Text, ""), Err("Write the text it pastes.".into()));
         assert_eq!(saved(&c, "y", Kind::Open, "  "), Err("Say which file, folder or app it opens.".into()));
     }
 
@@ -319,6 +369,39 @@ mod tests {
         assert_eq!(list(&c).unwrap().iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["ok"]);
         assert!(replace_from_json(&c, "not json").is_err());
         assert_eq!(list(&c).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_link_with_a_slot_is_filled_with_what_is_typed_after_its_name() {
+        let c = conn();
+        saved(&c, "jira", Kind::Link, "jira.example.com/browse/{query}").unwrap();
+        let cmd = find(&c, "jira").unwrap().unwrap();
+        assert!(cmd.takes_query());
+        assert_eq!(cmd.target, "https://jira.example.com/browse/{query}");
+        assert_eq!(cmd.says(), "Opens jira.example.com/browse/… with what you type after “jira”");
+        assert_eq!(fill_link(&cmd.target, " KAI-123 "), "https://jira.example.com/browse/KAI-123");
+        assert_eq!(fill_link("https://x.com/s?q={query}", "a b&c/é"), "https://x.com/s?q=a%20b%26c%2F%C3%A9");
+        assert_eq!(fill_link("https://x.com", "ignored"), "https://x.com");
+    }
+
+    #[test]
+    fn snippets_fill_the_date_the_time_and_the_clipboard() {
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 11, 22).unwrap().and_hms_opt(9, 5, 0).unwrap();
+        assert_eq!(expand("Sent {date} at {time}: {clipboard}", at, Some("link")), "Sent 2026-11-22 at 09:05: link");
+        assert_eq!(expand("{clipboard}!", at, None), "!");
+        assert_eq!(expand("plain", at, None), "plain");
+    }
+
+    #[test]
+    fn an_alias_stands_for_other_words_and_not_for_itself() {
+        let c = conn();
+        saved(&c, "vs", Kind::Alias, "  visual studio code ").unwrap();
+        let cmd = find(&c, "vs").unwrap().unwrap();
+        assert_eq!((cmd.target.as_str(), cmd.says()), ("visual studio code", "Runs “visual studio code”".to_string()));
+        assert!(saved(&c, "loop", Kind::Alias, "LOOP").is_err());
+        assert!(saved(&c, "empty", Kind::Alias, " ").is_err());
+        // Aliases mean the same on any computer, so they're shared.
+        assert!(to_json(&c).unwrap().contains("visual studio code"));
     }
 
     #[test]
