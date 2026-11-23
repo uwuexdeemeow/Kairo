@@ -151,6 +151,51 @@ pub fn remind_rows(ctx: &Context, query: &str) -> Vec<Item> {
     vec![item]
 }
 
+/// What the palette understands, for `?` and `help`: what each does and an example to try, which
+/// Enter types into the box.
+const HELP: &[(&str, &str, Glyph)] = &[
+    ("Open an app, a file or a setting", "notepad", Glyph::Search),
+    ("Ask about your time", "youtube this week", Glyph::Chart),
+    ("Start a focus session", "focus 50 essay", Glyph::Focus),
+    ("Add a task", "add task call Leo fri", Glyph::Focus),
+    ("Remind me", "remind me in 20m to stretch", Glyph::Day),
+    ("Start a timer", "timer 10 tea", Glyph::Day),
+    ("Work out a sum", "12% of 80", Glyph::Calc),
+    ("Convert money", "20 usd in eur", Glyph::Calc),
+    ("Tell the time somewhere", "3pm london in tokyo", Glyph::Calc),
+    ("Paste something copied earlier", "clip", Glyph::Tag),
+    ("Pick an emoji", ":fire", Glyph::Smile),
+    ("Move the window you were in", "left half", Glyph::Window),
+    ("Save where your windows are", "save layout writing", Glyph::Window),
+    ("Today's meetings", "agenda", Glyph::Day),
+    ("Join the next meeting", "join", Glyph::Link),
+    ("Files you opened lately", "recent", Glyph::Search),
+    ("Switch to an open window", "windows", Glyph::Window),
+    ("Search a site", "gh kairo", Glyph::Search),
+    ("Your scripts", "scripts", Glyph::Script),
+    ("Set the volume", "volume 40", Glyph::Settings),
+    ("Pick a colour from the screen", "pick color", Glyph::Settings),
+];
+
+/// `?` or `help`: what the palette understands, each with an example to try.
+pub fn help_rows(_ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    if !["?", "help", "what can i type", "commands"].iter().any(|w| q.eq_ignore_ascii_case(w)) {
+        return Vec::new();
+    }
+    HELP.iter()
+        .enumerate()
+        .map(|(i, (what, example, glyph))| {
+            let mut item = row(*what, *glyph, "What you can type", Action::Type(format!("{example} ")), format!("Try “{example}”"), (LEAD - i as f64 / 100.0, Vec::new()));
+            // An example that's whole as it is runs as typed, without a space after it.
+            if !example.contains(' ') || example.starts_with(':') {
+                item.action = Action::Type((*example).to_string());
+            }
+            item
+        })
+        .collect()
+}
+
 /// A join row shows in the empty palette from this long before a meeting starts…
 const JOIN_BEFORE_MIN: i64 = 5;
 /// …until this long after.
@@ -164,15 +209,15 @@ fn meeting_when(m: &super::search::MeetingNow, now: chrono::NaiveDateTime) -> St
         let wait = m.start - now;
         match (minutes(wait), (m.start.date() - now.date()).num_days()) {
             (n, _) if n < 60 => format!("Starts in {n} min"),
-            (_, 0) => format!("Today at {}", m.start.format("%H:%M")),
-            (_, 1) => format!("Tomorrow at {}", m.start.format("%H:%M")),
-            _ => m.start.format("%A at %H:%M").to_string(),
+            (_, 0) => format!("Today at {}", crate::quick_add::clock(m.start)),
+            (_, 1) => format!("Tomorrow at {}", crate::quick_add::clock(m.start)),
+            _ => format!("{} at {}", m.start.format("%A"), crate::quick_add::clock(m.start)),
         }
     } else {
         match (now - m.start).num_minutes() {
             0 => "Starting now".to_string(),
             n if n < 60 => format!("Started {n} min ago"),
-            _ => format!("On until {}", m.end.format("%H:%M")),
+            _ => format!("On until {}", crate::quick_add::clock(m.end)),
         }
     };
     match m.link.as_deref().and_then(crate::calendar::call_service) {
@@ -209,7 +254,7 @@ pub fn agenda_rows(ctx: &Context, query: &str) -> Vec<Item> {
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let span = format!("{}–{}", m.start.format("%H:%M"), m.end.format("%H:%M"));
+            let span = format!("{}–{}", crate::quick_add::clock(m.start), crate::quick_add::clock(m.end));
             let mut said = vec![if m.start <= now { format!("{span}, on now") } else { span }];
             said.extend(m.link.as_deref().and_then(crate::calendar::call_service).map(String::from));
             let action = match &m.link {
@@ -312,6 +357,21 @@ mod tests {
         assert_eq!(search(&c, "my schedule")[0].title, "Standup");
         c.agenda.clear();
         assert_eq!(search(&c, "meetings today")[0].title, "No more meetings today");
+    }
+
+    #[test]
+    fn a_question_mark_lists_what_you_can_type_and_enter_tries_it() {
+        let c = ctx();
+        let rows: Vec<Item> = search(&c, "?").into_iter().filter(|i| i.section == "What you can type").collect();
+        assert_eq!(rows.len(), HELP.len());
+        assert_eq!((rows[2].title.as_str(), rows[2].sub.as_deref()), ("Start a focus session", Some("Try “focus 50 essay”")));
+        assert_eq!(rows[2].action, Action::Type("focus 50 essay ".into()));
+        assert_eq!(rows.iter().find(|r| r.title == "Today's meetings").unwrap().action, Action::Type("agenda".into()));
+        assert_eq!(search(&c, "help")[0].section, "What you can type");
+        // Every example finds something to do.
+        for (what, example, _) in HELP {
+            assert!(search(&c, example).iter().any(|i| !i.is_note() || i.section != "What you can type"), "{what}: {example}");
+        }
     }
 
     #[test]

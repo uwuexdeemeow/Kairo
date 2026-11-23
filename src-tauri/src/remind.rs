@@ -173,12 +173,12 @@ pub fn parse(text: &str, now: NaiveDateTime) -> Result<Ask, &'static str> {
 /// When a reminder rings, as its row says it: "In 20 min, at 15:20", "Tomorrow at 09:00".
 pub fn when_said(at: NaiveDateTime, now: NaiveDateTime) -> String {
     let minutes = (at - now).num_minutes().max(1);
-    let clock = at.format("%H:%M");
+    let clock = crate::quick_add::clock(at);
     match (at.date() - now.date()).num_days() {
         0 if minutes < 60 => format!("In {minutes} min, at {clock}"),
         0 => format!("Today at {clock}"),
         1 => format!("Tomorrow at {clock}"),
-        _ => at.format("%A at %H:%M").to_string(),
+        _ => format!("{} at {clock}", at.format("%A")),
     }
 }
 

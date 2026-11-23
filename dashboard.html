@@ -138,7 +138,11 @@
             <input type="checkbox" id="clipboard-history" aria-describedby="clipboard-history-note" />
             Remember what I copy
           </label>
-          <p class="muted" id="clipboard-history-note">The latest 25 copies of text, and on Windows and macOS the latest 5 images, each with the app it came from, kept in memory and gone when Kairo quits. Copies a password manager marks are never kept. Type <kbd>clip</kbd> in the palette to see the latest; Enter pastes one, and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> pins it. Pins are the one thing kept on this computer after Kairo quits, until you unpin them. Turning this off forgets the rest at once.</p>
+          <p class="muted" id="clipboard-history-note">Type <kbd>clip</kbd> in the palette to paste something you copied earlier. Kept in memory, and gone when Kairo quits.</p>
+          <details class="settings-more more">
+            <summary>What it keeps</summary>
+            <p class="muted">The latest 25 copies of text, and on Windows and macOS the latest 5 images, each with the app it came from. Copies a password manager marks are never kept. Enter pastes a copy; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> pins it. Pins are the one thing kept on this computer after Kairo quits, until you unpin them. Turning this off forgets the rest at once.</p>
+          </details>
           <fieldset class="palette-fallbacks">
             <legend>When nothing matches, offer</legend>
             <div id="palette-fallbacks"></div>
@@ -148,8 +152,12 @@
 
         <section class="block" id="custom-commands" data-words="commands custom your own alias aliases shortcut hotkey keys keyword expand expansion text replacement quick link quicklink snippet snippets text paste open copy folder file app query">
           <h3>Your commands</h3>
-          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, pastes some text, or runs another command. A link with <kbd>{query}</kbd> in it takes what you type after its name, so <kbd>jira 123</kbd> opens ticket 123. Text can hold <kbd>{date}</kbd>, <kbd>{time}</kbd> and <kbd>{clipboard}</kbd>. Links, text and commands go to the computers you've combined; files, folders and apps stay on this one.</p>
-          <p class="muted">Give any command keys of its own to run it from anywhere without the palette; for an app or one of Kairo's commands, make a command that runs it first. Text can also have a keyword, like <kbd>;sig</kbd>, that turns into the text wherever you type it. Keys stay on this computer.</p>
+          <p class="muted" id="custom-note">A word you type in the palette that opens a link, a file, folder or app, pastes some text, or runs another command.</p>
+          <details class="settings-more more">
+            <summary>What they can do</summary>
+            <p class="muted">A link with <kbd>{query}</kbd> in it takes what you type after its name, so <kbd>jira 123</kbd> opens ticket 123. Text can hold <kbd>{date}</kbd>, <kbd>{time}</kbd> and <kbd>{clipboard}</kbd>, and a keyword like <kbd>;sig</kbd> that turns into the text wherever you type it.</p>
+            <p class="muted">Any command can have keys of its own, to run it from anywhere without the palette; for an app or one of Kairo's commands, make a command that runs it first. Links, text and commands go to the computers you've combined; files, folders, apps and keys stay on this one.</p>
+          </details>
           <div id="custom-list"></div>
           <div class="row-buttons custom-add">
             <input class="filter" id="custom-new-name" maxlength="30" placeholder="Name, like tax" aria-label="Command name" autocomplete="off" />
@@ -175,11 +183,15 @@
 
         <section class="block" id="script-settings" data-words="scripts script commands run shell powershell python automation">
           <h3>Scripts</h3>
-          <p class="muted" id="scripts-note">Run your own scripts from the palette by their title. Add a few comment lines near the top of a script in the scripts folder:</p>
-          <pre class="script-example" aria-label="Example script header"><code># @kairo.title Deploy site
+          <p class="muted" id="scripts-note">Run your own scripts from the palette by their title. A script runs only when you press Enter on it, and stays on this computer.</p>
+          <details class="settings-more more">
+            <summary>How to write one</summary>
+            <p class="muted">Put it in the scripts folder, with a few comment lines near its top:</p>
+            <pre class="script-example" aria-label="Example script header"><code># @kairo.title Deploy site
 # @kairo.argument Branch      <span class="script-example-note">optional: words typed after the title</span>
 # @kairo.output notify        <span class="script-example-note">or copy, paste, silent</span></code></pre>
-          <p class="muted">A script runs only when you press Enter on it, stops after a minute, and stays on this computer.</p>
+            <p class="muted">Kairo runs it with the program its ending names (.ps1, .py, .js, .sh, .bat…) and stops it after a minute.</p>
+          </details>
           <div class="row-buttons">
             <button class="btn" id="scripts-open" type="button">Open scripts folder</button>
             <span class="muted" id="scripts-status" aria-live="polite"></span>

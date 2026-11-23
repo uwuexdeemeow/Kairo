@@ -3400,6 +3400,12 @@ select,
   padding-left: 26px;
 }
 
+/* Its fold of details, when it has one, sits under the same words. */
+.toggle + p.muted + .settings-more {
+  margin-top: -4px;
+  padding-left: 26px;
+}
+
 /* ---------- tooltip ---------- */
 
 .tooltip {

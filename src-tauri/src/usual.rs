@@ -117,7 +117,7 @@ pub fn usual(conn: &Connection, now: NaiveDateTime) -> Result<Vec<Habit>> {
     Ok(habits(&windows, &recent))
 }
 
-/// "3 of the last 4 Mondays around 9:00": why a habit is suggested.
+/// "3 of the last 4 Mondays around 09:00": why a habit is suggested.
 pub fn why(h: &Habit, now: NaiveDateTime) -> String {
     let day = now.weekday();
     let name = match day {
@@ -132,7 +132,7 @@ pub fn why(h: &Habit, now: NaiveDateTime) -> String {
     // To the nearest half hour, as people say a time.
     let mins = (now.and_utc().timestamp() / 60).rem_euclid(24 * 60);
     let rounded = ((mins + 15) / 30 * 30) % (24 * 60);
-    let when = format!("{}:{:02}", rounded / 60, rounded % 60);
+    let when = crate::quick_add::clock(chrono::NaiveTime::from_hms_opt((rounded / 60) as u32, (rounded % 60) as u32, 0).unwrap_or_default());
     if h.weeks >= WEEKS {
         format!("Every {} lately, around {when}", &name[..name.len() - 1])
     } else {
@@ -189,10 +189,10 @@ mod tests {
         // A Monday at 9:07 (UTC here; the function rounds what it is given).
         let now = chrono::NaiveDate::from_ymd_opt(2026, 11, 23).unwrap().and_hms_opt(9, 7, 0).unwrap();
         let h = |weeks| Habit { thing: app("Slack"), weeks, ms: 0 };
-        assert_eq!(why(&h(3), now), "3 of the last 4 Mondays, around 9:00");
-        assert_eq!(why(&h(4), now), "Every Monday lately, around 9:00");
+        assert_eq!(why(&h(3), now), "3 of the last 4 Mondays, around 09:00");
+        assert_eq!(why(&h(4), now), "Every Monday lately, around 09:00");
         let late = chrono::NaiveDate::from_ymd_opt(2026, 11, 27).unwrap().and_hms_opt(23, 50, 0).unwrap();
-        assert_eq!(why(&h(3), late), "3 of the last 4 Fridays, around 0:00");
+        assert_eq!(why(&h(3), late), "3 of the last 4 Fridays, around 00:00");
     }
 
     #[test]

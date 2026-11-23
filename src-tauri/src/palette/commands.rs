@@ -104,6 +104,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(super::tools::join_rows(ctx, query));
     items.extend(super::tools::agenda_rows(ctx, query));
     items.extend(super::recent::rows(ctx, query));
+    items.extend(super::tools::help_rows(ctx, query));
     items.extend(super::tools::remind_rows(ctx, query));
     items
 }
@@ -634,7 +635,7 @@ fn allow_rows(ctx: &Context, query: &str) -> Vec<Item> {
 /// A running timer's row: nothing for Enter to do, and Ctrl+Enter cancels it.
 fn timer_row(timer: &TimerNow, section: &'static str) -> Item {
     let mut item = Item::new(format!("Timer: {}", timer.name), Icon::Glyph(Glyph::Day, Tone::Accent), section, Action::Nothing);
-    item.sub = Some(format!("{} left · rings at {}", fmt_dur(timer.left_ms), timer.ends.format("%H:%M")));
+    item.sub = Some(format!("{} left · rings at {}", fmt_dur(timer.left_ms), crate::quick_add::clock(timer.ends)));
     item.second = Some((Action::CancelTimer(timer.id), "Cancel timer"));
     item
 }
@@ -702,7 +703,7 @@ fn tracking_rows(ctx: &Context, query: &str) -> Vec<Item> {
     if let Some((minutes, _)) = rest.and_then(|_| minutes_and_label(&words)) {
         let until = ctx.live.now + Duration::minutes(minutes as i64);
         let title = format!("Pause tracking for {}", minutes_said(minutes as i64));
-        return vec![row(title, glyph, "Tracking", Action::PauseTracking(Some(minutes)), format!("Resumes at {}", until.format("%H:%M")), (LEAD, Vec::new()))];
+        return vec![row(title, glyph, "Tracking", Action::PauseTracking(Some(minutes)), format!("Resumes at {}", crate::quick_add::clock(until)), (LEAD, Vec::new()))];
     }
 
     match paused {
@@ -714,7 +715,7 @@ fn tracking_rows(ctx: &Context, query: &str) -> Vec<Item> {
         Some(until) => {
             let title = "Resume tracking";
             let placed = if q.eq_ignore_ascii_case("resume") { Some(below_session) } else { placed(q, &["resume tracking"], title, "resume tracking start recording unpause") };
-            let sub = until.map_or("Paused".to_string(), |t| format!("Paused until {}", t.format("%H:%M")));
+            let sub = until.map_or("Paused".to_string(), |t| format!("Paused until {}", crate::quick_add::clock(t)));
             placed.map(|p| row(title, glyph, "Tracking", Action::ResumeTracking, sub, p)).into_iter().collect()
         }
     }
@@ -783,7 +784,7 @@ fn meeting_rows(ctx: &Context, query: &str) -> Vec<Item> {
     }
     let task = label.as_deref().and_then(|l| task_for(&ctx.tasks, l));
     let action = Action::StartFocus(minutes as u32, label.clone(), task.map(|t| t.id.clone()));
-    let mut sub = format!("{}, to {}", minutes_said(minutes), at.format("%H:%M"));
+    let mut sub = format!("{}, to {}", minutes_said(minutes), crate::quick_add::clock(*at));
     match (task, &label) {
         (Some(task), _) => sub.push_str(&format!(" · For your task “{}”", task.title)),
         (None, Some(label)) => sub.push_str(&format!(" · Labelled “{label}”")),
