@@ -164,15 +164,15 @@ fn meeting_when(m: &super::search::MeetingNow, now: chrono::NaiveDateTime) -> St
         let wait = m.start - now;
         match (minutes(wait), (m.start.date() - now.date()).num_days()) {
             (n, _) if n < 60 => format!("Starts in {n} min"),
-            (_, 0) => format!("Today at {}", m.start.format("%H:%M")),
-            (_, 1) => format!("Tomorrow at {}", m.start.format("%H:%M")),
-            _ => m.start.format("%A at %H:%M").to_string(),
+            (_, 0) => format!("Today at {}", crate::quick_add::clock(m.start)),
+            (_, 1) => format!("Tomorrow at {}", crate::quick_add::clock(m.start)),
+            _ => format!("{} at {}", m.start.format("%A"), crate::quick_add::clock(m.start)),
         }
     } else {
         match (now - m.start).num_minutes() {
             0 => "Starting now".to_string(),
             n if n < 60 => format!("Started {n} min ago"),
-            _ => format!("On until {}", m.end.format("%H:%M")),
+            _ => format!("On until {}", crate::quick_add::clock(m.end)),
         }
     };
     match m.link.as_deref().and_then(crate::calendar::call_service) {
@@ -209,7 +209,7 @@ pub fn agenda_rows(ctx: &Context, query: &str) -> Vec<Item> {
         .iter()
         .enumerate()
         .map(|(i, m)| {
-            let span = format!("{}–{}", m.start.format("%H:%M"), m.end.format("%H:%M"));
+            let span = format!("{}–{}", crate::quick_add::clock(m.start), crate::quick_add::clock(m.end));
             let mut said = vec![if m.start <= now { format!("{span}, on now") } else { span }];
             said.extend(m.link.as_deref().and_then(crate::calendar::call_service).map(String::from));
             let action = match &m.link {

@@ -1623,7 +1623,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
             };
             let mut item = Item::new(format!("Next meeting: {title}"), Icon::Glyph(Glyph::Day, Tone::Accent), "Answers", Action::Go("today", None));
             item.at = fuzzy(query, "Next meeting").map(|m| m.at).unwrap_or_default();
-            item.sub = Some(format!("{day} at {}, in {}", at.format("%H:%M"), fmt_dur(*in_ms)));
+            item.sub = Some(format!("{day} at {}, in {}", crate::quick_add::clock(*at), fmt_dur(*in_ms)));
             item.score = m.score - 1.0;
             items.push(item);
         }
@@ -1839,9 +1839,9 @@ pub(super) mod tests {
         assert_eq!(
             usual,
             vec![
-                ("Start a 50-minute focus session: “essay”", Some("3 of the last 4 Mondays, around 9:00"), Action::StartFocus(50, Some("essay".into()), None)),
-                ("Discord", Some("Every Monday lately, around 9:00"), Action::Launch(r"C:\Start\Discord.lnk".into())),
-                ("youtube", Some("3 of the last 4 Mondays, around 9:00"), Action::OpenUrl("https://youtube.com".into())),
+                ("Start a 50-minute focus session: “essay”", Some("3 of the last 4 Mondays, around 09:00"), Action::StartFocus(50, Some("essay".into()), None)),
+                ("Discord", Some("Every Monday lately, around 09:00"), Action::Launch(r"C:\Start\Discord.lnk".into())),
+                ("youtube", Some("3 of the last 4 Mondays, around 09:00"), Action::OpenUrl("https://youtube.com".into())),
             ]
         );
         assert_eq!(rows[0].action.verb(), "Start");

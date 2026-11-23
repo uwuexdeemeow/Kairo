@@ -247,6 +247,32 @@ fn estimate_text(min: i64) -> String {
 }
 
 /// Whether the system writes dates day first: everywhere but the US.
+/// Regions whose clocks people read in 12 hours ("3:05 PM"), as the other windows show them.
+const TWELVE_HOUR: [&str; 14] = ["US", "CA", "AU", "NZ", "IN", "PH", "PK", "BD", "EG", "SA", "KR", "TW", "MY", "CO"];
+
+/// Whether this computer's language says times in 12 hours. Tests always use 24, so they don't
+/// depend on the machine they run on.
+pub fn twelve_hour() -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    sys_locale::get_locale().is_some_and(|l| l.replace('_', "-").split('-').nth(1).is_some_and(|region| TWELVE_HOUR.iter().any(|r| r.eq_ignore_ascii_case(region))))
+}
+
+/// A time of day as the palette says it: "3:05 PM" or "15:05", as the system's language does.
+pub fn clock(t: impl chrono::Timelike) -> String {
+    clock_in(t.hour(), t.minute(), twelve_hour())
+}
+
+pub fn clock_in(hour: u32, minute: u32, twelve: bool) -> String {
+    if twelve {
+        let h = if hour % 12 == 0 { 12 } else { hour % 12 };
+        format!("{h}:{minute:02} {}", if hour < 12 { "AM" } else { "PM" })
+    } else {
+        format!("{hour:02}:{minute:02}")
+    }
+}
+
 pub fn day_first() -> bool {
     !sys_locale::get_locale().is_some_and(|l| l.replace('_', "-").starts_with("en-US"))
 }
@@ -254,6 +280,14 @@ pub fn day_first() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clock_is_said_in_12_or_24_hours() {
+        assert_eq!(clock_in(15, 5, true), "3:05 PM");
+        assert_eq!(clock_in(0, 30, true), "12:30 AM");
+        assert_eq!(clock_in(12, 0, true), "12:00 PM");
+        assert_eq!(clock_in(9, 0, false), "09:00");
+    }
 
     /// A Tuesday.
     fn today() -> NaiveDate {
