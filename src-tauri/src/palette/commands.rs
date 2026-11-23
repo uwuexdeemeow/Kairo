@@ -81,7 +81,7 @@ pub(super) fn row(title: impl Into<String>, glyph: Glyph, section: &'static str,
 /// calculator leaves it alone as it does `focus 50`.
 pub fn leads(query: &str) -> bool {
     let q = query.trim();
-    ["extend ", "timer ", "allow ", "pause tracking ", "pomodoro "].iter().any(|word| after(q, word).is_some())
+    ["extend ", "timer ", "allow ", "pause tracking ", "pomodoro ", "remind "].iter().any(|word| after(q, word).is_some())
 }
 
 /// The rows these commands offer for `query`.
@@ -102,6 +102,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(super::emoji::rows(ctx, query));
     items.extend(super::tools::script_rows(ctx, query));
     items.extend(super::tools::join_rows(ctx, query));
+    items.extend(super::tools::remind_rows(ctx, query));
     items
 }
 

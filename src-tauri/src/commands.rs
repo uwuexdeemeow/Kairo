@@ -259,6 +259,16 @@ pub(crate) fn tasks_changed(app: &AppHandle, conn: &rusqlite::Connection) -> Cmd
     tasks::list(conn, now_ms(), &tasks::today()).map_err(err)
 }
 
+/// A reminder from the palette (`remind me in 20m to call Leo`): a task due that day with that
+/// exact reminder time, which rings like any task's.
+pub(crate) fn remind_task(app: &AppHandle, conn: &rusqlite::Connection, what: &str, at_ms: i64) -> CmdResult<()> {
+    let task = tasks::add(conn, what, now_ms()).map_err(err)?.ok_or("Say what to be reminded of.")?;
+    let day = chrono::Local.timestamp_millis_opt(at_ms).single().map(|t| t.date_naive().format("%Y-%m-%d").to_string());
+    tasks::set_plan(conn, &task.id, day.as_deref(), tasks::MEDIUM, Some(at_ms)).map_err(err)?;
+    plan_changed(conn, &task.id)?;
+    tasks_changed(app, conn).map(|_| ())
+}
+
 /// A task's plan travels as its own choice.
 fn plan_changed(conn: &rusqlite::Connection, id: &str) -> CmdResult<()> {
     match tasks::plan_json(conn, id).map_err(err)? {

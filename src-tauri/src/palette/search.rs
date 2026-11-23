@@ -568,6 +568,8 @@ pub enum Action {
     /// Puts this text in the search box, with the palette left open: Enter on a link or script
     /// that wants words after its name types the name for you.
     Type(String),
+    /// A reminder: what, and when it rings (unix ms), made a Ledger task with that reminder time.
+    Remind(String, i64),
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -630,6 +632,7 @@ impl Action {
             Action::StartFocus(..) | Action::RunMode(..) | Action::Pomodoro(..) => "Start",
             Action::Snap(..) | Action::RestoreLayout(..) => "Snap",
             Action::SaveLayout(..) => "Save",
+            Action::Remind(..) => "Remind me",
             Action::EnterMode(..) => "Choose",
             Action::Type(..) => "Type after it",
             Action::Toggle(..) => "Turn on or off",
