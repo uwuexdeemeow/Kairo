@@ -1270,3 +1270,8 @@ meetings today and some from last week. No focus session involved except where s
     (Firefox open). Type part of each one's name, then part of its address. *Expect:* each under
     Bookmarks, "<site> · <browser>"; Enter opens it, Ctrl+Enter copies the link. An app with the
     same name comes first. Add a bookmark and open the palette again. *Expect:* it's there.
+30. **When nothing matches (1.35.0).** In Kairo's settings, Command palette, under "When nothing
+    matches, offer", tick DuckDuckGo and a link command with `{query}`, and untick Google. Type
+    nonsense in the palette. *Expect:* "Search DuckDuckGo for “…”" then the link command's row,
+    in the order ticked; Enter opens each with the words filled in. Untick them all. *Expect:*
+    nothing is offered.

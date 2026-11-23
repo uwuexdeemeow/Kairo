@@ -7731,6 +7731,20 @@ summary:focus-visible {
   margin-top: 8px;
 }
 
+/* The searches offered when nothing matches. */
+.palette-fallbacks {
+  margin: 16px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.palette-fallbacks legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-weight: 700;
+  color: var(--ink);
+}
+
 /* A command's own keys and, for text, its keyword. */
 .custom-keys {
   margin-top: 8px;

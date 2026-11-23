@@ -185,6 +185,28 @@ async function choose(row: Recorder, mods: string[], key: string) {
   }
 }
 
+/// The searches offered when nothing matches, each a switch that saves at once: chosen ones keep
+/// their order, and one ticked now goes last.
+export async function loadFallbacks(): Promise<void> {
+  const { options, chosen } = await api.paletteFallbacks();
+  let order = chosen.filter((k) => options.some((o) => o.key === k));
+  const rows = options.map((o) => {
+    const box = h("input", { type: "checkbox" }) as HTMLInputElement;
+    box.checked = order.includes(o.key);
+    box.addEventListener("change", async () => {
+      const kept = await mark(label, async () => {
+        const next = box.checked ? [...order.filter((k) => k !== o.key), o.key] : order.filter((k) => k !== o.key);
+        await api.setPaletteFallbacks(next);
+        order = next;
+      });
+      if (!kept) box.checked = !box.checked;
+    });
+    const label = h("label", { class: "toggle" }, box, o.label);
+    return label;
+  });
+  $("#palette-fallbacks").replaceChildren(...rows);
+}
+
 /// Runs one of the data buttons, saying how it went beside them.
 async function dataAction(run: () => Promise<string | null>) {
   const out = $("#data-status");
@@ -638,6 +660,7 @@ export async function loadKairoSettings(): Promise<void> {
       const linking = await api.pairStatus();
       if (linking?.state === "waiting" && !codeTimer) showCode(linking);
     }),
+    fill("#palette-fallbacks", loadFallbacks),
     fill("#appearance", async () => {
       $<HTMLSelectElement>("#appearance").value = await api.appearance();
     }),

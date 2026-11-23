@@ -30,6 +30,8 @@ const api = vi.hoisted(() => ({
   autostart: vi.fn(),
   setAutostart: vi.fn(),
   setPaletteSuggestions: vi.fn(),
+  paletteFallbacks: vi.fn(),
+  setPaletteFallbacks: vi.fn(),
   checkForUpdates: vi.fn(async () => {}),
 }));
 const events = vi.hoisted(() => new Map<string, ((e: { payload: unknown }) => void)[]>());
@@ -81,6 +83,15 @@ beforeEach(async () => {
   api.appearance.mockResolvedValue("dark");
   api.paletteSettings.mockResolvedValue({ shortcut: "Ctrl+Space", suggestions: true, overFullscreen: false, searchFiles: true });
   api.autostart.mockResolvedValue({ enabled: false, available: true });
+  api.paletteFallbacks.mockResolvedValue({
+    options: [
+      { key: "g", label: "Search Google" },
+      { key: "ddg", label: "Search DuckDuckGo" },
+      { key: "cmd:jira", label: "jira (opens jira.example.com/browse/…)" },
+    ],
+    chosen: ["g"],
+  });
+  api.setPaletteFallbacks.mockResolvedValue(undefined);
   api.clipboardHistory.mockResolvedValue(true);
   api.setClipboardHistory.mockResolvedValue(undefined);
   api.setPaletteShortcut.mockResolvedValue(undefined);
@@ -95,6 +106,23 @@ beforeEach(async () => {
   settings = await import("./kairo-settings");
   settings.wireKairoSettings();
   await settings.loadKairoSettings();
+});
+
+describe("when nothing matches", () => {
+  it("lists every search with the chosen ones ticked, and keeps the order they were ticked in", async () => {
+    const boxes = () => [...document.querySelectorAll<HTMLInputElement>("#palette-fallbacks input")];
+    expect(boxes().map((b) => [b.parentElement!.textContent?.trim(), b.checked])).toEqual([
+      ["Search Google", true],
+      ["Search DuckDuckGo", false],
+      ["jira (opens jira.example.com/browse/…)", false],
+    ]);
+    boxes()[2].click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.setPaletteFallbacks).toHaveBeenLastCalledWith(["g", "cmd:jira"]);
+    boxes()[0].click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(api.setPaletteFallbacks).toHaveBeenLastCalledWith(["cmd:jira"]);
+  });
 });
 
 describe("loading", () => {

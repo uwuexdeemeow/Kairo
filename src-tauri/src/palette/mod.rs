@@ -41,6 +41,9 @@ pub const LABEL: &str = "palette";
 pub const DEFAULT_SHORTCUT: &str = if cfg!(target_os = "macos") { "Alt+Space" } else { "Ctrl+Space" };
 const SHORTCUT_KEY: &str = "palette_shortcut";
 const SUGGESTIONS_KEY: &str = "palette_suggestions";
+/// What's offered when nothing matches, in order: a web search's short word (`g`, `ddg`) or
+/// `cmd:<name>` for one of your links with `{query}`; comma-separated.
+const FALLBACKS_KEY: &str = "palette_fallbacks";
 const LOOK_KEY: &str = "palette_look";
 const SEARCH_FILES_KEY: &str = "palette_search_files";
 const MOMENT_TITLES_KEY: &str = "palette_moment_titles";
@@ -282,6 +285,25 @@ pub fn set_suggestions(conn: &Connection, on: bool) -> Result<()> {
     db::set_setting(conn, SUGGESTIONS_KEY, if on { "1" } else { "0" })
 }
 
+/// What's offered when nothing matches: a Google search until chosen otherwise.
+pub fn fallbacks(conn: &Connection) -> Result<Vec<String>> {
+    Ok(match db::get_setting(conn, FALLBACKS_KEY)? {
+        None => vec![search::WEB[0].0.to_string()],
+        Some(list) => list.split(',').map(str::trim).filter(|k| !k.is_empty()).map(String::from).collect(),
+    })
+}
+
+/// Keeps the fallbacks chosen, in this order; ones that aren't a web search or a link command
+/// are left out.
+pub fn set_fallbacks(conn: &Connection, keys: &[String]) -> Result<()> {
+    let known: Vec<&str> = keys
+        .iter()
+        .map(|k| k.trim())
+        .filter(|k| search::WEB.iter().any(|(word, _, _)| word == k) || k.strip_prefix("cmd:").is_some_and(|n| !n.trim().is_empty() && !n.contains(',')))
+        .collect();
+    db::set_setting(conn, FALLBACKS_KEY, &known.join(","))
+}
+
 /// Whether the palette opens as only its search bar, its results dropping down as you type;
 /// the full look, with suggestions and the footer, unless chosen.
 pub fn compact(conn: &Connection) -> Result<bool> {
@@ -391,6 +413,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     tauri::Manager::state::<crate::system::PendingPower>(app).clear();
     let ctx = Context {
         bookmarks: crate::bookmarks::all(),
+        fallbacks: fallbacks(conn).unwrap_or_default(),
         today,
         apps,
         live: live(app, conn),
@@ -1498,6 +1521,7 @@ mod tests {
     fn ctx(today: NaiveDate) -> Context {
         Context {
             bookmarks: Default::default(),
+            fallbacks: vec!["g".into()],
             today,
             apps: Vec::new(),
             live: search::Live::default(),

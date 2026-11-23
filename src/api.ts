@@ -880,6 +880,8 @@ export const api = {
   /** Settings is recording a shortcut (or has stopped); on Windows Alt+Space then isn't taken by the window menu. */
   recordingShortcut: (on: boolean) => invoke<void>("recording_shortcut", { on }),
   setPaletteSuggestions: (on: boolean) => invoke<void>("set_palette_suggestions", { on }),
+  paletteFallbacks: () => invoke<{ options: { key: string; label: string }[]; chosen: string[] }>("get_palette_fallbacks"),
+  setPaletteFallbacks: (keys: string[]) => invoke<void>("set_palette_fallbacks", { keys }),
   setPaletteSearchFiles: (on: boolean) => invoke<void>("set_palette_search_files", { on }),
   /** Whether "what was I doing at 3 pm" shows window titles (off by default). */
   setPaletteMomentTitles: (on: boolean) => invoke<void>("set_palette_moment_titles", { on }),

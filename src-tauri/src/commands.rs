@@ -2042,6 +2042,37 @@ pub fn set_palette_suggestions(state: State<AppState>, on: bool) -> CmdResult<()
     palette::set_suggestions(&conn, on).map_err(err)
 }
 
+/// A search the palette can offer when nothing matches: its key and how it's named.
+#[derive(Serialize)]
+pub struct FallbackOption {
+    key: String,
+    label: String,
+}
+
+/// What can be offered when nothing matches (the web searches, then your links with `{query}`),
+/// and what is, in order.
+#[derive(Serialize)]
+pub struct Fallbacks {
+    options: Vec<FallbackOption>,
+    chosen: Vec<String>,
+}
+
+#[tauri::command]
+pub fn get_palette_fallbacks(state: State<AppState>) -> CmdResult<Fallbacks> {
+    let conn = state.db.lock().map_err(err)?;
+    let mut options: Vec<FallbackOption> = palette::search::WEB.iter().map(|(key, site, _)| FallbackOption { key: key.to_string(), label: format!("Search {site}") }).collect();
+    for c in custom_commands::list(&conn).map_err(err)?.into_iter().filter(|c| c.takes_query()) {
+        options.push(FallbackOption { key: format!("cmd:{}", c.name), label: format!("{} (opens {})", c.name, custom_commands::site(&c.target.replace(custom_commands::QUERY, "…"))) });
+    }
+    Ok(Fallbacks { options, chosen: palette::fallbacks(&conn).map_err(err)? })
+}
+
+#[tauri::command]
+pub fn set_palette_fallbacks(state: State<AppState>, keys: Vec<String>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    palette::set_fallbacks(&conn, &keys).map_err(err)
+}
+
 /// "system" (match the system), or a ground's id.
 #[tauri::command]
 pub fn get_appearance(state: State<AppState>) -> CmdResult<String> {

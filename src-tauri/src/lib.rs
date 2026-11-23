@@ -512,6 +512,8 @@ pub fn run() {
             linux_notes::linux_notes,
             commands::recording_shortcut,
             commands::set_palette_suggestions,
+            commands::get_palette_fallbacks,
+            commands::set_palette_fallbacks,
             commands::set_palette_search_files,
             commands::set_palette_moment_titles,
             commands::set_palette_over_fullscreen,

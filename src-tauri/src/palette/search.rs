@@ -838,6 +838,8 @@ pub struct Context {
     pub today: NaiveDate,
     /// The browsers' bookmarks, read from their files on this computer.
     pub bookmarks: std::sync::Arc<Vec<crate::bookmarks::Bookmark>>,
+    /// What's offered when nothing matches, in order (`palette::fallbacks`).
+    pub fallbacks: Vec<String>,
     pub apps: Vec<AppEntry>,
     pub live: Live,
     /// Today's busiest apps by name, with their time.
@@ -1296,6 +1298,28 @@ fn url_escape(text: &str) -> String {
     text.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
+/// The searches offered when nothing matches, in the order chosen: a web search on one of the
+/// sites, or one of your links with `{query}`. Google, the first, is said as the web.
+pub fn fallback_items(ctx: &Context, q: &str) -> Vec<Item> {
+    ctx.fallbacks
+        .iter()
+        .enumerate()
+        .filter_map(|(i, key)| {
+            let score = -(i as f64) / 100.0;
+            if let Some((_, site, address)) = WEB.iter().find(|(word, _, _)| word == key) {
+                let title = if *key == WEB[0].0 { format!("Search the web for “{q}”") } else { format!("Search {site} for “{q}”") };
+                return Some(web_item(title, format!("{address}{}", url_escape(q)), score));
+            }
+            let name = key.strip_prefix("cmd:")?;
+            let c = ctx.custom.iter().find(|c| c.takes_query() && c.name.eq_ignore_ascii_case(name))?;
+            let url = crate::custom_commands::fill_link(&c.target, q);
+            let mut item = web_item(format!("{} “{q}”", c.name), url.clone(), score);
+            item.sub = Some(format!("Opens {}", crate::custom_commands::site(&url)));
+            Some(item)
+        })
+        .collect()
+}
+
 fn web_item(title: String, url: String, score: f64) -> Item {
     let mut item = Item::new(title, Icon::Glyph(Glyph::Search, Tone::Plain), "Web", Action::OpenUrl(url));
     item.sub = Some("Opens in your browser".into());
@@ -1635,10 +1659,9 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     }
 
     items.extend(mode::rows(query));
-    // With nothing else to offer, the web is.
+    // With nothing else to offer, the fallbacks chosen in Kairo's settings are.
     if items.is_empty() && !query.trim().is_empty() {
-        let q = query.trim();
-        items.push(web_item(format!("Search the web for “{q}”"), format!("{}{}", WEB[0].2, url_escape(q)), 0.0));
+        items.extend(fallback_items(ctx, query.trim()));
     }
 
     items.sort_by(|a, b| b.score.total_cmp(&a.score));
@@ -1813,6 +1836,7 @@ pub(super) mod tests {
     pub(in crate::palette) fn ctx() -> Context {
         Context {
             bookmarks: Default::default(),
+            fallbacks: vec!["g".into()],
             today: NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(), // a Monday
             apps: vec![app("Cursor", 61), app("Brave", 19), app("Discord", 7), app("CurseForge", 0), app("Visual Studio Code", 0), app("Notepad", 0)],
             live: Live::default(),
@@ -2106,6 +2130,19 @@ pub(super) mod tests {
         let cursor = search(&c, "cursor");
         assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
         assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
+    }
+
+    #[test]
+    fn what_is_offered_when_nothing_matches_is_yours_to_choose() {
+        let mut c = ctx();
+        c.custom = vec![crate::custom_commands::CustomCommand::new("jira", crate::custom_commands::Kind::Link, "https://jira.example.com/browse/{query}")];
+        c.fallbacks = vec!["ddg".into(), "cmd:JIRA".into(), "cmd:gone".into(), "g".into()];
+        let found = search(&c, "zzqx nothing");
+        assert_eq!(found.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["Search DuckDuckGo for “zzqx nothing”", "jira “zzqx nothing”", "Search the web for “zzqx nothing”"]);
+        assert_eq!(found[1].action, Action::OpenUrl("https://jira.example.com/browse/zzqx%20nothing".into()));
+        // None chosen: nothing.
+        c.fallbacks.clear();
+        assert!(search(&c, "zzqx nothing").is_empty());
     }
 
     #[test]
