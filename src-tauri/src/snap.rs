@@ -1,4 +1,5 @@
-//! Moving the window that was in front before the palette opened: halves, maximize, center, the
+//! Moving the window that was in front before the palette opened: halves, thirds, two-thirds,
+//! quarters, maximize, center, the
 //! next display and back as it was; and layouts, the places of the open windows saved by a name
 //! and put back later, also when a focus session with the layout's label starts. Where a window
 //! goes is worked out here as plain sums, so it can be tested; the system moves it
@@ -18,6 +19,15 @@ pub enum Snap {
     RightHalf,
     TopHalf,
     BottomHalf,
+    LeftThird,
+    CenterThird,
+    RightThird,
+    LeftTwoThirds,
+    RightTwoThirds,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
     Maximize,
     Center,
     NextDisplay,
@@ -26,7 +36,25 @@ pub enum Snap {
 }
 
 impl Snap {
-    pub const ALL: [Snap; 8] = [Snap::LeftHalf, Snap::RightHalf, Snap::TopHalf, Snap::BottomHalf, Snap::Maximize, Snap::Center, Snap::NextDisplay, Snap::Restore];
+    pub const ALL: [Snap; 17] = [
+        Snap::LeftHalf,
+        Snap::RightHalf,
+        Snap::TopHalf,
+        Snap::BottomHalf,
+        Snap::LeftThird,
+        Snap::CenterThird,
+        Snap::RightThird,
+        Snap::LeftTwoThirds,
+        Snap::RightTwoThirds,
+        Snap::TopLeft,
+        Snap::TopRight,
+        Snap::BottomLeft,
+        Snap::BottomRight,
+        Snap::Maximize,
+        Snap::Center,
+        Snap::NextDisplay,
+        Snap::Restore,
+    ];
 
     /// The row's title, which is also what's typed for it.
     pub fn title(self) -> &'static str {
@@ -35,6 +63,15 @@ impl Snap {
             Snap::RightHalf => "Right half",
             Snap::TopHalf => "Top half",
             Snap::BottomHalf => "Bottom half",
+            Snap::LeftThird => "Left third",
+            Snap::CenterThird => "Center third",
+            Snap::RightThird => "Right third",
+            Snap::LeftTwoThirds => "Left two thirds",
+            Snap::RightTwoThirds => "Right two thirds",
+            Snap::TopLeft => "Top left quarter",
+            Snap::TopRight => "Top right quarter",
+            Snap::BottomLeft => "Bottom left quarter",
+            Snap::BottomRight => "Bottom right quarter",
             Snap::Maximize => "Maximize",
             Snap::Center => "Center",
             Snap::NextDisplay => "Next display",
@@ -49,6 +86,15 @@ impl Snap {
             Snap::RightHalf => "snap window move right side",
             Snap::TopHalf => "snap window move top up",
             Snap::BottomHalf => "snap window move bottom down",
+            Snap::LeftThird => "snap window move left side 1/3",
+            Snap::CenterThird => "snap window move middle centre 1/3",
+            Snap::RightThird => "snap window move right side 1/3",
+            Snap::LeftTwoThirds => "snap window move left side 2/3 bigger",
+            Snap::RightTwoThirds => "snap window move right side 2/3 bigger",
+            Snap::TopLeft => "snap window move corner upper 1/4",
+            Snap::TopRight => "snap window move corner upper 1/4",
+            Snap::BottomLeft => "snap window move corner lower 1/4",
+            Snap::BottomRight => "snap window move corner lower 1/4",
             Snap::Maximize => "snap window full fill maximise bigger",
             Snap::Center => "snap window middle centre",
             Snap::NextDisplay => "snap window monitor screen other display move",
@@ -63,6 +109,15 @@ impl Snap {
             Snap::RightHalf => &["right", "right half"],
             Snap::TopHalf => &["top half"],
             Snap::BottomHalf => &["bottom half"],
+            Snap::LeftThird => &["left third"],
+            Snap::CenterThird => &["center third", "centre third", "middle third"],
+            Snap::RightThird => &["right third"],
+            Snap::LeftTwoThirds => &["left two thirds", "left 2/3"],
+            Snap::RightTwoThirds => &["right two thirds", "right 2/3"],
+            Snap::TopLeft => &["top left", "top left quarter"],
+            Snap::TopRight => &["top right", "top right quarter"],
+            Snap::BottomLeft => &["bottom left", "bottom left quarter"],
+            Snap::BottomRight => &["bottom right", "bottom right quarter"],
             Snap::Maximize => &["maximize", "maximise", "max"],
             Snap::Center => &["center", "centre"],
             Snap::NextDisplay => &["next display", "next monitor", "next screen"],
@@ -91,6 +146,14 @@ fn fit(r: Rect, within: &Rect) -> Rect {
     Rect { x, y, w, h }
 }
 
+/// Columns `from..to` of `cols` and rows `top..bottom` of `rows` of the work area `a`, with edges
+/// worked out from the area's own, so neighbouring parts always meet.
+fn part(a: Rect, (from, to, cols): (i32, i32, i32), (top, bottom, rows): (i32, i32, i32)) -> Rect {
+    let x = |i: i32| a.x + (a.w as i64 * i as i64 / cols as i64) as i32;
+    let y = |i: i32| a.y + (a.h as i64 * i as i64 / rows as i64) as i32;
+    Rect { x: x(from), y: y(top), w: x(to) - x(from), h: y(bottom) - y(top) }
+}
+
 /// Where a window goes for `snap`, given where it is and the displays' work areas; None for
 /// Restore (which goes where it was) or with no display.
 pub fn target(snap: Snap, window: Rect, areas: &[Rect]) -> Option<Rect> {
@@ -101,6 +164,15 @@ pub fn target(snap: Snap, window: Rect, areas: &[Rect]) -> Option<Rect> {
         Snap::RightHalf => Rect { x: a.x + half_w, w: a.w - half_w, ..a },
         Snap::TopHalf => Rect { h: half_h, ..a },
         Snap::BottomHalf => Rect { y: a.y + half_h, h: a.h - half_h, ..a },
+        Snap::LeftThird => part(a, (0, 1, 3), (0, 1, 1)),
+        Snap::CenterThird => part(a, (1, 2, 3), (0, 1, 1)),
+        Snap::RightThird => part(a, (2, 3, 3), (0, 1, 1)),
+        Snap::LeftTwoThirds => part(a, (0, 2, 3), (0, 1, 1)),
+        Snap::RightTwoThirds => part(a, (1, 3, 3), (0, 1, 1)),
+        Snap::TopLeft => part(a, (0, 1, 2), (0, 1, 2)),
+        Snap::TopRight => part(a, (1, 2, 2), (0, 1, 2)),
+        Snap::BottomLeft => part(a, (0, 1, 2), (1, 2, 2)),
+        Snap::BottomRight => part(a, (1, 2, 2), (1, 2, 2)),
         Snap::Maximize => a,
         Snap::Center => {
             let w = window.w.min(a.w);
@@ -328,6 +400,22 @@ mod tests {
         let t = target(Snap::TopHalf, odd, &[odd]).unwrap();
         let b = target(Snap::BottomHalf, odd, &[odd]).unwrap();
         assert_eq!((t.h, b.y, b.h), (520, 520, 521));
+    }
+
+    #[test]
+    fn thirds_and_quarters_meet_and_fill_the_display() {
+        let odd = Rect { x: 100, y: 0, w: 1921, h: 1041 };
+        let [l, c, r] = [Snap::LeftThird, Snap::CenterThird, Snap::RightThird].map(|s| target(s, odd, &[odd]).unwrap());
+        assert_eq!((l.x, l.x + l.w, c.x + c.w, r.x + r.w), (100, c.x, r.x, 2021));
+        assert!([l.w, c.w, r.w].iter().all(|w| (640..=641).contains(w)));
+        assert_eq!(target(Snap::LeftTwoThirds, odd, &[odd]).unwrap(), Rect { w: c.x + c.w - 100, ..odd });
+        assert_eq!(target(Snap::RightTwoThirds, odd, &[odd]).unwrap(), Rect { x: c.x, w: 2021 - c.x, ..odd });
+        let tl = target(Snap::TopLeft, odd, &[odd]).unwrap();
+        let br = target(Snap::BottomRight, odd, &[odd]).unwrap();
+        assert_eq!((tl.x, tl.y, tl.x + tl.w, tl.y + tl.h), (100, 0, br.x, br.y));
+        assert_eq!((br.x + br.w, br.y + br.h), (2021, 1041));
+        assert_eq!(target(Snap::TopRight, odd, &[odd]).unwrap(), Rect { x: br.x, y: 0, w: br.w, h: tl.h });
+        assert_eq!(target(Snap::BottomLeft, odd, &[odd]).unwrap(), Rect { x: 100, y: br.y, w: tl.w, h: br.h });
     }
 
     #[test]

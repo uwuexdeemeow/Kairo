@@ -278,6 +278,9 @@ mod tests {
         assert_eq!(search(&c, "maximize")[0].action, Action::Snap(Snap::Maximize, "42".into()));
         assert_eq!(search(&c, "next display")[0].action, Action::Snap(Snap::NextDisplay, "42".into()));
         assert_eq!(search(&c, "restore")[0].action, Action::Snap(Snap::Restore, "42".into()));
+        for (typed, snap) in [("left third", Snap::LeftThird), ("right 2/3", Snap::RightTwoThirds), ("top left", Snap::TopLeft), ("bottom right", Snap::BottomRight), ("left", Snap::LeftHalf)] {
+            assert_eq!(search(&c, typed)[0].action, Action::Snap(snap, "42".into()), "{typed}");
+        }
         assert_eq!(search(&c, "left half")[0].action.verb(), "Snap");
         // Found loosely too.
         assert!(search(&c, "snap").iter().any(|i| i.section == "Window"));
