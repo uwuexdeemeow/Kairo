@@ -1220,3 +1220,10 @@ meetings today and some from last week. No focus session involved except where s
       hello.ps1 (Windows) or hello.sh. Type `say hello Sam`. *Expect:* a notification "Hello,
       Sam!". Add a script that sleeps 70 s. *Expect:* after a minute, "…didn't work: It ran for over
       a minute". A script whose interpreter is missing says which program wasn't found.
+21. **What you usually do now (1.33.0).** After three or four weeks of tracking, open the palette
+    with nothing typed at a time you have a routine (the start of the working day). *Expect:* a
+    "Usually now" section of up to three rows, each saying "3 of the last 4 <weekday>s, around
+    <time>" or "Every <weekday> lately"; a focus session you start then takes the place of "Start a
+    25-minute focus session" and Enter starts it with its label. An app you have open right now
+    isn't among them. A site row opens the site. Turn off Palette suggestions in Kairo's settings.
+    *Expect:* the section is gone.

@@ -621,6 +621,7 @@ impl Action {
             Action::Copy(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
             Action::Launch(..) | Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenFile(..) | Action::OpenLedger | Action::OpenPlan | Action::OpenReview | Action::OpenRing | Action::OpenNote(..) | Action::PopOutNote(..) | Action::OpenScripts | Action::Setting(..) => "Open",
             Action::FocusWindow(..) => "Switch",
+            Action::StartFocus(..) | Action::RunMode(..) | Action::Pomodoro(..) => "Start",
             Action::Snap(..) | Action::RestoreLayout(..) => "Snap",
             Action::SaveLayout(..) => "Save",
             Action::EnterMode(..) => "Choose",
@@ -852,6 +853,8 @@ pub struct Context {
     pub emoji_uses: Vec<(String, i64)>,
     /// Your scripts, by title (scripts.rs).
     pub scripts: Vec<crate::scripts::Script>,
+    /// What you usually do at this time on this weekday (usual.rs), best first.
+    pub usual: Vec<crate::usual::Habit>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1582,10 +1585,27 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
     if !ctx.suggestions {
         return Suggestions { rows, tiles, chips };
     }
+    use crate::usual::Thing;
+    let usual_focus = ctx.usual.iter().find_map(|h| match &h.thing {
+        Thing::Focus(minutes, label) => Some((h, *minutes, label.clone())),
+        _ => None,
+    });
     match &ctx.live.session {
         Some(session) => {
             let mut item = Item::new("Focus session in progress", Icon::Glyph(Glyph::Focus, Tone::Accent), "Suggested", Action::Go("focus", None));
             item.sub = Some(session.label.as_ref().map_or("Open the timer".into(), |l| format!("“{l}”")));
+            rows.push(item);
+        }
+        // The session you usually start now, in place of the usual 25 minutes.
+        None if usual_focus.is_some() => {
+            let (habit, minutes, label) = usual_focus.clone().expect("just checked");
+            let title = match &label {
+                Some(l) => format!("Start a {minutes}-minute focus session: “{l}”"),
+                None => format!("Start a {minutes}-minute focus session"),
+            };
+            let task = label.as_deref().and_then(|l| task_for(&ctx.tasks, l)).map(|t| t.id.clone());
+            let mut item = Item::new(title, Icon::Glyph(Glyph::Focus, Tone::Accent), "Usually now", Action::StartFocus(minutes, label, task));
+            item.sub = Some(crate::usual::why(habit, ctx.live.now));
             rows.push(item);
         }
         None => {
@@ -1595,6 +1615,29 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
         }
     }
     rows.extend(commands::suggestion(ctx));
+    // The apps and sites you usually use now and haven't opened yet, saying why: as many as make
+    // three with the focus session, of those there's a way to open.
+    let mut room = crate::usual::MAX - usize::from(usual_focus.is_some() && ctx.live.session.is_none());
+    for habit in &ctx.usual {
+        if room == 0 {
+            break;
+        }
+        let item = match &habit.thing {
+            Thing::App(name) => {
+                let Some(app) = ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name)) else { continue };
+                Item::new(app.name.clone(), Icon::App(app.path.clone()), "Usually now", Action::Launch(app.path.clone()))
+            }
+            Thing::Site(site) => {
+                let Some(address) = crate::browser::address_for_site(site) else { continue };
+                Item::new(site.clone(), Icon::Glyph(Glyph::Link, Tone::Accent), "Usually now", Action::OpenUrl(address))
+            }
+            Thing::Focus(..) => continue,
+        };
+        let mut item = item;
+        item.sub = Some(crate::usual::why(habit, ctx.live.now));
+        rows.push(item);
+        room -= 1;
+    }
     for (name, used, limit) in &ctx.over_limits {
         let mut item = Item::new(format!("{name}: {} over today’s limit", fmt_dur(used - limit)), Icon::Glyph(Glyph::Alert, Tone::Warm), "Suggested", Action::Go("today", None));
         item.sub = Some(format!("{} of {}", fmt_dur(*used), fmt_dur(*limit)));
@@ -1616,6 +1659,40 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+
+    #[test]
+    fn the_empty_palette_suggests_what_you_usually_do_now_and_says_why() {
+        use crate::usual::{Habit, Thing};
+        let mut c = ctx();
+        c.live.now = NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(9, 5, 0).unwrap();
+        c.usual = vec![
+            Habit { thing: Thing::Focus(50, Some("essay".into())), weeks: 3, ms: 0 },
+            Habit { thing: Thing::App("Discord".into()), weeks: 4, ms: 0 },
+            Habit { thing: Thing::Site("youtube".into()), weeks: 3, ms: 0 },
+            // Not in the Start menu, so there's no way to open it: left out.
+            Habit { thing: Thing::App("THE FINALS".into()), weeks: 4, ms: 0 },
+        ];
+        let rows = suggestions(&c).rows;
+        let usual: Vec<(&str, Option<&str>, Action)> = rows.iter().filter(|r| r.section == "Usually now").map(|r| (r.title.as_str(), r.sub.as_deref(), r.action.clone())).collect();
+        assert_eq!(
+            usual,
+            vec![
+                ("Start a 50-minute focus session: “essay”", Some("3 of the last 4 Mondays, around 9:00"), Action::StartFocus(50, Some("essay".into()), None)),
+                ("Discord", Some("Every Monday lately, around 9:00"), Action::Launch(r"C:\Start\Discord.lnk".into())),
+                ("youtube", Some("3 of the last 4 Mondays, around 9:00"), Action::OpenUrl("https://youtube.com".into())),
+            ]
+        );
+        assert_eq!(rows[0].action.verb(), "Start");
+        // Three at most, the focus session among them: a fifth habit isn't shown.
+        c.usual.push(Habit { thing: Thing::App("Brave".into()), weeks: 3, ms: 0 });
+        assert_eq!(suggestions(&c).rows.iter().filter(|r| r.section == "Usually now").count(), 3);
+        c.usual.pop();
+        // It takes the generic focus row's place.
+        assert!(!rows.iter().any(|r| r.title == "Start a 25-minute focus session"));
+        // With nothing usual, the generic row is back.
+        c.usual.clear();
+        assert!(suggestions(&c).rows.iter().any(|r| r.title == "Start a 25-minute focus session"));
+    }
 
     fn app(name: &str, hours: i64) -> AppEntry {
         AppEntry { name: name.into(), path: format!(r"C:\Start\{name}.lnk"), used_ms: hours * HOUR_MS }
@@ -1644,6 +1721,7 @@ pub(super) mod tests {
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
             scripts: Vec::new(),
+            usual: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

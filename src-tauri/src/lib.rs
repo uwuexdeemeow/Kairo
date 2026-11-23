@@ -14,6 +14,7 @@ mod currency;
 mod custom_commands;
 mod scripts;
 mod snap;
+mod usual;
 mod linux_notes;
 mod pause_schedule;
 mod crashlog;

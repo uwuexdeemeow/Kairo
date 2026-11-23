@@ -407,6 +407,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         layouts: crate::snap::list(conn).unwrap_or_default(),
         emoji_uses: emoji::used(conn).unwrap_or_default(),
         scripts: crate::scripts::folder(app).map(|d| crate::scripts::list(&d)).unwrap_or_default(),
+        usual: crate::usual::usual(conn, Local::now().naive_local()).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -1486,6 +1487,7 @@ mod tests {
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
             scripts: Vec::new(),
+            usual: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

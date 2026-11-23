@@ -82,6 +82,20 @@ pub struct Status {
     last_report_ms: Option<i64>,
 }
 
+/// An address to open a site by, from the name Kairo keeps it by: a known site's own domain
+/// ("youtube" → youtube.com), or the domain it already is. None for a name that is neither.
+pub fn address_for_site(site: &str) -> Option<String> {
+    let site = site.trim().to_ascii_lowercase();
+    if let Some((domain, _)) = DOMAINS.iter().find(|(_, name)| *name == site) {
+        return Some(format!("https://{domain}"));
+    }
+    if site == "amazon" {
+        return Some("https://amazon.com".into());
+    }
+    let looks_like_domain = site.contains('.') && site.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    looks_like_domain.then(|| format!("https://{site}"))
+}
+
 /// The site name for a hostname: a known site's usual name, or the bare domain.
 pub fn site_for_host(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
@@ -502,6 +516,20 @@ fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Al
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_site_name_gives_an_address_to_open_it_by() {
+        assert_eq!(address_for_site("youtube").as_deref(), Some("https://youtube.com"));
+        assert_eq!(address_for_site("news.ycombinator.com").as_deref(), Some("https://news.ycombinator.com"));
+        assert_eq!(address_for_site("amazon").as_deref(), Some("https://amazon.com"));
+        assert_eq!(address_for_site("something odd"), None);
+        assert_eq!(address_for_site("nodomain"), None);
+        // Each known name goes back to a domain that names it again.
+        for (domain, name) in DOMAINS.iter() {
+            let address = address_for_site(name).unwrap();
+            assert_eq!(site_for_host(address.trim_start_matches("https://")).as_deref(), Some(*name), "{domain}");
+        }
+    }
 
     #[test]
     fn hosts_map_to_familiar_site_names() {
