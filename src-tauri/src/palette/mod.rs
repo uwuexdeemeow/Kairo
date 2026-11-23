@@ -419,6 +419,10 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         windows,
         can_close_windows: crate::platform::can_close_windows(),
         programs: crate::system::programs(&crate::platform::processes(), std::process::id()),
+        join: crate::calendar::busy_at(conn, now).ok().flatten().or_else(|| crate::calendar::next_after(conn, now).ok().flatten()).and_then(|m| {
+            let local = |ms: i64| Local.timestamp_millis_opt(ms).single().map(|t| t.naive_local());
+            Some(search::MeetingNow { start: local(m.start_ms)?, end: local(m.end_ms)?, title: m.title, link: m.link })
+        }),
         next_meeting: crate::calendar::next_after(conn, now).ok().flatten().and_then(|m| {
             let at = Local.timestamp_millis_opt(m.start_ms).single()?.naive_local();
             Some((m.title, at, m.start_ms - now))
@@ -1494,6 +1498,7 @@ mod tests {
             windows: Vec::new(),
             can_close_windows: false,
             next_meeting: None,
+            join: None,
             programs: Vec::new(),
         }
     }

@@ -165,7 +165,7 @@ pub fn scrub_titles(conn: &Connection, now_ms: i64) -> Result<usize> {
         days => {
             let before = now_ms - days as i64 * DAY_MS;
             // A meeting's name is as telling as a window's; its time stays.
-            conn.execute("UPDATE calendar_events SET title = '' WHERE title != '' AND end_ms < ?1", [before])?;
+            conn.execute("UPDATE calendar_events SET title = '', link = NULL WHERE (title != '' OR link IS NOT NULL) AND end_ms < ?1", [before])?;
             conn.execute("UPDATE sessions SET title = '' WHERE title != '' AND end_ms < ?1", [before])
         }
     }
@@ -305,7 +305,7 @@ mod tests {
     fn meetings_follow_the_history_and_title_windows() {
         let now = 100 * DAY_MS;
         let conn = conn_with(&[]);
-        let meeting = |start: i64, title: &str| crate::calendar::Event { start_ms: start, end_ms: start + 3_600_000, title: title.into() };
+        let meeting = |start: i64, title: &str| crate::calendar::Event { start_ms: start, end_ms: start + 3_600_000, title: title.into(), link: None };
         crate::calendar::store(&conn, &[meeting(0, "ancient"), meeting(50 * DAY_MS, "older"), meeting(98 * DAY_MS, "recent")]).unwrap();
         let titles = |c: &Connection| -> Vec<String> { crate::calendar::between(c, 0, i64::MAX).unwrap().into_iter().map(|e| e.title).collect() };
         // Titles blank past their window; the meetings and their times stay.

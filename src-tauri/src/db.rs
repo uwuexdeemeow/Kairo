@@ -256,6 +256,8 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("notebook", "paper", "TEXT NOT NULL DEFAULT 'lined'"),
         // A project's weekly target in minutes; 0 means none (goals.rs).
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
+        // A meeting's video call link (calendar.rs), for the palette's `join`.
+        ("calendar_events", "link", "TEXT"),
     ] {
         let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
         if !exists {

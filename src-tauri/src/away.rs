@@ -141,7 +141,7 @@ mod tests {
         let t = 1_000_000 * M;
         // Away from 10:00 to 11:30 in one row; the meeting ran 10:15 to 11:00.
         idle(&conn, t, 90);
-        let meeting = crate::calendar::Event { start_ms: t + 15 * M, end_ms: t + 60 * M, title: "Design review".into() };
+        let meeting = crate::calendar::Event { start_ms: t + 15 * M, end_ms: t + 60 * M, title: "Design review".into(), link: None };
         crate::calendar::store(&conn, &[meeting]).unwrap();
         let now = t + 120 * M;
         assert_eq!(label_meetings(&conn, now).unwrap(), 1);
