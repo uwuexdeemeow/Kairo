@@ -506,6 +506,8 @@ pub enum Action {
     PowerNow(Power),
     /// Leaves what was waiting to be confirmed.
     CancelPower,
+    /// The volume, or the system's dark or light mode.
+    Control(crate::system::Control),
     /// Ends every process of the program with this name.
     Kill(String),
     /// Adds a task to Ledger, from quick-add text.
@@ -657,6 +659,7 @@ impl Action {
                 | Action::CancelTimer(..)
                 | Action::ConfirmPower(..)
                 | Action::CancelPower
+                | Action::Control(crate::system::Control::VolumeUp | crate::system::Control::VolumeDown)
                 | Action::PauseTracking(..)
                 | Action::ResumeTracking
                 | Action::PinClip(..)

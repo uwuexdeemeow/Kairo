@@ -554,6 +554,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             }
             Ok(())
         }
+        Action::Control(control) => crate::system::control(*control),
         Action::Power(power) | Action::PowerNow(power) => {
             tauri::Manager::state::<crate::system::PendingPower>(app).clear();
             crate::system::run(*power)

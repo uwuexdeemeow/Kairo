@@ -8,7 +8,7 @@ use chrono::Duration;
 use super::mode::Mode;
 use super::search::{after, fmt_dur, fuzzy, minutes_and_label, note_row, task_for, Action, Context, Glyph, Icon, Item, Preview, SessionDo, TimerNow, Tone};
 use crate::blocking::ALLOW_MINUTES;
-use crate::system::Power;
+use crate::system::{Control, Power};
 use crate::timers::MAX_RUNNING;
 
 /// Where a command typed outright sits: at the top, with the focus command.
@@ -442,8 +442,24 @@ fn system_rows(ctx: &Context, query: &str) -> Vec<Item> {
             items.push(row(power.title(), Glyph::Settings, "System", Action::Power(power), power.about(), place));
         }
     }
+    items.extend(control_rows(q));
     items.extend(kill_rows(ctx, q));
     items
+}
+
+/// The volume (`volume up`, `mute`, `volume 40`) and the system's dark or light mode, done at once.
+fn control_rows(q: &str) -> Vec<Item> {
+    if let Some(set) = Control::volume_typed(q) {
+        return vec![row(set.title(), Glyph::Settings, "System", Action::Control(set), set.about(), (LEAD, Vec::new()))];
+    }
+    Control::LISTED
+        .into_iter()
+        .filter_map(|c| {
+            let (exact, words) = c.words();
+            let place = system_placed(q, exact, &c.title(), words)?;
+            Some(row(c.title(), Glyph::Settings, "System", Action::Control(c), c.about(), place))
+        })
+        .collect()
 }
 
 fn kill_rows(ctx: &Context, q: &str) -> Vec<Item> {
@@ -1298,9 +1314,23 @@ mod tests {
     }
 
     #[test]
+    fn the_volume_and_the_system_s_look_change_at_once() {
+        let c = ctx();
+        for (q, control) in [("volume up", Control::VolumeUp), ("louder", Control::VolumeUp), ("volume down", Control::VolumeDown), ("mute", Control::Mute), ("unmute", Control::Mute), ("dark mode", Control::Dark(true)), ("light mode", Control::Dark(false)), ("volume 40", Control::Volume(40)), ("set volume 5%", Control::Volume(5))] {
+            let first = &search(&c, q)[0];
+            assert_eq!((first.action.clone(), first.section), (Action::Control(control), "System"), "{q}");
+        }
+        assert_eq!(search(&c, "volume 40")[0].title, "Set the volume to 40%");
+        // Up and down stay open for another press; the rest close.
+        assert!(Action::Control(Control::VolumeUp).acts_in_place() && !Action::Control(Control::Mute).keeps_palette_open());
+        assert_eq!(Control::volume_typed("volume 101"), None);
+        assert_eq!(Control::volume_typed("volume loud"), None);
+    }
+
+    #[test]
     fn shutting_down_asks_twice_and_cancel_or_other_typing_leaves_it() {
         let mut c = ctx();
-        for (q, power) in [("shut down", Power::ShutDown), ("shutdown", Power::ShutDown), ("restart", Power::Restart), ("reboot", Power::Restart), ("log out", Power::LogOut), ("sign out", Power::LogOut)] {
+        for (q, power) in [("shut down", Power::ShutDown), ("shutdown", Power::ShutDown), ("restart", Power::Restart), ("reboot", Power::Restart), ("log out", Power::LogOut), ("sign out", Power::LogOut), ("empty trash", Power::EmptyTrash), ("empty recycle bin", Power::EmptyTrash)] {
             let first = &search(&c, q)[0];
             assert_eq!(first.action, Action::ConfirmPower(power, q.to_string()), "{q}");
             assert!(first.action.acts_in_place(), "{q}");

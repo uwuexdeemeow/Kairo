@@ -1249,3 +1249,14 @@ meetings today and some from last week. No focus session involved except where s
     palette's clipboard history. Type `;si`, click elsewhere in the text, then `g`. *Expect:*
     nothing happens. Type `;six`, Backspace, `g`. *Expect:* it expands. A password field on a
     Mac never expands. On Wayland the keyword box is off and says why.
+25. **Windows in thirds and quarters (1.35.0).** From a window, open the palette and type `left
+    third`, `center third`, `right two thirds`, `top left`, `bottom right`. *Expect:* each moves the
+    window there on the display it's on, and the thirds meet with no gap. `restore` puts it back.
+26. **Time zones (1.35.0).** Type `time in tokyo`. *Expect:* "<time> in Tokyo" under Calculator,
+    "JST · <day>, N hours ahead of you"; Enter copies the time. Type `3pm pst in london`.
+    *Expect:* "11:00 pm in London" (in winter). `5 km in mi` still converts.
+27. **The computer's own settings (1.35.0).** Type `volume up` and press Enter twice. *Expect:*
+    the volume rises each time and the palette stays. `mute` mutes and again unmutes, `volume 30`
+    sets it (Windows shows its own volume flyout). `dark mode` turns the whole system dark (a Mac
+    asks once to let Kairo control System Events), `light mode` back. `empty trash` asks
+    "Confirm: empty the trash" first, then empties it.
