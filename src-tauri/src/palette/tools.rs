@@ -194,6 +194,37 @@ fn join_row(m: &super::search::MeetingNow, now: chrono::NaiveDateTime, section: 
     }
 }
 
+/// `agenda`, `meetings today` or `my schedule`: today's meetings still to come, each opening its
+/// call (or Chrono's day when it has none).
+pub fn agenda_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let exact = ["agenda", "my agenda", "meetings", "meetings today", "today's meetings", "todays meetings", "my schedule", "my day"];
+    let Some(place) = placed(query, &exact, "Today's meetings", "agenda schedule calendar meetings today day") else { return Vec::new() };
+    if ctx.agenda.is_empty() {
+        let mut item = note_row("No more meetings today", Glyph::Day, "Today's meetings");
+        item.score = place.0;
+        return if exact.iter().any(|e| query.trim().eq_ignore_ascii_case(e)) { vec![item] } else { Vec::new() };
+    }
+    let now = ctx.live.now;
+    ctx.agenda
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let span = format!("{}–{}", m.start.format("%H:%M"), m.end.format("%H:%M"));
+            let mut said = vec![if m.start <= now { format!("{span}, on now") } else { span }];
+            said.extend(m.link.as_deref().and_then(crate::calendar::call_service).map(String::from));
+            let action = match &m.link {
+                Some(link) => Action::OpenUrl(link.clone()),
+                None => Action::Go("today", None),
+            };
+            let mut item = row(m.title.clone(), if m.link.is_some() { Glyph::Link } else { Glyph::Day }, "Today's meetings", action, said.join(" · "), (place.0 - i as f64 / 100.0, Vec::new()));
+            if m.link.is_some() {
+                item.second = Some((Action::Go("today", None), "Show the day"));
+            }
+            item
+        })
+        .collect()
+}
+
 /// `join` opens the call of the meeting on now, or else the next one.
 pub fn join_rows(ctx: &Context, query: &str) -> Vec<Item> {
     let exact = ["join", "join meeting", "join call", "join the meeting"];
@@ -257,6 +288,30 @@ mod tests {
         let found = search(&c, "remind me to call Leo");
         assert!(found[0].is_note() && found[0].title == "Say when: in 20m, at 3pm or tomorrow at 9");
         assert_eq!(search(&c, "remind me")[0].title, "Say when and what: remind me in 20m to call Leo");
+    }
+
+    #[test]
+    fn agenda_lists_todays_meetings_still_to_come() {
+        use super::super::search::MeetingNow;
+        let mut c = ctx();
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(9, 5, 0).unwrap();
+        c.live.now = now;
+        let t = |h: u32, m: u32| now.date().and_hms_opt(h, m, 0).unwrap();
+        c.agenda = vec![
+            MeetingNow { title: "Standup".into(), start: t(9, 0), end: t(9, 15), link: Some("https://meet.google.com/abc".into()) },
+            MeetingNow { title: "Lunch with Sam".into(), start: t(12, 30), end: t(13, 30), link: None },
+        ];
+        let found: Vec<(String, Option<String>, Action)> = search(&c, "agenda").into_iter().filter(|i| i.section == "Today's meetings").map(|i| (i.title, i.sub, i.action)).collect();
+        assert_eq!(
+            found,
+            vec![
+                ("Standup".into(), Some("09:00–09:15, on now · Google Meet".into()), Action::OpenUrl("https://meet.google.com/abc".into())),
+                ("Lunch with Sam".into(), Some("12:30–13:30".into()), Action::Go("today", None)),
+            ]
+        );
+        assert_eq!(search(&c, "my schedule")[0].title, "Standup");
+        c.agenda.clear();
+        assert_eq!(search(&c, "meetings today")[0].title, "No more meetings today");
     }
 
     #[test]

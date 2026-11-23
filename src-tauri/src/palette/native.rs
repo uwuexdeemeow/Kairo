@@ -1234,6 +1234,7 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned().filter(|i| !i.is_note()) else { return };
+        super::note_taken(&self.conn, &item);
         // A time chart shows on the first Enter or click; the next one does what the row does.
         if item.preview.as_ref().is_some_and(Preview::on_enter) && self.asked.as_ref().map(|(i, _)| *i) != Some(index) {
             self.select(index);
