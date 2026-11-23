@@ -276,8 +276,46 @@ fn format(result: &str) -> Option<(String, Option<String>)> {
     })
 }
 
+// ---------- history ----------
+
+/// Sums kept, the latest first.
+pub const HISTORY: usize = 30;
+
+/// The sums worked out lately, as (what was typed, the answer), latest first.
+pub fn history(conn: &rusqlite::Connection) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut stmt = conn.prepare("SELECT sum, answer FROM calc_history ORDER BY at_ms DESC, rowid DESC LIMIT ?1")?;
+    let rows = stmt.query_map([HISTORY as i64], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    rows.collect()
+}
+
+/// Keeps a sum whose answer was taken; the same sum again moves to the top.
+pub fn remember(conn: &rusqlite::Connection, sum: &str, answer: &str, now: i64) -> rusqlite::Result<()> {
+    let sum = sum.trim();
+    if sum.is_empty() || answer.trim().is_empty() {
+        return Ok(());
+    }
+    conn.execute("DELETE FROM calc_history WHERE sum = ?1", [sum])?;
+    conn.execute("INSERT INTO calc_history (sum, answer, at_ms) VALUES (?1, ?2, ?3)", rusqlite::params![sum, answer, now])?;
+    conn.execute("DELETE FROM calc_history WHERE rowid NOT IN (SELECT rowid FROM calc_history ORDER BY at_ms DESC, rowid DESC LIMIT ?1)", [HISTORY as i64])?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sums_taken_are_kept_latest_first_without_repeats_and_capped() {
+        let c = crate::db::open(std::path::Path::new(":memory:")).unwrap();
+        super::remember(&c, "2+2", "4", 1).unwrap();
+        super::remember(&c, "5 km in mi", "3.10686 mi", 2).unwrap();
+        super::remember(&c, " 2+2 ", "4", 3).unwrap();
+        super::remember(&c, "", "x", 4).unwrap();
+        assert_eq!(super::history(&c).unwrap(), vec![("2+2".to_string(), "4".to_string()), ("5 km in mi".to_string(), "3.10686 mi".to_string())]);
+        for i in 0..40 {
+            super::remember(&c, &format!("{i}*2"), &(i * 2).to_string(), 10 + i).unwrap();
+        }
+        assert_eq!(super::history(&c).unwrap().len(), super::HISTORY);
+    }
+
     #[test]
     fn money_is_converted_with_the_rates_of_the_day_they_say() {
         let mut per_euro = std::collections::HashMap::new();

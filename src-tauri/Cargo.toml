@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.35.0"
+version = "1.36.0"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -69,6 +69,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSPanel",
   "NSResponder",
   "NSRunningApplication",
+  "NSPasteboard",
   "NSScreen",
   "NSView",
   "NSVisualEffectView",

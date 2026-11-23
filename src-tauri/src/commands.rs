@@ -1879,6 +1879,7 @@ pub fn palette_card(state: State<AppState>, session: State<palette::Session>, se
 #[tauri::command]
 pub fn palette_run(app: AppHandle, state: State<AppState>, index: State<palette::Index>, session: State<palette::Session>, worker: State<palette::files::Worker>, seq: u64, at: usize) -> CmdResult<Option<palette::Results>> {
     let item = session.item(seq, at).ok_or("The results changed as you chose; try again.")?;
+    palette::note_taken(&*state.db.lock().map_err(err)?, &item);
     // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
     if let palette::search::Action::EnterMode(mode) = item.action {
         return Ok(Some(session.query("", Some(mode))));

@@ -212,6 +212,25 @@ pub fn clipboard_concealed() -> bool {
     }
 }
 
+/// A number the system changes whenever anything is copied, so the clipboard history reads an
+/// image only when there's a new one (an image is costly to read every second). None where the
+/// system keeps no such number cheaply (Linux), where images aren't kept.
+#[cfg(windows)]
+pub fn clipboard_change_count() -> Option<u64> {
+    Some(unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() } as u64)
+}
+
+#[cfg(target_os = "macos")]
+pub fn clipboard_change_count() -> Option<u64> {
+    let count = objc2::rc::autoreleasepool(|_| objc2_app_kit::NSPasteboard::generalPasteboard().changeCount());
+    Some(count as u64)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn clipboard_change_count() -> Option<u64> {
+    None
+}
+
 /// Not read on a Mac yet: the pasteboard's types need AppKit's NSPasteboard, which isn't built
 /// here. Until then a Mac keeps what a password manager copies, as before.
 #[cfg(target_os = "macos")]

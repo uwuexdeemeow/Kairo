@@ -42,8 +42,26 @@ pub struct Entry {
     pub from: Option<String>,
 }
 
+/// Images kept at most, and the largest kept: a bigger one is skipped.
+pub const MAX_IMAGES: usize = 5;
+const MAX_IMAGE_PIXELS: u64 = 8192 * 8192;
+
+/// A copied image, kept as PNG to keep it small (a 4K screenshot is ~33 MB raw, ~2 MB as PNG).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Picture {
+    pub id: u64,
+    pub width: u32,
+    pub height: u32,
+    pub png: std::sync::Arc<Vec<u8>>,
+    pub at_ms: i64,
+    pub from: Option<String>,
+}
+
 #[derive(Default, Debug)]
 pub struct History {
+    /// Copied images, newest first: in memory only, like the text, and never pinned.
+    pictures: VecDeque<Picture>,
+    next_picture: u64,
     /// Newest first.
     items: VecDeque<Entry>,
     /// The clipboard's text the last time it was read, so a copy isn't taken twice, and clearing
@@ -97,12 +115,31 @@ impl History {
     /// Empties the list; what is on the clipboard now isn't taken again.
     pub fn clear(&mut self) {
         self.items.clear();
+        self.pictures.clear();
     }
 
     /// Forgets everything, including what was last seen.
     fn forget(&mut self) {
         self.items.clear();
+        self.pictures.clear();
         self.last_seen = None;
+    }
+
+    /// Keeps a copied image, newest first, the oldest going past the most.
+    pub fn push_picture(&mut self, width: u32, height: u32, png: Vec<u8>, now: i64, from: Option<String>) -> u64 {
+        self.next_picture += 1;
+        let id = self.next_picture;
+        self.pictures.push_front(Picture { id, width, height, png: std::sync::Arc::new(png), at_ms: now, from });
+        self.pictures.truncate(MAX_IMAGES);
+        id
+    }
+
+    pub fn picture(&self, id: u64) -> Option<Picture> {
+        self.pictures.iter().find(|p| p.id == id).cloned()
+    }
+
+    pub fn pictures(&self) -> impl Iterator<Item = &Picture> {
+        self.pictures.iter()
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &Entry> {
@@ -135,6 +172,16 @@ impl Shared {
 
     pub fn clear(&self) {
         self.lock().clear();
+    }
+
+    /// The copied images, newest first, as (id, width, height, how long ago, from); None while
+    /// it is off.
+    pub fn pictures_now(&self, now: i64) -> Option<Vec<(u64, u32, u32, i64, Option<String>)>> {
+        self.on.load(Ordering::Relaxed).then(|| self.lock().pictures().map(|p| (p.id, p.width, p.height, (now - p.at_ms).max(0), p.from.clone())).collect())
+    }
+
+    pub fn picture(&self, id: u64) -> Option<Picture> {
+        self.lock().picture(id)
     }
 
     /// The copies with how long ago each was made and the app it came from, newest first; None
@@ -184,11 +231,14 @@ pub fn spawn(app: AppHandle) {
         .name("kairo-clipboard".into())
         .spawn(move || {
             let mut primed = false;
+            // The clipboard's change number when an image was last looked for.
+            let mut seen_count = None;
             loop {
                 thread::sleep(POLL);
                 let shared = app.state::<Shared>();
                 if !shared.on.load(Ordering::Relaxed) {
                     primed = false;
+                    seen_count = None;
                     continue;
                 }
                 // Anything but text (an image, files, an empty clipboard) is an error here.
@@ -204,11 +254,67 @@ pub fn spawn(app: AppHandle) {
                     (true, Some(t)) => {
                         history.take(&t, now_ms(), crate::platform::clipboard_concealed, || source_of(&t));
                     }
-                    (true, None) => {}
+                    // Not text: perhaps an image, read only when something new was copied.
+                    (true, None) => {
+                        let count = crate::platform::clipboard_change_count();
+                        if count.is_some() && count != seen_count {
+                            let first = seen_count.is_none();
+                            seen_count = count;
+                            // What was there before watching isn't kept, as with text.
+                            if !first && !crate::platform::clipboard_concealed() {
+                                drop(history);
+                                if let Some((w, h, png)) = read_picture(&app) {
+                                    shared.lock().push_picture(w, h, png, now_ms(), copied_in());
+                                }
+                            }
+                        }
+                    }
+                }
+                if seen_count.is_none() {
+                    seen_count = crate::platform::clipboard_change_count();
                 }
             }
         })
         .expect("failed to start clipboard thread");
+}
+
+/// The image on the clipboard as PNG, with its size; None for none, or one too big to keep.
+fn read_picture(app: &AppHandle) -> Option<(u32, u32, Vec<u8>)> {
+    let image = app.clipboard().read_image().ok()?;
+    let (w, h) = (image.width(), image.height());
+    if w == 0 || h == 0 || w as u64 * h as u64 > MAX_IMAGE_PIXELS {
+        return None;
+    }
+    Some((w, h, encode_png(w, h, image.rgba())?))
+}
+
+pub fn encode_png(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, w, h);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(png::Compression::Fast);
+        encoder.write_header().ok()?.write_image_data(rgba).ok()?;
+    }
+    Some(out)
+}
+
+pub fn decode_png(png_bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(png_bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    buf.truncate(info.buffer_size());
+    (info.color_type == png::ColorType::Rgba).then_some((info.width, info.height, buf))
+}
+
+/// Puts a kept image back on the clipboard.
+pub fn write_picture(app: &AppHandle, id: u64) -> std::result::Result<(), String> {
+    let picture = app.state::<Shared>().picture(id).ok_or("That image is no longer in the clipboard history.")?;
+    let (w, h, rgba) = decode_png(&picture.png).ok_or("That image couldn't be read back.")?;
+    app.clipboard().write_image(&tauri::image::Image::new_owned(rgba, w, h)).map_err(|e| e.to_string())
 }
 
 /// The app in front as a copy is seen: the one it was copied in, nearly always.
@@ -386,6 +492,23 @@ mod tests {
         assert_eq!(shared.snapshot(10_000), Some(vec![]));
         // Turned back on, what was last seen is forgotten too (the watcher primes again).
         assert!(shared.lock().push("c", 11_000));
+    }
+
+    #[test]
+    fn images_are_kept_newest_first_up_to_the_most_and_read_back_whole() {
+        let mut h = History::default();
+        let rgba: Vec<u8> = (0..4 * 3 * 2).map(|i| i as u8).collect();
+        let png = encode_png(3, 2, &rgba).unwrap();
+        assert_eq!(decode_png(&png), Some((3, 2, rgba.clone())));
+        let first = h.push_picture(3, 2, png.clone(), 1, Some("Snipping Tool".into()));
+        for i in 0..MAX_IMAGES as i64 {
+            h.push_picture(3, 2, png.clone(), 2 + i, None);
+        }
+        assert_eq!(h.pictures().count(), MAX_IMAGES);
+        // The first went, past the most.
+        assert!(h.picture(first).is_none());
+        h.clear();
+        assert_eq!(h.pictures().count(), 0);
     }
 
     #[test]

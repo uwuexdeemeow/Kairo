@@ -23,6 +23,7 @@ pub mod calc;
 pub mod cards;
 pub mod commands;
 pub mod emoji;
+pub mod recent;
 pub mod files;
 pub mod mode;
 #[cfg(windows)]
@@ -432,6 +433,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         custom: crate::custom_commands::list(conn).unwrap_or_default(),
         layouts: crate::snap::list(conn).unwrap_or_default(),
         emoji_uses: emoji::used(conn).unwrap_or_default(),
+        calc_history: calc::history(conn).unwrap_or_default(),
         scripts: crate::scripts::folder(app).map(|d| crate::scripts::list(&d)).unwrap_or_default(),
         usual: crate::usual::usual(conn, Local::now().naive_local()).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
@@ -445,6 +447,15 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         windows,
         can_close_windows: crate::platform::can_close_windows(),
         programs: crate::system::programs(&crate::platform::processes(), std::process::id()),
+        agenda: crate::analysis::day_bounds(today)
+            .and_then(|(_, end)| crate::calendar::between(conn, now, end).ok())
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|m| {
+                let local = |ms: i64| Local.timestamp_millis_opt(ms).single().map(|t| t.naive_local());
+                Some(search::MeetingNow { start: local(m.start_ms)?, end: local(m.end_ms)?, title: m.title, link: m.link })
+            })
+            .collect(),
         join: crate::calendar::busy_at(conn, now).ok().flatten().or_else(|| crate::calendar::next_after(conn, now).ok().flatten()).and_then(|m| {
             let local = |ms: i64| Local.timestamp_millis_opt(ms).single().map(|t| t.naive_local());
             Some(search::MeetingNow { start: local(m.start_ms)?, end: local(m.end_ms)?, title: m.title, link: m.link })
@@ -462,8 +473,13 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
 fn clips_now(app: &AppHandle, conn: &Connection, now: i64) -> Option<Vec<search::ClipNow>> {
     let copies = tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now)?;
     let pins = crate::clipboard::pins(conn).unwrap_or_default();
-    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true }).collect();
-    all.extend(copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false }));
+    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true, image: None }).collect();
+    let mut copies: Vec<search::ClipNow> = copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false, image: None }).collect();
+    // Images among the copies, by when they were copied.
+    let shared = tauri::Manager::state::<crate::clipboard::Shared>(app);
+    copies.extend(shared.pictures_now(now).unwrap_or_default().into_iter().map(|(id, w, h, age_ms, from)| search::ClipNow { text: String::new(), age_ms, from, pinned: false, image: Some((id, w, h)) }));
+    copies.sort_by_key(|c| c.age_ms);
+    all.extend(copies);
     Some(all)
 }
 
@@ -542,6 +558,17 @@ pub fn day_glance(conn: &Connection, day: NaiveDate) -> DayGlance {
         focus_ms: blocks.iter().map(focus::Block::ms).sum(),
         tasks_done: crate::tasks::done_between(conn, from, to).unwrap_or(0),
         segments: glance.segments.iter().map(|&(s, e, category)| Segment { from: share(s), to: share(e), category }).collect(),
+    }
+}
+
+/// Notes a calculator answer as it's taken, for the Calculator's history: the row's second line
+/// is the sum as typed (with the rates' day after a "·" for money).
+pub fn note_taken(conn: &Connection, item: &Item) {
+    if item.section != "Calculator" || !matches!(item.action, Action::Copy(_)) {
+        return;
+    }
+    if let Some(sum) = item.sub.as_deref().map(|s| s.split(" · ").next().unwrap_or(s)) {
+        let _ = calc::remember(conn, sum, &item.title, now_ms());
     }
 }
 
@@ -716,6 +743,12 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::Remind(what, at_ms) => crate::commands::remind_task(app, conn, what, *at_ms),
+        Action::PasteImage(id, window) => {
+            crate::clipboard::write_picture(app, *id)?;
+            paste_after_hiding(app, window.clone());
+            Ok(())
+        }
+        Action::CopyImage(id) => crate::clipboard::write_picture(app, *id),
         Action::Snap(snap, id) => {
             // Said at once, while the palette can still show it.
             if let Some(why) = crate::platform::cant_move_windows() {
@@ -1016,6 +1049,7 @@ fn glyph_name(glyph: Glyph) -> &'static str {
         Glyph::Smile => "smile",
         Glyph::Script => "script",
         Glyph::Link => "link",
+        Glyph::Image => "image",
     }
 }
 
@@ -1541,6 +1575,7 @@ mod tests {
             custom: Vec::new(),
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
+            calc_history: Vec::new(),
             scripts: Vec::new(),
             usual: Vec::new(),
             tasks: Vec::new(),
@@ -1550,6 +1585,7 @@ mod tests {
             can_close_windows: false,
             next_meeting: None,
             join: None,
+            agenda: Vec::new(),
             programs: Vec::new(),
         }
     }

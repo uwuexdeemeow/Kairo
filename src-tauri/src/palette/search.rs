@@ -449,6 +449,8 @@ pub enum Glyph {
     Script,
     /// Two links of a chain: your quicklinks.
     Link,
+    /// A picture: images in the clipboard history.
+    Image,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -570,6 +572,10 @@ pub enum Action {
     Type(String),
     /// A reminder: what, and when it rings (unix ms), made a Ledger task with that reminder time.
     Remind(String, i64),
+    /// Puts a copied image back on the clipboard, by its id in the history, and pastes it into
+    /// the window that was in front; or only copies it.
+    PasteImage(u64, Option<String>),
+    CopyImage(u64),
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -625,8 +631,8 @@ impl Action {
     /// What Enter does, in a word, for the palette's footer.
     pub fn verb(&self) -> &'static str {
         match self {
-            Action::Paste(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
-            Action::Copy(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
+            Action::Paste(..) | Action::PasteImage(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
+            Action::Copy(..) | Action::CopyImage(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
             Action::Launch(..) | Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenFile(..) | Action::OpenLedger | Action::OpenPlan | Action::OpenReview | Action::OpenRing | Action::OpenNote(..) | Action::PopOutNote(..) | Action::OpenScripts | Action::Setting(..) => "Open",
             Action::FocusWindow(..) => "Switch",
             Action::StartFocus(..) | Action::RunMode(..) | Action::Pomodoro(..) => "Start",
@@ -775,6 +781,8 @@ pub struct ClipNow {
     pub from: Option<String>,
     /// Whether you pinned it, which keeps it until unpinned.
     pub pinned: bool,
+    /// A copied image instead of text: its id in the history, its width and height.
+    pub image: Option<(u64, u32, u32)>,
 }
 
 /// A pomodoro cycle that's on, as the palette says it.
@@ -875,12 +883,16 @@ pub struct Context {
     pub layouts: Vec<crate::snap::Layout>,
     /// The emoji you've used, most first, with how often.
     pub emoji_uses: Vec<(String, i64)>,
+    /// The calculator's answers taken lately, as (sum, answer), latest first.
+    pub calc_history: Vec<(String, String)>,
     /// Your scripts, by title (scripts.rs).
     pub scripts: Vec<crate::scripts::Script>,
     /// What you usually do at this time on this weekday (usual.rs), best first.
     pub usual: Vec<crate::usual::Habit>,
     /// The meeting to join: the one on now, or else the next one.
     pub join: Option<MeetingNow>,
+    /// Today's meetings still to come or going on, earliest first.
+    pub agenda: Vec<MeetingNow>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1430,7 +1442,14 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
                 item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
                 vec![item]
             }
-            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80, 5 km in mi or 20 usd in eur", Glyph::Calc, "Calculator")],
+            // Nothing typed: what was worked out lately, to take again, under the hint.
+            None if q.is_empty() => std::iter::once(note_row("Type a sum, like 12% of 80, 5 km in mi or 20 usd in eur", Glyph::Calc, "Calculator"))
+                .chain(ctx.calc_history.iter().map(|(sum, answer)| {
+                    let mut item = Item::new(answer.clone(), Icon::Glyph(Glyph::Calc, Tone::Plain), "Lately", Action::Copy(answer.clone()));
+                    item.sub = Some(sum.clone());
+                    item
+                }))
+                .collect(),
             None if crate::currency::mentions_currency(q) => money_note(ctx.live.now).into_iter().collect(),
             None => vec![note_row("Not a sum yet", Glyph::Calc, "Calculator")],
         },
@@ -1792,6 +1811,18 @@ pub(super) mod tests {
     use super::*;
 
     #[test]
+    fn the_calculator_lists_answers_taken_lately_when_nothing_is_typed() {
+        let mut c = ctx();
+        c.calc_history = vec![("5 km in mi".into(), "3.10686 mi".into()), ("12% of 80".into(), "9.6".into())];
+        let rows = search_in(&c, Mode::Calc, "");
+        assert!(rows[0].is_note());
+        let lately: Vec<(&str, Option<&str>, Action)> = rows[1..].iter().map(|r| (r.title.as_str(), r.sub.as_deref(), r.action.clone())).collect();
+        assert_eq!(lately, vec![("3.10686 mi", Some("5 km in mi"), Action::Copy("3.10686 mi".into())), ("9.6", Some("12% of 80"), Action::Copy("9.6".into()))]);
+        // Typing works out the sum as before.
+        assert_eq!(search_in(&c, Mode::Calc, "2+2")[0].title, "4");
+    }
+
+    #[test]
     fn the_empty_palette_suggests_what_you_usually_do_now_and_says_why() {
         use crate::usual::{Habit, Thing};
         let mut c = ctx();
@@ -1858,9 +1889,11 @@ pub(super) mod tests {
             custom: Vec::new(),
             layouts: Vec::new(),
             emoji_uses: Vec::new(),
+            calc_history: Vec::new(),
             scripts: Vec::new(),
             usual: Vec::new(),
             join: None,
+            agenda: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

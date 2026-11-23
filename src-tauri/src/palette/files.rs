@@ -15,7 +15,7 @@ mod macos;
 #[cfg(not(any(windows, target_os = "macos")))]
 mod linux;
 #[cfg(unix)]
-mod process;
+pub(super) mod process;
 
 /// Fewest characters typed before the index is asked.
 pub const MIN_CHARS: usize = 2;

@@ -171,6 +171,12 @@ pub fn open(path: &Path) -> Result<Connection> {
              uses    INTEGER NOT NULL,
              last_ms INTEGER NOT NULL
          );
+         -- Sums whose answers were taken from the palette's calculator (palette/calc.rs).
+         CREATE TABLE IF NOT EXISTS calc_history (
+             sum    TEXT    NOT NULL,
+             answer TEXT    NOT NULL,
+             at_ms  INTEGER NOT NULL
+         );
          -- Window layouts (snap.rs): where the open windows were, by a name, and the focus label
          -- that puts them back.
          CREATE TABLE IF NOT EXISTS window_layouts (

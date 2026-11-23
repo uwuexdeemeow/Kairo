@@ -1280,3 +1280,10 @@ meetings today and some from last week. No focus session involved except where s
     task due today. Within a minute of the time, *expect* a notification "Reminder: stretch". Try
     `remind me at 9 to x` in the morning and in the evening (*expect* the next 9 o'clock to come),
     `remind me tomorrow to x` (*expect* 09:00 tomorrow) and `remind me to x` (*expect* "Say when…").
+24. **Agenda, calculator history, recent files and copied images (1.36.0).** With two meetings
+    left today, type `agenda`. *Expect:* both, with their times and call service; Enter on one
+    with a link opens the call, Ctrl+Enter shows the day. Work out `5 km in mi` and press Enter,
+    then type `= `. *Expect:* "3.10686 mi" under Lately. Open a document, then type `recent`.
+    *Expect:* it first, "just now"; `recent <part of its name>` narrows the list; Enter opens it.
+    On Windows or a Mac, take a screenshot to the clipboard (Win+Shift+S or Cmd+Ctrl+Shift+4),
+    type `clip`. *Expect:* "Image, <w> × <h>", from the app; Enter pastes it into a document.

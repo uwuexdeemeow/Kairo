@@ -1234,6 +1234,7 @@ impl Palette {
 
     fn run(&mut self, index: usize) {
         let Some(item) = self.items.get(index).cloned().filter(|i| !i.is_note()) else { return };
+        super::note_taken(&self.conn, &item);
         // A time chart shows on the first Enter or click; the next one does what the row does.
         if item.preview.as_ref().is_some_and(Preview::on_enter) && self.asked.as_ref().map(|(i, _)| *i) != Some(index) {
             self.select(index);
@@ -1575,6 +1576,13 @@ impl Palette {
                     let r2 = D2D1_ROUNDED_RECT { rect: rect(x + 10.5 * k, y + 8.5 * k, x + 21.5 * k, y + 15.5 * k), radiusX: 3.5 * k, radiusY: 3.5 * k };
                     rt.DrawRoundedRectangle(&r1, &brush, width, stroke);
                     rt.DrawRoundedRectangle(&r2, &brush, width, stroke);
+                }
+                Some(Glyph::Image) => {
+                    let r = D2D1_ROUNDED_RECT { rect: rect(x + 3.0 * k, y + 4.0 * k, x + 21.0 * k, y + 20.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
+                    rt.DrawRoundedRectangle(&r, &brush, width, stroke);
+                    circle(9.0, 10.0, 1.5);
+                    line((21.0, 16.0), (16.0, 11.0));
+                    line((16.0, 11.0), (7.0, 20.0));
                 }
                 Some(Glyph::Calc) => {
                     let r = D2D1_ROUNDED_RECT { rect: rect(x + 5.0 * k, y + 3.0 * k, x + 19.0 * k, y + 21.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
