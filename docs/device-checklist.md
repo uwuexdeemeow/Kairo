@@ -1287,3 +1287,9 @@ meetings today and some from last week. No focus session involved except where s
     *Expect:* it first, "just now"; `recent <part of its name>` narrows the list; Enter opens it.
     On Windows or a Mac, take a screenshot to the clipboard (Win+Shift+S or Cmd+Ctrl+Shift+4),
     type `clip`. *Expect:* "Image, <w> × <h>", from the app; Enter pastes it into a document.
+25. **What you can type (1.37.0).** Type `?`. *Expect:* "What you can type", about twenty rows,
+    each "Try “…”"; Enter on one types its example into the box and shows what it would do, without
+    doing it. Check a few times in the palette's rows: with your system in a 12-hour region
+    (English, United States), `remind me in 20m to x` says "at 3:05 PM"; in a 24-hour one, "15:05".
+    In Kairo's settings, Palette and ring, *expect* Remember what I copy, Your commands and Scripts
+    each to show one line and a fold ("What it keeps", "What they can do", "How to write one").

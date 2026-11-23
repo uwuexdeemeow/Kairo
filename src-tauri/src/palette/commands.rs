@@ -104,6 +104,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(super::tools::join_rows(ctx, query));
     items.extend(super::tools::agenda_rows(ctx, query));
     items.extend(super::recent::rows(ctx, query));
+    items.extend(super::tools::help_rows(ctx, query));
     items.extend(super::tools::remind_rows(ctx, query));
     items
 }
