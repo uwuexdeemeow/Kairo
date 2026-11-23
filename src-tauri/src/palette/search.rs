@@ -836,6 +836,8 @@ pub struct MeetingNow {
 /// What's known when the palette opens.
 pub struct Context {
     pub today: NaiveDate,
+    /// The browsers' bookmarks, read from their files on this computer.
+    pub bookmarks: std::sync::Arc<Vec<crate::bookmarks::Bookmark>>,
     pub apps: Vec<AppEntry>,
     pub live: Live,
     /// Today's busiest apps by name, with their time.
@@ -1310,6 +1312,45 @@ pub fn no_files_row(query: &str) -> Item {
     note_row(format!("No files named “{}”", query.trim()), Glyph::Search, "Files")
 }
 
+/// Bookmarks shown at most for one query.
+const MOST_BOOKMARKS: usize = 5;
+/// Below an app or a window of the same name: a bookmark is the third place to look.
+const BOOKMARK_PENALTY: f64 = 20.0;
+const MAX_BOOKMARK_SCORE: f64 = 280.0;
+
+/// The browsers' bookmarks whose name or address matches, best first: Enter opens one, Ctrl+Enter
+/// copies its address.
+fn bookmark_items(ctx: &Context, query: &str) -> Vec<Item> {
+    let q = query.trim();
+    if q.chars().count() < 2 || ctx.bookmarks.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<(f64, Vec<usize>, &crate::bookmarks::Bookmark, String)> = ctx
+        .bookmarks
+        .iter()
+        .filter_map(|b| {
+            let site = crate::custom_commands::site(&b.url);
+            let words = site.replace(['/', '.', '-', '_', '?', '=', '&'], " ");
+            let (score, at) = super::commands::placed(q, &[], &b.title, &words)?;
+            Some(((score - BOOKMARK_PENALTY).min(MAX_BOOKMARK_SCORE), at, b, site))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.total_cmp(&a.0));
+    found
+        .into_iter()
+        .take(MOST_BOOKMARKS)
+        .map(|(score, at, b, site)| {
+            let mut item = Item::new(b.title.clone(), Icon::Glyph(Glyph::Link, Tone::Accent), "Bookmarks", Action::OpenUrl(b.url.clone()));
+            let short: String = site.chars().take(60).collect();
+            item.sub = Some(format!("{short} · {}", b.browser));
+            item.second = Some((Action::Copy(b.url.clone()), "Copy link"));
+            item.score = score;
+            item.at = at;
+            item
+        })
+        .collect()
+}
+
 /// "Pick a color from the screen", for `pick color`, `color picker` or `eyedropper`.
 fn pick_color_row(query: &str) -> Option<Item> {
     const EXACT: &[&str] = &["pick color", "pick colour", "pick a color", "pick a colour", "color picker", "colour picker", "eyedropper"];
@@ -1482,6 +1523,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(note_items(ctx, query));
     items.extend(scan_item(query));
     items.extend(window_items(ctx, query));
+    items.extend(bookmark_items(ctx, query));
     // "finals this week" asks about THE FINALS; "finals" alone also offers that, further down.
     match split_compare(query) {
         (asked, Some(period), against) => {
@@ -1770,6 +1812,7 @@ pub(super) mod tests {
     /// it too.
     pub(in crate::palette) fn ctx() -> Context {
         Context {
+            bookmarks: Default::default(),
             today: NaiveDate::from_ymd_opt(2026, 10, 26).unwrap(), // a Monday
             apps: vec![app("Cursor", 61), app("Brave", 19), app("Discord", 7), app("CurseForge", 0), app("Visual Studio Code", 0), app("Notepad", 0)],
             live: Live::default(),
@@ -2063,6 +2106,24 @@ pub(super) mod tests {
         let cursor = search(&c, "cursor");
         assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
         assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
+    }
+
+    #[test]
+    fn bookmarks_are_found_by_name_or_address_below_apps() {
+        let mut c = ctx();
+        let mark = |title: &str, url: &str| crate::bookmarks::Bookmark { title: title.into(), url: url.into(), browser: "Chrome" };
+        c.bookmarks = std::sync::Arc::new(vec![mark("Kairo issues", "https://github.com/me/kairo/issues"), mark("Team board", "https://linear.app/team"), mark("Cursor docs", "https://docs.cursor.com/")]);
+        let found = search(&c, "kairo iss");
+        let row = found.iter().find(|i| i.section == "Bookmarks").expect("a bookmark row");
+        assert_eq!((row.title.as_str(), row.sub.as_deref()), ("Kairo issues", Some("github.com/me/kairo/issues · Chrome")));
+        assert_eq!(row.action, Action::OpenUrl("https://github.com/me/kairo/issues".into()));
+        assert_eq!(row.second, Some((Action::Copy("https://github.com/me/kairo/issues".into()), "Copy link")));
+        // By its address too.
+        assert!(search(&c, "linear").iter().any(|i| i.title == "Team board"));
+        // An app of the name comes first.
+        let cursor = search(&c, "cursor");
+        assert_eq!(cursor[0].title, "Cursor");
+        assert!(cursor.iter().any(|i| i.title == "Cursor docs"));
     }
 
     #[test]

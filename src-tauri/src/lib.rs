@@ -3,6 +3,7 @@ mod appearance;
 mod away;
 mod backup;
 mod blocking;
+mod bookmarks;
 mod calendar;
 mod capture;
 mod clipboard;

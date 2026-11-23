@@ -1266,3 +1266,7 @@ meetings today and some from last week. No focus session involved except where s
     picker; on Windows a notification saying to click. Pick a pixel. *Expect:* "Copied #……"
     with its RGB and HSL, and the hex on the clipboard. On Windows the click doesn't reach the app
     under it; Esc or a right-click leaves without picking.
+29. **Bookmarks (1.35.0).** Bookmark a page in Chrome, Edge or Brave and another in Firefox
+    (Firefox open). Type part of each one's name, then part of its address. *Expect:* each under
+    Bookmarks, "<site> · <browser>"; Enter opens it, Ctrl+Enter copies the link. An app with the
+    same name comes first. Add a bookmark and open the palette again. *Expect:* it's there.

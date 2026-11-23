@@ -390,6 +390,7 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     // Nothing is left waiting for a second Enter from the last time it was open.
     tauri::Manager::state::<crate::system::PendingPower>(app).clear();
     let ctx = Context {
+        bookmarks: crate::bookmarks::all(),
         today,
         apps,
         live: live(app, conn),
@@ -1496,6 +1497,7 @@ mod tests {
 
     fn ctx(today: NaiveDate) -> Context {
         Context {
+            bookmarks: Default::default(),
             today,
             apps: Vec::new(),
             live: search::Live::default(),
