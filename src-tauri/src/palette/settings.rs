@@ -96,7 +96,7 @@ pub fn entries() -> Vec<Entry> {
         chrono("Demo data", "sample example fake try", "demo-load", None),
         kairo("Kairo settings", "preferences options dashboard", "appearance", None, Some(Action::Dashboard(Some("settings")))),
         kairo("Theme", "appearance dark mode light system colors", "appearance", None, None),
-        kairo("Your commands", "custom own alias aliases quicklink quick link snippet snippets paste open copy palette word", "custom-new-name", None, None),
+        kairo("Your commands", "custom own alias aliases quicklink quick link snippet snippets paste open copy palette word hotkey keyword expand", "custom-new-name", None, None),
         kairo("Window layouts", "windows layout snap arrange focus label", "layouts-list", None, None),
         kairo("Scripts", "script commands run shell powershell python folder automation", "scripts-open", None, None),
         kairo("Palette shortcut", "command palette keys hotkey keyboard", "palette-record", None, None),

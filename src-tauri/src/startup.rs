@@ -26,6 +26,16 @@ pub const RING_ARG: &str = "--ring";
 /// keys themselves (Linux on Wayland). A running Kairo gets it too.
 pub const CAPTURE_ARG: &str = "--capture";
 
+/// Runs one of your own commands by name, for the desktop's shortcut where apps can't listen for
+/// keys themselves (GNOME on Wayland): `--command sig`. A running Kairo gets it too.
+pub const COMMAND_ARG: &str = "--command";
+
+/// The command named after `--command`, if it's there.
+pub fn command_name(args: &[String]) -> Option<String> {
+    let at = args.iter().position(|a| a == COMMAND_ARG)?;
+    args.get(at + 1).filter(|n| !n.trim().is_empty()).cloned()
+}
+
 /// Opens Chrono, the screen time tracker's window, rather than the palette; Chrono's own Start
 /// menu and app menu entry passes it.
 pub const CHRONO_ARG: &str = "--chrono";
@@ -81,7 +91,10 @@ pub enum Launch {
 /// or a launcher does, while signing in starts it quietly and Chrono's shortcut opens Chrono.
 pub fn launch_for(args: &[String]) -> Launch {
     let has = |arg: &str| args.iter().any(|a| a == arg);
-    if has(PALETTE_ARG) {
+    // Running a command shows nothing.
+    if has(COMMAND_ARG) {
+        Launch::Quiet
+    } else if has(PALETTE_ARG) {
         Launch::Palette
     } else if has(RING_ARG) {
         Launch::Ring

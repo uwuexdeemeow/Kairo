@@ -808,9 +808,9 @@ mod tests {
         use crate::custom_commands::{CustomCommand, Kind};
         let mut c = ctx();
         c.custom = vec![
-            CustomCommand { name: "gh issues".into(), kind: Kind::Link, target: "https://github.com/tauri-apps/tauri/issues".into() },
-            CustomCommand { name: "tax".into(), kind: Kind::Open, target: "C:\\Users\\me\\Tax".into() },
-            CustomCommand { name: "sig".into(), kind: Kind::Text, target: "Best,\nAmos".into() },
+            CustomCommand::new("gh issues", Kind::Link, "https://github.com/tauri-apps/tauri/issues"),
+            CustomCommand::new("tax", Kind::Open, "C:\\Users\\me\\Tax"),
+            CustomCommand::new("sig", Kind::Text, "Best,\nAmos"),
         ];
         c
     }
@@ -837,7 +837,7 @@ mod tests {
     fn a_link_with_a_slot_opens_with_what_is_typed_after_its_name() {
         use crate::custom_commands::{CustomCommand, Kind};
         let mut c = ctx();
-        c.custom = vec![CustomCommand { name: "jira".into(), kind: Kind::Link, target: "https://jira.example.com/browse/{query}".into() }];
+        c.custom = vec![CustomCommand::new("jira", Kind::Link, "https://jira.example.com/browse/{query}")];
         let found = search(&c, "jira KAI 12");
         assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("jira KAI 12", Action::OpenUrl("https://jira.example.com/browse/KAI%2012".into())));
         assert_eq!(found[0].sub.as_deref(), Some("Opens jira.example.com/browse/KAI%2012"));
@@ -852,9 +852,9 @@ mod tests {
         use crate::custom_commands::{CustomCommand, Kind};
         let mut c = ctx();
         c.custom = vec![
-            CustomCommand { name: "fw".into(), kind: Kind::Alias, target: "focus 50 writing".into() },
-            CustomCommand { name: "loop".into(), kind: Kind::Alias, target: "fw".into() },
-            CustomCommand { name: "nada".into(), kind: Kind::Alias, target: "zzzqqq".into() },
+            CustomCommand::new("fw", Kind::Alias, "focus 50 writing"),
+            CustomCommand::new("loop", Kind::Alias, "fw"),
+            CustomCommand::new("nada", Kind::Alias, "zzzqqq"),
         ];
         let found = search(&c, "fw");
         assert_eq!(found[0].title, "fw");
@@ -869,7 +869,7 @@ mod tests {
     #[test]
     fn a_name_that_is_typed_outright_leads_a_name_that_is_only_begun() {
         let mut c = with_custom();
-        c.custom.push(crate::custom_commands::CustomCommand { name: "taxes".into(), kind: crate::custom_commands::Kind::Text, target: "x".into() });
+        c.custom.push(crate::custom_commands::CustomCommand::new("taxes", crate::custom_commands::Kind::Text, "x"));
         let found = search(&c, "tax");
         let custom: Vec<&str> = found.iter().filter(|i| i.section == "Commands").map(|i| i.title.as_str()).collect();
         assert_eq!(custom, vec!["tax", "taxes"]);

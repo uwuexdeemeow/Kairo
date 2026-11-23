@@ -616,7 +616,14 @@ export interface CustomCommand {
   name: string;
   kind: CustomKind;
   target: string;
+  /** Typed anywhere, swapped for the text (text commands only). */
+  keyword?: string;
+  /** Its own global shortcut, like "Ctrl+Alt+S"; on this computer only. */
+  keys?: string;
 }
+
+/** Whether keywords work here: not on Wayland, listening, waiting for a permission, or none set yet. */
+export type KeywordsStatus = "unavailable" | "listening" | "waiting" | "idle";
 
 /** A saved window layout: where the open windows were, and the focus label that puts it back. */
 export interface WindowLayout {
@@ -787,6 +794,9 @@ export const api = {
   openScriptsFolder: () => invoke<string>("open_scripts_folder"),
   saveCustomCommand: (old: string | null, name: string, kind: CustomKind, target: string) => invoke<CustomCommand[]>("save_custom_command", { old, name, kind, target }),
   removeCustomCommand: (name: string) => invoke<CustomCommand[]>("remove_custom_command", { name }),
+  setCustomKeyword: (name: string, keyword: string) => invoke<CustomCommand[]>("set_custom_keyword", { name, keyword }),
+  setCustomKeys: (name: string, keys: string) => invoke<CustomCommand[]>("set_custom_keys", { name, keys }),
+  keywordsStatus: () => invoke<KeywordsStatus>("keywords_status"),
   focusModes: () => invoke<FocusMode[]>("get_focus_modes"),
   /** Adds a mode, or with `old`, changes the mode of that name. Refused for a name in use or a length a session can't have. */
   saveFocusMode: (old: string | null, name: string, minutes: number, list: string | null, apps: ModeApp[]) => invoke<FocusMode[]>("save_focus_mode", { old, name, minutes, list, apps }),

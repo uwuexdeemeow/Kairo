@@ -181,6 +181,29 @@ const PALETTE_ACTION: &str = "palette";
 const RING_ACTION: &str = "ring";
 static OPEN_PALETTE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
 static OPEN_RING: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+static RUN_COMMAND: OnceLock<Box<dyn Fn(&str) + Send + Sync>> = OnceLock::new();
+/// A custom command's action in Plasma's shortcuts: this, then its name.
+const COMMAND_ACTION: &str = "command:";
+
+/// What to do when Plasma says a custom command's keys were pressed: given the command's name.
+pub fn on_command_shortcut(run: Box<dyn Fn(&str) + Send + Sync>) {
+    let _ = RUN_COMMAND.set(run);
+}
+
+/// A custom command's keys as one of Plasma's global shortcuts.
+pub fn command_shortcut(name: &str, shortcut: &str) -> bool {
+    global_shortcut(&format!("{COMMAND_ACTION}{name}"), &format!("Run {name}"), shortcut)
+}
+
+/// Takes a custom command's shortcut out of Plasma's; true when Plasma had it.
+pub fn forget_command_shortcut(name: &str) -> bool {
+    let Some(bus) = BUS.get() else { return false };
+    let action = format!("{COMMAND_ACTION}{name}");
+    bus.call_method(Some("org.kde.kglobalaccel"), "/kglobalaccel", Some("org.kde.KGlobalAccel"), "unregister", &(COMPONENT, action.as_str()))
+        .ok()
+        .and_then(|reply| reply.body().deserialize::<bool>().ok())
+        .unwrap_or(false)
+}
 
 /// What to do when Plasma says the palette's shortcut was pressed.
 pub fn on_palette_shortcut(open: Box<dyn Fn() + Send + Sync>) {
@@ -241,6 +264,12 @@ fn listen_for_presses() -> zbus::Result<()> {
         .build();
     for message in zbus::blocking::MessageIterator::for_match_rule(rule, bus, None)?.flatten() {
         let Ok((_, action, _)) = message.body().deserialize::<(String, String, i64)>() else { continue };
+        if let Some(name) = action.strip_prefix(COMMAND_ACTION) {
+            if let Some(run) = RUN_COMMAND.get() {
+                run(name);
+            }
+            continue;
+        }
         let open = match action.as_str() {
             PALETTE_ACTION => OPEN_PALETTE.get(),
             RING_ACTION => OPEN_RING.get(),

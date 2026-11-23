@@ -208,6 +208,41 @@ pub fn ring_shortcut(shortcut: &str) -> bool {
     custom_shortcut(RING_KEYBINDING, "Kairo app ring", crate::startup::RING_ARG, shortcut)
 }
 
+/// Where a custom command's shortcut lives: its name in hex, since a path takes few characters.
+fn command_path(name: &str) -> String {
+    let hex: String = name.to_lowercase().bytes().map(|b| format!("{b:02x}")).collect();
+    format!("/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kairo-command-{hex}/")
+}
+
+/// A custom command's keys as one of GNOME's shortcuts, running `kairo --command '<name>'`.
+pub fn command_shortcut(name: &str, shortcut: &str) -> bool {
+    // Read by GLib as a shell would: in single quotes, with a quote inside closed and reopened.
+    let arg = format!("{} '{}'", crate::startup::COMMAND_ARG, name.replace('\'', "'\\''"));
+    custom_shortcut(&command_path(name), &format!("Kairo: {name}"), &arg, shortcut)
+}
+
+/// Takes a custom command's shortcut out of GNOME's list; true when it was there.
+pub fn forget_command_shortcut(name: &str) -> bool {
+    if !wayland() || !desktop_is("GNOME") {
+        return false;
+    }
+    let path = command_path(name);
+    let Some(current) = gsettings(&["get", KEYBINDINGS, "custom-keybindings"]) else { return false };
+    let Some(list) = without_item(&current, &path) else { return false };
+    gsettings(&["set", KEYBINDINGS, "custom-keybindings", &list]).is_some()
+}
+
+/// A list as gsettings takes it with `item` taken out; None when it wasn't in it.
+fn without_item(list: &str, item: &str) -> Option<String> {
+    let inner = list.strip_prefix("@as ").unwrap_or(list).trim().strip_prefix('[')?.strip_suffix(']')?.trim();
+    let items: Vec<&str> = inner.split(',').map(|s| s.trim().trim_matches('\'')).filter(|s| !s.is_empty()).collect();
+    if !items.contains(&item) {
+        return None;
+    }
+    let kept: Vec<String> = items.into_iter().filter(|i| *i != item).map(|i| format!("'{i}'")).collect();
+    Some(if kept.is_empty() { "@as []".into() } else { format!("[{}]", kept.join(", ")) })
+}
+
 /// One of GNOME's custom shortcuts, at `path`, running this Kairo with `arg`.
 fn custom_shortcut(path: &str, name: &str, arg: &str, shortcut: &str) -> bool {
     if !wayland() || !desktop_is("GNOME") {
@@ -264,6 +299,14 @@ mod tests {
             Some("['ubuntu-dock@ubuntu.com', 'ding@rastersoft.com', 'kairo@uwuexdeemeow.github.io']")
         );
         assert_eq!(with_item("['kairo@uwuexdeemeow.github.io']", UUID), None);
+    }
+
+    #[test]
+    fn a_command_s_shortcut_is_taken_out_of_the_list_alone() {
+        assert_eq!(without_item("['/a/', '/b/']", "/a/"), Some("['/b/']".into()));
+        assert_eq!(without_item("['/a/']", "/a/"), Some("@as []".into()));
+        assert_eq!(without_item("@as []", "/a/"), None);
+        assert!(command_path("Sig").ends_with("kairo-command-736967/"));
     }
 
     #[test]

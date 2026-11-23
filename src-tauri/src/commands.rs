@@ -875,19 +875,61 @@ pub fn get_custom_commands(state: State<AppState>) -> CmdResult<Vec<custom_comma
 
 /// Adds a palette command, or with `old` changes the one of that name; says why when it can't.
 #[tauri::command]
-pub fn save_custom_command(state: State<AppState>, old: Option<String>, name: String, kind: custom_commands::Kind, target: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+pub fn save_custom_command(app: AppHandle, state: State<AppState>, old: Option<String>, name: String, kind: custom_commands::Kind, target: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
     let conn = state.db.lock().map_err(err)?;
     custom_commands::save(&conn, old.as_deref(), &name, kind, &target).map_err(err)??;
     sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
+    commands_changed(&app, &conn);
     custom_commands::list(&conn).map_err(err)
 }
 
 #[tauri::command]
-pub fn remove_custom_command(state: State<AppState>, name: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+pub fn remove_custom_command(app: AppHandle, state: State<AppState>, name: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
     let conn = state.db.lock().map_err(err)?;
     custom_commands::remove(&conn, &name).map_err(err)?;
     sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
+    commands_changed(&app, &conn);
     custom_commands::list(&conn).map_err(err)
+}
+
+/// After the commands changed: their keys follow a rename or a removal, and keywords are read again.
+fn commands_changed(app: &AppHandle, conn: &rusqlite::Connection) {
+    crate::command_keys::refresh(app, conn);
+    crate::keywords::refresh(app, conn);
+}
+
+/// Gives a text command a keyword, typed anywhere to paste it, or with "" takes it away.
+#[tauri::command]
+pub fn set_custom_keyword(app: AppHandle, state: State<AppState>, name: String, keyword: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+    let conn = state.db.lock().map_err(err)?;
+    custom_commands::set_keyword(&conn, &name, &keyword).map_err(err)??;
+    sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
+    crate::keywords::refresh(&app, &conn);
+    custom_commands::list(&conn).map_err(err)
+}
+
+/// Gives a command keys of its own, or with "" takes them away; says why when it can't.
+#[tauri::command]
+pub fn set_custom_keys(app: AppHandle, state: State<AppState>, name: String, keys: String) -> CmdResult<Vec<custom_commands::CustomCommand>> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::command_keys::change(&app, &conn, &name, &keys)?;
+    custom_commands::list(&conn).map_err(err)
+}
+
+/// Whether keywords work here: "unavailable" on Wayland, "listening" once Kairo hears typing,
+/// "waiting" when a keyword exists but the system hasn't let Kairo listen (a Mac asking for
+/// Input Monitoring), and "idle" with no keywords yet.
+#[tauri::command]
+pub fn keywords_status(state: State<AppState>) -> CmdResult<String> {
+    let conn = state.db.lock().map_err(err)?;
+    let any = custom_commands::list(&conn).map_err(err)?.iter().any(|c| c.keyword.is_some());
+    Ok(match (crate::keywords::available(), crate::keywords::listening(), any) {
+        (false, _, _) => "unavailable",
+        (true, true, _) => "listening",
+        (true, false, true) => "waiting",
+        (true, false, false) => "idle",
+    }
+    .into())
 }
 
 /// Makes the scripts folder (with an example the first time), opens it, and gives its path.

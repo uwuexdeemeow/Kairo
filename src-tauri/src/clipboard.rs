@@ -155,6 +155,15 @@ pub fn write(app: &AppHandle, text: &str) -> std::result::Result<(), String> {
     app.clipboard().write_text(text.to_string()).map_err(|e| e.to_string())
 }
 
+/// Puts text on the clipboard for a moment without it joining the history: a keyword's text on
+/// its way to being pasted, and what was there before, put back after.
+pub fn write_quietly(app: &AppHandle, text: &str) -> std::result::Result<(), String> {
+    if let Some(shared) = app.try_state::<Shared>() {
+        shared.lock().prime(text);
+    }
+    app.clipboard().write_text(text.to_string()).map_err(|e| e.to_string())
+}
+
 /// Where a copy seen on the clipboard came from: Kairo when it is what Kairo wrote, else the app
 /// in front.
 fn source_of(text: &str) -> Option<String> {

@@ -76,8 +76,9 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 # and single-instance already build.
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 libc = "0.2"
-# randr for each monitor's place, xtest to press Ctrl+V when the palette pastes.
-x11rb = { version = "0.13", features = ["screensaver", "randr", "xtest"] }
+# randr for each monitor's place, xtest to press Ctrl+V when the palette pastes, record to hear
+# a keyword typed.
+x11rb = { version = "0.13", features = ["screensaver", "randr", "xtest", "record"] }
 zbus = "5"
 # Coloring the window's title bar to the theme; the version Tauri already builds.
 gtk = "0.18"

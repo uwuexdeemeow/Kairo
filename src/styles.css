@@ -7721,6 +7721,20 @@ summary:focus-visible {
   margin-top: 8px;
 }
 
+/* A command's own keys and, for text, its keyword. */
+.custom-keys {
+  margin-top: 8px;
+}
+
+.custom-keyword {
+  width: 160px;
+  font-family: var(--mono);
+}
+
+.custom-keyword-note {
+  margin-top: 4px;
+}
+
 /* Window layouts: a name, how many windows, and the focus label that puts it back. */
 .layout-row .layout-label {
   display: block;

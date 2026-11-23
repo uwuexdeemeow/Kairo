@@ -6,6 +6,11 @@
 //! 123. Text may hold `{date}`, `{time}` and `{clipboard}`, filled in as it is pasted. Links, text
 //! and aliases go to the computers you've combined; files, folders and apps stay on the one they
 //! were made on, since a path means something only there.
+//!
+//! A text command may have a keyword (`;sig`): typing it in any app swaps it for the text
+//! (`keywords.rs`). Any command may have keys of its own, a global shortcut that runs it from
+//! anywhere (`command_keys.rs`). Keywords go to combined computers with their text; keys don't,
+//! since the same keys may already mean something else on another computer.
 
 use rusqlite::{params, Connection, Result};
 use serde::{Deserialize, Serialize};
@@ -16,6 +21,8 @@ use crate::palette::search::Action;
 pub const MAX_COMMANDS: usize = 50;
 const MAX_NAME_CHARS: usize = 30;
 const MAX_TARGET_CHARS: usize = 2000;
+/// The longest keyword: a few characters is the point.
+pub const MAX_KEYWORD_CHARS: usize = 20;
 
 /// What a command does when run.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -52,12 +59,23 @@ pub struct CustomCommand {
     pub name: String,
     pub kind: Kind,
     pub target: String,
+    /// Typed anywhere, it's swapped for the text; text commands only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keyword: Option<String>,
+    /// Its global shortcut, as the shortcut plugin spells it ("Ctrl+Alt+S"). Kept on this computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
 }
 
 /// The slot in a link that what's typed after its name fills.
 pub const QUERY: &str = "{query}";
 
 impl CustomCommand {
+    #[cfg(test)]
+    pub fn new(name: &str, kind: Kind, target: &str) -> CustomCommand {
+        CustomCommand { name: name.into(), kind, target: target.into(), keyword: None, keys: None }
+    }
+
     /// What running it does, as the palette's action, for the window that was in front (which
     /// text is pasted into). An alias's action is the palette's to find.
     pub fn action(&self, window: Option<String>) -> Action {
@@ -119,14 +137,22 @@ pub fn expand(text: &str, now: chrono::NaiveDateTime, clipboard: Option<&str>) -
 }
 
 pub fn list(conn: &Connection) -> Result<Vec<CustomCommand>> {
-    let mut stmt = conn.prepare("SELECT name, kind, target FROM custom_commands ORDER BY position, rowid")?;
+    let mut stmt = conn.prepare("SELECT name, kind, target, keyword, keys FROM custom_commands ORDER BY position, rowid")?;
     let rows = stmt
         .query_map([], |r| {
             let kind: String = r.get(1)?;
-            Ok((r.get::<_, String>(0)?, kind, r.get::<_, String>(2)?))
+            Ok((r.get::<_, String>(0)?, kind, r.get::<_, String>(2)?, r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?))
         })?
         .collect::<Result<Vec<_>>>()?;
-    Ok(rows.into_iter().filter_map(|(name, kind, target)| Some(CustomCommand { name, kind: Kind::from_key(&kind)?, target })).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|(name, kind, target, keyword, keys)| {
+            let kind = Kind::from_key(&kind)?;
+            // A keyword belongs to text only; one left from before a command became a link is idle.
+            let keyword = keyword.filter(|k| !k.is_empty() && kind == Kind::Text);
+            Some(CustomCommand { name, kind, target, keyword, keys: keys.filter(|k| !k.is_empty()) })
+        })
+        .collect())
 }
 
 /// A link as it will be opened: a web address, with https:// put in front when only a site was
@@ -211,7 +237,7 @@ pub fn save(conn: &Connection, old: Option<&str>, name: &str, kind: Kind, target
 /// The commands that mean the same on any computer, as text for sharing: links and text, never
 /// paths.
 pub fn to_json(conn: &Connection) -> Result<String> {
-    let shared: Vec<CustomCommand> = list(conn)?.into_iter().filter(|c| c.kind != Kind::Open).collect();
+    let shared: Vec<CustomCommand> = list(conn)?.into_iter().filter(|c| c.kind != Kind::Open).map(|c| CustomCommand { keys: None, ..c }).collect();
     Ok(serde_json::to_string(&shared).unwrap_or_else(|_| "[]".into()))
 }
 
@@ -219,11 +245,21 @@ pub fn to_json(conn: &Connection) -> Result<String> {
 /// win a name they share; what doesn't pass the rules for a command is left out.
 pub fn replace_from_json(conn: &Connection, json: &str) -> std::result::Result<(), String> {
     let theirs: Vec<CustomCommand> = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    // Keys are this computer's: a command that comes back under the same name keeps them.
+    let keys: Vec<(String, String)> = list(conn).map_err(|e| e.to_string())?.into_iter().filter_map(|c| Some((c.name, c.keys?))).collect();
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM custom_commands WHERE kind != 'open'", []).map_err(|e| e.to_string())?;
     for c in theirs.into_iter().filter(|c| c.kind != Kind::Open) {
         // A name taken by a path here, or one past the most, is skipped rather than failing the rest.
-        let _ = save(&tx, None, &c.name, c.kind, &c.target).map_err(|e| e.to_string())?;
+        if save(&tx, None, &c.name, c.kind, &c.target).map_err(|e| e.to_string())?.is_err() {
+            continue;
+        }
+        if let Some(keyword) = &c.keyword {
+            let _ = set_keyword(&tx, &c.name, keyword).map_err(|e| e.to_string())?;
+        }
+        if let Some((_, k)) = keys.iter().find(|(n, _)| n.eq_ignore_ascii_case(&c.name)) {
+            set_keys_saved(&tx, &c.name, k).map_err(|e| e.to_string())?;
+        }
     }
     tx.commit().map_err(|e| e.to_string())
 }
@@ -236,6 +272,51 @@ pub fn pick_command_path(app: tauri::AppHandle, folder: bool) -> Option<String> 
     let dialog = app.dialog().file().set_title(if folder { "Choose a folder" } else { "Choose a file or app" });
     let chosen = if folder { dialog.blocking_pick_folder() } else { dialog.blocking_pick_file() };
     chosen?.into_path().ok().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Why `keyword` can't be one: None when it can. `others` are the other commands' keywords.
+pub fn keyword_refusal(keyword: &str, others: &[&str]) -> Option<String> {
+    if keyword.chars().any(char::is_whitespace) {
+        return Some("A keyword is one word, without spaces, like ;sig.".into());
+    }
+    if keyword.chars().count() > MAX_KEYWORD_CHARS {
+        return Some(format!("A keyword is at most {MAX_KEYWORD_CHARS} characters."));
+    }
+    if keyword.chars().count() < 2 {
+        return Some("A keyword needs two characters or more, like ;s, so it isn't set off by typing.".into());
+    }
+    if let Some(other) = others.iter().find(|o| o.eq_ignore_ascii_case(keyword)) {
+        return Some(format!("Another command already uses {other}."));
+    }
+    None
+}
+
+/// Gives the text command `name` a keyword, or with "" takes it away. The inner error is for the user.
+pub fn set_keyword(conn: &Connection, name: &str, keyword: &str) -> Result<std::result::Result<(), String>> {
+    let keyword = keyword.trim();
+    let all = list(conn)?;
+    let Some(cmd) = all.iter().find(|c| c.name.eq_ignore_ascii_case(name.trim())) else {
+        return Ok(Err("That command is gone.".into()));
+    };
+    if !keyword.is_empty() {
+        if cmd.kind != Kind::Text {
+            return Ok(Err("Only a command that pastes text has a keyword.".into()));
+        }
+        let others: Vec<&str> = all.iter().filter(|c| c.name != cmd.name).filter_map(|c| c.keyword.as_deref()).collect();
+        if let Some(why) = keyword_refusal(keyword, &others) {
+            return Ok(Err(why));
+        }
+    }
+    let value = (!keyword.is_empty()).then_some(keyword);
+    conn.execute("UPDATE custom_commands SET keyword = ?1 WHERE name = ?2", params![value, cmd.name])?;
+    Ok(Ok(()))
+}
+
+/// Writes down `name`'s keys ("" for none), once the system has given them (`command_keys.rs`).
+pub fn set_keys_saved(conn: &Connection, name: &str, keys: &str) -> Result<()> {
+    let value = (!keys.is_empty()).then_some(keys);
+    conn.execute("UPDATE custom_commands SET keys = ?1 WHERE name = ?2 COLLATE NOCASE", params![value, name.trim()])?;
+    Ok(())
 }
 
 pub fn remove(conn: &Connection, name: &str) -> Result<()> {
@@ -409,5 +490,49 @@ mod tests {
         let c = conn();
         saved(&c, &"n".repeat(80), Kind::Text, "x").unwrap();
         assert_eq!(list(&c).unwrap()[0].name.chars().count(), MAX_NAME_CHARS);
+    }
+
+    #[test]
+    fn a_keyword_is_one_short_word_of_its_own_on_text_only() {
+        let c = conn();
+        saved(&c, "sig", Kind::Text, "Best,\nAmos").unwrap();
+        saved(&c, "addr", Kind::Text, "1 Road").unwrap();
+        saved(&c, "gh", Kind::Link, "github.com").unwrap();
+        assert_eq!(set_keyword(&c, "sig", ";sig").unwrap(), Ok(()));
+        assert_eq!(find(&c, "sig").unwrap().unwrap().keyword.as_deref(), Some(";sig"));
+        assert!(set_keyword(&c, "addr", ";SIG").unwrap().unwrap_err().contains(";sig"));
+        assert!(set_keyword(&c, "addr", "; a").unwrap().is_err());
+        assert!(set_keyword(&c, "addr", "x").unwrap().is_err());
+        assert!(set_keyword(&c, "addr", &";".repeat(21)).unwrap().is_err());
+        assert!(set_keyword(&c, "gh", ";gh").unwrap().is_err());
+        // Its own keyword again is fine, and "" takes it away.
+        assert_eq!(set_keyword(&c, "sig", ";sig").unwrap(), Ok(()));
+        assert_eq!(set_keyword(&c, "sig", "").unwrap(), Ok(()));
+        assert_eq!(find(&c, "sig").unwrap().unwrap().keyword, None);
+    }
+
+    #[test]
+    fn renaming_keeps_the_keyword_and_the_keys() {
+        let c = conn();
+        saved(&c, "sig", Kind::Text, "Best").unwrap();
+        set_keyword(&c, "sig", ";sig").unwrap().unwrap();
+        set_keys_saved(&c, "sig", "Ctrl+Alt+S").unwrap();
+        save(&c, Some("sig"), "signature", Kind::Text, "Best").unwrap().unwrap();
+        let cmd = find(&c, "signature").unwrap().unwrap();
+        assert_eq!((cmd.keyword.as_deref(), cmd.keys.as_deref()), (Some(";sig"), Some("Ctrl+Alt+S")));
+    }
+
+    #[test]
+    fn keywords_are_shared_and_keys_stay_on_this_computer() {
+        let c = conn();
+        saved(&c, "sig", Kind::Text, "Best").unwrap();
+        set_keyword(&c, "sig", ";sig").unwrap().unwrap();
+        set_keys_saved(&c, "sig", "Ctrl+Alt+S").unwrap();
+        let json = to_json(&c).unwrap();
+        assert!(json.contains(";sig") && !json.contains("Ctrl+Alt+S"));
+        // What comes back from another computer keeps this one's keys and takes their keyword.
+        replace_from_json(&c, r#"[{"name":"sig","kind":"text","target":"Cheers","keyword":";s"}]"#).unwrap();
+        let cmd = find(&c, "sig").unwrap().unwrap();
+        assert_eq!((cmd.target.as_str(), cmd.keyword.as_deref(), cmd.keys.as_deref()), ("Cheers", Some(";s"), Some("Ctrl+Alt+S")));
     }
 }

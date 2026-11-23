@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { loadCustomCommands, setUpCustomForm } from "./custom-commands";
+import { loadCustomCommands, setUpCustomForm, useKeysRecorder } from "./custom-commands";
 import { loadLayouts, wireScripts } from "./desk-settings";
 import { api, type Appearance, type Linking, type PaletteLook, type SyncState } from "./api";
 import { glyph } from "./glyphs";
@@ -401,6 +401,8 @@ export function wireKairoSettings(): void {
   wireFind();
   wireVirusTotal();
   setUpCustomForm();
+  // Each command's Set keys records with the same recorder as the palette's, one at a time.
+  useKeysRecorder((row) => (recording === row ? stopRecording("Kept as it was.") : startRecording(row)), shortcutKeys);
   wireScripts();
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";

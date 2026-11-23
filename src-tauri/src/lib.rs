@@ -26,6 +26,8 @@ mod focus_modes;
 mod pomodoro;
 mod system;
 mod goals;
+mod keywords;
+mod command_keys;
 mod ledger;
 mod lists;
 mod menukey;
@@ -173,6 +175,10 @@ pub fn run() {
         // running copy instead of starting another collector. Kairo itself is the command
         // palette; Chrono's own shortcut opens Chrono, the screen time tracker's window.
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if let Some(name) = startup::command_name(&args) {
+                command_keys::run(app, &name);
+                return;
+            }
             match startup::launch_for(&args) {
                 Launch::Palette => {
                     // On Wayland the desktop's own shortcut runs this, so it stays out of games too.
@@ -217,7 +223,9 @@ pub fn run() {
                     // Settings lets the palette and the ring open over it.
                     let pressed = event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed;
                     // Capture opens no window, so it isn't held back by a game in front.
-                    if pressed && capture::is_capture(shortcut) {
+                    if let Some(name) = command_keys::name_for(shortcut).filter(|_| pressed) {
+                        command_keys::run(app, &name);
+                    } else if pressed && capture::is_capture(shortcut) {
                         let app = app.clone();
                         // Off the shortcut's thread: it reads the clipboard and the database.
                         std::thread::spawn(move || capture::from_keys(&app));
@@ -337,6 +345,8 @@ pub fn run() {
                     }
                 }));
                 let handle = app.handle().clone();
+                platform::on_command_shortcut(Box::new(move |name| command_keys::run(&handle, name)));
+                let handle = app.handle().clone();
                 platform::on_ring_shortcut(Box::new(move || {
                     if palette::shortcut_may_open() {
                         ring::toggle(&handle);
@@ -358,6 +368,14 @@ pub fn run() {
                 }
             }
             capture::register_saved(app.handle(), &capture_shortcut);
+            // Your commands' own keys, and keywords typed anywhere, once there are some.
+            if let Ok(conn) = app.state::<AppState>().db.lock() {
+                command_keys::refresh(app.handle(), &conn);
+                keywords::refresh(app.handle(), &conn);
+            }
+            if let Some(name) = startup::command_name(&std::env::args().collect::<Vec<_>>()) {
+                command_keys::run(app.handle(), &name);
+            }
             updater::spawn(app.handle().clone());
             // Chrono's window is made when it's wanted; at sign-in Kairo starts in the tray, and
             // opened by hand it's the palette.
@@ -540,6 +558,9 @@ pub fn run() {
             commands::get_custom_commands,
             commands::save_custom_command,
             commands::remove_custom_command,
+            commands::set_custom_keyword,
+            commands::set_custom_keys,
+            commands::keywords_status,
             commands::get_layouts,
             commands::set_layout_focus_label,
             commands::remove_layout,

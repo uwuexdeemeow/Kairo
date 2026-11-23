@@ -258,6 +258,10 @@ pub fn open(path: &Path) -> Result<Connection> {
         ("projects", "week_target_min", "INTEGER NOT NULL DEFAULT 0"),
         // A meeting's video call link (calendar.rs), for the palette's `join`.
         ("calendar_events", "link", "TEXT"),
+        // A text command's keyword, typed anywhere to paste it, and a command's own global
+        // shortcut (custom_commands.rs).
+        ("custom_commands", "keyword", "TEXT"),
+        ("custom_commands", "keys", "TEXT"),
     ] {
         let exists = conn.prepare(&format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?1"))?.exists([column])?;
         if !exists {

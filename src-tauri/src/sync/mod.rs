@@ -383,6 +383,8 @@ pub fn spawn(
                             eprintln!("sync: {e}");
                         }
                         crate::nudge::invalidate(&cache);
+                        // Keywords and commands may have come in, or gone.
+                        crate::keywords::after_sync(&conn);
                     }
                     Ok(false) => {}
                     Err(e) => {

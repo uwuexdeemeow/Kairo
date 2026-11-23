@@ -5,11 +5,14 @@ const api = vi.hoisted(() => ({
   saveCustomCommand: vi.fn(),
   removeCustomCommand: vi.fn(),
   pickCommandPath: vi.fn(),
+  setCustomKeyword: vi.fn(),
+  setCustomKeys: vi.fn(),
+  keywordsStatus: vi.fn(),
 }));
 vi.mock("./api", () => ({ api }));
 
 import type { CustomCommand } from "./api";
-import { loadCustomCommands, renderCustomCommands, setUpCustomForm } from "./custom-commands";
+import { keywordNote, loadCustomCommands, renderCustomCommands, setUpCustomForm, useKeysRecorder, type KeysRow } from "./custom-commands";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -20,6 +23,7 @@ const gh: CustomCommand = { name: "gh", kind: "link", target: "https://github.co
 beforeEach(() => {
   document.body.innerHTML = `<div id="custom-list"></div><input id="custom-new-name" /><select id="custom-new-kind"></select><textarea id="custom-new-target"></textarea><p id="custom-new-pick" hidden><button id="custom-pick-file"></button><button id="custom-pick-folder"></button></p><button id="custom-add"></button><span id="custom-status"></span>`;
   for (const fn of Object.values(api)) fn.mockReset();
+  api.keywordsStatus.mockResolvedValue("idle");
 });
 
 describe("Your commands in Kairo's settings", () => {
@@ -143,5 +147,47 @@ describe("Your commands in Kairo's settings", () => {
     remove.click();
     expect(api.removeCustomCommand).toHaveBeenCalledWith("tax");
     await vi.waitFor(() => expect(document.querySelectorAll(".custom-command").length).toBe(0));
+  });
+
+  it("shows a command's keys, records new ones with Settings' recorder, and clears them", async () => {
+    const started: KeysRow[] = [];
+    useKeysRecorder((row) => started.push(row), (keys) => keys.split("+").map((k) => Object.assign(document.createElement("kbd"), { textContent: k })));
+    renderCustomCommands([{ ...gh, keys: "Ctrl+Alt+G" }, tax]);
+    const rows = [...document.querySelectorAll(".custom-command")];
+    expect([...rows[0].querySelectorAll(".shortcut-keys kbd")].map((k) => k.textContent)).toEqual(["Ctrl", "Alt", "G"]);
+    expect(rows[1].querySelector(".shortcut-keys")!.textContent).toBe("No keys");
+    expect(rows[1].querySelector<HTMLButtonElement>(".custom-clear-keys")!.hidden).toBe(true);
+    rows[1].querySelector<HTMLButtonElement>(".custom-record")!.click();
+    expect(started[0].does).toBe("runs tax");
+    // Saving goes to the command, and a refusal is thrown back for the recorder to say.
+    api.setCustomKeys.mockRejectedValueOnce("Ctrl+Space opens the command palette.");
+    await expect(started[0].save("Ctrl+Space")).rejects.toBe("Ctrl+Space opens the command palette.");
+    expect(api.setCustomKeys).toHaveBeenCalledWith("tax", "Ctrl+Space");
+    api.setCustomKeys.mockResolvedValueOnce([gh, tax]);
+    rows[0].querySelector<HTMLButtonElement>(".custom-clear-keys")!.click();
+    await settle();
+    expect(api.setCustomKeys).toHaveBeenLastCalledWith("gh", "");
+  });
+
+  it("gives text, and only text, a keyword box that saves as it changes", async () => {
+    const sig: CustomCommand = { name: "sig", kind: "text", target: "Best", keyword: ";sig" };
+    renderCustomCommands([sig, gh]);
+    const boxes = document.querySelectorAll<HTMLInputElement>(".custom-keyword");
+    expect([...boxes].map((b) => b.value)).toEqual([";sig"]);
+    api.setCustomKeyword.mockResolvedValueOnce([{ ...sig, keyword: ";s" }, gh]);
+    boxes[0].value = ";s";
+    boxes[0].dispatchEvent(new Event("change"));
+    await settle();
+    expect(api.setCustomKeyword).toHaveBeenCalledWith("sig", ";s");
+    expect($<HTMLInputElement>(".custom-keyword").value).toBe(";s");
+  });
+
+  it("says where keywords can't work, and turns the box off there", async () => {
+    api.keywordsStatus.mockResolvedValue("unavailable");
+    api.customCommands.mockResolvedValue([{ name: "sig", kind: "text", target: "Best" }]);
+    await loadCustomCommands();
+    expect($<HTMLInputElement>(".custom-keyword").disabled).toBe(true);
+    expect($(".custom-keyword-note").textContent).toContain("Wayland");
+    expect(keywordNote("waiting", true)).toContain("Input Monitoring");
   });
 });

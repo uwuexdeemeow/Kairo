@@ -291,6 +291,9 @@ pub enum Address {
     Typing,
 }
 
+/// Hearing what is typed, for keywords.
+pub mod typing;
+
 #[cfg(windows)]
 mod uia;
 #[cfg(windows)]
@@ -1580,6 +1583,32 @@ pub fn desktop_ring_shortcut(_shortcut: &str) -> bool {
     false
 }
 
+/// A custom command's keys, as the palette's: GNOME runs `kairo --command <name>`, Plasma tells
+/// Kairo. False where Kairo listens for the keys itself.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn desktop_command_shortcut(name: &str, shortcut: &str) -> bool {
+    wayland() && (gnome::command_shortcut(name, shortcut) || kde::command_shortcut(name, shortcut))
+}
+
+/// Takes a custom command's keys back from the desktop; false where Kairo had them itself.
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn forget_desktop_command_shortcut(name: &str) -> bool {
+    wayland() && (gnome::forget_command_shortcut(name) | kde::forget_command_shortcut(name))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub use kde::on_command_shortcut;
+
+#[cfg(any(windows, target_os = "macos"))]
+pub fn desktop_command_shortcut(_name: &str, _shortcut: &str) -> bool {
+    false
+}
+
+#[cfg(any(windows, target_os = "macos"))]
+pub fn forget_desktop_command_shortcut(_name: &str) -> bool {
+    false
+}
+
 /// Windows and macOS let Kairo listen for the palette's keys itself.
 #[cfg(any(windows, target_os = "macos"))]
 pub fn desktop_palette_shortcut(_shortcut: &str) -> bool {
@@ -1888,6 +1917,27 @@ mod x11 {
             std::thread::sleep(std::time::Duration::from_millis(15));
         }
         ok && x.conn.flush().is_ok()
+    }
+
+    /// Presses Backspace `n` times for the window that has the keyboard, through XTEST.
+    pub fn backspaces(n: usize) -> bool {
+        use x11rb::protocol::xtest::ConnectionExt as _;
+        const BACKSPACE: u32 = 0xff08;
+        let Some(x) = Display::open() else { return false };
+        let setup = x.conn.setup();
+        let (min, max) = (setup.min_keycode, setup.max_keycode);
+        let Some(map) = x.conn.get_keyboard_mapping(min, max - min + 1).ok().and_then(|c| c.reply().ok()) else { return false };
+        let per = map.keysyms_per_keycode.max(1) as usize;
+        let Some(key) = map.keysyms.chunks(per).position(|syms| syms.contains(&BACKSPACE)).map(|i| min + i as u8) else { return false };
+        let mut ok = true;
+        for _ in 0..n {
+            for kind in [2u8, 3u8] {
+                ok &= x.conn.xtest_fake_input(kind, key, 0, x.root, 0, 0, 0).is_ok();
+                ok &= x.conn.flush().is_ok();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        ok
     }
 }
 
