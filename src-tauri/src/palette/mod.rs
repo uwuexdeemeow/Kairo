@@ -473,8 +473,13 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
 fn clips_now(app: &AppHandle, conn: &Connection, now: i64) -> Option<Vec<search::ClipNow>> {
     let copies = tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now)?;
     let pins = crate::clipboard::pins(conn).unwrap_or_default();
-    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true }).collect();
-    all.extend(copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false }));
+    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true, image: None }).collect();
+    let mut copies: Vec<search::ClipNow> = copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false, image: None }).collect();
+    // Images among the copies, by when they were copied.
+    let shared = tauri::Manager::state::<crate::clipboard::Shared>(app);
+    copies.extend(shared.pictures_now(now).unwrap_or_default().into_iter().map(|(id, w, h, age_ms, from)| search::ClipNow { text: String::new(), age_ms, from, pinned: false, image: Some((id, w, h)) }));
+    copies.sort_by_key(|c| c.age_ms);
+    all.extend(copies);
     Some(all)
 }
 
@@ -738,6 +743,12 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::Remind(what, at_ms) => crate::commands::remind_task(app, conn, what, *at_ms),
+        Action::PasteImage(id, window) => {
+            crate::clipboard::write_picture(app, *id)?;
+            paste_after_hiding(app, window.clone());
+            Ok(())
+        }
+        Action::CopyImage(id) => crate::clipboard::write_picture(app, *id),
         Action::Snap(snap, id) => {
             // Said at once, while the palette can still show it.
             if let Some(why) = crate::platform::cant_move_windows() {
@@ -1038,6 +1049,7 @@ fn glyph_name(glyph: Glyph) -> &'static str {
         Glyph::Smile => "smile",
         Glyph::Script => "script",
         Glyph::Link => "link",
+        Glyph::Image => "image",
     }
 }
 

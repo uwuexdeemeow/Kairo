@@ -502,6 +502,13 @@ const RECENT_CLIPS: usize = 5;
 /// A row for a copy: its first line, then whether it's pinned, the app it came from, how long ago
 /// and how big. Enter pastes it into the window that was in front; Ctrl+Enter pins or unpins it.
 fn clip_row(ctx: &Context, clip: &super::search::ClipNow, place: f64) -> Item {
+    if let Some((id, w, h)) = clip.image {
+        let age = if clip.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(clip.age_ms)) };
+        let said: Vec<String> = clip.from.iter().map(|a| format!("from {a}")).chain([age]).collect();
+        let mut item = row(format!("Image, {w} × {h}"), Glyph::Image, "Clipboard", Action::PasteImage(id, ctx.windows.first().map(|w| w.id.clone())), said.join(" · "), (place, Vec::new()));
+        item.second = Some((Action::CopyImage(id), "Copy"));
+        return item;
+    }
     let age = if clip.age_ms < 60_000 { "just now".to_string() } else { format!("{} ago", fmt_dur(clip.age_ms)) };
     let mut said: Vec<String> = Vec::new();
     if clip.pinned {
@@ -573,7 +580,10 @@ fn clip_rows(ctx: &Context, query: &str) -> Vec<Item> {
 /// a note when none do.
 fn matching_clips(ctx: &Context, clips: &[super::search::ClipNow], filter: &str) -> Vec<Item> {
     let wanted = filter.to_lowercase();
-    let has = |c: &&super::search::ClipNow| c.text.to_lowercase().contains(&wanted) || c.from.as_deref().is_some_and(|a| a.to_lowercase().starts_with(&wanted));
+    let picture = ["image", "images", "picture", "screenshot", "photo"].iter().any(|w| w.starts_with(wanted.as_str()) && wanted.len() >= 3);
+    let has = |c: &&super::search::ClipNow| {
+        (c.image.is_some() && picture) || c.text.to_lowercase().contains(&wanted) || c.from.as_deref().is_some_and(|a| a.to_lowercase().starts_with(&wanted))
+    };
     let items: Vec<Item> = clips.iter().filter(has).enumerate().map(|(i, c)| clip_row(ctx, c, LEAD - i as f64 / 100.0)).collect();
     if items.is_empty() {
         clip_note(&format!("No copies contain “{filter}”"))
@@ -1255,8 +1265,8 @@ mod tests {
         let mut c = ctx();
         c.windows = vec![WindowEntry { id: "7".into(), title: "Mail".into(), app: "Mail".into(), icon: None }];
         c.live.clips = Some(vec![
-            ClipNow { text: "12 Harbour Rd".into(), age_ms: 2 * 86_400_000, from: Some("Notes".into()), pinned: true },
-            ClipNow { text: "ticket 88".into(), age_ms: 120_000, from: Some("Chrome".into()), pinned: false },
+            ClipNow { text: "12 Harbour Rd".into(), age_ms: 2 * 86_400_000, from: Some("Notes".into()), pinned: true, image: None },
+            ClipNow { text: "ticket 88".into(), age_ms: 120_000, from: Some("Chrome".into()), pinned: false, image: None },
         ]);
         let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
         assert_eq!(rows[0].sub.as_deref(), Some("Pinned · from Notes · pinned 48h 00m ago · 13 characters"));
@@ -1270,6 +1280,24 @@ mod tests {
         // With only pins left, there's nothing to clear.
         c.live.clips = Some(vec![ClipNow { text: "a".into(), pinned: true, ..Default::default() }]);
         assert!(!search(&c, "clip").iter().any(|i| i.action == Action::ClearClips));
+    }
+
+    #[test]
+    fn copied_images_show_with_their_size_and_paste_back() {
+        use super::super::search::ClipNow;
+        let mut c = ctx();
+        c.live.clips = Some(vec![
+            ClipNow { age_ms: 60_000, from: Some("Snipping Tool".into()), image: Some((7, 1920, 1080)), ..Default::default() },
+            ClipNow { text: "notes".into(), age_ms: 120_000, ..Default::default() },
+        ]);
+        let rows: Vec<_> = search(&c, "clip").into_iter().filter(|i| i.section == "Clipboard").collect();
+        assert_eq!((rows[0].title.as_str(), rows[0].sub.as_deref()), ("Image, 1920 × 1080", Some("from Snipping Tool · 1m ago")));
+        assert_eq!(rows[0].action, Action::PasteImage(7, None));
+        assert_eq!(rows[0].second, Some((Action::CopyImage(7), "Copy")));
+        assert_eq!(rows[0].icon, Icon::Glyph(Glyph::Image, Tone::Accent));
+        // "clip image" finds images; "clip notes" the text.
+        assert_eq!(search(&c, "clip image")[0].title, "Image, 1920 × 1080");
+        assert_eq!(search(&c, "clip notes")[0].title, "notes");
     }
 
     #[test]

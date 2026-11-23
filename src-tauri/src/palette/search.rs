@@ -449,6 +449,8 @@ pub enum Glyph {
     Script,
     /// Two links of a chain: your quicklinks.
     Link,
+    /// A picture: images in the clipboard history.
+    Image,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -570,6 +572,10 @@ pub enum Action {
     Type(String),
     /// A reminder: what, and when it rings (unix ms), made a Ledger task with that reminder time.
     Remind(String, i64),
+    /// Puts a copied image back on the clipboard, by its id in the history, and pastes it into
+    /// the window that was in front; or only copies it.
+    PasteImage(u64, Option<String>),
+    CopyImage(u64),
     /// Moves the window that was in front, by its id.
     Snap(crate::snap::Snap, String),
     /// Saves where the open windows are as a layout, by name.
@@ -625,8 +631,8 @@ impl Action {
     /// What Enter does, in a word, for the palette's footer.
     pub fn verb(&self) -> &'static str {
         match self {
-            Action::Paste(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
-            Action::Copy(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
+            Action::Paste(..) | Action::PasteImage(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
+            Action::Copy(..) | Action::CopyImage(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
             Action::Launch(..) | Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenFile(..) | Action::OpenLedger | Action::OpenPlan | Action::OpenReview | Action::OpenRing | Action::OpenNote(..) | Action::PopOutNote(..) | Action::OpenScripts | Action::Setting(..) => "Open",
             Action::FocusWindow(..) => "Switch",
             Action::StartFocus(..) | Action::RunMode(..) | Action::Pomodoro(..) => "Start",
@@ -775,6 +781,8 @@ pub struct ClipNow {
     pub from: Option<String>,
     /// Whether you pinned it, which keeps it until unpinned.
     pub pinned: bool,
+    /// A copied image instead of text: its id in the history, its width and height.
+    pub image: Option<(u64, u32, u32)>,
 }
 
 /// A pomodoro cycle that's on, as the palette says it.

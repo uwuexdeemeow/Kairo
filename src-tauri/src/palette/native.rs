@@ -1577,6 +1577,13 @@ impl Palette {
                     rt.DrawRoundedRectangle(&r1, &brush, width, stroke);
                     rt.DrawRoundedRectangle(&r2, &brush, width, stroke);
                 }
+                Some(Glyph::Image) => {
+                    let r = D2D1_ROUNDED_RECT { rect: rect(x + 3.0 * k, y + 4.0 * k, x + 21.0 * k, y + 20.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
+                    rt.DrawRoundedRectangle(&r, &brush, width, stroke);
+                    circle(9.0, 10.0, 1.5);
+                    line((21.0, 16.0), (16.0, 11.0));
+                    line((16.0, 11.0), (7.0, 20.0));
+                }
                 Some(Glyph::Calc) => {
                     let r = D2D1_ROUNDED_RECT { rect: rect(x + 5.0 * k, y + 3.0 * k, x + 19.0 * k, y + 21.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
                     rt.DrawRoundedRectangle(&r, &brush, width, stroke);
