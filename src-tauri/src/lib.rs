@@ -13,6 +13,7 @@ mod collector;
 mod commands;
 mod currency;
 mod custom_commands;
+mod remind;
 mod scripts;
 mod snap;
 mod usual;

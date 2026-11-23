@@ -135,6 +135,22 @@ pub fn script_rows(ctx: &Context, query: &str) -> Vec<Item> {
     items
 }
 
+/// `remind me in 20m to call Leo`: one row saying when it rings, or what's missing.
+pub fn remind_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    use chrono::TimeZone;
+    let Some(text) = crate::remind::led_by(query) else { return Vec::new() };
+    let mut item = match crate::remind::parse(text, ctx.live.now) {
+        Ok(ask) => {
+            let Some(at_ms) = chrono::Local.from_local_datetime(&ask.at).earliest().map(|t| t.timestamp_millis()) else { return Vec::new() };
+            let sub = format!("{} · added to Ledger as a task", crate::remind::when_said(ask.at, ctx.live.now));
+            row(format!("Remind me: {}", ask.what), Glyph::Day, "Reminders", Action::Remind(ask.what.clone(), at_ms), sub, (LEAD, Vec::new()))
+        }
+        Err(missing) => note_row(missing, Glyph::Day, "Reminders"),
+    };
+    item.score = LEAD;
+    vec![item]
+}
+
 /// A join row shows in the empty palette from this long before a meeting starts…
 const JOIN_BEFORE_MIN: i64 = 5;
 /// …until this long after.
@@ -223,6 +239,24 @@ mod tests {
         let start = now + chrono::Duration::minutes(starts_in_min);
         c.join = Some(super::super::search::MeetingNow { title: "Standup".into(), start, end: start + chrono::Duration::minutes(15), link: link.map(Into::into) });
         (c, now)
+    }
+
+    #[test]
+    fn remind_me_makes_a_reminder_or_says_what_is_missing() {
+        use chrono::TimeZone;
+        let mut c = ctx();
+        c.live.now = chrono::NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(10, 0, 0).unwrap();
+        let found = search(&c, "remind me in 20m to call Leo");
+        assert_eq!(found[0].title, "Remind me: call Leo");
+        assert_eq!(found[0].sub.as_deref(), Some("In 20 min, at 10:20 · added to Ledger as a task"));
+        let ms = chrono::Local.from_local_datetime(&c.live.now).earliest().unwrap().timestamp_millis() + 20 * 60_000;
+        assert_eq!(found[0].action, Action::Remind("call Leo".into(), ms));
+        assert_eq!(found[0].action.verb(), "Remind me");
+        // Nothing else leads it, the calculator included.
+        assert!(!found.iter().any(|i| i.section == "Calculator"));
+        let found = search(&c, "remind me to call Leo");
+        assert!(found[0].is_note() && found[0].title == "Say when: in 20m, at 3pm or tomorrow at 9");
+        assert_eq!(search(&c, "remind me")[0].title, "Say when and what: remind me in 20m to call Leo");
     }
 
     #[test]

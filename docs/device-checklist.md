@@ -1275,3 +1275,8 @@ meetings today and some from last week. No focus session involved except where s
     nonsense in the palette. *Expect:* "Search DuckDuckGo for “…”" then the link command's row,
     in the order ticked; Enter opens each with the words filled in. Untick them all. *Expect:*
     nothing is offered.
+23. **Remind me (1.35.0).** Type `remind me in 2m to stretch`. *Expect:* "Remind me: stretch",
+    "In 2 min, at <time> · added to Ledger as a task"; Enter closes the palette and Ledger shows the
+    task due today. Within a minute of the time, *expect* a notification "Reminder: stretch". Try
+    `remind me at 9 to x` in the morning and in the evening (*expect* the next 9 o'clock to come),
+    `remind me tomorrow to x` (*expect* 09:00 tomorrow) and `remind me to x` (*expect* "Say when…").

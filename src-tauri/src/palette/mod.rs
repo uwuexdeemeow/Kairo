@@ -715,6 +715,7 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             std::thread::spawn(move || run_script(&app, &script, argument.as_deref(), window));
             Ok(())
         }
+        Action::Remind(what, at_ms) => crate::commands::remind_task(app, conn, what, *at_ms),
         Action::Snap(snap, id) => {
             // Said at once, while the palette can still show it.
             if let Some(why) = crate::platform::cant_move_windows() {
