@@ -27,6 +27,7 @@ pub mod files;
 pub mod mode;
 #[cfg(windows)]
 pub mod native;
+pub mod colors;
 pub mod search;
 pub mod timezones;
 pub mod settings;
@@ -555,6 +556,11 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::Control(control) => crate::system::control(*control),
+        Action::PickColor => {
+            let app = app.clone();
+            after_hiding(move || pick_color(&app));
+            Ok(())
+        }
         Action::Power(power) | Action::PowerNow(power) => {
             tauri::Manager::state::<crate::system::PendingPower>(app).clear();
             crate::system::run(*power)
@@ -801,6 +807,19 @@ fn after_hiding(then: impl FnOnce() + Send + 'static) {
     });
 }
 
+/// Picks a colour from the screen and copies it as hex, saying so with its other forms. Windows
+/// has no picker of its own, so a notification says to click.
+fn pick_color(app: &AppHandle) {
+    if cfg!(windows) {
+        crate::blocking::notify(app, "Pick a colour", "Click anywhere on the screen. Right-click or Esc leaves it.");
+    }
+    let Some(rgb) = crate::platform::colorpick::pick(app) else { return };
+    let hex = colors::hex(rgb);
+    if crate::clipboard::write(app, &hex).is_ok() {
+        crate::blocking::notify(app, &format!("Copied {hex}"), &format!("{} · {}", colors::rgb(rgb), colors::hsl(rgb)));
+    }
+}
+
 /// Presses the system's paste keys for the window that was in front, once the palette is gone.
 /// Where Kairo may not press keys (Wayland, a Mac without Accessibility), what was put on the
 /// clipboard stays there and a notification says so.
@@ -921,6 +940,8 @@ pub enum IconView {
         file_kind: &'static str,
     },
     Glyph { glyph: &'static str, tone: &'static str },
+    /// A colour's swatch, as `#RRGGBB`.
+    Swatch { color: String },
 }
 
 impl From<&Item> for ItemView {
@@ -928,6 +949,7 @@ impl From<&Item> for ItemView {
         let icon = match &item.icon {
             Icon::App(path) => IconView::App { path: path.clone() },
             Icon::File(path) => IconView::File { path: path.clone(), file_kind: files::file_kind(path) },
+            Icon::Swatch(rgb) => IconView::Swatch { color: colors::hex(*rgb) },
             Icon::Glyph(glyph, tone) => IconView::Glyph {
                 glyph: glyph_name(*glyph),
                 tone: match tone {

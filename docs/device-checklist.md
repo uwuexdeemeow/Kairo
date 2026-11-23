@@ -1260,3 +1260,9 @@ meetings today and some from last week. No focus session involved except where s
     sets it (Windows shows its own volume flyout). `dark mode` turns the whole system dark (a Mac
     asks once to let Kairo control System Events), `light mode` back. `empty trash` asks
     "Confirm: empty the trash" first, then empties it.
+28. **Colours (1.35.0).** Type `#f80`. *Expect:* three rows under Color with an orange swatch:
+    "#FF8800", "rgb(255, 136, 0)", "hsl(32, 100%, 50%)"; Enter copies the one chosen. Type `pick
+    color` and press Enter. *Expect:* on a Mac the system's magnifier; on Linux the desktop's
+    picker; on Windows a notification saying to click. Pick a pixel. *Expect:* "Copied #……"
+    with its RGB and HSL, and the hex on the clipboard. On Windows the click doesn't reach the app
+    under it; Esc or a right-click leaves without picking.

@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.34.0"
+version = "1.35.0"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -58,6 +58,10 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
   "libc",
   "NSBitmapImageRep",
+  "NSColor",
+  "NSColorSampler",
+  "NSColorSpace",
+  "block2",
   "NSGraphics",
   "NSGraphicsContext",
   "NSImage",
@@ -73,6 +77,8 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "objc2-core-graphics",
 ] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
+# The colour sampler's answer comes to a block; the version objc2-app-kit already builds.
+block2 = "0.6"
 
 # The window in front and idle time on Linux, from X11 or GNOME; the versions global shortcuts
 # and single-instance already build.

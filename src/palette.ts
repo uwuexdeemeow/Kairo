@@ -145,6 +145,11 @@ function rowIcon(item: PaletteItem): HTMLElement {
   const icon = item.icon;
   if (icon.kind === "app") return appIcon(icon.path, item.title);
   if (icon.kind === "file") return isLinux() ? strokeIcon(icon.fileKind, "") : appIcon(icon.path, item.title);
+  if (icon.kind === "swatch") {
+    const swatch = h("span", { class: "palette-swatch", "aria-hidden": "true" });
+    swatch.style.background = icon.color;
+    return swatch;
+  }
   return strokeIcon(icon.glyph, icon.tone);
 }
 

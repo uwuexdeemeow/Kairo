@@ -293,6 +293,8 @@ pub enum Address {
 
 /// Hearing what is typed, for keywords.
 pub mod typing;
+/// Picking a colour from the screen.
+pub mod colorpick;
 
 #[cfg(windows)]
 mod uia;

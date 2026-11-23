@@ -1609,6 +1609,14 @@ impl Palette {
                     self.text(rt, &letter, &self.formats.letter, x + (size - lw) / 2.0, mid_y - 7.0, size, t.muted, &[], false)?;
                 }
             }
+            Icon::Swatch([r, g, b]) => {
+                let hex = (*r as u32) << 16 | (*g as u32) << 8 | *b as u32;
+                let r = D2D1_ROUNDED_RECT { rect: rect(x + 2.0, mid_y - 12.0, x + 26.0, mid_y + 12.0), radiusX: 6.0, radiusY: 6.0 };
+                unsafe {
+                    rt.FillRoundedRectangle(&r, &self.brush(rt, hex, 1.0)?);
+                    rt.DrawRoundedRectangle(&r, &self.brush(rt, t.line, 1.0)?, 1.0, None);
+                }
+            }
             Icon::Glyph(g, tone) => {
                 let (tile, alpha, ink) = match tone {
                     Tone::Accent => (Some(t.accent), 0.16, t.accent),

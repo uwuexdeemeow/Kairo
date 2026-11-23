@@ -152,7 +152,8 @@ export interface PaletteItem {
   icon:
     | { kind: "app"; path: string }
     | { kind: "file"; path: string; fileKind: "folder" | "image" | "document" | "other" }
-    | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" };
+    | { kind: "glyph"; glyph: string; tone: "" | "accent" | "warm" }
+    | { kind: "swatch"; color: string };
   section: string;
   /** The label of what Ctrl+Enter (Command+Enter on a Mac) does instead. */
   second: string | null;

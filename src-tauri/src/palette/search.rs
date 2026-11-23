@@ -465,6 +465,8 @@ pub enum Icon {
     /// A file, by its path.
     File(String),
     Glyph(Glyph, Tone),
+    /// A colour's swatch.
+    Swatch([u8; 3]),
 }
 
 /// Something Kairo has recorded time in, which can be asked about: an app or a site.
@@ -506,6 +508,8 @@ pub enum Action {
     PowerNow(Power),
     /// Leaves what was waiting to be confirmed.
     CancelPower,
+    /// Picks a colour from the screen and copies it.
+    PickColor,
     /// The volume, or the system's dark or light mode.
     Control(crate::system::Control),
     /// Ends every process of the program with this name.
@@ -1306,6 +1310,30 @@ pub fn no_files_row(query: &str) -> Item {
     note_row(format!("No files named “{}”", query.trim()), Glyph::Search, "Files")
 }
 
+/// "Pick a color from the screen", for `pick color`, `color picker` or `eyedropper`.
+fn pick_color_row(query: &str) -> Option<Item> {
+    const EXACT: &[&str] = &["pick color", "pick colour", "pick a color", "pick a colour", "color picker", "colour picker", "eyedropper"];
+    let place = super::commands::placed(query, EXACT, "Pick a color from the screen", "colour picker eyedropper sample screen pixel")?;
+    let mut item = super::commands::row("Pick a color from the screen", Glyph::Search, "Color", Action::PickColor, "Copies it as hex", place);
+    item.icon = Icon::Swatch([0xb9, 0xa2, 0xe6]);
+    Some(item)
+}
+
+/// A colour as hex, RGB and HSL, each a row that copies it, leading the results.
+fn color_items(rgb: [u8; 3]) -> Vec<Item> {
+    use super::colors;
+    [(colors::hex(rgb), "Hex"), (colors::rgb(rgb), "RGB"), (colors::hsl(rgb), "HSL")]
+        .into_iter()
+        .enumerate()
+        .map(|(i, (text, form))| {
+            let mut item = Item::new(text.clone(), Icon::Swatch(rgb), "Color", Action::Copy(text));
+            item.sub = Some(format!("Copy as {form}"));
+            item.score = 2000.0 - i as f64;
+            item
+        })
+        .collect()
+}
+
 /// The time somewhere, or a time turned into another place's (`time in tokyo`, `3pm pst in
 /// london`), as a calculator row that copies the time.
 fn zone_item(query: &str) -> Option<Item> {
@@ -1421,6 +1449,8 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         }
         if let Some(zone) = zone_item(query) {
             items.push(zone);
+        } else if let Some(rgb) = super::colors::parse(query) {
+            items.extend(color_items(rgb));
         } else if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
             item.sub = Some(with_rates(query.trim(), answer.rates));
@@ -1447,6 +1477,7 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     items.extend(commands::rows(ctx, query));
+    items.extend(pick_color_row(query));
     items.extend(task_items(ctx, query));
     items.extend(note_items(ctx, query));
     items.extend(scan_item(query));
@@ -2032,6 +2063,19 @@ pub(super) mod tests {
         let cursor = search(&c, "cursor");
         assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
         assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
+    }
+
+    #[test]
+    fn a_colour_typed_leads_with_its_three_forms_and_picking_is_offered() {
+        let c = ctx();
+        let found = search(&c, "#f80");
+        let titles: Vec<&str> = found.iter().take(3).map(|i| i.title.as_str()).collect();
+        assert_eq!(titles, ["#FF8800", "rgb(255, 136, 0)", "hsl(32, 100%, 50%)"]);
+        assert!(found[..3].iter().all(|i| i.section == "Color" && i.icon == Icon::Swatch([255, 136, 0])));
+        assert_eq!(found[1].action, Action::Copy("rgb(255, 136, 0)".into()));
+        for q in ["pick color", "colour picker", "eyedropper"] {
+            assert_eq!(search(&c, q)[0].action, Action::PickColor, "{q}");
+        }
     }
 
     #[test]

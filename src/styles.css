@@ -1411,6 +1411,16 @@ html.palette-root {
   color: var(--warm-ink);
 }
 
+/* A colour's own swatch, with the line round it so white shows on paper. */
+.palette-swatch {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 2px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .palette-row .app-icon.palette-app {
   width: 28px;
   height: 28px;
