@@ -1234,3 +1234,18 @@ meetings today and some from last week. No focus session involved except where s
     the call. Type `join` an hour before. *Expect:* the same row, saying when it starts. An event
     with no call link says "“<title>” has no video link". Ten minutes into the meeting the empty
     palette no longer offers it, but `join` still does.
+23. **Keys for your commands (1.35.0).** In Kairo's settings, Your commands, make an alias `vs`
+    for "visual studio code" (or any app) and press its Set keys, then Ctrl+Alt+V. *Expect:*
+    "Saved. Ctrl+Alt+V runs vs from anywhere." With the palette closed and another app in front,
+    press Ctrl+Alt+V. *Expect:* the app opens, the palette never shows. Try the palette's own
+    shortcut as a command's keys. *Expect:* "… opens the command palette." and the old keys kept.
+    Rename the command, then press its keys. *Expect:* it still runs. Remove it. *Expect:* the
+    keys do nothing. On GNOME or Plasma on Wayland, the keys show among the desktop's own
+    shortcuts as "Kairo: vs" (GNOME) or "Run vs" (Plasma) and work the same.
+24. **Keywords typed anywhere (1.35.0).** Give a text command "Best,{date}" the keyword `;sig`. On
+    a Mac, allow Kairo under Input Monitoring (and Accessibility) when asked, then reopen Kairo.
+    In a text editor, type `hello ;sig`. *Expect:* `;sig` is replaced with "Best,2026-…", and
+    what was on the clipboard before is there again a moment later, with nothing new in the
+    palette's clipboard history. Type `;si`, click elsewhere in the text, then `g`. *Expect:*
+    nothing happens. Type `;six`, Backspace, `g`. *Expect:* it expands. A password field on a
+    Mac never expands. On Wayland the keyword box is off and says why.
