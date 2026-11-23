@@ -105,6 +105,12 @@ fn next_at(now: NaiveDateTime, days_on: i64, times: &[NaiveTime], from_today: bo
     found.into_iter().min()
 }
 
+/// Of a bare hour's two halves, the one in the waking day (7:00 to 18:59), else the first.
+fn daytime(times: &[NaiveTime]) -> NaiveTime {
+    let day = |t: &&NaiveTime| (7..19).contains(&chrono::Timelike::hour(*t));
+    *times.iter().find(day).unwrap_or(&times[0])
+}
+
 /// A "when" at the start of `words`: when it is and how many words it took.
 fn when(words: &[&str], now: NaiveDateTime) -> Option<(NaiveDateTime, usize)> {
     let first = words.first()?.to_lowercase();
@@ -123,8 +129,9 @@ fn when(words: &[&str], now: NaiveDateTime) -> Option<(NaiveDateTime, usize)> {
             match (words.get(1).map(|w| w.to_lowercase()), words.get(2)) {
                 (Some(at), Some(_)) if at == "at" => {
                     let (times, used) = clock(&words[2..])?;
-                    // Tomorrow's "9" is its morning; today's is whichever half is still ahead.
-                    let times = if days == 1 { vec![times[0]] } else { times };
+                    // Tomorrow's bare hour is its daytime one (9 in the morning, 3 in the afternoon,
+                    // 12 at noon); today's is whichever half is still ahead.
+                    let times = if days == 1 { vec![daytime(&times)] } else { times };
                     Some((next_at(now, days, &times, false)?, 2 + used))
                 }
                 _ if days == 1 => Some((next_at(now, 1, &[NaiveTime::from_hms_opt(MORNING.0, MORNING.1, 0)?], false)?, 1)),
@@ -233,6 +240,10 @@ mod tests {
     #[test]
     fn today_tomorrow_and_tonight() {
         assert_eq!(ok("tomorrow at 9 to stretch"), ("stretch".into(), at(27, 9, 0)));
+        // A bare hour tomorrow is in the day, not the night.
+        assert_eq!(ok("tomorrow at 3 to call the bank"), ("call the bank".into(), at(27, 15, 0)));
+        assert_eq!(ok("tomorrow at 12 lunch"), ("lunch".into(), at(27, 12, 0)));
+        assert_eq!(ok("tomorrow at 3am to catch the flight"), ("catch the flight".into(), at(27, 3, 0)));
         assert_eq!(ok("to stretch tomorrow"), ("stretch".into(), at(27, 9, 0)));
         assert_eq!(ok("tonight to call mum"), ("call mum".into(), at(26, 20, 0)));
         assert_eq!(ok("today at 5pm about the parcel"), ("the parcel".into(), at(26, 17, 0)));

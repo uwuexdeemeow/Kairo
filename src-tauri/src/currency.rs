@@ -23,7 +23,9 @@ pub const CODES: [&str; 31] = [
     "EUR", "USD", "JPY", "BGN", "CZK", "DKK", "GBP", "HUF", "PLN", "RON", "SEK", "CHF", "ISK", "NOK", "TRY", "AUD", "BRL", "CAD", "CNY", "HKD", "IDR", "ILS", "INR", "KRW", "MXN", "MYR", "NZD", "PHP", "SGD", "THB", "ZAR",
 ];
 /// Other ways currencies are written, which fend knows.
-const WORDS: [&str; 12] = ["$", "€", "£", "¥", "dollar", "dollars", "euro", "euros", "pound", "pounds", "yen", "us$"];
+/// Not "pound": that's a weight as often as money, and "5 pounds in kg" isn't money ("£" and "gbp"
+/// are).
+const WORDS: [&str; 10] = ["$", "€", "£", "¥", "dollar", "dollars", "euro", "euros", "yen", "us$"];
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Rates {
@@ -54,6 +56,15 @@ mod day {
 static RATES: RwLock<Option<Rates>> = RwLock::new(None);
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static FETCHING: AtomicBool = AtomicBool::new(false);
+/// When a download was last started, and how long after it another may be.
+static LAST_TRY: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(i64::MIN / 2);
+const RETRY_MS: i64 = 5 * 60_000;
+
+/// Whether an answer is an amount of money: it ends in a currency code or starts with a symbol.
+pub fn is_money(answer: &str) -> bool {
+    let last = answer.split_whitespace().last().unwrap_or("");
+    code(last).is_some() || answer.trim_start().starts_with(['$', '€', '£', '¥'])
+}
 
 /// Reads the kept rates, and remembers the app so a download can be started from the calculator.
 /// Called as Kairo starts, before its state is managed, so it is handed the database itself.
@@ -103,9 +114,11 @@ impl fend_core::ExchangeRateFnV2 for Handler {
 /// currency conversion is typed, so nothing is downloaded for someone who never converts.
 pub fn refresh_if_old(now_ms: i64) {
     let old = RATES.read().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|r| now_ms - r.fetched_ms > STALE_MS);
-    if !old || FETCHING.swap(true, Ordering::SeqCst) {
+    // Tried lately and failed (offline, say): not again on every keystroke.
+    if !old || now_ms - LAST_TRY.load(Ordering::SeqCst) < RETRY_MS || FETCHING.swap(true, Ordering::SeqCst) {
         return;
     }
+    LAST_TRY.store(now_ms, Ordering::SeqCst);
     let Some(app) = APP.get().cloned() else {
         FETCHING.store(false, Ordering::SeqCst);
         return;
@@ -204,6 +217,9 @@ mod tests {
         for q in ["20 usd in eur", "€15 to $", "100 GBP in yen", "3 euros in dollars", "5000 jpy to chf"] {
             assert!(mentions_currency(q), "{q}");
         }
+        // A weight isn't money.
+        assert!(!mentions_currency("5 pounds in kg"));
+        assert!(is_money("16 EUR") && is_money("$12.50") && !is_money("2.26796 kg"));
         for q in ["5 km in mi", "2+2", "100 c in f", "16gb in mb"] {
             assert!(!mentions_currency(q), "{q}");
         }

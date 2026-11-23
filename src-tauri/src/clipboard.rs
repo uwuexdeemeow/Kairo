@@ -127,6 +127,14 @@ impl History {
 
     /// Keeps a copied image, newest first, the oldest going past the most.
     pub fn push_picture(&mut self, width: u32, height: u32, png: Vec<u8>, now: i64, from: Option<String>) -> u64 {
+        // The same image again (copied twice, or put back) moves to the top rather than repeating.
+        if let Some(at) = self.pictures.iter().position(|p| *p.png == png) {
+            let mut again = self.pictures.remove(at).expect("just found");
+            again.at_ms = now;
+            let id = again.id;
+            self.pictures.push_front(again);
+            return id;
+        }
         self.next_picture += 1;
         let id = self.next_picture;
         self.pictures.push_front(Picture { id, width, height, png: std::sync::Arc::new(png), at_ms: now, from });
@@ -257,6 +265,10 @@ pub fn spawn(app: AppHandle) {
                     // Not text: perhaps an image, read only when something new was copied.
                     (true, None) => {
                         let count = crate::platform::clipboard_change_count();
+                        // Kairo's own write (an image put back) is seen, but isn't a copy.
+                        if count.is_some() && count == Some(KAIRO_CHANGE.load(Ordering::SeqCst)) {
+                            seen_count = count;
+                        }
                         if count.is_some() && count != seen_count {
                             let first = seen_count.is_none();
                             seen_count = count;
@@ -310,11 +322,37 @@ pub fn decode_png(png_bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     (info.color_type == png::ColorType::Rgba).then_some((info.width, info.height, buf))
 }
 
+/// The clipboard's change number after Kairo itself put an image there, so the watcher doesn't
+/// take Kairo's own write for a new copy. u64::MAX for none.
+static KAIRO_CHANGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Notes that what's on the clipboard now was put there by Kairo.
+fn mark_ours() {
+    if let Some(count) = crate::platform::clipboard_change_count() {
+        KAIRO_CHANGE.store(count, Ordering::SeqCst);
+    }
+}
+
 /// Puts a kept image back on the clipboard.
 pub fn write_picture(app: &AppHandle, id: u64) -> std::result::Result<(), String> {
     let picture = app.state::<Shared>().picture(id).ok_or("That image is no longer in the clipboard history.")?;
     let (w, h, rgba) = decode_png(&picture.png).ok_or("That image couldn't be read back.")?;
-    app.clipboard().write_image(&tauri::image::Image::new_owned(rgba, w, h)).map_err(|e| e.to_string())
+    app.clipboard().write_image(&tauri::image::Image::new_owned(rgba, w, h)).map_err(|e| e.to_string())?;
+    mark_ours();
+    Ok(())
+}
+
+/// The image on the clipboard as it is, to put back after borrowing the clipboard: (rgba, w, h).
+pub fn image_now(app: &AppHandle) -> Option<(Vec<u8>, u32, u32)> {
+    let image = app.clipboard().read_image().ok()?;
+    Some((image.rgba().to_vec(), image.width(), image.height()))
+}
+
+/// Puts back an image taken with `image_now`, without it joining the history again.
+pub fn put_back_image(app: &AppHandle, (rgba, w, h): (Vec<u8>, u32, u32)) {
+    if app.clipboard().write_image(&tauri::image::Image::new_owned(rgba, w, h)).is_ok() {
+        mark_ours();
+    }
 }
 
 /// The app in front as a copy is seen: the one it was copied in, nearly always.
@@ -503,6 +541,13 @@ mod tests {
         let first = h.push_picture(3, 2, png.clone(), 1, Some("Snipping Tool".into()));
         for i in 0..MAX_IMAGES as i64 {
             h.push_picture(3, 2, png.clone(), 2 + i, None);
+        }
+        // The same image again isn't kept twice: only one copy of it.
+        assert_eq!(h.pictures().count(), 1);
+        assert_eq!(h.picture(first).map(|p| p.at_ms), Some(1 + MAX_IMAGES as i64));
+        for i in 0..MAX_IMAGES as u8 + 1 {
+            let other = encode_png(1, 1, &[i, 0, 0, 255]).unwrap();
+            h.push_picture(1, 1, other, 100 + i as i64, None);
         }
         assert_eq!(h.pictures().count(), MAX_IMAGES);
         // The first went, past the most.

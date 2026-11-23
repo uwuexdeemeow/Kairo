@@ -564,11 +564,15 @@ pub fn day_glance(conn: &Connection, day: NaiveDate) -> DayGlance {
 /// Notes a calculator answer as it's taken, for the Calculator's history: the row's second line
 /// is the sum as typed (with the rates' day after a "·" for money).
 pub fn note_taken(conn: &Connection, item: &Item) {
-    if item.section != "Calculator" || !matches!(item.action, Action::Copy(_)) {
+    let Action::Copy(copied) = &item.action else { return };
+    if item.section != "Calculator" {
         return;
     }
-    if let Some(sum) = item.sub.as_deref().map(|s| s.split(" · ").next().unwrap_or(s)) {
-        let _ = calc::remember(conn, sum, &item.title, now_ms());
+    let Some(sum) = item.sub.as_deref().map(|s| s.split(" · ").next().unwrap_or(s)) else { return };
+    // Only a sum the calculator itself answers this way: not a time somewhere else, which shares
+    // its section, and would be out of date by the time it was taken again.
+    if calc::evaluate(sum).is_some_and(|a| &a.text == copied) {
+        let _ = calc::remember(conn, sum, copied, now_ms());
     }
 }
 
@@ -1505,6 +1509,19 @@ mod linux {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_calculators_own_answers_join_its_history() {
+        let conn = crate::db::open(std::path::Path::new(":memory:")).unwrap();
+        let mut sum = Item::new("3.10686 mi", Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy("3.10686 mi".into()));
+        sum.sub = Some("5 km in mi".into());
+        note_taken(&conn, &sum);
+        // A time in another place shares the section but isn't a sum.
+        let mut zone = Item::new("1:00 PM in Tokyo", Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy("1:00 PM".into()));
+        zone.sub = Some("JST · Mon 23 Nov".into());
+        note_taken(&conn, &zone);
+        assert_eq!(calc::history(&conn).unwrap(), vec![("5 km in mi".to_string(), "3.10686 mi".to_string())]);
+    }
+
     use super::*;
 
     #[test]

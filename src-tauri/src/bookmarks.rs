@@ -1,6 +1,6 @@
 //! Your browsers' bookmarks, for the palette to find by name or address: Chrome, Edge, Brave,
 //! Vivaldi, Chromium, Arc and Opera (each profile's `Bookmarks` file), and Firefox (its
-//! `places.sqlite`, opened read-only so a running Firefox is left alone). Read from this
+//! `places.sqlite` and its log, read from a copy so a running Firefox is left alone). Read from this
 //! computer's own files only, again only when one of them changes; nothing leaves the computer.
 //! Safari keeps its bookmarks where macOS asks for Full Disk Access, so it isn't read.
 
@@ -132,12 +132,37 @@ pub fn from_chromium(json: &str, browser: &'static str) -> Vec<Bookmark> {
     out
 }
 
-/// Firefox's bookmarks, from its database opened read-only and as it is on disk (`immutable`),
-/// which a running Firefox's lock doesn't stop.
+/// The log a running Firefox writes new bookmarks to first, beside its database.
+fn wal_of(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push("-wal");
+    PathBuf::from(name)
+}
+
+/// Firefox's bookmarks, from a copy of its database and its write-ahead log: a running Firefox
+/// keeps new bookmarks in the log until it checkpoints, and reading the database while it changes
+/// could fail. The copy is read and then removed; Firefox's own files are only read.
 fn from_firefox(path: &Path) -> Vec<Bookmark> {
-    use rusqlite::OpenFlags;
-    let uri = format!("file:{}?immutable=1", path.to_string_lossy().replace('?', "%3f").replace('#', "%23"));
-    let Ok(conn) = rusqlite::Connection::open_with_flags(&uri, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) else { return Vec::new() };
+    static COPIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COPIES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("kairo-places-{}-{n}", std::process::id()));
+    let read = || -> Option<Vec<Bookmark>> {
+        std::fs::create_dir_all(&dir).ok()?;
+        let copy = dir.join("places.sqlite");
+        std::fs::copy(path, &copy).ok()?;
+        let wal = wal_of(path);
+        if wal.is_file() {
+            std::fs::copy(&wal, wal_of(&copy)).ok()?;
+        }
+        Some(read_places(&copy))
+    };
+    let found = read().unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+    found
+}
+
+fn read_places(path: &Path) -> Vec<Bookmark> {
+    let Ok(conn) = rusqlite::Connection::open(path) else { return Vec::new() };
     let rows = conn
         .prepare("SELECT IFNULL(b.title, ''), p.url FROM moz_bookmarks b JOIN moz_places p ON b.fk = p.id WHERE b.type = 1 AND (p.url LIKE 'http://%' OR p.url LIKE 'https://%')")
         .and_then(|mut stmt| stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>());
@@ -154,7 +179,9 @@ static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 /// The bookmarks, each address once (the first browser's), read again only when a file changed.
 pub fn all() -> Arc<Vec<Bookmark>> {
     let found = files();
-    let stamps: Vec<(PathBuf, Option<SystemTime>)> = found.iter().map(|(_, p)| (p.clone(), std::fs::metadata(p).and_then(|m| m.modified()).ok())).collect();
+    let stamp = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+    // Firefox's log changes when a bookmark is added and the database doesn't, so it's watched too.
+    let stamps: Vec<(PathBuf, Option<SystemTime>)> = found.iter().flat_map(|(_, p)| [(p.clone(), stamp(p)), (wal_of(p), stamp(&wal_of(p)))]).collect();
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((was, list)) = cache.as_ref() {
         if *was == stamps {
@@ -218,6 +245,28 @@ mod tests {
         let found = from_firefox(&path);
         assert_eq!(found.iter().map(|b| b.title.as_str()).collect::<Vec<_>>(), ["MDN", "https://example.com/"]);
         assert!(found.iter().all(|b| b.browser == "Firefox"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_bookmark_firefox_has_only_in_its_log_is_found() {
+        let dir = std::env::temp_dir().join(format!("kairo-bookmarks-wal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("places.sqlite");
+        // Firefox, running: the database in WAL mode, the new bookmark not checkpointed yet.
+        let firefox = rusqlite::Connection::open(&path).unwrap();
+        firefox
+            .execute_batch(
+                "PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0;
+                 CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT);
+                 CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, title TEXT);
+                 INSERT INTO moz_places VALUES (1, 'https://example.com/new');
+                 INSERT INTO moz_bookmarks VALUES (1, 1, 1, 'Just added');",
+            )
+            .unwrap();
+        assert!(wal_of(&path).is_file());
+        assert_eq!(from_firefox(&path).iter().map(|b| b.title.as_str()).collect::<Vec<_>>(), ["Just added"]);
+        drop(firefox);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

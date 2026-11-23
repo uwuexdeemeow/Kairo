@@ -3,7 +3,7 @@
 //! kept in memory only, and forgotten on a click, a new window in front, or a key that moves the
 //! caret, so a keyword is only ever one typed in a row. When what was typed ends with a keyword,
 //! it's taken back with Backspaces and the text pasted in its place, through the clipboard, which
-//! is put back as it was after.
+//! is put back after: text or an image as it was; copied files and other kinds can't be.
 //!
 //! The listener runs only while some command has a keyword, and not at all on Wayland, where no
 //! app may see another's keys. Nothing typed is written anywhere or leaves this module.
@@ -141,6 +141,8 @@ fn swap(keyword: &str, template: &str) {
     // The keyword's last key is still on its way to the app.
     std::thread::sleep(std::time::Duration::from_millis(40));
     let before = app.clipboard().read_text().ok();
+    // Not text: an image, put back as it was after (files and other kinds can't be).
+    let before_image = if before.is_none() { crate::clipboard::image_now(app) } else { None };
     let text = crate::custom_commands::expand(template, chrono::Local::now().naive_local(), before.as_deref());
     if !crate::platform::typing::backspaces(keyword.chars().count()) {
         // Said once a run: the next keyword would only say it again.
@@ -164,6 +166,8 @@ fn swap(keyword: &str, template: &str) {
     std::thread::sleep(std::time::Duration::from_millis(250));
     if let Some(before) = before {
         let _ = crate::clipboard::write_quietly(app, &before);
+    } else if let Some(image) = before_image {
+        crate::clipboard::put_back_image(app, image);
     }
 }
 

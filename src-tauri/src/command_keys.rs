@@ -56,8 +56,19 @@ pub fn change(app: &AppHandle, conn: &Connection, name: &str, new: &str) -> Resu
         unregister(app, &cmd.name, &old);
     }
     custom_commands::set_keys_saved(conn, &cmd.name, new).map_err(err)?;
+    // What was just registered is noted before `refresh`, or it would try to register the same
+    // keys again, be refused as taken, and forget them: they'd open the palette instead.
+    note(&mut REGISTERED.lock().unwrap_or_else(|e| e.into_inner()), &cmd.name, new);
     refresh(app, conn);
     Ok(())
+}
+
+/// Notes that command `name` now has keys `new` ("" for none) in the list of what's registered.
+fn note(registered: &mut Vec<(String, String)>, name: &str, new: &str) {
+    registered.retain(|(_, n)| !n.eq_ignore_ascii_case(name));
+    if !new.is_empty() {
+        registered.push((new.to_string(), name.to_string()));
+    }
 }
 
 /// Matches what's registered to the commands as they are now: after a command is renamed,
@@ -133,6 +144,15 @@ fn run_now(app: &AppHandle, name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_just_set_are_noted_as_registered_so_they_run_their_command() {
+        let mut registered = vec![("Ctrl+Alt+S".to_string(), "sig".to_string()), ("Ctrl+Alt+V".to_string(), "vs".to_string())];
+        note(&mut registered, "SIG", "Ctrl+Alt+X");
+        assert_eq!(registered, vec![("Ctrl+Alt+V".to_string(), "vs".to_string()), ("Ctrl+Alt+X".to_string(), "SIG".to_string())]);
+        note(&mut registered, "vs", "");
+        assert_eq!(registered, vec![("Ctrl+Alt+X".to_string(), "SIG".to_string())]);
+    }
 
     #[test]
     fn keys_are_refused_when_kairo_or_another_command_has_them() {
