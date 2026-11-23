@@ -540,8 +540,8 @@ mod tests {
         let (month_quiet, year_quiet) = (month(&conn, date(10, 1), now).unwrap(), year(&conn, date(1, 1), now).unwrap());
         assert!(!month_message(&month_quiet).1.contains("Meetings") && !year_message(&year_quiet).1.contains("Meetings"));
         crate::calendar::store(&conn, &[
-            crate::calendar::Event { start_ms: at(date(10, 7)), end_ms: at(date(10, 7)) + 90 * MIN_MS, title: "m".into() },
-            crate::calendar::Event { start_ms: at(date(3, 2)), end_ms: at(date(3, 2)) + 60 * MIN_MS, title: "m".into() },
+            crate::calendar::Event { start_ms: at(date(10, 7)), end_ms: at(date(10, 7)) + 90 * MIN_MS, title: "m".into(), link: None },
+            crate::calendar::Event { start_ms: at(date(3, 2)), end_ms: at(date(3, 2)) + 60 * MIN_MS, title: "m".into(), link: None },
         ]).unwrap();
         let (m, y) = (month(&conn, date(10, 1), now).unwrap(), year(&conn, date(1, 1), now).unwrap());
         assert!(month_message(&m).1.contains("Meetings: 1h 30m."), "{}", month_message(&m).1);
@@ -553,7 +553,7 @@ mod tests {
         let conn = db::open(std::path::Path::new(":memory:")).unwrap();
         let monday = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
         let at = |date: NaiveDate, hour: i64| analysis::day_bounds(date).unwrap().0 + hour * 60 * MIN_MS;
-        let meeting = |date: NaiveDate, hour: i64, minutes: i64| crate::calendar::Event { start_ms: at(date, hour), end_ms: at(date, hour) + minutes * MIN_MS, title: "m".into() };
+        let meeting = |date: NaiveDate, hour: i64, minutes: i64| crate::calendar::Event { start_ms: at(date, hour), end_ms: at(date, hour) + minutes * MIN_MS, title: "m".into(), link: None };
         crate::calendar::store(&conn, &[
             meeting(monday - Days::new(2), 9, 60),
             meeting(monday, 10, 90),

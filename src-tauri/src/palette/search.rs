@@ -816,6 +816,16 @@ pub struct Live {
     pub theme: String,
 }
 
+/// A meeting as the palette offers to join it, in local time.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeetingNow {
+    pub title: String,
+    pub start: NaiveDateTime,
+    pub end: NaiveDateTime,
+    /// Its video call, when the calendar names one.
+    pub link: Option<String>,
+}
+
 /// What's known when the palette opens.
 pub struct Context {
     pub today: NaiveDate,
@@ -855,6 +865,8 @@ pub struct Context {
     pub scripts: Vec<crate::scripts::Script>,
     /// What you usually do at this time on this weekday (usual.rs), best first.
     pub usual: Vec<crate::usual::Habit>,
+    /// The meeting to join: the one on now, or else the next one.
+    pub join: Option<MeetingNow>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1585,9 +1597,13 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
     if !ctx.suggestions {
         return Suggestions { rows, tiles, chips };
     }
+    // A meeting about to start, or just started, with a call to join: first of all.
+    rows.extend(super::tools::join_suggestion(ctx));
     use crate::usual::Thing;
+    // Not a session a meeting would cut into: it's offered only when it can end before the next one.
+    let fits = |minutes: u32| ctx.join.as_ref().is_none_or(|m| m.end <= ctx.live.now || m.start >= ctx.live.now + chrono::Duration::minutes(minutes as i64));
     let usual_focus = ctx.usual.iter().find_map(|h| match &h.thing {
-        Thing::Focus(minutes, label) => Some((h, *minutes, label.clone())),
+        Thing::Focus(minutes, label) if fits(*minutes) => Some((h, *minutes, label.clone())),
         _ => None,
     });
     match &ctx.live.session {
@@ -1689,6 +1705,11 @@ pub(super) mod tests {
         c.usual.pop();
         // It takes the generic focus row's place.
         assert!(!rows.iter().any(|r| r.title == "Start a 25-minute focus session"));
+        // A meeting in 20 minutes would cut the 50-minute session short, so it isn't offered.
+        let start = c.live.now + chrono::Duration::minutes(20);
+        c.join = Some(MeetingNow { title: "Standup".into(), start, end: start + chrono::Duration::minutes(15), link: None });
+        assert!(!suggestions(&c).rows.iter().any(|r| r.title.starts_with("Start a 50-minute")));
+        c.join = None;
         // With nothing usual, the generic row is back.
         c.usual.clear();
         assert!(suggestions(&c).rows.iter().any(|r| r.title == "Start a 25-minute focus session"));
@@ -1722,6 +1743,7 @@ pub(super) mod tests {
             emoji_uses: Vec::new(),
             scripts: Vec::new(),
             usual: Vec::new(),
+            join: None,
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

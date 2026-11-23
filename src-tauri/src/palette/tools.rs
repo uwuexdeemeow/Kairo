@@ -135,6 +135,73 @@ pub fn script_rows(ctx: &Context, query: &str) -> Vec<Item> {
     items
 }
 
+/// A join row shows in the empty palette from this long before a meeting starts…
+const JOIN_BEFORE_MIN: i64 = 5;
+/// …until this long after.
+const JOIN_AFTER_MIN: i64 = 10;
+
+/// When a meeting is, as a row says it: "Starts in 3 min", "Started 4 min ago", "Tomorrow at
+/// 09:00", with its call service when it has one.
+fn meeting_when(m: &super::search::MeetingNow, now: chrono::NaiveDateTime) -> String {
+    let minutes = |d: chrono::Duration| (d.num_seconds() + 59) / 60;
+    let when = if m.start > now {
+        let wait = m.start - now;
+        match (minutes(wait), (m.start.date() - now.date()).num_days()) {
+            (n, _) if n < 60 => format!("Starts in {n} min"),
+            (_, 0) => format!("Today at {}", m.start.format("%H:%M")),
+            (_, 1) => format!("Tomorrow at {}", m.start.format("%H:%M")),
+            _ => m.start.format("%A at %H:%M").to_string(),
+        }
+    } else {
+        match (now - m.start).num_minutes() {
+            0 => "Starting now".to_string(),
+            n if n < 60 => format!("Started {n} min ago"),
+            _ => format!("On until {}", m.end.format("%H:%M")),
+        }
+    };
+    match m.link.as_deref().and_then(crate::calendar::call_service) {
+        Some(service) => format!("{when} · {service}"),
+        None => when,
+    }
+}
+
+fn join_row(m: &super::search::MeetingNow, now: chrono::NaiveDateTime, section: &'static str, place: (f64, Vec<usize>)) -> Item {
+    match &m.link {
+        Some(link) => row(format!("Join “{}”", m.title), Glyph::Link, section, Action::OpenUrl(link.clone()), meeting_when(m, now), place),
+        // Nothing to open: said, with when it is.
+        None => {
+            let mut item = note_row(format!("“{}” has no video link", m.title), Glyph::Day, section);
+            item.sub = Some(meeting_when(m, now));
+            item.score = place.0;
+            item
+        }
+    }
+}
+
+/// `join` opens the call of the meeting on now, or else the next one.
+pub fn join_rows(ctx: &Context, query: &str) -> Vec<Item> {
+    let exact = ["join", "join meeting", "join call", "join the meeting"];
+    let Some(place) = placed(query, &exact, "Join meeting", "join meeting call video zoom meet teams webex") else { return Vec::new() };
+    match &ctx.join {
+        Some(m) => vec![join_row(m, ctx.live.now, "Meetings", place)],
+        None if exact.iter().any(|e| query.trim().eq_ignore_ascii_case(e)) => {
+            let mut item = note_row("No meetings coming up on your calendars", Glyph::Day, "Meetings");
+            item.score = LEAD;
+            vec![item]
+        }
+        None => Vec::new(),
+    }
+}
+
+/// The meeting to join as the palette opens: from a few minutes before it starts until a few
+/// after, and only when there's a call to open.
+pub fn join_suggestion(ctx: &Context) -> Option<Item> {
+    let m = ctx.join.as_ref().filter(|m| m.link.is_some())?;
+    let now = ctx.live.now;
+    let soon = m.start - chrono::Duration::minutes(JOIN_BEFORE_MIN) <= now && now <= m.start + chrono::Duration::minutes(JOIN_AFTER_MIN);
+    (soon && now < m.end).then(|| join_row(m, now, "Suggested", (0.0, Vec::new())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::search::tests::ctx;
@@ -147,6 +214,59 @@ mod tests {
         let mut c = ctx();
         c.windows = vec![WindowEntry { id: "42".into(), title: "notes.md — Visual Studio Code".into(), app: "Code".into(), icon: None }];
         c
+    }
+
+    fn meeting(starts_in_min: i64, link: Option<&str>) -> (Context, chrono::NaiveDateTime) {
+        let mut c = ctx();
+        let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 26).unwrap().and_hms_opt(9, 0, 0).unwrap();
+        c.live.now = now;
+        let start = now + chrono::Duration::minutes(starts_in_min);
+        c.join = Some(super::super::search::MeetingNow { title: "Standup".into(), start, end: start + chrono::Duration::minutes(15), link: link.map(Into::into) });
+        (c, now)
+    }
+
+    #[test]
+    fn join_opens_the_call_of_the_meeting_on_now_or_next() {
+        let (c, _) = meeting(3, Some("https://meet.google.com/abc-defg-hij"));
+        let found = search(&c, "join");
+        assert_eq!((found[0].title.as_str(), found[0].action.clone()), ("Join “Standup”", Action::OpenUrl("https://meet.google.com/abc-defg-hij".into())));
+        assert_eq!(found[0].sub.as_deref(), Some("Starts in 3 min · Google Meet"));
+        assert_eq!(found[0].action.verb(), "Open");
+        let (c, _) = meeting(-4, Some("https://us02web.zoom.us/j/1"));
+        assert_eq!(search(&c, "join meeting")[0].sub.as_deref(), Some("Started 4 min ago · Zoom"));
+        let (c, _) = meeting(24 * 60 + 30, Some("https://us02web.zoom.us/j/1"));
+        assert_eq!(search(&c, "join")[0].sub.as_deref(), Some("Tomorrow at 09:30 · Zoom"));
+        // Found loosely too.
+        let (c, _) = meeting(3, Some("https://us02web.zoom.us/j/1"));
+        assert!(search(&c, "zoom").iter().any(|i| i.title == "Join “Standup”"));
+    }
+
+    #[test]
+    fn join_says_so_when_there_is_no_call_or_no_meeting() {
+        let (c, _) = meeting(3, None);
+        let found = search(&c, "join");
+        assert!(found[0].is_note());
+        assert_eq!((found[0].title.as_str(), found[0].sub.as_deref()), ("“Standup” has no video link", Some("Starts in 3 min")));
+        let mut c = ctx();
+        c.join = None;
+        assert_eq!(search(&c, "join")[0].title, "No meetings coming up on your calendars");
+        assert!(!search(&c, "zoom").iter().any(|i| i.section == "Meetings"));
+    }
+
+    #[test]
+    fn the_empty_palette_offers_the_call_from_just_before_until_just_after_it_starts() {
+        use super::super::search::suggestions;
+        let leads = |starts_in: i64, link: Option<&str>| {
+            let (c, _) = meeting(starts_in, link);
+            suggestions(&c).rows.first().map(|r| r.title.clone())
+        };
+        let link = Some("https://meet.google.com/abc");
+        assert_eq!(leads(4, link).as_deref(), Some("Join “Standup”"));
+        assert_eq!(leads(-9, link).as_deref(), Some("Join “Standup”"));
+        // Too early, too late, or nothing to open: the palette opens as usual.
+        assert_ne!(leads(20, link).as_deref(), Some("Join “Standup”"));
+        assert_ne!(leads(-11, link).as_deref(), Some("Join “Standup”"));
+        assert_ne!(leads(2, None).as_deref(), Some("Join “Standup”"));
     }
 
     #[test]

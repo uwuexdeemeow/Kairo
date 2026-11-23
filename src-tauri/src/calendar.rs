@@ -32,11 +32,59 @@ fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Event {
     pub start_ms: i64,
     pub end_ms: i64,
     pub title: String,
+    /// The video call to join it by (Zoom, Google Meet, Teams…), when the event names one.
+    pub link: Option<String>,
+}
+
+// ---------- the call to join ----------
+
+/// Video call services by the host their links are on, and what to call them.
+const CALL_HOSTS: [(&str, &str); 11] = [
+    ("zoom.us", "Zoom"),
+    ("zoomgov.com", "Zoom"),
+    ("meet.google.com", "Google Meet"),
+    ("teams.microsoft.com", "Microsoft Teams"),
+    ("teams.live.com", "Microsoft Teams"),
+    ("webex.com", "Webex"),
+    ("whereby.com", "Whereby"),
+    ("meet.jit.si", "Jitsi Meet"),
+    ("chime.aws", "Amazon Chime"),
+    ("gotomeeting.com", "GoTo Meeting"),
+    ("around.co", "Around"),
+];
+
+/// The host of an http(s) address, lower case.
+fn host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let host = rest.split(['/', '?', '#', ':']).next()?.to_ascii_lowercase();
+    (!host.is_empty()).then_some(host)
+}
+
+/// The service a call link is on ("Zoom"), when it's one Kairo knows.
+pub fn call_service(url: &str) -> Option<&'static str> {
+    let host = host(url)?;
+    CALL_HOSTS.iter().find(|(h, _)| host == *h || host.ends_with(&format!(".{h}"))).map(|(_, name)| *name)
+}
+
+/// The first video call link in some text: an http(s) address on a known call service, cut at the
+/// first space or bracket and without trailing punctuation.
+pub fn call_link(text: &str) -> Option<String> {
+    let mut rest = text;
+    while let Some(at) = rest.find("http") {
+        let tail = &rest[at..];
+        let end = tail.find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | '}' | '|')).unwrap_or(tail.len());
+        let url = tail[..end].trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        if call_service(url).is_some() {
+            return Some(url.to_string());
+        }
+        rest = &tail[4..];
+    }
+    None
 }
 
 // ---------- reading a calendar ----------
@@ -169,6 +217,12 @@ pub fn parse(ics: &str, from_ms: i64, to_ms: i64) -> Vec<Event> {
         };
         let Some(length) = length.filter(|&l| l > 0) else { continue };
         let title = find(props, "SUMMARY").map(|i| unescape(&props[i].value)).filter(|t| !t.is_empty()).unwrap_or_else(|| "Meeting".into());
+        // Where calendars put the call: Google's own field, the standard CONFERENCE and URL, then
+        // the location and the description, where invitations paste it.
+        let link = ["X-GOOGLE-CONFERENCE", "CONFERENCE", "URL", "LOCATION", "DESCRIPTION", "X-ALT-DESC"]
+            .iter()
+            .flat_map(|name| props.iter().filter(move |p| p.name == *name))
+            .find_map(|p| call_link(&unescape(&p.value)));
 
         let repeats = props.iter().any(|p| matches!(p.name.as_str(), "RRULE" | "RDATE"));
         let recurring: Vec<String> = props.iter().filter(|p| matches!(p.name.as_str(), "RRULE" | "RDATE" | "EXDATE")).map(|p| p.as_line(&p.name)).collect();
@@ -188,7 +242,7 @@ pub fn parse(ics: &str, from_ms: i64, to_ms: i64) -> Vec<Event> {
         };
         for s in starts {
             if s < to_ms && s + length > from_ms {
-                out.push(Event { start_ms: s, end_ms: s + length, title: title.clone() });
+                out.push(Event { start_ms: s, end_ms: s + length, title: title.clone(), link: link.clone() });
             }
         }
     }
@@ -204,7 +258,7 @@ pub fn store(conn: &Connection, events: &[Event]) -> rusqlite::Result<()> {
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM calendar_events", [])?;
     for e in events {
-        tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title) VALUES (?1, ?2, ?3)", params![e.start_ms, e.end_ms, e.title])?;
+        tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title, link) VALUES (?1, ?2, ?3, ?4)", params![e.start_ms, e.end_ms, e.title, e.link])?;
     }
     tx.commit()
 }
@@ -215,7 +269,7 @@ pub fn replace_window(conn: &Connection, events: &[Event], from: i64, to: i64) -
     let tx = conn.unchecked_transaction()?;
     tx.execute("DELETE FROM calendar_events WHERE start_ms >= ?1 AND start_ms < ?2", params![from, to])?;
     for e in events.iter().filter(|e| e.start_ms >= from && e.start_ms < to) {
-        tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title) VALUES (?1, ?2, ?3)", params![e.start_ms, e.end_ms, e.title])?;
+        tx.execute("INSERT INTO calendar_events (start_ms, end_ms, title, link) VALUES (?1, ?2, ?3, ?4)", params![e.start_ms, e.end_ms, e.title, e.link])?;
     }
     tx.commit()
 }
@@ -253,8 +307,8 @@ pub fn merged(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<(i6
 
 /// Events overlapping [from, to), earliest first.
 pub fn between(conn: &Connection, from: i64, to: i64) -> rusqlite::Result<Vec<Event>> {
-    let mut stmt = conn.prepare("SELECT start_ms, end_ms, title FROM calendar_events WHERE end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms")?;
-    let events = stmt.query_map(params![from, to], |r| Ok(Event { start_ms: r.get(0)?, end_ms: r.get(1)?, title: r.get(2)? }))?.collect();
+    let mut stmt = conn.prepare("SELECT start_ms, end_ms, title, link FROM calendar_events WHERE end_ms > ?1 AND start_ms < ?2 ORDER BY start_ms")?;
+    let events = stmt.query_map(params![from, to], |r| Ok(Event { start_ms: r.get(0)?, end_ms: r.get(1)?, title: r.get(2)?, link: r.get(3)? }))?.collect();
     events
 }
 
@@ -398,6 +452,68 @@ mod tests {
         Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap().timestamp_millis()
     }
 
+    #[test]
+    fn a_call_link_is_found_where_calendars_put_it() {
+        let ics = "BEGIN:VCALENDAR\r
+BEGIN:VEVENT\r
+UID:a\r
+SUMMARY:Standup\r
+DTSTART:20261026T090000Z\r
+DTEND:20261026T091500Z\r
+DESCRIPTION:Notes: https://docs.example.com/agenda\\nJoin Zoom Meeting\\nhttps://us02web.zoom.us/j/8\r
+ 1234567?pwd=abc. Meeting ID: 812 3456\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:b\r
+SUMMARY:1:1\r
+DTSTART:20261026T100000Z\r
+DTEND:20261026T103000Z\r
+LOCATION:Room 4 or https://meet.google.com/abc-defg-hij\r
+X-GOOGLE-CONFERENCE:https://meet.google.com/xyz-wxyz-xyz\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:c\r
+SUMMARY:Review\r
+DTSTART:20261026T110000Z\r
+DTEND:20261026T120000Z\r
+LOCATION:Microsoft Teams Meeting <https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0>\r
+END:VEVENT\r
+BEGIN:VEVENT\r
+UID:d\r
+SUMMARY:Lunch\r
+DTSTART:20261026T120000Z\r
+DTEND:20261026T130000Z\r
+LOCATION:https://maps.example.com/cafe\r
+END:VEVENT\r
+END:VCALENDAR\r
+";
+        let events = parse(ics, ms(2026, 10, 26, 0, 0), ms(2026, 10, 27, 0, 0));
+        let links: Vec<(&str, Option<&str>)> = events.iter().map(|e| (e.title.as_str(), e.link.as_deref())).collect();
+        assert_eq!(
+            links,
+            vec![
+                // Past the docs link, folded across lines, the trailing full stop left off.
+                ("Standup", Some("https://us02web.zoom.us/j/81234567?pwd=abc")),
+                // Google's own field wins over one pasted in the location.
+                ("1:1", Some("https://meet.google.com/xyz-wxyz-xyz")),
+                ("Review", Some("https://teams.microsoft.com/l/meetup-join/19%3ameeting_x%40thread.v2/0")),
+                // A link that isn't a call.
+                ("Lunch", None),
+            ]
+        );
+        assert_eq!(call_service("https://us02web.zoom.us/j/1"), Some("Zoom"));
+        assert_eq!(call_service("https://evilzoom.us/j/1"), None);
+        assert_eq!(call_service("https://zoom.us.example.com/j/1"), None);
+    }
+
+    #[test]
+    fn a_link_is_kept_with_its_meeting_and_forgotten_with_its_title() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let e = Event { start_ms: 1_000, end_ms: 2_000, title: "Standup".into(), link: Some("https://meet.google.com/abc".into()) };
+        store(&conn, &[e.clone()]).unwrap();
+        assert_eq!(between(&conn, 0, 3_000).unwrap(), vec![e]);
+    }
+
     const ICS: &str = "BEGIN:VCALENDAR\r
 VERSION:2.0\r
 BEGIN:VEVENT\r
@@ -486,7 +602,7 @@ END:VCALENDAR\r
     const H: i64 = 3_600_000;
 
     fn ev(start_ms: i64, end_ms: i64, title: &str) -> Event {
-        Event { start_ms, end_ms, title: title.into() }
+        Event { start_ms, end_ms, title: title.into(), link: None }
     }
 
     #[test]

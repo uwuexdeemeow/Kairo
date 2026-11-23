@@ -1227,3 +1227,10 @@ meetings today and some from last week. No focus session involved except where s
     25-minute focus session" and Enter starts it with its label. An app you have open right now
     isn't among them. A site row opens the site. Turn off Palette suggestions in Kairo's settings.
     *Expect:* the section is gone.
+22. **Joining a meeting (1.34.0).** Add a calendar event starting in five minutes with a Zoom,
+    Google Meet or Teams link in its description (or Google's own "Join with Google Meet"), and
+    wait for the next calendar read (up to half an hour, or reopen Kairo). Open the palette with
+    nothing typed. *Expect:* "Join “<title>”" first, "Starts in N min · Google Meet"; Enter opens
+    the call. Type `join` an hour before. *Expect:* the same row, saying when it starts. An event
+    with no call link says "“<title>” has no video link". Ten minutes into the meeting the empty
+    palette no longer offers it, but `join` still does.

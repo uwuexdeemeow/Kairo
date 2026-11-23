@@ -653,7 +653,7 @@ mod tests {
         assert!(!subjects(&conn, &[]).unwrap().iter().any(|s| s.key == "meetings"));
         let today = Local::now().date_naive();
         let start = bounds(today).0 + 3_600_000;
-        let event = |from: i64, minutes: i64| crate::calendar::Event { start_ms: from, end_ms: from + minutes * 60_000, title: "m".into() };
+        let event = |from: i64, minutes: i64| crate::calendar::Event { start_ms: from, end_ms: from + minutes * 60_000, title: "m".into(), link: None };
         // One an hour long yesterday, and two that overlap today.
         let yesterday = bounds(today - Duration::days(1)).0 + 3_600_000;
         crate::calendar::store(&conn, &[event(yesterday, 60), event(start, 90), event(start + 3_600_000, 60)]).unwrap();
