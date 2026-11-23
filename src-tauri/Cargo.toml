@@ -37,6 +37,8 @@ sys-locale = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rrule = "0.14.0"
+# Time zones for the palette (`time in tokyo`); the version rrule already builds.
+chrono-tz = "0.10"
 # Linking computers with a code: what goes to the relay is sealed here, and the code is turned
 # into a shared key with SPAKE2. All pure Rust, the same on every system.
 chacha20poly1305 = "0.10"

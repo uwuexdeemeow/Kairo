@@ -28,6 +28,7 @@ pub mod mode;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
+pub mod timezones;
 pub mod settings;
 pub mod tools;
 #[cfg(not(windows))]

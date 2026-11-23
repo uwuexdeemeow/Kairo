@@ -1303,6 +1303,16 @@ pub fn no_files_row(query: &str) -> Item {
     note_row(format!("No files named “{}”", query.trim()), Glyph::Search, "Files")
 }
 
+/// The time somewhere, or a time turned into another place's (`time in tokyo`, `3pm pst in
+/// london`), as a calculator row that copies the time.
+fn zone_item(query: &str) -> Option<Item> {
+    let zone = super::timezones::answer(query, chrono::Utc::now(), &chrono::Local)?;
+    let mut item = Item::new(zone.title, Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(zone.copy));
+    item.sub = Some(zone.sub);
+    item.score = 2000.0;
+    Some(item)
+}
+
 /// A row that only says something, like a mode's hint before anything is typed.
 pub(super) fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static str) -> Item {
     Item::new(title, Icon::Glyph(glyph, Tone::Plain), section, Action::Nothing)
@@ -1313,6 +1323,7 @@ pub(super) fn note_row(title: impl Into<String>, glyph: Glyph, section: &'static
 pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
     let q = text.trim();
     match mode {
+        Mode::Calc if zone_item(q).is_some() => zone_item(q).into_iter().collect(),
         Mode::Calc => match calc::evaluate(q) {
             Some(answer) => {
                 let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
@@ -1405,7 +1416,9 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         if money && calc::answer(query).is_none() {
             items.extend(money_note(ctx.live.now));
         }
-        if let Some(answer) = calc::answer(query) {
+        if let Some(zone) = zone_item(query) {
+            items.push(zone);
+        } else if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
             item.sub = Some(with_rates(query.trim(), answer.rates));
             item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
@@ -2016,6 +2029,17 @@ pub(super) mod tests {
         let cursor = search(&c, "cursor");
         assert_eq!(titles(&cursor)[..2], ["Cursor", "Cursor this week"]);
         assert!(matches!(search(&c, "focus 25")[0].preview, Some(Preview::Focus(25, None))));
+    }
+
+    #[test]
+    fn time_zones_lead_as_a_calculator_row_that_copies_the_time() {
+        let c = ctx();
+        for q in ["time in tokyo", "3pm pst in london", "noon tokyo to berlin"] {
+            let top = &search(&c, q)[0];
+            assert_eq!(top.section, "Calculator", "{q}");
+            assert!(matches!(&top.action, Action::Copy(t) if t.ends_with(" am") || t.ends_with(" pm")), "{q}");
+        }
+        assert!(search_in(&c, Mode::Calc, "time in tokyo")[0].title.ends_with("in Tokyo"));
     }
 
     #[test]
