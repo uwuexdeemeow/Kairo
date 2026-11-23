@@ -1193,3 +1193,30 @@ meetings today and some from last week. No focus session involved except where s
     two computers combined: make a link and a text on one. *Expect:* both appear on the other
     within a minute or two, a folder command made on one never does, and a folder command of the
     same name on the other is kept. Remove the link. *Expect:* it goes from both.
+20. **The Raycast-style tools (1.32.0).** Open a text editor, then the palette.
+    - *Snapping.* Type `left half`, Enter. *Expect:* the editor fills the left half of its screen
+      (on Windows, with no gap from the invisible border). Try `right half`, `maximize`, `center`
+      and, with two screens, `next display` twice. Then `restore`. *Expect:* it's back where it
+      started. On a Mac without Accessibility access, *expect* the palette to say it's needed; on
+      Wayland, that Wayland doesn't allow it.
+    - *Layouts.* Arrange three windows, type `save layout test`, Enter. *Expect:* a notification
+      "Layout saved". Move them, type `layout test`. *Expect:* they go back. In Kairo's Settings,
+      Window layouts, give it the focus label `essay`, then start `focus 25 essay`. *Expect:* the
+      windows go back as the session starts (end it at once).
+    - *Paste.* Copy two pieces of text in different apps, type `clip`. *Expect:* each row says
+      "from <app>"; Enter pastes into the editor. Ctrl+Enter on one pins it; it moves up as
+      "Pinned" and stays after Kairo restarts; "Clear clipboard history" leaves it. On Wayland,
+      *expect* a notification "Copied: Press Ctrl+V to paste it." instead of a paste.
+    - *Commands.* Add a link `jira` = `example.com/browse/{query}`, a text `stamp` =
+      `Seen {date} {time}`, and "Runs a palette command" `vs` = `visual studio code` (or any app).
+      Type `jira KAI 7`. *Expect:* it opens example.com/browse/KAI%207. `stamp` pastes today's date
+      and time; `vs` shows "Runs “<app>”" and opens it.
+    - *Emoji.* Type `:fire`, Enter. *Expect:* 🔥 pasted, drawn in colour in the palette. Use 💜 a
+      few times; `:heart` then lists it first.
+    - *Currency.* Type `20 usd in eur`. *Expect:* first time "Getting today's exchange rates…",
+      then (type again) an answer with "Rates from <day> (European Central Bank)". Offline, the
+      last rates still answer.
+    - *Scripts.* In Settings, Scripts, press Open scripts folder. *Expect:* a folder with
+      hello.ps1 (Windows) or hello.sh. Type `say hello Sam`. *Expect:* a notification "Hello,
+      Sam!". Add a script that sleeps 70 s. *Expect:* after a minute, "…didn't work: It ran for over
+      a minute". A script whose interpreter is missing says which program wasn't found.

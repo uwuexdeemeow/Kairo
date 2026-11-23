@@ -1,6 +1,6 @@
 [package]
 name = "kairo"
-version = "1.31.72"
+version = "1.32.0"
 description = "Local-first screen time tracker that explains your focus patterns"
 edition = "2021"
 
@@ -51,7 +51,7 @@ spake2 = { version = "0.4", features = ["getrandom"] }
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSData", "NSDictionary", "NSGeometry"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSData", "NSArray", "NSDictionary", "NSGeometry", "NSThread"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
   "libc",
@@ -63,6 +63,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSPanel",
   "NSResponder",
   "NSRunningApplication",
+  "NSScreen",
   "NSView",
   "NSVisualEffectView",
   "NSWindow",
@@ -75,7 +76,8 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 # and single-instance already build.
 [target.'cfg(not(any(windows, target_os = "macos")))'.dependencies]
 libc = "0.2"
-x11rb = { version = "0.13", features = ["screensaver"] }
+# randr for each monitor's place, xtest to press Ctrl+V when the palette pastes.
+x11rb = { version = "0.13", features = ["screensaver", "randr", "xtest"] }
 zbus = "5"
 # Coloring the window's title bar to the theme; the version Tauri already builds.
 gtk = "0.18"

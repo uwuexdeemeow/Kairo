@@ -17,7 +17,7 @@ use windows::Win32::Graphics::Direct2D::Common::{
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1RenderTarget, ID2D1SolidColorBrush, ID2D1StrokeStyle, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
-    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_ELLIPSE,
+    D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, D2D1_BITMAP_PROPERTIES, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_ROUND, D2D1_DASH_STYLE_DASH, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_ELLIPSE,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_LINE_JOIN_ROUND, D2D1_PRESENT_OPTIONS_NONE,
     D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_STROKE_STYLE_PROPERTIES,
     D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
@@ -1250,6 +1250,12 @@ impl Palette {
             }
             return;
         }
+        // Words wanted after a name: the name is typed for you, the caret after it.
+        if let Action::Type(text) = &item.action {
+            set_edit_text(self.edit, text);
+            self.refresh();
+            return;
+        }
         // A mode row puts the palette in that mode, with nothing typed after its bubble yet.
         if let Action::EnterMode(mode) = item.action {
             self.set_mode(Some(mode));
@@ -1443,7 +1449,7 @@ impl Palette {
                 }
             }
             let brush = self.brush(rt, hex, 1.0)?;
-            rt.DrawTextLayout(v(x, y), &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
+            rt.DrawTextLayout(v(x, y), &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
             if !marked.is_empty() {
                 let mut line = [DWRITE_LINE_METRICS::default()];
                 let mut lines = 0;
@@ -1542,6 +1548,33 @@ impl Palette {
                     circle(12.0, 12.0, 9.0);
                     line((12.0, 8.0), (12.0, 13.0));
                     line((12.0, 16.5), (12.0, 17.0));
+                }
+                Some(Glyph::Window) => {
+                    let r = D2D1_ROUNDED_RECT { rect: rect(x + 3.0 * k, y + 4.0 * k, x + 21.0 * k, y + 20.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
+                    rt.DrawRoundedRectangle(&r, &brush, width, stroke);
+                    line((3.0, 8.0), (21.0, 8.0));
+                    line((12.0, 8.0), (12.0, 20.0));
+                }
+                Some(Glyph::Smile) => {
+                    circle(12.0, 12.0, 9.0);
+                    line((9.0, 9.5), (9.0, 10.0));
+                    line((15.0, 9.5), (15.0, 10.0));
+                    for pair in [(8.5, 14.0), (10.0, 15.6), (12.0, 16.2), (14.0, 15.6), (15.5, 14.0)].windows(2) {
+                        line(pair[0], pair[1]);
+                    }
+                }
+                Some(Glyph::Script) => {
+                    let r = D2D1_ROUNDED_RECT { rect: rect(x + 3.0 * k, y + 4.0 * k, x + 21.0 * k, y + 20.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
+                    rt.DrawRoundedRectangle(&r, &brush, width, stroke);
+                    line((7.0, 9.0), (10.0, 12.0));
+                    line((10.0, 12.0), (7.0, 15.0));
+                    line((12.0, 15.0), (17.0, 15.0));
+                }
+                Some(Glyph::Link) => {
+                    let r1 = D2D1_ROUNDED_RECT { rect: rect(x + 2.5 * k, y + 8.5 * k, x + 13.5 * k, y + 15.5 * k), radiusX: 3.5 * k, radiusY: 3.5 * k };
+                    let r2 = D2D1_ROUNDED_RECT { rect: rect(x + 10.5 * k, y + 8.5 * k, x + 21.5 * k, y + 15.5 * k), radiusX: 3.5 * k, radiusY: 3.5 * k };
+                    rt.DrawRoundedRectangle(&r1, &brush, width, stroke);
+                    rt.DrawRoundedRectangle(&r2, &brush, width, stroke);
                 }
                 Some(Glyph::Calc) => {
                     let r = D2D1_ROUNDED_RECT { rect: rect(x + 5.0 * k, y + 3.0 * k, x + 19.0 * k, y + 21.0 * k), radiusX: 2.0 * k, radiusY: 2.0 * k };
@@ -1719,7 +1752,12 @@ impl Palette {
         // The first Enter on a time chart shows it; only the next one does what the row says.
         let shows_first = self.items.get(self.selected).is_some_and(|i| i.preview.as_ref().is_some_and(Preview::on_enter))
             && self.asked.as_ref().map(|(i, _)| *i) != Some(self.selected);
-        let mut keys = vec![(&["↑", "↓"][..], "Move"), (&["Enter"][..], if shows_first { "Show" } else { "Run" })];
+        let verb = if shows_first { "Show" } else { self.items.get(self.selected).map_or("Run", |i| i.action.verb()) };
+        let mut keys = vec![(&["↑", "↓"][..], "Move")];
+        // A row with nothing for Enter to do offers no Enter.
+        if !verb.is_empty() {
+            keys.push((&["Enter"][..], verb));
+        }
         // What Ctrl+Enter does for the selected item, when it does something.
         if let Some(hint) = footer_hint(self.items.get(self.selected)) {
             keys.push((&["Ctrl Enter"][..], hint));

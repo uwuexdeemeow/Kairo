@@ -138,12 +138,12 @@
             <input type="checkbox" id="clipboard-history" aria-describedby="clipboard-history-note" />
             Remember what I copy
           </label>
-          <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, kept in memory and gone when Kairo quits. Type <kbd>clip</kbd> in the palette to see the latest, and a space after it to see them all. Turning this off forgets them at once.</p>
+          <p class="muted" id="clipboard-history-note">Text only, the latest 25 copies, each with the app it came from, kept in memory and gone when Kairo quits. Copies a password manager marks are never kept. Type <kbd>clip</kbd> in the palette to see the latest; Enter pastes one, and <kbd>Ctrl</kbd>+<kbd>Enter</kbd> pins it. Pins are the one thing kept on this computer after Kairo quits, until you unpin them. Turning this off forgets the rest at once.</p>
         </section>
 
-        <section class="block" id="custom-commands" data-words="commands custom your own alias shortcut quick link snippet text open copy folder file app">
+        <section class="block" id="custom-commands" data-words="commands custom your own alias aliases shortcut quick link quicklink snippet snippets text paste open copy folder file app query">
           <h3>Your commands</h3>
-          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, or copies some text. Links and text go to the computers you've combined; files, folders and apps stay on this one.</p>
+          <p class="muted" id="custom-note">A word you choose that does something when you type it in the palette: opens a link, opens a file, folder or app, pastes some text, or runs another command. A link with <kbd>{query}</kbd> in it takes what you type after its name, so <kbd>jira 123</kbd> opens ticket 123. Text can hold <kbd>{date}</kbd>, <kbd>{time}</kbd> and <kbd>{clipboard}</kbd>. Links, text and commands go to the computers you've combined; files, folders and apps stay on this one.</p>
           <div id="custom-list"></div>
           <div class="row-buttons custom-add">
             <input class="filter" id="custom-new-name" maxlength="30" placeholder="Name, like tax" aria-label="Command name" autocomplete="off" />
@@ -157,6 +157,26 @@
           <div class="row-buttons">
             <button class="btn" id="custom-add" type="button">Add</button>
             <span class="muted" id="custom-status" aria-live="polite"></span>
+          </div>
+        </section>
+
+        <section class="block" id="layout-settings" data-words="window windows layout layouts snap arrange move tile half maximize">
+          <h3>Window layouts</h3>
+          <p class="muted" id="layouts-note">Keep where your windows are, and put them back later. In the palette, <kbd>save layout writing</kbd> saves one and <kbd>layout writing</kbd> restores it. A layout with a focus label comes back by itself when a session with that label starts.</p>
+          <div id="layouts-list"></div>
+          <span class="muted" id="layouts-status" aria-live="polite"></span>
+        </section>
+
+        <section class="block" id="script-settings" data-words="scripts script commands run shell powershell python automation">
+          <h3>Scripts</h3>
+          <p class="muted" id="scripts-note">Run your own scripts from the palette by their title. Add a few comment lines near the top of a script in the scripts folder:</p>
+          <pre class="script-example" aria-label="Example script header"><code># @kairo.title Deploy site
+# @kairo.argument Branch      <span class="script-example-note">optional: words typed after the title</span>
+# @kairo.output notify        <span class="script-example-note">or copy, paste, silent</span></code></pre>
+          <p class="muted">A script runs only when you press Enter on it, stops after a minute, and stays on this computer.</p>
+          <div class="row-buttons">
+            <button class="btn" id="scripts-open" type="button">Open scripts folder</button>
+            <span class="muted" id="scripts-status" aria-live="polite"></span>
           </div>
         </section>
 

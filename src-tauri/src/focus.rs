@@ -189,6 +189,8 @@ fn insert(conn: &Connection, minutes: u32, label: Option<&str>, now: i64) -> Res
         "INSERT INTO focus_sessions (start_ms, planned_ms, label, nudges) VALUES (?1, ?2, ?3, 0)",
         params![a.start_ms, a.planned_ms, a.label],
     )?;
+    // A window layout given this label is put back as the session starts (snap.rs).
+    crate::snap::on_focus_start(conn, a.label.as_deref());
     Ok(a)
 }
 

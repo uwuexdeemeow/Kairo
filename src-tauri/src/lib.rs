@@ -10,7 +10,10 @@ mod browser;
 mod classify;
 mod collector;
 mod commands;
+mod currency;
 mod custom_commands;
+mod scripts;
+mod snap;
 mod linux_notes;
 mod pause_schedule;
 mod crashlog;
@@ -290,6 +293,7 @@ pub fn run() {
             app.manage(clipboard::Shared::new(clipboard::enabled(&conn)?));
             app.manage(system::PendingPower::default());
             clipboard::spawn(app.handle().clone());
+            currency::init(app.handle(), &conn);
             focus::spawn(app.handle().clone(), db_path.clone(), paused.clone());
             nudge::spawn(app.handle().clone(), db_path.clone(), paused.clone(), window_cache.clone());
             reminders::follow_clicks(app.handle());
@@ -535,6 +539,10 @@ pub fn run() {
             commands::get_custom_commands,
             commands::save_custom_command,
             commands::remove_custom_command,
+            commands::get_layouts,
+            commands::set_layout_focus_label,
+            commands::remove_layout,
+            commands::open_scripts_folder,
             commands::save_focus_mode,
             commands::remove_focus_mode,
             commands::get_installed_apps,

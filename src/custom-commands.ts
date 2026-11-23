@@ -2,14 +2,16 @@ import { api, type CustomCommand, type CustomKind } from "./api";
 import { confirmTwice } from "./confirm";
 import { $, h, why } from "./ui";
 
-// Kairo's settings, Your commands: each a name you type in the palette that opens a link, opens a
-// file, folder or app, or copies some text.
+// Kairo's settings, Your commands: each a name you type in the palette that opens a link (with
+// what's typed after it in the link's {query}), opens a file, folder or app, pastes some text, or
+// runs other words in the palette.
 
 /// What each kind says it does, and what its box asks for.
 export const KINDS: { kind: CustomKind; label: string; asks: string }[] = [
-  { kind: "link", label: "Opens a link", asks: "Where it goes, like github.com/you/repo/issues" },
+  { kind: "link", label: "Opens a link", asks: "Where it goes, like github.com/you/repo/issues. Put {query} where what you type after the name goes" },
   { kind: "open", label: "Opens a file, folder or app", asks: "Its path, like C:\\Users\\you\\Documents\\Tax" },
-  { kind: "text", label: "Copies text", asks: "The text to copy" },
+  { kind: "text", label: "Pastes text", asks: "The text to paste. {date}, {time} and {clipboard} are filled in" },
+  { kind: "alias", label: "Runs a palette command", asks: "What it stands for, like visual studio code or focus 50 writing" },
 ];
 
 /// Buttons that fill a path box from the system's dialog, so a path is picked, not typed; `chosen`

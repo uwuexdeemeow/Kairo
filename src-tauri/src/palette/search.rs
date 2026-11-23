@@ -441,6 +441,14 @@ pub enum Glyph {
     Alert,
     Calc,
     Search,
+    /// A window on a screen: moving windows and layouts.
+    Window,
+    /// A smiling face: emoji.
+    Smile,
+    /// A prompt: your own scripts.
+    Script,
+    /// Two links of a chain: your quicklinks.
+    Link,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -535,6 +543,31 @@ pub enum Action {
     CopyAnswer(Subject, Period, Option<Period>),
     /// Puts this text on the clipboard.
     Copy(String),
+    /// Puts this text on the clipboard and pastes it into the window that was in front before
+    /// the palette opened, by its id; only copies where the system won't let Kairo press keys.
+    Paste(String, Option<String>),
+    /// Pins a copy from the clipboard history, with the app it came from; and unpins one.
+    PinClip(String, Option<String>),
+    UnpinClip(String),
+    /// A snippet: its text with `{date}`, `{time}` and `{clipboard}` filled in as it runs, for
+    /// the window that was in front; pasted when true, else copied.
+    Snippet(String, Option<String>, bool),
+    /// Pastes an emoji into the window that was in front, by its id, and counts the use.
+    Emoji(String, Option<String>),
+    /// Runs one of your scripts, by its path, with what was typed after its title, for the window
+    /// that was in front (where its output may be pasted).
+    RunScript(String, Option<String>, Option<String>),
+    /// Opens the folder your scripts go in, made with an example the first time.
+    OpenScripts,
+    /// Puts this text in the search box, with the palette left open: Enter on a link or script
+    /// that wants words after its name types the name for you.
+    Type(String),
+    /// Moves the window that was in front, by its id.
+    Snap(crate::snap::Snap, String),
+    /// Saves where the open windows are as a layout, by name.
+    SaveLayout(String),
+    /// Puts a saved layout's windows back, by name.
+    RestoreLayout(String),
     /// Saves tracked time as a CSV, backs everything up, or restores a backup, each asking where
     /// with the system's file dialog.
     ExportTime,
@@ -581,16 +614,35 @@ pub enum SessionDo {
 }
 
 impl Action {
+    /// What Enter does, in a word, for the palette's footer.
+    pub fn verb(&self) -> &'static str {
+        match self {
+            Action::Paste(..) | Action::Emoji(..) | Action::Snippet(_, _, true) => "Paste",
+            Action::Copy(..) | Action::CopyAnswer(..) | Action::Snippet(_, _, false) => "Copy",
+            Action::Launch(..) | Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenFile(..) | Action::OpenLedger | Action::OpenPlan | Action::OpenReview | Action::OpenRing | Action::OpenNote(..) | Action::PopOutNote(..) | Action::OpenScripts | Action::Setting(..) => "Open",
+            Action::FocusWindow(..) => "Switch",
+            Action::Snap(..) | Action::RestoreLayout(..) => "Snap",
+            Action::SaveLayout(..) => "Save",
+            Action::EnterMode(..) => "Choose",
+            Action::Type(..) => "Type after it",
+            Action::Toggle(..) => "Turn on or off",
+            Action::PinClip(..) => "Pin",
+            Action::Nothing => "",
+            Action::UnpinClip(..) => "Unpin",
+            _ => "Run",
+        }
+    }
+
     /// Whether it opens a window of its own (Kairo's, or a file dialog), so the palette gets out
     /// of the way first rather than sitting over it.
     pub fn opens_window(&self) -> bool {
-        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..) | Action::ShowBlocked)
+        matches!(self, Action::Go(..) | Action::Dashboard(..) | Action::OpenUrl(..) | Action::OpenScripts | Action::ExportTime | Action::Backup | Action::Restore | Action::RevealFile(..) | Action::Setting(..) | Action::ShowBlocked)
     }
 
     /// Whether the palette stays open after it, to show the new state. A row with nothing to do
     /// on Enter (a running timer, which Ctrl+Enter cancels) leaves the palette as it is too.
     pub fn keeps_palette_open(&self) -> bool {
-        matches!(self, Action::Toggle(..) | Action::EnterMode(..) | Action::Nothing) || self.acts_in_place()
+        matches!(self, Action::Toggle(..) | Action::EnterMode(..) | Action::Type(..) | Action::Nothing) || self.acts_in_place()
     }
 
     /// Whether it changes something the palette shows and leaves the palette open, which then
@@ -606,6 +658,8 @@ impl Action {
                 | Action::CancelPower
                 | Action::PauseTracking(..)
                 | Action::ResumeTracking
+                | Action::PinClip(..)
+                | Action::UnpinClip(..)
         )
     }
 }
@@ -701,11 +755,15 @@ pub struct SessionNow {
 }
 
 /// One thing copied lately, for the `clip` command.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClipNow {
     pub text: String,
-    /// How long ago it was copied.
+    /// How long ago it was copied, or pinned.
     pub age_ms: i64,
+    /// The app it was copied in, when known.
+    pub from: Option<String>,
+    /// Whether you pinned it, which keeps it until unpinned.
+    pub pinned: bool,
 }
 
 /// A pomodoro cycle that's on, as the palette says it.
@@ -788,6 +846,12 @@ pub struct Context {
     pub modes: Vec<crate::focus_modes::FocusMode>,
     /// The commands you made yourself, in the order you made them.
     pub custom: Vec<crate::custom_commands::CustomCommand>,
+    /// The saved window layouts, in the order they were made.
+    pub layouts: Vec<crate::snap::Layout>,
+    /// The emoji you've used, most first, with how often.
+    pub emoji_uses: Vec<(String, i64)>,
+    /// Your scripts, by title (scripts.rs).
+    pub scripts: Vec<crate::scripts::Script>,
     /// The open tasks, in Ledger's order.
     pub tasks: Vec<crate::tasks::Task>,
     /// Whether a typed date like 11/7 means 11 July (quick_add.rs).
@@ -1237,11 +1301,12 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
         Mode::Calc => match calc::evaluate(q) {
             Some(answer) => {
                 let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
-                item.sub = Some(q.to_string());
+                item.sub = Some(with_rates(q, answer.rates));
                 item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
                 vec![item]
             }
-            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80 or 5 km in mi", Glyph::Calc, "Calculator")],
+            None if q.is_empty() => vec![note_row("Type a sum, like 12% of 80, 5 km in mi or 20 usd in eur", Glyph::Calc, "Calculator")],
+            None if crate::currency::mentions_currency(q) => money_note(ctx.live.now).into_iter().collect(),
             None => vec![note_row("Not a sum yet", Glyph::Calc, "Calculator")],
         },
         Mode::Web(i) => {
@@ -1289,15 +1354,45 @@ pub fn search_in(ctx: &Context, mode: Mode, text: &str) -> Vec<Item> {
     }
 }
 
+/// The calculator's second line: what was typed, and for money the day of the rates, which a
+/// download a day keeps fresh.
+fn with_rates(typed: &str, rates: Option<NaiveDate>) -> String {
+    match rates {
+        Some(day) => format!("{typed} · Rates from {} (European Central Bank)", day.format("%-d %b")),
+        None => typed.to_string(),
+    }
+}
+
+/// What a currency conversion with no answer says: rates are coming, or couldn't be had. Asking
+/// starts the download. None when there are rates (the currency is one the bank doesn't give).
+fn money_note(now: NaiveDateTime) -> Option<Item> {
+    crate::currency::refresh_if_old(now.and_utc().timestamp_millis());
+    if crate::currency::rates_date().is_some() {
+        return None;
+    }
+    let says = if crate::currency::fetching() { "Getting today's exchange rates… type again in a moment" } else { "Couldn't get exchange rates. Check your connection" };
+    let mut item = note_row(says, Glyph::Calc, "Calculator");
+    item.score = 2000.0;
+    Some(item)
+}
+
 /// What a typed query could mean, best first: the top match, then the rest by section.
 pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = Vec::new();
 
     // Maths leads with its answer; a command or a day keeps its own meaning.
     if focus_command(query).is_none() && !commands::leads(query) && parse_day(query, ctx.today).is_none() {
+        let money = calc::is_maths(query) && crate::currency::mentions_currency(query);
+        if money {
+            // Old rates still answer; a fresh set is asked for at most once a day.
+            crate::currency::refresh_if_old(ctx.live.now.and_utc().timestamp_millis());
+        }
+        if money && calc::answer(query).is_none() {
+            items.extend(money_note(ctx.live.now));
+        }
         if let Some(answer) = calc::answer(query) {
             let mut item = Item::new(answer.text.clone(), Icon::Glyph(Glyph::Calc, Tone::Accent), "Calculator", Action::Copy(answer.text));
-            item.sub = Some(query.trim().to_string());
+            item.sub = Some(with_rates(query.trim(), answer.rates));
             item.second = answer.number.map(|n| (Action::Copy(n), "Copy number"));
             item.score = 2000.0;
             items.push(item);
@@ -1546,6 +1641,9 @@ pub(super) mod tests {
             block_lists: vec!["Social".into()],
             modes: Vec::new(),
             custom: Vec::new(),
+            layouts: Vec::new(),
+            emoji_uses: Vec::new(),
+            scripts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

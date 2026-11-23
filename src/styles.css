@@ -6633,10 +6633,13 @@ body:not(.keys) .dash .app-open:focus-visible::after {
 }
 
 /* The ring as it opens, drawn as its window draws it but standing still. */
+/* Clipped at its sides: the ring's faded outer segments reach past its box, and here they would
+   lie over the list's buttons. Its shadow above and below is kept. */
 .ring.ring-preview {
   flex: none;
   animation: none;
   pointer-events: none;
+  clip-path: inset(-24px 0 -24px 0);
 }
 
 /* ---------- The scan window: VirusTotal ---------- */
@@ -7716,6 +7719,48 @@ summary:focus-visible {
 
 .custom-add {
   margin-top: 8px;
+}
+
+/* Window layouts: a name, how many windows, and the focus label that puts it back. */
+.layout-row .layout-label {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+}
+
+.layout-row strong {
+  font-weight: 600;
+}
+
+#layouts-list .empty-note {
+  margin: 4px 0;
+}
+
+/* Scripts: what the top of a script says, as it would be typed. */
+.script-example {
+  max-width: 560px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.script-example-note {
+  color: var(--muted);
+}
+
+#scripts-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 /* Linux only: what this desktop can't do, as a short list under the shortcut. */

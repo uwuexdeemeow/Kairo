@@ -160,6 +160,8 @@ export interface PaletteItem {
   preview: boolean;
   /** For a card that waits for Enter (a time chart): the row's second line once it's showing. */
   again?: string | null;
+  /** What Enter does, in a word: "Paste", "Open", "Run". */
+  verb?: string;
   /** Whether it only says something ("Not a sum yet"): drawn as a note, never chosen. */
   note?: boolean;
 }
@@ -607,13 +609,20 @@ export interface PauseWindow {
   minutes: number;
 }
 
-export type CustomKind = "link" | "open" | "text";
+export type CustomKind = "link" | "open" | "text" | "alias";
 
-/** A palette command you made: a name that opens a link, opens a path or copies text. */
+/** A palette command you made: a name that opens a link, opens a path, pastes text or runs other words. */
 export interface CustomCommand {
   name: string;
   kind: CustomKind;
   target: string;
+}
+
+/** A saved window layout: where the open windows were, and the focus label that puts it back. */
+export interface WindowLayout {
+  name: string;
+  windows: { app: string; title: string }[];
+  focusLabel: string | null;
 }
 
 export interface BlockLists {
@@ -771,6 +780,11 @@ export const api = {
   /** A path from the system dialog: a file or app, or a folder; null when cancelled. */
   pickCommandPath: (folder: boolean) => invoke<string | null>("pick_command_path", { folder }),
   customCommands: () => invoke<CustomCommand[]>("get_custom_commands"),
+  layouts: () => invoke<WindowLayout[]>("get_layouts"),
+  setLayoutFocusLabel: (name: string, label: string | null) => invoke<WindowLayout[]>("set_layout_focus_label", { name, label }),
+  removeLayout: (name: string) => invoke<WindowLayout[]>("remove_layout", { name }),
+  /** Makes the scripts folder (with an example) and opens it; gives its path. */
+  openScriptsFolder: () => invoke<string>("open_scripts_folder"),
   saveCustomCommand: (old: string | null, name: string, kind: CustomKind, target: string) => invoke<CustomCommand[]>("save_custom_command", { old, name, kind, target }),
   removeCustomCommand: (name: string) => invoke<CustomCommand[]>("remove_custom_command", { name }),
   focusModes: () => invoke<FocusMode[]>("get_focus_modes"),

@@ -22,12 +22,14 @@ use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 pub mod calc;
 pub mod cards;
 pub mod commands;
+pub mod emoji;
 pub mod files;
 pub mod mode;
 #[cfg(windows)]
 pub mod native;
 pub mod search;
 pub mod settings;
+pub mod tools;
 #[cfg(not(windows))]
 pub mod web;
 
@@ -402,6 +404,9 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
         block_lists: crate::lists::list(conn).unwrap_or_default().into_iter().map(|l| l.name).collect(),
         modes: crate::focus_modes::list(conn).unwrap_or_default(),
         custom: crate::custom_commands::list(conn).unwrap_or_default(),
+        layouts: crate::snap::list(conn).unwrap_or_default(),
+        emoji_uses: emoji::used(conn).unwrap_or_default(),
+        scripts: crate::scripts::folder(app).map(|d| crate::scripts::list(&d)).unwrap_or_default(),
         tasks: crate::tasks::list(conn, now, &crate::tasks::today()).unwrap_or_default().into_iter().filter(|t| t.done_ms.is_none()).collect(),
         day_first: crate::quick_add::day_first(),
         notes: crate::notebook::list(conn, "")
@@ -421,6 +426,16 @@ pub fn context(app: &AppHandle, conn: &Connection, index: &Index, windows: Vec<s
     (ctx, footer)
 }
 
+/// The pins, then the copies made while Kairo ran that aren't pinned, newest first; None while
+/// the history is off.
+fn clips_now(app: &AppHandle, conn: &Connection, now: i64) -> Option<Vec<search::ClipNow>> {
+    let copies = tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now)?;
+    let pins = crate::clipboard::pins(conn).unwrap_or_default();
+    let mut all: Vec<search::ClipNow> = pins.iter().map(|p| search::ClipNow { text: p.text.clone(), age_ms: (now - p.at_ms).max(0), from: p.from.clone(), pinned: true }).collect();
+    all.extend(copies.into_iter().filter(|(text, ..)| !pins.iter().any(|p| &p.text == text)).map(|(text, age_ms, from)| search::ClipNow { text, age_ms, from, pinned: false }));
+    Some(all)
+}
+
 /// How the things the palette's own commands change stand now: the focus session, tracking, the
 /// quick timers, what's blocked and the theme. Read as the palette opens and again after a
 /// command that leaves it open.
@@ -432,7 +447,7 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
         session: focus::active(conn).ok().flatten().map(|a| search::SessionNow { label: a.label().map(str::to_string), left_ms: a.left_ms(now), paused: a.is_paused() }),
         cycle: crate::pomodoro::current(conn, now).ok().flatten().map(|c| search::CycleNow { round: c.round, rounds: c.rounds, on_break: c.on_break, left_ms: c.break_left_ms, waiting: c.waiting }),
         pending_power: tauri::Manager::state::<crate::system::PendingPower>(app).get(),
-        clips: tauri::Manager::state::<crate::clipboard::Shared>(app).snapshot(now).map(|all| all.into_iter().map(|(text, age_ms)| search::ClipNow { text, age_ms }).collect()),
+        clips: clips_now(app, conn, now),
         strict: crate::blocking::strict_now(conn).unwrap_or(false),
         tracking_paused: crate::is_paused(app).then(|| crate::paused_until(app).and_then(local)),
         blocked: crate::blocking::showing(app),
@@ -546,6 +561,8 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::Kill(name) => crate::system::kill_named(name).map(|_| ()),
+        Action::PinClip(text, from) => crate::clipboard::pin(conn, text, from.as_deref(), now_ms()).map_err(|e| e.to_string()),
+        Action::UnpinClip(text) => crate::clipboard::unpin(conn, text).map_err(|e| e.to_string()),
         Action::ClearClips => {
             tauri::Manager::state::<crate::clipboard::Shared>(app).clear();
             Ok(())
@@ -625,12 +642,75 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             Ok(())
         }
         Action::CopyAnswer(subject, period, against) => {
-            use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(cards::answer(conn, subject, *period, *against).text).map_err(|e| e.to_string())
+            crate::clipboard::write(app, &cards::answer(conn, subject, *period, *against).text)
         }
-        Action::Copy(text) => {
+        Action::Copy(text) => crate::clipboard::write(app, text),
+        Action::Paste(text, window) => {
+            crate::clipboard::write(app, text)?;
+            paste_after_hiding(app, window.clone());
+            Ok(())
+        }
+        Action::Snippet(template, window, paste) => {
             use tauri_plugin_clipboard_manager::ClipboardExt;
-            app.clipboard().write_text(text.clone()).map_err(|e| e.to_string())
+            let clipboard = app.clipboard().read_text().ok();
+            let text = crate::custom_commands::expand(template, Local::now().naive_local(), clipboard.as_deref());
+            crate::clipboard::write(app, &text)?;
+            if *paste {
+                paste_after_hiding(app, window.clone());
+            }
+            Ok(())
+        }
+        Action::Emoji(ch, window) => {
+            let _ = emoji::note_use(conn, ch, now_ms());
+            crate::clipboard::write(app, ch)?;
+            paste_after_hiding(app, window.clone());
+            Ok(())
+        }
+        Action::OpenScripts => {
+            let dir = crate::scripts::ensure_folder(app).ok_or("Kairo couldn't make its scripts folder.")?;
+            crate::platform::open_path(&dir.to_string_lossy()).then_some(()).ok_or_else(|| "Couldn't open the scripts folder.".into())
+        }
+        Action::RunScript(path, argument, window) => {
+            let dir = crate::scripts::folder(app).ok_or("Kairo couldn't find its scripts folder.")?;
+            // Only a script that is still in the folder, as it reads now.
+            let script = crate::scripts::list(&dir).into_iter().find(|s| &s.path == path).ok_or("That script is gone from the scripts folder.")?;
+            let (app, argument, window) = (app.clone(), argument.clone(), window.clone());
+            std::thread::spawn(move || run_script(&app, &script, argument.as_deref(), window));
+            Ok(())
+        }
+        Action::Snap(snap, id) => {
+            // Said at once, while the palette can still show it.
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let (app, id, snap) = (app.clone(), id.clone(), *snap);
+            after_hiding(move || {
+                if let Err(e) = crate::snap::apply(&app, &id, snap) {
+                    crate::blocking::notify(&app, "Couldn't move that window", &e);
+                }
+            });
+            Ok(())
+        }
+        Action::SaveLayout(name) => {
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let count = crate::snap::save(conn, name, crate::snap::current()).map_err(|e| e.to_string())??;
+            crate::blocking::notify(app, "Layout saved", &format!("“{}” keeps where {count} {} are. Type “layout {}” to put them back.", name.trim(), if count == 1 { "window" } else { "windows" }, name.trim()));
+            Ok(())
+        }
+        Action::RestoreLayout(name) => {
+            if let Some(why) = crate::platform::cant_move_windows() {
+                return Err(why.into());
+            }
+            let layout = crate::snap::find(conn, name).map_err(|e| e.to_string())?.ok_or("That layout is gone.")?;
+            let app = app.clone();
+            after_hiding(move || match crate::snap::restore(&layout) {
+                Ok(0) => crate::blocking::notify(&app, "Nothing to put back", &format!("None of the apps in “{}” are open.", layout.name)),
+                Ok(_) => {}
+                Err(e) => crate::blocking::notify(&app, "Couldn't put the layout back", &e),
+            });
+            Ok(())
         }
         Action::ExportTime | Action::Backup | Action::Restore => {
             with_file_dialog(app, action.clone());
@@ -698,8 +778,79 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::set_paused(app, false, None);
             Ok(())
         }
-        // The palettes put themselves in the mode before it would get here.
-        Action::EnterMode(_) | Action::Nothing => Ok(()),
+        // The palettes put themselves in the mode, or type the text, before it would get here.
+        Action::EnterMode(_) | Action::Type(_) | Action::Nothing => Ok(()),
+    }
+}
+
+/// How long the palette takes to be gone and the window before it to have the keyboard again.
+const AFTER_HIDING: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Runs `then` once the palette is out of the way: the caller hides it as `perform` returns.
+fn after_hiding(then: impl FnOnce() + Send + 'static) {
+    std::thread::spawn(move || {
+        std::thread::sleep(AFTER_HIDING);
+        then();
+    });
+}
+
+/// Presses the system's paste keys for the window that was in front, once the palette is gone.
+/// Where Kairo may not press keys (Wayland, a Mac without Accessibility), what was put on the
+/// clipboard stays there and a notification says so.
+fn paste_after_hiding(app: &AppHandle, window: Option<String>) {
+    let app = app.clone();
+    after_hiding(move || {
+        // The keyboard goes back by itself to whatever had it, a dialog included, which the
+        // palette's list of windows leaves out; keys pressed before then go nowhere, so that is
+        // waited for. Only if it doesn't happen is the window that was in front asked forward.
+        let ours = |front: &crate::platform::Foreground| std::env::current_exe().ok().is_some_and(|me| std::path::Path::new(&front.exe_path) == me);
+        let back = || crate::platform::foreground().is_some_and(|f| !ours(&f));
+        let mut waited = 0;
+        while !back() && waited < 20 {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            waited += 1;
+        }
+        if !back() {
+            if let Some(id) = window {
+                crate::platform::activate_window(&id);
+                for _ in 0..20 {
+                    if crate::platform::in_front(&id) {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                }
+            }
+        }
+        // A moment more for the window to take the keyboard as well as the front.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        if !crate::platform::paste() {
+            let keys = if cfg!(target_os = "macos") { "Command+V" } else { "Ctrl+V" };
+            crate::blocking::notify(&app, "Copied", &format!("Press {keys} to paste it."));
+        }
+    });
+}
+
+/// Runs a script and does with its output what the script says: a notification, the clipboard,
+/// pasted, or nothing. A failure is always said.
+fn run_script(app: &AppHandle, script: &crate::scripts::Script, argument: Option<&str>, window: Option<String>) {
+    use crate::scripts::Output;
+    match crate::scripts::run(script, argument) {
+        Err(why) => crate::blocking::notify(app, &format!("{} didn't work", script.title), &why),
+        Ok(out) => match script.output {
+            Output::Silent => {}
+            Output::Notify => crate::blocking::notify(app, &script.title, &if out.is_empty() { "Done.".to_string() } else { crate::scripts::first_lines(&out) }),
+            Output::Copy if out.is_empty() => crate::blocking::notify(app, &script.title, "Done, with nothing to copy."),
+            Output::Copy => {
+                let _ = crate::clipboard::write(app, &out);
+                crate::blocking::notify(app, &format!("{}: copied", script.title), &crate::scripts::first_lines(&out));
+            }
+            Output::Paste if out.is_empty() => {}
+            Output::Paste => {
+                if crate::clipboard::write(app, &out).is_ok() {
+                    paste_after_hiding(app, window);
+                }
+            }
+        },
     }
 }
 
@@ -746,6 +897,8 @@ pub struct ItemView {
     again: Option<String>,
     /// The label of what Ctrl+Enter does instead.
     second: Option<&'static str>,
+    /// What Enter does, in a word ("Paste", "Open", "Run").
+    verb: &'static str,
     /// Whether it only says something: drawn as a note, not chosen (`Item::is_note`).
     note: bool,
 }
@@ -787,6 +940,7 @@ impl From<&Item> for ItemView {
             preview: item.preview.is_some(),
             again: item.preview.as_ref().filter(|p| p.on_enter()).map(|_| search::enter_again(item.sub.as_deref())),
             second: item.second.as_ref().map(|(_, label)| *label),
+            verb: item.action.verb(),
             note: item.is_note(),
         }
     }
@@ -804,6 +958,10 @@ fn glyph_name(glyph: Glyph) -> &'static str {
         Glyph::Alert => "alert",
         Glyph::Calc => "calc",
         Glyph::Search => "search",
+        Glyph::Window => "window",
+        Glyph::Smile => "smile",
+        Glyph::Script => "script",
+        Glyph::Link => "link",
     }
 }
 
@@ -843,6 +1001,11 @@ pub struct Results {
 }
 
 impl Results {
+    /// Says the input should now hold `text`.
+    pub fn set_text(&mut self, text: &str) {
+        self.text = Some(text.to_string());
+    }
+
     /// Which query these answer.
     pub fn seq(&self) -> u64 {
         self.seq
@@ -1320,6 +1483,9 @@ mod tests {
             block_lists: Vec::new(),
             modes: Vec::new(),
             custom: Vec::new(),
+            layouts: Vec::new(),
+            emoji_uses: Vec::new(),
+            scripts: Vec::new(),
             tasks: Vec::new(),
             day_first: true,
             notes: Vec::new(),

@@ -11,7 +11,7 @@ use rusqlite::{Connection, OpenFlags};
 use crate::analysis;
 
 /// What a restore brings back. Where programs live (`app_paths`) stays as it is on this computer.
-const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "focus_modes", "custom_commands", "pause_schedule", "week_notes", "tasks", "notebook"];
+const RESTORED: &[&str] = &["sessions", "categories", "settings", "privacy_rules", "limits", "focus_sessions", "focus_rules", "goal_alerts", "projects", "focus_schedule", "block_lists", "focus_modes", "custom_commands", "window_layouts", "emoji_uses", "pause_schedule", "week_notes", "tasks", "notebook"];
 /// Settings that belong to this computer rather than to you: the palette's keys differ between a
 /// Mac and the rest, and each computer combining its time with others has its own id.
 const LOCAL_SETTINGS: &[&str] = &[
@@ -98,7 +98,8 @@ pub fn backup(conn: &Connection, path: &Path) -> Result<()> {
     // computer: a backup copied to a shared drive or handed on mustn't carry it. Restores keep
     // this computer's own group anyway. Overwritten, so it isn't left in the file's free pages.
     let copy = Connection::open(path).map_err(err)?;
-    copy.execute_batch("PRAGMA secure_delete = ON; DELETE FROM settings WHERE key IN ('relay_group', 'relay_key');").map_err(err)?;
+    // Pinned clipboard copies stay on this computer too: copied text can hold anything.
+    copy.execute_batch("PRAGMA secure_delete = ON; DELETE FROM settings WHERE key IN ('relay_group', 'relay_key'); DELETE FROM clipboard_pins;").map_err(err)?;
     Ok(())
 }
 
@@ -239,6 +240,20 @@ mod tests {
         // This computer keeps its own.
         assert_eq!(crate::sync::relay::group(&live).unwrap(), Some(group));
         drop(copy);
+        let _ = std::fs::remove_file(saved);
+        let _ = std::fs::remove_file(live_file);
+    }
+
+    #[test]
+    fn a_backup_never_holds_pinned_copies_and_this_computer_keeps_them() {
+        let (live_file, saved) = (temp("live-p.db"), temp("saved-p.kairo"));
+        let _ = std::fs::remove_file(&live_file);
+        let live = db::open(&live_file).unwrap();
+        crate::clipboard::pin(&live, "IBAN DE89 3704 0044 0532 0130 00", None, 1).unwrap();
+        backup(&live, &saved).unwrap();
+        let bytes = std::fs::read(&saved).unwrap();
+        assert!(!bytes.windows(9).any(|w| w == b"DE89 3704"));
+        assert_eq!(crate::clipboard::pins(&live).unwrap().len(), 1);
         let _ = std::fs::remove_file(saved);
         let _ = std::fs::remove_file(live_file);
     }
