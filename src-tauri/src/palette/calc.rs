@@ -219,7 +219,8 @@ pub fn evaluate(query: &str) -> Option<Answer> {
     // fend's units are lower case ("km"); typed in capitals, they're asked again in lower case.
     let result = ask(q).or_else(|| q.chars().any(char::is_uppercase).then(|| ask(&q.to_lowercase())).flatten())?;
     let (text, number) = format(result.get_main_result())?;
-    let rates = crate::currency::mentions_currency(q).then(crate::currency::rates_date).flatten();
+    // The rates' day only for an answer in money, not for a unit that happens to share a word.
+    let rates = (crate::currency::mentions_currency(q) && crate::currency::is_money(&text)).then(crate::currency::rates_date).flatten();
     Some(Answer { text, number, rates })
 }
 

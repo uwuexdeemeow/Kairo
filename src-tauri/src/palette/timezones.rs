@@ -212,10 +212,19 @@ where
             sub: format!("{} · {}, {}", zone, there.format("%a %-d %b"), against_you(&difference(there.offset().fix().local_minus_utc(), here_secs))),
         });
     }
-    // "3pm pst in london", "9:30 in new york", "noon tokyo to berlin".
-    let (from_text, to_text) = [" in ", " to "].iter().filter_map(|sep| q.rsplit_once(sep)).next()?;
+    // "3pm pst in london", "9:30 in new york", "noon tokyo to berlin", "9am in new york to london":
+    // each way of splitting it is tried, and the first that reads whole is the answer.
+    [" to ", " in "].iter().filter_map(|sep| q.rsplit_once(sep)).find_map(|(from_text, to_text)| convert(from_text, to_text, now, local))
+}
+
+/// A time in one place (here, when none is said) as the time in another.
+fn convert<L: TimeZone>(from_text: &str, to_text: &str, now: DateTime<Utc>, local: &L) -> Option<ZoneAnswer>
+where
+    L::Offset: std::fmt::Display,
+{
     let (to_tz, to_shown) = place(to_text)?;
     let (at, from_place) = clock_then(from_text)?;
+    let from_place = from_place.strip_prefix("in ").unwrap_or(&from_place).trim().to_string();
     let from = if from_place.is_empty() { None } else { Some(place(&from_place)?) };
     let (start, start_shown) = match &from {
         Some((tz, shown)) => {
@@ -312,6 +321,14 @@ mod tests {
         assert_eq!(b.title, "8:00 am in New York");
         assert_eq!(answer("9am to new york", now(), &singapore()).unwrap().title, "8:00 pm the day before in New York");
         assert_eq!(answer("noon tokyo to berlin", now(), &singapore()).unwrap().title, "4:00 am in Berlin");
+    }
+
+    #[test]
+    fn a_time_in_one_named_place_to_another_reads_either_way() {
+        let local = FixedOffset::east_opt(8 * 3600).unwrap();
+        let a = answer("9am in new york to london", now(), &local).expect("read with “to” after “in”");
+        assert!(a.title.contains("London"), "{}", a.title);
+        assert_eq!(answer("9am new york to london", now(), &local).map(|a| a.title), Some(a.title.clone()));
     }
 
     #[test]

@@ -127,11 +127,24 @@ fn copy_tables(conn: &Connection) -> Result<()> {
         if theirs.is_empty() {
             continue;
         }
-        let shared: Vec<String> = columns(&tx, "main", table)?.into_iter().filter(|c| theirs.contains(c)).collect();
+        // A command's keys belong to this computer, like the palette's shortcut: they're kept as
+        // they are here, by the command's name, and never taken from the backup.
+        let local_keys = *table == "custom_commands" && columns(&tx, "main", table)?.iter().any(|c| c == "keys");
+        let ours: Vec<(String, String)> = if local_keys {
+            let mut stmt = tx.prepare("SELECT name, keys FROM main.custom_commands WHERE keys IS NOT NULL AND keys != ''").map_err(err)?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.collect::<rusqlite::Result<Vec<_>>>().map_err(err)?;
+            rows
+        } else {
+            Vec::new()
+        };
+        let shared: Vec<String> = columns(&tx, "main", table)?.into_iter().filter(|c| theirs.contains(c) && !(local_keys && c == "keys")).collect();
         let list = shared.join(", ");
         let only_yours = if *table == "settings" { format!(" WHERE key NOT IN ({keep_local})") } else { String::new() };
         tx.execute(&format!("DELETE FROM main.{table}{only_yours}"), []).map_err(err)?;
         tx.execute(&format!("INSERT INTO main.{table} ({list}) SELECT {list} FROM restored.{table}{only_yours}"), []).map_err(err)?;
+        for (name, keys) in ours {
+            tx.execute("UPDATE main.custom_commands SET keys = ?1 WHERE name = ?2 COLLATE NOCASE", rusqlite::params![keys, name]).map_err(err)?;
+        }
     }
     tx.commit().map_err(err)
 }
@@ -242,6 +255,26 @@ mod tests {
         drop(copy);
         let _ = std::fs::remove_file(saved);
         let _ = std::fs::remove_file(live_file);
+    }
+
+    #[test]
+    fn a_restore_keeps_this_computers_command_keys_and_never_takes_the_backups() {
+        let (saved, before, live_file) = (temp("saved-ck.kairo"), temp("before-ck.kairo"), temp("live-ck.db"));
+        let _ = std::fs::remove_file(&live_file);
+        let live = db::open(&live_file).unwrap();
+        crate::custom_commands::save(&live, None, "sig", crate::custom_commands::Kind::Text, "Best").unwrap().unwrap();
+        crate::custom_commands::save(&live, None, "gh", crate::custom_commands::Kind::Link, "github.com").unwrap().unwrap();
+        crate::custom_commands::set_keys_saved(&live, "sig", "Cmd+Alt+S").unwrap();
+        backup(&live, &saved).unwrap();
+        // Here, sig has other keys and gh has some of its own.
+        crate::custom_commands::set_keys_saved(&live, "sig", "Ctrl+Alt+S").unwrap();
+        crate::custom_commands::set_keys_saved(&live, "gh", "Ctrl+Alt+G").unwrap();
+        restore(&live, &saved, &before).unwrap();
+        let keys: Vec<(String, Option<String>)> = crate::custom_commands::list(&live).unwrap().into_iter().map(|c| (c.name, c.keys)).collect();
+        assert_eq!(keys, vec![("sig".to_string(), Some("Ctrl+Alt+S".to_string())), ("gh".to_string(), Some("Ctrl+Alt+G".to_string()))]);
+        for f in [saved, before, live_file] {
+            let _ = std::fs::remove_file(f);
+        }
     }
 
     #[test]
