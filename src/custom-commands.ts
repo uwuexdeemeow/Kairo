@@ -146,6 +146,8 @@ export function setUpCustomForm(): void {
     const asks = KINDS.find((k) => k.kind === kind.value)?.asks ?? "";
     target.placeholder = asks;
     target.setAttribute("aria-label", asks);
+    // The placeholder goes once something is typed, so the hint stays under the box.
+    $("#custom-new-hint").textContent = asks;
     // The dialog is for a path, which is what only one kind asks for.
     picks.hidden = kind.value !== "open";
   };

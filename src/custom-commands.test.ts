@@ -21,7 +21,7 @@ const tax: CustomCommand = { name: "tax", kind: "open", target: "C:\\Users\\me\\
 const gh: CustomCommand = { name: "gh", kind: "link", target: "https://github.com" };
 
 beforeEach(() => {
-  document.body.innerHTML = `<div id="custom-list"></div><input id="custom-new-name" /><select id="custom-new-kind"></select><textarea id="custom-new-target"></textarea><p id="custom-new-pick" hidden><button id="custom-pick-file"></button><button id="custom-pick-folder"></button></p><button id="custom-add"></button><span id="custom-status"></span>`;
+  document.body.innerHTML = `<div id="custom-list"></div><input id="custom-new-name" /><select id="custom-new-kind"></select><textarea id="custom-new-target"></textarea><p id="custom-new-hint"></p><p id="custom-new-pick" hidden><button id="custom-pick-file"></button><button id="custom-pick-folder"></button></p><button id="custom-add"></button><span id="custom-status"></span>`;
   for (const fn of Object.values(api)) fn.mockReset();
   api.keywordsStatus.mockResolvedValue("idle");
 });
@@ -71,9 +71,11 @@ describe("Your commands in Kairo's settings", () => {
     const kind = $<HTMLSelectElement>("#custom-new-kind");
     const target = $<HTMLTextAreaElement>("#custom-new-target");
     expect(target.placeholder).toContain("github.com");
+    expect($("#custom-new-hint").textContent).toContain("{query}");
     kind.value = "text";
     kind.dispatchEvent(new Event("change"));
     expect(target.placeholder).toBe("The text to paste. {date}, {time} and {clipboard} are filled in");
+    expect($("#custom-new-hint").textContent).toBe(target.placeholder);
 
     api.saveCustomCommand.mockResolvedValueOnce([{ name: "sig", kind: "text", target: "Best," }]);
     $<HTMLInputElement>("#custom-new-name").value = "sig";

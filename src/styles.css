@@ -7737,6 +7737,14 @@ summary:focus-visible {
   margin-top: 8px;
 }
 
+.custom-submit {
+  margin-top: 8px;
+}
+
+.custom-hint {
+  margin: 4px 0 0;
+}
+
 /* The searches offered when nothing matches. */
 .palette-fallbacks {
   margin: 16px 0 0;
