@@ -108,6 +108,28 @@ pub fn list(dir: &Path) -> Vec<Script> {
     found
 }
 
+/// The files in the folder Kairo can't list because they have no `@kairo.title` line, by name, for
+/// settings to say so. Hidden files are left out.
+pub fn skipped(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .take(MAX_SCRIPTS * 2)
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.to_string();
+            if name.starts_with('.') {
+                return None;
+            }
+            let mut head = vec![0u8; HEAD_BYTES];
+            let n = std::fs::File::open(e.path()).and_then(|mut f| f.read(&mut head)).ok()?;
+            parse(&e.path(), &String::from_utf8_lossy(&head[..n])).is_none().then_some(name)
+        })
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
 /// The program that runs a script, by its ending, and what goes before the script's path.
 pub fn runner(path: &Path) -> (String, Vec<String>) {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
@@ -280,5 +302,19 @@ mod tests {
         assert!(out.lines().nth(1).unwrap().ends_with(dir.file_name().unwrap().to_str().unwrap()));
         assert_eq!(run(&all[0], None), Err("broken".into()));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn files_without_a_title_are_named_as_left_out() {
+        let dir = std::env::temp_dir().join(format!("kairo-scripts-skipped-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ok.sh"), "# @kairo.title Fine
+echo hi").unwrap();
+        std::fs::write(dir.join("Notes.txt"), "no title here").unwrap();
+        std::fs::write(dir.join(".hidden"), "x").unwrap();
+        assert_eq!(skipped(&dir), vec!["Notes.txt".to_string()]);
+        assert_eq!(list(&dir).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

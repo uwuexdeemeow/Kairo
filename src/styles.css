@@ -7781,12 +7781,29 @@ summary:focus-visible {
   margin-top: 8px;
 }
 
+.layout-add {
+  margin-top: 8px;
+}
+
+.layout-add .filter {
+  width: 220px;
+}
+
 .layout-row strong {
   font-weight: 600;
 }
 
 #layouts-list .empty-note {
   margin: 4px 0;
+}
+
+/* Scripts: what Kairo found in the folder. */
+.script-row {
+  margin: 4px 0;
+}
+
+.script-row strong {
+  font-weight: 600;
 }
 
 /* Scripts: what the top of a script says, as it would be typed. */

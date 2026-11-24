@@ -1,4 +1,4 @@
-import { api, type WindowLayout } from "./api";
+import { api, type ScriptsFound, type WindowLayout } from "./api";
 import { confirmTwice } from "./confirm";
 import { $, h, why } from "./ui";
 
@@ -48,11 +48,61 @@ export async function loadLayouts(): Promise<void> {
   renderLayouts(await api.layouts());
 }
 
+/// The name box and Save beside the layouts: the open windows, kept under that name.
+export function wireLayoutSave(): void {
+  const name = $<HTMLInputElement>("#layout-new-name");
+  const status = $("#layouts-status");
+  const save = async () => {
+    try {
+      renderLayouts(await api.saveLayout(name.value));
+      name.value = "";
+      status.textContent = "Saved.";
+    } catch (err) {
+      status.textContent = why(err);
+    }
+  };
+  $("#layout-save").addEventListener("click", save);
+  name.addEventListener("keydown", (e) => e.key === "Enter" && save());
+}
+
+const OUTPUTS = { notify: "shows a notification", copy: "copies the result", paste: "pastes the result", silent: "says nothing" } as const;
+
+/// What Kairo found in the scripts folder: each script by title, and the files it left out.
+export function renderScripts(found: ScriptsFound): void {
+  const rows = found.scripts.map((s) =>
+    h(
+      "p",
+      { class: "script-row" },
+      h("strong", {}, s.title),
+      h("span", { class: "muted" }, ` · ${s.file}${s.argument ? `, asks for ${s.argument.toLowerCase()}` : ""}, ${OUTPUTS[s.output]}`),
+    ),
+  );
+  if (found.skipped.length) {
+    rows.push(h("p", { class: "muted" }, `Not listed, with no @kairo.title line: ${found.skipped.join(", ")}.`));
+  }
+  if (!rows.length) rows.push(h("p", { class: "muted empty-note" }, "No scripts yet."));
+  $("#scripts-list").replaceChildren(...rows);
+}
+
+export async function loadScripts(): Promise<void> {
+  renderScripts(await api.scripts());
+}
+
 export function wireScripts(): void {
+  const status = $("#scripts-status");
   $("#scripts-open").addEventListener("click", async () => {
-    const status = $("#scripts-status");
     try {
       status.textContent = await api.openScriptsFolder();
+      // The folder now exists; the list reads it, and its failing mustn't hide where it is.
+      await loadScripts().catch(() => {});
+    } catch (err) {
+      status.textContent = why(err);
+    }
+  });
+  $("#scripts-refresh").addEventListener("click", async () => {
+    try {
+      await loadScripts();
+      status.textContent = "";
     } catch (err) {
       status.textContent = why(err);
     }

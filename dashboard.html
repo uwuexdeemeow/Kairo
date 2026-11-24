@@ -177,9 +177,17 @@
 
         <section class="block" id="layout-settings" data-words="window windows layout layouts snap arrange move tile half maximize">
           <h3>Window layouts</h3>
-          <p class="muted" id="layouts-note">Keep where your windows are, and put them back later. In the palette, <kbd>save layout writing</kbd> saves one and <kbd>layout writing</kbd> restores it. A layout with a focus label comes back by itself when a session with that label starts.</p>
+          <p class="muted" id="layouts-note">Keep where your windows are, and put them back later. In the palette, <kbd>layout writing</kbd> restores one.</p>
+          <details class="settings-more more">
+            <summary>What they can do</summary>
+            <p class="muted">A layout with a focus label comes back by itself when a session with that label starts. <kbd>save layout writing</kbd> in the palette saves one too.</p>
+          </details>
           <div id="layouts-list"></div>
-          <span class="muted" id="layouts-status" aria-live="polite"></span>
+          <div class="row-buttons layout-add">
+            <input class="filter" id="layout-new-name" maxlength="40" placeholder="Name, like writing" aria-label="Name for the layout" autocomplete="off" />
+            <button class="btn" id="layout-save" type="button">Save these windows</button>
+            <span class="muted" id="layouts-status" aria-live="polite"></span>
+          </div>
         </section>
 
         <section class="block" id="script-settings" data-words="scripts script commands run shell powershell python automation">
@@ -193,8 +201,10 @@
 # @kairo.output notify        <span class="script-example-note">or copy, paste, silent</span></code></pre>
             <p class="muted">Kairo runs it with the program its ending names (.ps1, .py, .js, .sh, .bat…) and stops it after a minute.</p>
           </details>
+          <div id="scripts-list"></div>
           <div class="row-buttons">
             <button class="btn" id="scripts-open" type="button">Open scripts folder</button>
+            <button class="link-btn" id="scripts-refresh" type="button">Look again</button>
             <span class="muted" id="scripts-status" aria-live="polite"></span>
           </div>
         </section>

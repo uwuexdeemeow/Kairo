@@ -953,6 +953,56 @@ pub fn open_scripts_folder(app: AppHandle) -> CmdResult<String> {
     Ok(path)
 }
 
+/// A script Kairo found, for settings to list.
+#[derive(Serialize)]
+pub struct ScriptInfo {
+    title: String,
+    file: String,
+    description: Option<String>,
+    argument: Option<String>,
+    output: &'static str,
+}
+
+/// What the scripts folder holds: the scripts Kairo lists, and the files it leaves out for want of
+/// a title line. Doesn't make the folder.
+#[derive(Serialize)]
+pub struct ScriptsFound {
+    scripts: Vec<ScriptInfo>,
+    skipped: Vec<String>,
+}
+
+#[tauri::command]
+pub fn get_scripts(app: AppHandle) -> CmdResult<ScriptsFound> {
+    let Some(dir) = crate::scripts::folder(&app) else { return Ok(ScriptsFound { scripts: Vec::new(), skipped: Vec::new() }) };
+    let scripts = crate::scripts::list(&dir)
+        .into_iter()
+        .map(|s| ScriptInfo {
+            file: std::path::Path::new(&s.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+            title: s.title,
+            description: s.description,
+            argument: s.argument,
+            output: match s.output {
+                crate::scripts::Output::Notify => "notify",
+                crate::scripts::Output::Copy => "copy",
+                crate::scripts::Output::Paste => "paste",
+                crate::scripts::Output::Silent => "silent",
+            },
+        })
+        .collect();
+    Ok(ScriptsFound { scripts, skipped: crate::scripts::skipped(&dir) })
+}
+
+/// Saves where the open windows are as a layout of this name, over one of that name.
+#[tauri::command]
+pub fn save_layout(state: State<AppState>, name: String) -> CmdResult<Vec<crate::snap::Layout>> {
+    if let Some(why) = platform::cant_move_windows() {
+        return Err(why.into());
+    }
+    let conn = state.db.lock().map_err(err)?;
+    crate::snap::save(&conn, &name, crate::snap::current()).map_err(err)??;
+    crate::snap::list(&conn).map_err(err)
+}
+
 /// The saved window layouts.
 #[tauri::command]
 pub fn get_layouts(state: State<AppState>) -> CmdResult<Vec<crate::snap::Layout>> {

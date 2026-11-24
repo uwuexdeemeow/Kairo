@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { loadCustomCommands, setUpCustomForm, useKeysRecorder } from "./custom-commands";
-import { loadLayouts, wireScripts } from "./desk-settings";
+import { loadLayouts, loadScripts, wireLayoutSave, wireScripts } from "./desk-settings";
 import { api, type Appearance, type Linking, type PaletteLook, type SyncState } from "./api";
 import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
@@ -426,6 +426,7 @@ export function wireKairoSettings(): void {
   // Each command's Set keys records with the same recorder as the palette's, one at a time.
   useKeysRecorder((row) => (recording === row ? stopRecording("Kept as it was.") : startRecording(row)), shortcutKeys);
   wireScripts();
+  wireLayoutSave();
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
     $("#autostart-title").textContent = "Open at login";
@@ -677,6 +678,7 @@ export async function loadKairoSettings(): Promise<void> {
     }),
     fill("#custom-list", loadCustomCommands),
     fill("#layouts-list", loadLayouts),
+    fill("#scripts-list", loadScripts),
     fill("#capture-keys", async () => {
       const keys = await api.captureShortcut();
       showShortcut(CAPTURE, keys);

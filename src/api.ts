@@ -633,6 +633,12 @@ export interface WindowLayout {
   focusLabel: string | null;
 }
 
+/** A script Kairo found in its scripts folder, and the files it left out for want of a title. */
+export interface ScriptsFound {
+  scripts: { title: string; file: string; description: string | null; argument: string | null; output: "notify" | "copy" | "paste" | "silent" }[];
+  skipped: string[];
+}
+
 export interface BlockLists {
   lists: BlockList[];
   /** The list sessions started by hand block; null blocks as usual. */
@@ -790,6 +796,9 @@ export const api = {
   customCommands: () => invoke<CustomCommand[]>("get_custom_commands"),
   layouts: () => invoke<WindowLayout[]>("get_layouts"),
   setLayoutFocusLabel: (name: string, label: string | null) => invoke<WindowLayout[]>("set_layout_focus_label", { name, label }),
+  /** Saves where the open windows are as a layout of this name. */
+  saveLayout: (name: string) => invoke<WindowLayout[]>("save_layout", { name }),
+  scripts: () => invoke<ScriptsFound>("get_scripts"),
   removeLayout: (name: string) => invoke<WindowLayout[]>("remove_layout", { name }),
   /** Makes the scripts folder (with an example) and opens it; gives its path. */
   openScriptsFolder: () => invoke<string>("open_scripts_folder"),

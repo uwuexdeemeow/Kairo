@@ -566,6 +566,8 @@ pub fn run() {
             commands::set_custom_keys,
             commands::keywords_status,
             commands::get_layouts,
+            commands::save_layout,
+            commands::get_scripts,
             commands::set_layout_focus_label,
             commands::remove_layout,
             commands::open_scripts_folder,
