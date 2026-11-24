@@ -81,7 +81,7 @@ pub(super) fn row(title: impl Into<String>, glyph: Glyph, section: &'static str,
 /// calculator leaves it alone as it does `focus 50`.
 pub fn leads(query: &str) -> bool {
     let q = query.trim();
-    ["extend ", "timer ", "allow ", "pause tracking ", "pomodoro ", "remind "].iter().any(|word| after(q, word).is_some())
+    ["extend ", "timer ", "allow ", "pause tracking ", "pomodoro ", "remind "].iter().any(|word| after(q, word).is_some()) || super::devtools::leads(q)
 }
 
 /// The rows these commands offer for `query`.
@@ -106,6 +106,7 @@ pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     items.extend(super::recent::rows(ctx, query));
     items.extend(super::tools::help_rows(ctx, query));
     items.extend(super::tools::remind_rows(ctx, query));
+    items.extend(super::devtools::rows(ctx, query));
     items
 }
 

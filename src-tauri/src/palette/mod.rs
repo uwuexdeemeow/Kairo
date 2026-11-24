@@ -22,6 +22,7 @@ use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 pub mod calc;
 pub mod cards;
 pub mod commands;
+pub mod devtools;
 pub mod emoji;
 pub mod recent;
 pub mod files;

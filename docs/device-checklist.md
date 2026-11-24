@@ -1300,3 +1300,11 @@ meetings today and some from last week. No focus session involved except where s
     says "Added …", and Your commands, Window layouts and Scripts show the new ones at once.
     Adding the same file again says "Nothing new in that file". *Expect* no keys on added commands,
     and a script that was already there left as it was.
+27. **Developer tools (1.38.4).** In the palette type `uuid`. *Expect:* a new random ID that changes
+    with each key; Enter copies it and Ctrl+Enter pastes it into the window you were in. Type
+    `base64 hello` (*expect* `aGVsbG8=`), `base64 decode aGVsbG8=` (*expect* `hello`), `hash abc`
+    (*expect* a SHA-256 row and a SHA-512 row) and `lorem 2` (*expect* two paragraphs, the first
+    starting "Lorem ipsum"). Copy `{"b":1,"a":[1,2]}` then type `json`. *Expect:* it made readable,
+    "of what you copied", keys in the same order; `json min` puts it back on one line, and
+    `json {oops` says "That isn't valid JSON". With the clipboard history off, `json` alone says to
+    type some text or turn the history on.
