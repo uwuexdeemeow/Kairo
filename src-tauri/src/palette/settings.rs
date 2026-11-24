@@ -100,6 +100,7 @@ pub fn entries() -> Vec<Entry> {
         kairo("Your commands", "custom own alias aliases quicklink quick link snippet snippets paste open copy palette word hotkey keyword expand", "custom-new-name", None, None),
         kairo("Window layouts", "windows layout snap arrange focus label", "layouts-list", None, None),
         kairo("Scripts", "script commands run shell powershell python folder automation", "scripts-open", None, None),
+        kairo("Move your setup", "export import share save file commands layouts scripts new computer move", "setup-export", None, None),
         kairo("Palette shortcut", "command palette keys hotkey keyboard", "palette-record", None, None),
         kairo("Palette suggestions", "suggested recent apps when it opens", "palette-suggestions", Some(Suggestions), None),
         kairo("Open over full screen", "fullscreen games palette", "palette-over-fullscreen", Some(OverFullscreen), None),

@@ -88,6 +88,35 @@ export async function loadScripts(): Promise<void> {
   renderScripts(await api.scripts());
 }
 
+/// Save to a file and Add from a file: each says what happened beside the buttons, and an add
+/// reads the lists again so what came in shows at once.
+export function wireSetupFile(reload: () => Promise<unknown>): void {
+  const status = $("#setup-status");
+  const buttons = [$<HTMLButtonElement>("#setup-export"), $<HTMLButtonElement>("#setup-import")];
+  // The system's dialog takes a while, and a second press mustn't open a second one.
+  const run = async (task: () => Promise<string | null>) => {
+    for (const b of buttons) b.disabled = true;
+    try {
+      const said = await task();
+      if (said) status.textContent = said;
+      else status.textContent = "";
+    } catch (err) {
+      status.textContent = why(err);
+    } finally {
+      for (const b of buttons) b.disabled = false;
+    }
+  };
+  buttons[0].addEventListener("click", () => run(async () => {
+    const name = await api.exportSetup();
+    return name ? `Saved ${name}.` : null;
+  }));
+  buttons[1].addEventListener("click", () => run(async () => {
+    const said = await api.importSetup();
+    if (said) await reload().catch(() => {});
+    return said;
+  }));
+}
+
 export function wireScripts(): void {
   const status = $("#scripts-status");
   $("#scripts-open").addEventListener("click", async () => {

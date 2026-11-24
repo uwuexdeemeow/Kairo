@@ -1003,6 +1003,68 @@ pub fn save_layout(state: State<AppState>, name: String) -> CmdResult<Vec<crate:
     crate::snap::list(&conn).map_err(err)
 }
 
+/// Saves your commands, layouts and scripts to one file; its name, or None when no place was picked.
+#[tauri::command]
+pub async fn export_setup(app: AppHandle) -> CmdResult<Option<String>> {
+    let name = format!("Kairo setup {}.json", Local::now().format("%Y-%m-%d"));
+    let Some(path) = save_path(&app, &name, "Kairo setup", "json") else { return Ok(None) };
+    let setup = {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        crate::setup_file::build(&conn, crate::scripts::folder(&app).as_deref()).map_err(err)?
+    };
+    let json = serde_json::to_string_pretty(&setup).map_err(err)?;
+    std::fs::write(&path, json).map_err(|e| format!("Couldn't save the file: {e}"))?;
+    Ok(path.file_name().map(|n| n.to_string_lossy().into_owned()))
+}
+
+/// Adds what a setup file holds that isn't here yet, once the person has seen how much and said
+/// yes. What is already here is never changed. Says what was added; None when they didn't pick a
+/// file or said no.
+#[tauri::command]
+pub async fn import_setup(app: AppHandle) -> CmdResult<Option<String>> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let Some(from) = app.dialog().file().add_filter("Kairo setup", &["json"]).blocking_pick_file().and_then(|f| f.into_path().ok()) else {
+        return Ok(None);
+    };
+    if std::fs::metadata(&from).map_err(|e| format!("Couldn't read the file: {e}"))?.len() > crate::setup_file::MAX_FILE_BYTES {
+        return Err("That file is too big to be a Kairo setup.".into());
+    }
+    let text = std::fs::read_to_string(&from).map_err(|_| "Couldn't read that file as text.".to_string())?;
+    let setup = crate::setup_file::parse(&text)?;
+    let dir = crate::scripts::folder(&app);
+    let new = {
+        let state = app.state::<AppState>();
+        let conn = state.db.lock().map_err(err)?;
+        crate::setup_file::fresh(&conn, dir.as_deref(), &setup).map_err(err)?
+    };
+    if new.is_empty() {
+        return Ok(Some("Nothing new in that file: all of it is already here.".into()));
+    }
+    let mut ask = format!("Add {} from this file? What is already here stays as it is.", new.says());
+    if new.scripts > 0 {
+        ask.push_str(" Scripts are programs: add them only if you trust where the file came from. A script runs only when you press Enter on it in the palette.");
+    }
+    let sure = app
+        .dialog()
+        .message(ask)
+        .title("Add this setup?")
+        .kind(if new.scripts > 0 { MessageDialogKind::Warning } else { MessageDialogKind::Info })
+        .buttons(MessageDialogButtons::OkCancelCustom("Add".into(), "Cancel".into()))
+        .blocking_show();
+    if !sure {
+        return Ok(None);
+    }
+    let state = app.state::<AppState>();
+    let conn = state.db.lock().map_err(err)?;
+    let added = crate::setup_file::apply(&conn, dir.as_deref(), &setup)?;
+    if added.commands > 0 {
+        sync::record(&conn, "commands:custom", &custom_commands::to_json(&conn).map_err(err)?)?;
+        commands_changed(&app, &conn);
+    }
+    Ok(Some(format!("Added {}.", added.says())))
+}
+
 /// The saved window layouts.
 #[tauri::command]
 pub fn get_layouts(state: State<AppState>) -> CmdResult<Vec<crate::snap::Layout>> {

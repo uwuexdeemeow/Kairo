@@ -1293,3 +1293,10 @@ meetings today and some from last week. No focus session involved except where s
     (English, United States), `remind me in 20m to x` says "at 3:05 PM"; in a 24-hour one, "15:05".
     In Kairo's settings, Palette and ring, *expect* Remember what I copy, Your commands and Scripts
     each to show one line and a fold ("What it keeps", "What they can do", "How to write one").
+26. **Move your setup (1.38.3).** In Kairo's settings, Move your setup, press Save to a file and
+    keep the default name. *Expect:* "Saved Kairo setup <date>.json". On a second computer (or after
+    removing one command and one layout here), press Add from a file and choose it. *Expect:* a
+    dialog counting what it would add, with a warning about scripts when there are any; Add then
+    says "Added …", and Your commands, Window layouts and Scripts show the new ones at once.
+    Adding the same file again says "Nothing new in that file". *Expect* no keys on added commands,
+    and a script that was already there left as it was.

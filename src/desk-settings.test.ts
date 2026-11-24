@@ -6,12 +6,14 @@ const api = vi.hoisted(() => ({
   removeLayout: vi.fn(),
   saveLayout: vi.fn(),
   scripts: vi.fn(),
+  exportSetup: vi.fn(),
+  importSetup: vi.fn(),
   openScriptsFolder: vi.fn(),
 }));
 vi.mock("./api", () => ({ api }));
 
 import type { WindowLayout } from "./api";
-import { loadLayouts, renderLayouts, renderScripts, wireLayoutSave, wireScripts } from "./desk-settings";
+import { loadLayouts, renderLayouts, renderScripts, wireLayoutSave, wireScripts, wireSetupFile } from "./desk-settings";
 
 const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -20,7 +22,7 @@ const writing: WindowLayout = { name: "Writing", windows: [{ app: "code.exe", ti
 const one: WindowLayout = { name: "Calls", windows: [{ app: "zoom.exe", title: "Zoom" }], focusLabel: null };
 
 beforeEach(() => {
-  document.body.innerHTML = `<div id="layouts-list"></div><input id="layout-new-name" /><button id="layout-save"></button><span id="layouts-status"></span><div id="scripts-list"></div><button id="scripts-open"></button><button id="scripts-refresh"></button><span id="scripts-status"></span>`;
+  document.body.innerHTML = `<div id="layouts-list"></div><input id="layout-new-name" /><button id="layout-save"></button><span id="layouts-status"></span><div id="scripts-list"></div><button id="scripts-open"></button><button id="scripts-refresh"></button><span id="scripts-status"></span><button id="setup-export"></button><button id="setup-import"></button><span id="setup-status"></span>`;
   for (const fn of Object.values(api)) fn.mockReset();
 });
 
@@ -108,5 +110,43 @@ describe("Scripts in Kairo's settings", () => {
     $("#scripts-refresh").click();
     await settle();
     expect($("#scripts-list").textContent).toContain("Tidy · tidy.js, says nothing");
+  });
+});
+
+describe("Moving your setup in Kairo's settings", () => {
+  it("says the name of the file it saved, and nothing when no place was picked", async () => {
+    wireSetupFile(async () => {});
+    api.exportSetup.mockResolvedValueOnce("Kairo setup 2026-11-25.json");
+    $("#setup-export").click();
+    await settle();
+    expect($("#setup-status").textContent).toBe("Saved Kairo setup 2026-11-25.json.");
+    api.exportSetup.mockResolvedValueOnce(null);
+    $("#setup-export").click();
+    await settle();
+    expect($("#setup-status").textContent).toBe("");
+  });
+
+  it("reads the lists again after an add, and says what it added", async () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    wireSetupFile(reload);
+    api.importSetup.mockResolvedValue("Added 2 commands and 1 script.");
+    $("#setup-import").click();
+    await settle();
+    expect(reload).toHaveBeenCalled();
+    expect($("#setup-status").textContent).toBe("Added 2 commands and 1 script.");
+  });
+
+  it("leaves the lists alone when nothing was added, and says why a file was refused", async () => {
+    const reload = vi.fn();
+    wireSetupFile(reload);
+    api.importSetup.mockResolvedValueOnce(null);
+    $("#setup-import").click();
+    await settle();
+    expect(reload).not.toHaveBeenCalled();
+    api.importSetup.mockRejectedValueOnce("That isn't a Kairo setup file.");
+    $("#setup-import").click();
+    await settle();
+    expect($("#setup-status").textContent).toBe("That isn't a Kairo setup file.");
+    expect($<HTMLButtonElement>("#setup-import").disabled).toBe(false);
   });
 });

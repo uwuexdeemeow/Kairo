@@ -19,6 +19,7 @@ mod snap;
 mod usual;
 mod linux_notes;
 mod pause_schedule;
+mod setup_file;
 mod crashlog;
 mod db;
 mod demo;
@@ -567,6 +568,8 @@ pub fn run() {
             commands::keywords_status,
             commands::get_layouts,
             commands::save_layout,
+            commands::export_setup,
+            commands::import_setup,
             commands::get_scripts,
             commands::set_layout_focus_label,
             commands::remove_layout,

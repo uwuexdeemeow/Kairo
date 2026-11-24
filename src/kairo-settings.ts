@@ -1,6 +1,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { loadCustomCommands, setUpCustomForm, useKeysRecorder } from "./custom-commands";
-import { loadLayouts, loadScripts, wireLayoutSave, wireScripts } from "./desk-settings";
+import { loadLayouts, loadScripts, wireLayoutSave, wireScripts, wireSetupFile } from "./desk-settings";
 import { api, type Appearance, type Linking, type PaletteLook, type SyncState } from "./api";
 import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
@@ -427,6 +427,7 @@ export function wireKairoSettings(): void {
   useKeysRecorder((row) => (recording === row ? stopRecording("Kept as it was.") : startRecording(row)), shortcutKeys);
   wireScripts();
   wireLayoutSave();
+  wireSetupFile(() => Promise.all([loadCustomCommands(), loadLayouts(), loadScripts()]));
   if (IS_MAC) {
     $("#appearance-system").textContent = "Match macOS";
     $("#autostart-title").textContent = "Open at login";

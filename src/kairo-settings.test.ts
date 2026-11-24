@@ -495,7 +495,7 @@ describe("finding a setting", () => {
     field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     expect(field.value).toBe("");
     expect($("#settings-none").hidden).toBe(true);
-    expect(visibleSections().length).toBe(13);
+    expect(visibleSections().length).toBe(14);
   });
 
   it("finds capture by what it does", () => {

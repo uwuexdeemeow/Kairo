@@ -799,6 +799,10 @@ export const api = {
   /** Saves where the open windows are as a layout of this name. */
   saveLayout: (name: string) => invoke<WindowLayout[]>("save_layout", { name }),
   scripts: () => invoke<ScriptsFound>("get_scripts"),
+  /** Saves commands, layouts and scripts to a file; its name, or null when no place was picked. */
+  exportSetup: () => invoke<string | null>("export_setup"),
+  /** Adds what a file holds that isn't here; says what was added, or null when nothing was. */
+  importSetup: () => invoke<string | null>("import_setup"),
   removeLayout: (name: string) => invoke<WindowLayout[]>("remove_layout", { name }),
   /** Makes the scripts folder (with an example) and opens it; gives its path. */
   openScriptsFolder: () => invoke<string>("open_scripts_folder"),
