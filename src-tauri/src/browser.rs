@@ -432,11 +432,18 @@ struct Verdict {
     block: bool,
     site: Option<String>,
     until_ms: Option<i64>,
+    /// "bump" for the pause before a distracting site outside a focus session; absent for a
+    /// session's block, which is all an older extension knows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<&'static str>,
 }
 
 #[derive(Deserialize)]
 struct Allow {
     site: String,
+    /// "bump" when asked from the pause before a distracting site.
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(request: &mut tiny_http::Request) -> Option<T> {
@@ -469,7 +476,14 @@ fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Al
                         }),
                         _ => None,
                     };
-                    let verdict = Verdict { block: until.is_some(), site: site.clone(), until_ms: until };
+                    // Outside a session, a distracting site asks for a pause when that is on: blocked, with
+                    // no time it ends, until it is let through.
+                    let bump = until.is_none() && !p.incognito && site.as_deref().is_some_and(|s| blocking::site_bump(conn, allowances, s, now).unwrap_or(false));
+                    let verdict = if bump {
+                        Verdict { block: true, site: site.clone(), until_ms: Some(0), reason: Some("bump") }
+                    } else {
+                        Verdict { block: until.is_some(), site: site.clone(), until_ms: until, reason: None }
+                    };
                     *shared.lock().unwrap_or_else(|e| e.into_inner()) = Some(Report { site, incognito: p.incognito, at_ms: now });
                     (200, serde_json::to_string(&verdict).ok())
                 }
@@ -477,18 +491,31 @@ fn serve(server: &Server, shared: &SharedTab, conn: &Connection, allowances: &Al
             },
             // "Allow 5 minutes" on the extension's blocked page; strict mode answers 423 with
             // when to ask again.
-            "/allow" if post => match read_json::<Allow>(&mut request).and_then(|a| site_for_host(&a.site)) {
-                Some(site) => {
+            "/allow" if post => match read_json::<Allow>(&mut request).and_then(|a| site_for_host(&a.site).map(|site| (site, a.reason))) {
+                Some((site, reason)) => {
                     let key = format!("site:{site}");
-                    match blocking::strict_gate(conn, waits, &format!("allow:{key}"), now) {
-                        Ok(Ok(())) => {
-                            blocking::allow(allowances, &key, now);
-                            (204, None)
+                    let action = format!("allow:{key}");
+                    // The pause before a distracting site waits a few seconds and lets it through for
+                    // longer; only while it applies, so it is no way around strict mode.
+                    if reason.as_deref() == Some("bump") && blocking::bump_on(conn).unwrap_or(false) {
+                        match blocking::bump_gate(waits, &action, now) {
+                            Ok(()) => {
+                                blocking::allow_for(allowances, &key, now, blocking::BUMP_ALLOW_MINUTES);
+                                (204, None)
+                            }
+                            Err(ready_at) => (423, serde_json::to_string(&Wait { ready_at }).ok()),
                         }
-                        Ok(Err(ready_at)) => (423, serde_json::to_string(&Wait { ready_at }).ok()),
-                        Err(e) => {
-                            eprintln!("browser: cannot check strict mode: {e}");
-                            (500, None)
+                    } else {
+                        match blocking::strict_gate(conn, waits, &action, now) {
+                            Ok(Ok(())) => {
+                                blocking::allow(allowances, &key, now);
+                                (204, None)
+                            }
+                            Ok(Err(ready_at)) => (423, serde_json::to_string(&Wait { ready_at }).ok()),
+                            Err(e) => {
+                                eprintln!("browser: cannot check strict mode: {e}");
+                                (500, None)
+                            }
                         }
                     }
                 }
@@ -661,6 +688,21 @@ mod tests {
         let (code, body) = post(addr, "/allow", ext, r#"{"site":"reddit.com"}"#);
         assert_eq!(code, 423);
         assert!(body.starts_with(r#"{"readyAt":"#), "{body}");
+
+        // Outside a session, the pause before a distracting site waits a few seconds first, and
+        // only while it is on: asked for with it off (or in a session) it is the usual allowance.
+        crate::focus::stop(&conn, now + 1_000).unwrap();
+        blocking::set_setting(&conn, "strict", false).unwrap();
+        let bump = r#"{"site":"reddit.com","reason":"bump"}"#;
+        assert_eq!(post(addr, "/allow", ext, bump).0, 204);
+        blocking::set_setting(&conn, "bump", true).unwrap();
+        let (code, body) = post(addr, "/allow", ext, bump);
+        assert_eq!(code, 423);
+        assert!(body.starts_with(r#"{"readyAt":"#), "{body}");
+        // Asking again too soon keeps the same wait.
+        assert_eq!(post(addr, "/allow", ext, bump), (423, body));
+        // An older extension says no reason and gets the usual allowance.
+        assert_eq!(post(addr, "/allow", ext, r#"{"site":"reddit.com"}"#).0, 204);
 
         assert_eq!(post(addr, "/tab", ext, r#"{"host":null}"#).0, 200);
         assert_eq!(shared.lock().unwrap().as_ref().unwrap().site, None);

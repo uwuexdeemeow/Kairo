@@ -740,9 +740,9 @@ export const api = {
   skipPomodoroBreak: () => invoke<void>("skip_pomodoro_break"),
   pomodoroLengths: () => invoke<PomodoroLengths>("get_pomodoro_lengths"),
   setPomodoroLengths: (lengths: PomodoroLengths) => invoke<PomodoroLengths>("set_pomodoro_lengths", { lengths }),
-  focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean; strict: boolean }>("get_focus_blocking"),
+  focusBlocking: () => invoke<{ enabled: boolean; launchers: boolean; strict: boolean; bump: boolean }>("get_focus_blocking"),
   /** Refused while strict mode guards a running session. */
-  setFocusBlocking: (which: "enabled" | "launchers" | "strict", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),
+  setFocusBlocking: (which: "enabled" | "launchers" | "strict" | "bump", on: boolean) => invoke<void>("set_focus_blocking", { which, on }),
   setFocusRule: (key: string, rule: FocusRule) => invoke<void>("set_focus_rule", { key, rule }),
   /** Focus sessions on one local day (`YYYY-MM-DD`; default today). */
   focusBlocks: (date?: string) => invoke<FocusBlock[]>("get_focus_blocks", { date }),

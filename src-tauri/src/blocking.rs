@@ -28,6 +28,11 @@ pub const STRICT_WAIT_MS: i64 = 30_000;
 /// How long a finished wait stays good for its confirming click.
 const STRICT_CONFIRM_MS: i64 = 2 * 60_000;
 pub const ALLOW_MINUTES: i64 = 5;
+const BUMP_KEY: &str = "focus_bump";
+/// The pause before a distracting app or site outside a focus session, and how long it then lets
+/// you through for. Short on purpose: it is a bump, not a wall.
+pub const BUMP_WAIT_MS: i64 = 10_000;
+pub const BUMP_ALLOW_MINUTES: i64 = 15;
 const MIN_MS: i64 = 60_000;
 pub const WINDOW_LABEL: &str = "blocked";
 
@@ -78,6 +83,8 @@ pub struct Settings {
     pub launchers: bool,
     /// Ending a session early or allowing something blocked takes a wait first.
     pub strict: bool,
+    /// Outside a focus session, a distracting app or site asks for a short pause first.
+    pub bump: bool,
 }
 
 /// On unless turned off; strict mode is the one setting that starts off.
@@ -94,15 +101,17 @@ pub fn settings(conn: &Connection) -> Result<Settings> {
         enabled: flag(conn, ENABLED_KEY, true)?,
         launchers: flag(conn, LAUNCHERS_KEY, true)?,
         strict: flag(conn, STRICT_KEY, false)?,
+        bump: flag(conn, BUMP_KEY, false)?,
     })
 }
 
-/// `which` is "enabled" (blocking as a whole), "launchers" or "strict". False for anything else.
+/// `which` is "enabled" (blocking as a whole), "launchers", "strict" or "bump". False for anything else.
 pub fn set_setting(conn: &Connection, which: &str, on: bool) -> Result<bool> {
     let key = match which {
         "enabled" => ENABLED_KEY,
         "launchers" => LAUNCHERS_KEY,
         "strict" => STRICT_KEY,
+        "bump" => BUMP_KEY,
         _ => return Ok(false),
     };
     db::set_setting(conn, key, if on { "1" } else { "0" })?;
@@ -127,18 +136,34 @@ pub fn strict_gate(conn: &Connection, waits: &Waits, action: &str, now: i64) -> 
     if !strict_now(conn)? {
         return Ok(Ok(()));
     }
+    Ok(gate(waits, action, now, STRICT_WAIT_MS))
+}
+
+/// The same wait for the pause before a distracting app or site: shorter, and asked of anyone
+/// outside a focus session when the setting is on (see [`bump_on`]).
+pub fn bump_gate(waits: &Waits, action: &str, now: i64) -> std::result::Result<(), i64> {
+    gate(waits, action, now, BUMP_WAIT_MS)
+}
+
+fn gate(waits: &Waits, action: &str, now: i64, wait_ms: i64) -> std::result::Result<(), i64> {
     let mut waits = waits.lock().unwrap_or_else(|e| e.into_inner());
     match waits.get(action).copied() {
-        Some(asked) if now < asked + STRICT_WAIT_MS => Ok(Err(asked + STRICT_WAIT_MS)),
-        Some(asked) if now <= asked + STRICT_WAIT_MS + STRICT_CONFIRM_MS => {
+        Some(asked) if now < asked + wait_ms => Err(asked + wait_ms),
+        Some(asked) if now <= asked + wait_ms + STRICT_CONFIRM_MS => {
             waits.remove(action);
-            Ok(Ok(()))
+            Ok(())
         }
         _ => {
             waits.insert(action.to_string(), now);
-            Ok(Err(now + STRICT_WAIT_MS))
+            Err(now + wait_ms)
         }
     }
+}
+
+/// Whether distracting apps and sites ask for a pause now: the setting is on, and no focus
+/// session is going (a session blocks them outright, paused or not).
+pub fn bump_on(conn: &Connection) -> Result<bool> {
+    Ok(settings(conn)?.bump && focus::active(conn)?.is_none())
 }
 
 pub fn rules(conn: &Connection) -> Result<HashMap<String, Rule>> {
@@ -170,7 +195,12 @@ pub fn set_rule(conn: &Connection, key: &str, rule: Rule) -> Result<()> {
 pub type Allowances = Arc<Mutex<HashMap<String, i64>>>;
 
 pub fn allow(allowances: &Allowances, key: &str, now: i64) {
-    allowances.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), now + ALLOW_MINUTES * MIN_MS);
+    allow_for(allowances, key, now, ALLOW_MINUTES);
+}
+
+/// Lets something through for `minutes`, which the pause before a distracting app makes longer.
+pub fn allow_for(allowances: &Allowances, key: &str, now: i64, minutes: i64) {
+    allowances.lock().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), now + minutes * MIN_MS);
 }
 
 fn allowed(allowances: &Allowances, key: &str, now: i64) -> bool {
@@ -242,6 +272,15 @@ pub fn site_blocked_until(conn: &Connection, allowances: &Allowances, site: &str
         }
     }
     Ok(goals::hard_over(conn, now)?.get(&key).copied())
+}
+
+/// For the browser extension: whether a site asks for a pause right now, outside a focus session.
+/// Games' sites don't exist, but a full-screen browser does: it is left alone.
+pub fn site_bump(conn: &Connection, allowances: &Allowances, site: &str, now: i64) -> Result<bool> {
+    if !bump_on(conn)? || allowed(allowances, &format!("site:{site}"), now) || platform::fullscreen_in_front() {
+        return Ok(false);
+    }
+    Ok(decide(None, &rules(conn)?, &analysis::category_map(conn)?, None, Some(site)))
 }
 
 /// What the blocked window shows.
@@ -334,6 +373,9 @@ struct Watch {
     /// What's past a hard daily limit, and when that lifts; worked out every few seconds rather
     /// than every tick, since it adds up the day.
     hard: HashMap<String, i64>,
+    /// Whether the blocked window up is the pause before a distracting app, which goes away when
+    /// you go on to something else, unlike a session's.
+    bump_up: bool,
 }
 
 /// Ticks between workings-out of what's past a hard limit: every 15 seconds.
@@ -374,7 +416,10 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
     if session.is_none() {
         w.closed.clear();
     }
-    if session.is_none() && w.hard.is_empty() {
+    // Outside a session, a distracting app asks for a short pause first, when that is on.
+    let bump = !paused && session.is_none() && bump_on(conn)?;
+    if session.is_none() && w.hard.is_empty() && !bump {
+        w.bump_up = false;
         close_window(app);
         return Ok(());
     }
@@ -391,7 +436,20 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
         };
         // A hard limit never cuts a game short mid-match; games get the limit's notification.
         let by_limit = w.hard.get(&key).copied().filter(|_| !classify::is_game(&exe, &fg.exe_path) && !NEVER.contains(&exe.as_str()));
-        let block = by_session.map(|until| (until, "focus")).or(by_limit.map(|until| (until, "limit")));
+        // Never games or full-screen apps, whatever they are: nothing gets in the way of play.
+        let by_bump = bump
+            && by_session.is_none()
+            && by_limit.is_none()
+            && !classify::is_browser(&exe)
+            && !classify::is_game(&exe, &fg.exe_path)
+            && !platform::fullscreen_in_front()
+            && decide(None, &rules, &analysis::category_map(conn)?, Some(&exe), None);
+        let block = by_session.map(|until| (until, "focus")).or(by_limit.map(|until| (until, "limit"))).or(by_bump.then_some((0, "bump")));
+        // Gone on to something else (not Kairo's own window), the pause is over with.
+        if block.is_none() && w.bump_up && exe != "kairo" {
+            w.bump_up = false;
+            close_window(app);
+        }
         if let Some((until, reason)) = block {
             if !classify::is_browser(&exe)
                 && !allowed(allowances, &key, now)
@@ -400,6 +458,7 @@ fn tick(app: &AppHandle, conn: &Connection, w: &mut Watch, paused: bool, allowan
                 && platform::minimize(fg.window)
             {
                 let label = classify::app_name(&fg.exe_path, &exe, &classify::clean_title(&fg.title));
+                w.bump_up = reason == "bump";
                 show_blocked(app, &Blocked { label, key, until_ms: until, reason }, &crate::appearance::get(conn)?)?;
             }
         }
@@ -520,6 +579,56 @@ mod tests {
         assert_eq!(describe(&conn, &keys(&["site:youtube", "app:steam"])).unwrap(), format!("youtube and {} are", classify::display_name("steam", "")));
         assert_eq!(describe(&conn, &keys(&["site:a", "site:b", "site:c"])).unwrap(), "a, b and c are");
         assert_eq!(describe(&conn, &keys(&["site:a", "site:b", "site:c", "site:d", "site:e"])).unwrap(), "a, b and 3 more are");
+    }
+
+    #[test]
+    fn the_pause_before_a_distracting_app_is_off_by_default_and_only_outside_a_session() {
+        let conn = db::open(std::path::Path::new(":memory:")).unwrap();
+        let t = 1_000 * MIN_MS;
+        assert!(!settings(&conn).unwrap().bump);
+        assert!(!bump_on(&conn).unwrap());
+        assert!(set_setting(&conn, "bump", true).unwrap());
+        assert!(settings(&conn).unwrap().bump);
+        assert!(bump_on(&conn).unwrap());
+        // A session blocks outright, so the pause steps aside, paused or not.
+        focus::start(&conn, 25, None, t).unwrap();
+        assert!(!bump_on(&conn).unwrap());
+        focus::pause(&conn, t + 1_000).unwrap();
+        assert!(!bump_on(&conn).unwrap());
+        focus::stop(&conn, t + 2_000).unwrap();
+        assert!(bump_on(&conn).unwrap());
+        set_setting(&conn, "bump", false).unwrap();
+        assert!(!bump_on(&conn).unwrap());
+    }
+
+    #[test]
+    fn the_pause_waits_ten_seconds_then_lets_one_confirming_press_through() {
+        let waits = Waits::default();
+        let t = 1_000 * MIN_MS;
+        assert_eq!(bump_gate(&waits, "allow:app:discord", t), Err(t + BUMP_WAIT_MS));
+        // Too soon keeps the same deadline.
+        assert_eq!(bump_gate(&waits, "allow:app:discord", t + 4_000), Err(t + BUMP_WAIT_MS));
+        assert_eq!(bump_gate(&waits, "allow:app:discord", t + BUMP_WAIT_MS), Ok(()));
+        // Used once: the next time starts a new wait. And an unconfirmed one lapses.
+        assert_eq!(bump_gate(&waits, "allow:app:discord", t + BUMP_WAIT_MS + 1_000), Err(t + BUMP_WAIT_MS + 1_000 + BUMP_WAIT_MS));
+        let late = t + 60 * MIN_MS;
+        assert_eq!(bump_gate(&waits, "allow:app:discord", late), Err(late + BUMP_WAIT_MS));
+        // Each thing waits on its own.
+        assert_eq!(bump_gate(&waits, "allow:site:youtube", t), Err(t + BUMP_WAIT_MS));
+        // Strict mode's wait is longer and unchanged.
+        assert!(BUMP_WAIT_MS < STRICT_WAIT_MS);
+    }
+
+    #[test]
+    fn letting_one_through_after_the_pause_lasts_longer_than_the_usual_allowance() {
+        let allowances = Allowances::default();
+        let t = 1_000 * MIN_MS;
+        allow(&allowances, "app:discord", t);
+        assert!(allowed(&allowances, "app:discord", t + ALLOW_MINUTES * MIN_MS - 1));
+        assert!(!allowed(&allowances, "app:discord", t + ALLOW_MINUTES * MIN_MS));
+        allow_for(&allowances, "app:discord", t, BUMP_ALLOW_MINUTES);
+        assert!(allowed(&allowances, "app:discord", t + BUMP_ALLOW_MINUTES * MIN_MS - 1));
+        assert!(!allowed(&allowances, "app:discord", t + BUMP_ALLOW_MINUTES * MIN_MS));
     }
 
     #[test]

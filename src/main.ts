@@ -2064,6 +2064,7 @@ async function load(v: View = view) {
       $<HTMLInputElement>("#block-enabled").checked = blocking.enabled;
       $<HTMLInputElement>("#block-strict").checked = blocking.strict;
       $<HTMLInputElement>("#block-launchers").checked = blocking.launchers;
+      $<HTMLInputElement>("#block-bump").checked = blocking.bump;
       paintBlockingState();
       const breaks = $<HTMLSelectElement>("#break-every");
       breaks.replaceChildren(...minutesSelect(BREAK_CHOICES, await api.breakMinutes(), "", "Never").children);
@@ -2254,7 +2255,8 @@ listen("kairo:settings", () => view === "settings" && load());
 /// Blocking's header says whether it is on, and strict, while the fold is closed.
 function paintBlockingState() {
   const on = $<HTMLInputElement>("#block-enabled").checked;
-  foldState("blocking", on ? ($<HTMLInputElement>("#block-strict").checked ? "On · strict" : "On") : "Off");
+  const pause = $<HTMLInputElement>("#block-bump").checked;
+  foldState("blocking", on ? `On${$<HTMLInputElement>("#block-strict").checked ? " · strict" : ""}${pause ? " · pause" : ""}` : pause ? "Pause only" : "Off");
 }
 
 /// Rest reminders' header: how long before one, or off.
@@ -2262,7 +2264,7 @@ function paintRestState(min: number) {
   foldState("rest", min === 0 ? "Off" : min % 60 === 0 ? `Every ${min / 60} h` : `Every ${min} min`);
 }
 
-for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"]] as const) {
+for (const [id, which] of [["#block-enabled", "enabled"], ["#block-launchers", "launchers"], ["#block-strict", "strict"], ["#block-bump", "bump"]] as const) {
   $<HTMLInputElement>(id).addEventListener("change", async (e) => {
     const box = e.target as HTMLInputElement;
     try {

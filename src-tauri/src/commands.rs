@@ -1694,9 +1694,19 @@ pub fn open_extension_folder(app: AppHandle) -> CmdResult<()> {
 
 /// "Allow 5 minutes" from the blocked window.
 #[tauri::command]
-pub fn allow_blocked(app: AppHandle, state: State<AppState>, key: String) -> CmdResult<Option<i64>> {
+pub fn allow_blocked(app: AppHandle, state: State<AppState>, key: String, reason: Option<String>) -> CmdResult<Option<i64>> {
     let conn = state.db.lock().map_err(err)?;
     let now = now_ms();
+    // The pause before a distracting app waits a few seconds and lets it through for longer; only
+    // while it applies, so it is no way around strict mode.
+    if reason.as_deref() == Some("bump") && blocking::bump_on(&conn).map_err(err)? {
+        if let Err(ready) = blocking::bump_gate(&state.strict_waits, &format!("allow:{key}"), now) {
+            return Ok(Some(ready));
+        }
+        blocking::allow_for(&state.allowances, &key, now, blocking::BUMP_ALLOW_MINUTES);
+        blocking::close_window(&app);
+        return Ok(None);
+    }
     // In strict mode this waits first; the window counts down and asks again.
     if let Err(ready) = blocking::strict_gate(&conn, &state.strict_waits, &format!("allow:{key}"), now).map_err(err)? {
         return Ok(Some(ready));

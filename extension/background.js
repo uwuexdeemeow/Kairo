@@ -11,6 +11,8 @@ function showBlocked(tab, verdict) {
   const page = new URL(chrome.runtime.getURL("blocked.html"));
   page.searchParams.set("site", verdict.site);
   page.searchParams.set("until", String(verdict.untilMs));
+  // "bump" outside a focus session: a short pause, not a block. Older Kairos send no reason.
+  page.searchParams.set("reason", verdict.reason ?? "focus");
   page.searchParams.set("url", tab.url);
   chrome.tabs.update(tab.id, { url: page.href });
 }
