@@ -653,6 +653,9 @@ export const api = {
   /** `date` is a local `YYYY-MM-DD`; omit it for today. */
   day: (date?: string) => invoke<DaySummary>("get_day", { date }),
   firstDay: () => invoke<string | null>("get_first_day"),
+  /** Whether the first-run walkthrough is to be shown. */
+  walkthroughDue: () => invoke<boolean>("walkthrough_due"),
+  finishWalkthrough: () => invoke<void>("finish_walkthrough"),
   /** Days with tracked time between two local `YYYY-MM-DD` dates, inclusive. */
   dayTotals: (from: string, to: string) => invoke<DayTotal[]>("get_day_totals", { from, to }),
   patterns: (days: number) => invoke<Patterns>("get_patterns", { days }),

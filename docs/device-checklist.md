@@ -1308,3 +1308,10 @@ meetings today and some from last week. No focus session involved except where s
     "of what you copied", keys in the same order; `json min` puts it back on one line, and
     `json {oops` says "That isn't valid JSON". With the clipboard history off, `json` alone says to
     type some text or turn the history on.
+28. **First-run walkthrough (1.38.5).** On a clean install, or after deleting Kairo's data folder,
+    open Kairo. *Expect:* a full-page "Welcome to Kairo" over Chrono, four screens (Kairo, the
+    palette, Chrono, Ledger and focus), Next and Back, Skip on all but the last, and Start on the
+    last. The palette screen shows this computer's real keys (Option on a Mac) and Try it opens the
+    palette. Esc skips; the arrow keys move between screens. Close it and restart Kairo. *Expect:*
+    it doesn't come back. In Chrono's settings, This window, Show the walkthrough again brings it
+    back. An existing install with recorded time never shows it after updating.

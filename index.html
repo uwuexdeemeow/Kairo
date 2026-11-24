@@ -80,14 +80,6 @@
           <section class="welcome" id="welcome" aria-label="Welcome" hidden>
             <h1>Welcome to Chrono</h1>
             <p class="muted lede">Chrono is already recording. Once a second it notes which app is in front and its window title, and everything stays on this computer. Give it an hour and this page fills in.</p>
-            <div class="welcome-palette">
-              <p>Press <span class="shortcut-keys" id="welcome-keys"></span> anywhere to open the palette. Type <kbd>?</kbd> in it to see what it can do.</p>
-              <p class="muted">Tasks and notes live in <button class="link-btn" id="welcome-ledger" type="button">Ledger</button>.</p>
-              <div class="row-buttons">
-                <button class="btn" id="welcome-palette" type="button">Try the palette</button>
-                <span class="muted" id="welcome-palette-status" aria-live="polite"></span>
-              </div>
-            </div>
             <ol class="welcome-steps">
               <li>
                 <button class="link-btn" data-goto="settings" data-goto-target="#goal-productive">Set a daily goal</button>
@@ -672,6 +664,14 @@
           <h2 class="group-head">This window</h2>
 
           <section class="block">
+            <h3 class="block-title">Walkthrough</h3>
+            <p class="muted">The short tour of Kairo shown the first time it opened.</p>
+            <div class="row-buttons">
+              <button class="btn" id="walkthrough-again" type="button">Show the walkthrough again</button>
+            </div>
+          </section>
+
+          <section class="block">
             <h3 class="block-title">Keyboard</h3>
             <label class="toggle">
               <input type="checkbox" id="day-keys" />
@@ -682,6 +682,20 @@
 
         </section>
       </main>
+    </div>
+
+    <div class="walkthrough" id="walkthrough" role="dialog" aria-modal="true" aria-labelledby="walkthrough-title" data-app="kairo" hidden>
+      <div class="walkthrough-card">
+        <div class="walkthrough-dots" id="walkthrough-dots" role="img"></div>
+        <div class="walkthrough-step" id="walkthrough-step"></div>
+        <div class="walkthrough-buttons">
+          <button class="link-btn" id="walkthrough-skip" type="button">Skip</button>
+          <button class="link-btn" id="walkthrough-settings" type="button" hidden>Open settings</button>
+          <span class="walkthrough-gap"></span>
+          <button class="btn" id="walkthrough-back" type="button" hidden>Back</button>
+          <button class="btn primary" id="walkthrough-next" type="button">Next</button>
+        </div>
+      </div>
     </div>
 
     <div id="tooltip" class="tooltip" role="tooltip" hidden></div>

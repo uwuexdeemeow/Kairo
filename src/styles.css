@@ -3239,6 +3239,110 @@ select,
   min-height: 40px;
 }
 
+/* First run: a full-page walkthrough over the window until it's finished or skipped. */
+.walkthrough {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px));
+  overflow-y: auto;
+  background: var(--bg);
+}
+
+.walkthrough[hidden] {
+  display: none;
+}
+
+.walkthrough[data-app="chrono"] {
+  --app: var(--chrono);
+}
+
+.walkthrough[data-app="ledger"] {
+  --app: var(--ledger);
+}
+
+.walkthrough[data-app="palette"] {
+  --app: var(--palette);
+}
+
+.walkthrough[data-app="kairo"] {
+  --app: var(--kairo);
+}
+
+.walkthrough-card {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  width: 100%;
+  max-width: 520px;
+  margin: auto;
+}
+
+.walkthrough-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.walkthrough-dots .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.walkthrough-dots .dot.on {
+  background: var(--app);
+}
+
+.walkthrough-step {
+  min-height: 240px;
+}
+
+.walkthrough-mark {
+  display: block;
+  margin-bottom: 16px;
+  color: var(--app);
+}
+
+.walkthrough-title {
+  margin: 0 0 16px;
+  font-size: 36px;
+}
+
+.walkthrough-title:focus {
+  outline: none;
+}
+
+.walkthrough-step p {
+  margin: 0 0 12px;
+  max-width: 46ch;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+/* The keys sit inside the sentence, not on a line of their own. */
+.walkthrough-step .shortcut-keys {
+  display: inline-flex;
+  vertical-align: baseline;
+}
+
+.walkthrough-step .row-buttons {
+  margin-top: 16px;
+}
+
+.walkthrough-buttons {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.walkthrough-gap {
+  flex: 1;
+}
+
 /* First run: only the welcome shows until something has been recorded. */
 #view-today.first-run > :not(#welcome) {
   display: none;
@@ -3249,20 +3353,8 @@ select,
   max-width: 640px;
 }
 
-.welcome-palette {
-  margin: 16px 0 0;
-}
-
-.welcome-palette p {
-  margin: 0 0 8px;
-}
-
-.welcome-palette .row-buttons {
-  margin-top: 12px;
-}
-
 .welcome-steps {
-  margin: 20px 0 0;
+  margin: 8px 0 0;
   padding-left: 22px;
   line-height: 1.6;
 }

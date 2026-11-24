@@ -12,7 +12,7 @@ import { calendar, isoDate, monthStart, parseDate, shiftDate, shiftMonthKeepDay,
 import { shownControl, useDropdowns } from "./dropdown";
 import { replaceTimeInputs } from "./time-select";
 import { jumpTo } from "./jump";
-import { setUpWelcome, showWelcomeKeys } from "./welcome";
+import { setUpWalkthrough } from "./walkthrough";
 import { loadQuietHours, setUpQuietForm } from "./quiet-hours";
 import { WEEKDAYS, clockOf, daysText } from "./week-text";
 import { renderBreak, renderFocusTarget, renderWrapUp } from "./focus-summary";
@@ -2021,10 +2021,7 @@ async function load(v: View = view) {
       const firstRun = firstDay === null;
       $("#view-today").classList.toggle("first-run", firstRun);
       $("#welcome").hidden = !firstRun;
-      if (firstRun) {
-        void showWelcomeKeys();
-        return;
-      }
+      if (firstRun) return;
       const date = selectedDay ?? undefined;
       const [day, goals, focusBlocks, away, projectTimes] = await Promise.all([api.day(date), api.goals(date), api.focusBlocks(date), api.away(date), api.projectTimes(date)]);
       shownFocus = focusBlocks;
@@ -2295,7 +2292,7 @@ for (const link of document.querySelectorAll<HTMLButtonElement>("[data-goto]")) 
   });
 }
 
-setUpWelcome();
+setUpWalkthrough(() => $<HTMLButtonElement>('[data-view="settings"]').click());
 
 $("#welcome-demo").addEventListener("click", async () => {
   try {

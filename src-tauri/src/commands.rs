@@ -83,6 +83,20 @@ pub fn get_day_totals(state: State<AppState>, from: String, to: String) -> CmdRe
     Ok(out)
 }
 
+/// Whether the first-run walkthrough is to be shown.
+#[tauri::command]
+pub fn walkthrough_due(state: State<AppState>) -> CmdResult<bool> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::walkthrough::due(&conn).map_err(err)
+}
+
+/// The walkthrough was finished or skipped; it isn't shown again unless asked for.
+#[tauri::command]
+pub fn finish_walkthrough(state: State<AppState>) -> CmdResult<()> {
+    let conn = state.db.lock().map_err(err)?;
+    crate::walkthrough::finish(&conn).map_err(err)
+}
+
 /// The local date of the earliest recorded session, so the day picker knows where history starts.
 #[tauri::command]
 pub fn get_first_day(state: State<AppState>) -> CmdResult<Option<String>> {
