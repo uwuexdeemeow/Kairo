@@ -3249,8 +3249,20 @@ select,
   max-width: 640px;
 }
 
+.welcome-palette {
+  margin: 16px 0 0;
+}
+
+.welcome-palette p {
+  margin: 0 0 8px;
+}
+
+.welcome-palette .row-buttons {
+  margin-top: 12px;
+}
+
 .welcome-steps {
-  margin: 8px 0 0;
+  margin: 20px 0 0;
   padding-left: 22px;
   line-height: 1.6;
 }

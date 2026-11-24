@@ -80,6 +80,14 @@
           <section class="welcome" id="welcome" aria-label="Welcome" hidden>
             <h1>Welcome to Chrono</h1>
             <p class="muted lede">Chrono is already recording. Once a second it notes which app is in front and its window title, and everything stays on this computer. Give it an hour and this page fills in.</p>
+            <div class="welcome-palette">
+              <p>Press <span class="shortcut-keys" id="welcome-keys"></span> anywhere to open the palette. Type <kbd>?</kbd> in it to see what it can do.</p>
+              <p class="muted">Tasks and notes live in <button class="link-btn" id="welcome-ledger" type="button">Ledger</button>.</p>
+              <div class="row-buttons">
+                <button class="btn" id="welcome-palette" type="button">Try the palette</button>
+                <span class="muted" id="welcome-palette-status" aria-live="polite"></span>
+              </div>
+            </div>
             <ol class="welcome-steps">
               <li>
                 <button class="link-btn" data-goto="settings" data-goto-target="#goal-productive">Set a daily goal</button>

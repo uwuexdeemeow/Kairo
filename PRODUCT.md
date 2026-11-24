@@ -12,8 +12,9 @@ are drawn natively (Direct2D/DirectWrite), not in a web view.
 
 ## Users
 
-For now, one person: the author, using Kairo every day on their own computers. Others may come
-later, but decisions are made for a single daily user who knows the product well.
+The author, who uses Kairo every day on their own computers, and other people who will install it
+and have never seen it. Decisions are made for a daily user, but nothing may assume they already
+know the product: the first minutes must say how to open the palette and where things are.
 
 ## Product Purpose
 

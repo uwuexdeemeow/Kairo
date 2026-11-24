@@ -5,7 +5,10 @@ import { api, type Appearance, type Linking, type PaletteLook, type SyncState } 
 import { glyph } from "./glyphs";
 import { mountRingEditor } from "./ring-editor";
 import { vt } from "./virustotal-api";
+import { keyName, shortcutKeys } from "./shortcut-keys";
 import { $, IS_LINUX, IS_MAC, applyTheme, h } from "./ui";
+
+export { shortcutKeys };
 
 // The settings that belong to Kairo as a whole rather than to Chrono: appearance, the command
 // palette, starting at login, your data, combining computers and updates. Only the dashboard
@@ -32,19 +35,6 @@ let ringEditor: ReturnType<typeof mountRingEditor> | null = null;
 
 /// The row recording now, if one is: only one at a time.
 let recording: Recorder | null = null;
-
-/// A key as this computer's keyboard labels it; the saved shortcut keeps the names the shortcut
-/// parser knows.
-function keyName(key: string): string {
-  if (IS_MAC) return { Ctrl: "Control", Alt: "Option", Super: "Command" }[key] ?? key;
-  if (!IS_LINUX && key === "Super") return "Win";
-  return key;
-}
-
-/// A saved shortcut ("Ctrl+Space") as keys, named the way this computer's keyboard labels them.
-export function shortcutKeys(shortcut: string): HTMLElement[] {
-  return shortcut.split("+").map((k) => h("kbd", {}, keyName(k)));
-}
 
 function showShortcut(row: Recorder, shortcut: string) {
   row.saved = shortcut;
