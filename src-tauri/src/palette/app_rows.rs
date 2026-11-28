@@ -64,6 +64,15 @@ pub fn favorite_action(ctx: &Context, name: &str) -> (Action, &'static str) {
     }
 }
 
+/// Where the highlight goes once `action` has run and `items` are listed afresh: an app marked
+/// as a favorite moves up, and the highlight goes with it, so the same keys undo it. None leaves
+/// the highlight where it is. The web palette does the same itself (palette.ts).
+#[cfg(any(windows, test))]
+pub fn followed(items: &[Item], action: &Action) -> Option<usize> {
+    let Action::FavoriteApp(marked, _) = action else { return None };
+    items.iter().position(|i| matches!(&i.second, Some((Action::FavoriteApp(name, _), _)) if name == marked))
+}
+
 pub fn rows(ctx: &Context, query: &str) -> Vec<Item> {
     let mut items = hide_rows(ctx, query);
     items.extend(quit_rows(ctx, query));
@@ -194,6 +203,20 @@ mod tests {
         let found = search(&c, "cur");
         assert_eq!((found[0].title.as_str(), found[0].second.clone()), ("CurseForge", Some((Action::FavoriteApp("CurseForge".into(), false), "Unfavorite"))));
         assert!(Action::FavoriteApp("x".into(), true).acts_in_place());
+    }
+
+    #[test]
+    fn the_highlight_follows_an_app_marked_as_it_moves() {
+        let mut c = ctx();
+        let mark = Action::FavoriteApp("CurseForge".into(), true);
+        c.live.favorites = vec!["CurseForge".into()];
+        let found = search(&c, "cur");
+        assert_eq!(followed(&found, &mark), Some(0));
+        // Anything else leaves it where it is, and so does an app no longer listed.
+        assert_eq!(followed(&found, &Action::HideApp("CurseForge".into(), true)), None);
+        assert_eq!(followed(&found, &Action::FavoriteApp("Figma".into(), false)), None);
+        // A tile has no Ctrl+Enter, so the highlight doesn't jump to one.
+        assert_eq!(followed(&suggestions(&c).tiles, &Action::FavoriteApp("Cursor".into(), false)), None);
     }
 
     #[test]

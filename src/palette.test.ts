@@ -185,6 +185,31 @@ describe("second actions", () => {
   });
 });
 
+describe("favorites", () => {
+  const app = (title: string, second = "Favorite") => item(title, { section: "Apps", second });
+
+  it("keep the highlight on the app as it moves up, so Ctrl+Enter again undoes it", async () => {
+    await open(results(1, [app("CurseForge"), app("Notepad"), app("Cursor")]));
+    key("ArrowDown");
+    key("ArrowDown");
+    api.paletteRunSecond.mockResolvedValueOnce(results(2, [app("Cursor", "Unfavorite"), app("CurseForge"), app("Notepad")]));
+    key("Enter", { ctrlKey: true });
+    await vi.waitFor(() => expect(titles()[0]).toBe("Cursor"));
+    expect($(".selected .palette-title").textContent).toBe("Cursor");
+    expect(hint()).toBe("Ctrl Enter Unfavorite");
+    key("Enter", { ctrlKey: true });
+    expect(api.paletteRunSecond).toHaveBeenLastCalledWith(2, 0);
+  });
+
+  it("leave the highlight in place when the app is no longer listed", async () => {
+    await open(results(1, [app("Discord", "Unfavorite"), app("Notepad", "Unfavorite")]));
+    api.paletteRunSecond.mockResolvedValueOnce(results(2, [app("Notepad", "Unfavorite")]));
+    key("Enter", { ctrlKey: true });
+    await vi.waitFor(() => expect(titles()).toEqual(["Notepad"]));
+    expect($(".selected .palette-title").textContent).toBe("Notepad");
+  });
+});
+
 describe("switches", () => {
   it("show the fresh results after Enter, keep the selection and stay open", async () => {
     const on = item("Pause tracking", { detail: "On" });

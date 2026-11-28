@@ -524,11 +524,18 @@ async function ran(running: Promise<PaletteResults | null>) {
   }
 }
 
+const isFavoriting = (label?: string | null) => label === "Favorite" || label === "Unfavorite";
+
 /// Runs what Ctrl+Enter (Command+Enter on a Mac) does for an item. Cancelling a timer leaves
 /// the palette open, on the timers that are left.
 async function runSecond(index: number) {
-  if (!shown[index]?.second) return;
+  const { title, second } = shown[index] ?? {};
+  if (!second) return;
   await ran(api.paletteRunSecond(results.seq, index));
+  // An app marked as a favorite moves up: the highlight goes with it, so the same keys undo it.
+  if (!isFavoriting(second)) return;
+  const moved = shown.findIndex((i) => i.title === title && isFavoriting(i.second));
+  if (moved >= 0) select(moved);
 }
 
 async function refresh() {

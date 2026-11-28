@@ -1176,7 +1176,16 @@ impl Palette {
         self.selected = index;
         self.update_preview();
         self.announce();
-        // Keep the selection in view.
+        self.keep_in_view(index);
+        if card_h != self.card_h() {
+            self.resize();
+        } else {
+            self.repaint();
+        }
+    }
+
+    /// Scrolls as little as it takes to show item `index`.
+    fn keep_in_view(&mut self, index: usize) {
         if let Some(p) = self.placed.iter().find(|p| p.index == index) {
             let view = self.results_h();
             if p.rect.top - 4.0 < self.scroll {
@@ -1184,11 +1193,6 @@ impl Palette {
             } else if p.rect.bottom + 4.0 > self.scroll + view {
                 self.scroll = p.rect.bottom + 8.0 - view;
             }
-        }
-        if card_h != self.card_h() {
-            self.resize();
-        } else {
-            self.repaint();
         }
     }
 
@@ -1296,9 +1300,16 @@ impl Palette {
         let (selected, scroll) = (self.selected, self.scroll);
         self.refresh_results();
         self.selected = choosable(&self.items, selected.min(self.items.len().saturating_sub(1)) as i64, 1).unwrap_or(0);
+        let followed = super::app_rows::followed(&self.items, action);
+        self.selected = followed.unwrap_or(self.selected);
         self.update_preview();
         self.scroll = scroll.clamp(0.0, (self.content_h - self.results_h()).max(0.0));
         self.resize();
+        if let Some(index) = followed {
+            self.keep_in_view(index);
+            self.announce();
+            self.repaint();
+        }
     }
 
     /// Tells screen readers the selected row: the hidden label before the edit box takes its words,
