@@ -18,15 +18,17 @@ pub enum Power {
     ShutDown,
     /// Deletes what's in the trash (the Recycle Bin on Windows) for good.
     EmptyTrash,
+    /// Asks every app with a window open to close.
+    QuitAll,
 }
 
 impl Power {
-    pub const ALL: [Power; 6] = [Power::Lock, Power::Sleep, Power::LogOut, Power::Restart, Power::ShutDown, Power::EmptyTrash];
+    pub const ALL: [Power; 7] = [Power::Lock, Power::Sleep, Power::LogOut, Power::Restart, Power::ShutDown, Power::EmptyTrash, Power::QuitAll];
 
     /// Whether it asks twice: the ones that end programs and lose unsaved work, or delete for
     /// good, if pressed by accident.
     pub fn confirms(self) -> bool {
-        matches!(self, Power::LogOut | Power::Restart | Power::ShutDown | Power::EmptyTrash)
+        matches!(self, Power::LogOut | Power::Restart | Power::ShutDown | Power::EmptyTrash | Power::QuitAll)
     }
 
     /// The row's title.
@@ -39,6 +41,7 @@ impl Power {
             Power::ShutDown => "Shut down",
             Power::EmptyTrash if cfg!(windows) => "Empty the Recycle Bin",
             Power::EmptyTrash => "Empty the trash",
+            Power::QuitAll => "Quit all apps",
         }
     }
 
@@ -52,6 +55,7 @@ impl Power {
             Power::ShutDown => "shut down",
             Power::EmptyTrash if cfg!(windows) => "empty the Recycle Bin",
             Power::EmptyTrash => "empty the trash",
+            Power::QuitAll => "quit all apps",
         }
     }
 
@@ -64,6 +68,7 @@ impl Power {
             Power::Restart => "Asks to confirm first",
             Power::ShutDown => "Asks to confirm first",
             Power::EmptyTrash => "Deletes it for good; asks to confirm first",
+            Power::QuitAll => "Closes every window, so you can save first; asks to confirm",
         }
     }
 
@@ -76,6 +81,7 @@ impl Power {
             Power::Restart => (&["restart", "reboot"], "restart reboot computer"),
             Power::ShutDown => (&["shut down", "shutdown", "power off", "poweroff", "turn off"], "shut down power off turn off computer"),
             Power::EmptyTrash => (&["empty trash", "empty the trash", "empty recycle bin", "empty the recycle bin", "empty bin"], "empty trash recycle bin delete bin"),
+            Power::QuitAll => (&["quit all", "quit all apps", "close all apps", "close all windows"], "quit all apps close every window"),
         }
     }
 }
@@ -114,6 +120,14 @@ fn ran(program: &str, args: &[&str]) -> bool {
 
 /// Does it, or says why it couldn't.
 pub fn run(power: Power) -> Result<(), String> {
+    if power == Power::QuitAll {
+        let open = platform::switchable(platform::open_windows(), std::process::id());
+        let ids: Vec<String> = open.into_iter().map(|w| w.id).collect();
+        return match platform::quit_windows(&ids) {
+            0 => Ok(()),
+            _ => Err("Some apps didn't let Kairo close them. They may be running as administrator.".into()),
+        };
+    }
     if perform(power) {
         return Ok(());
     }
@@ -148,6 +162,8 @@ fn perform(power: Power) -> bool {
             // An empty bin answers E_UNEXPECTED: there was nothing to do.
             result >= 0 || result as u32 == 0x8000_FFFF
         }
+        // Done by `run`, the same way on every system.
+        Power::QuitAll => false,
     }
 }
 
@@ -163,6 +179,7 @@ fn perform(power: Power) -> bool {
         Power::Restart => event("restart"),
         Power::ShutDown => event("shut down"),
         Power::EmptyTrash => ran("osascript", &["-e", "tell application \"Finder\" to empty trash"]),
+        Power::QuitAll => false,
     }
 }
 
@@ -178,6 +195,7 @@ fn perform(power: Power) -> bool {
         Power::Restart => ran("systemctl", &["reboot"]),
         Power::ShutDown => ran("systemctl", &["poweroff"]),
         Power::EmptyTrash => ran("gio", &["trash", "--empty"]),
+        Power::QuitAll => false,
     }
 }
 
@@ -455,7 +473,7 @@ mod tests {
     #[test]
     fn the_power_commands_say_what_they_are() {
         let confirming: Vec<Power> = Power::ALL.into_iter().filter(|p| p.confirms()).collect();
-        assert_eq!(confirming, [Power::LogOut, Power::Restart, Power::ShutDown, Power::EmptyTrash]);
+        assert_eq!(confirming, [Power::LogOut, Power::Restart, Power::ShutDown, Power::EmptyTrash, Power::QuitAll]);
         for p in Power::ALL {
             let (typed, loose) = p.words();
             assert!(!typed.is_empty() && !loose.is_empty() && !p.title().is_empty() && !p.verb().is_empty() && !p.about().is_empty(), "{p:?}");

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
+use super::app_rows::{favorite_action, has};
 use super::calc;
 use super::commands;
 use super::mode::{self, Mode};
@@ -38,6 +39,13 @@ const LISTED_WINDOW_SCORE: f64 = 140.0;
 /// How long a session started on a task from the palette runs.
 const TASK_MINUTES: u32 = 25;
 const RECENT_APPS: usize = 3;
+/// Favorites the empty palette lists at most.
+const MAX_FAVORITES: usize = 5;
+/// What being a favorite adds to an app's match: enough to lead the apps matched as well.
+const FAVORITE_BONUS: f64 = 50.0;
+/// A typed address leads, unless an app has that very name.
+const ADDRESS_SCORE: f64 = 950.0;
+const ADDRESS_BEHIND_APP: f64 = 90.0;
 const HOUR_MS: i64 = 60 * 60_000;
 pub const MAX_FOCUS_MINUTES: u32 = 240;
 
@@ -611,6 +619,12 @@ pub enum Action {
     /// Pauses tracking, for this many minutes when given.
     PauseTracking(Option<u32>),
     ResumeTracking,
+    /// Marks an app as a favorite by name, or no longer.
+    FavoriteApp(String, bool),
+    /// Hides an app from the palette by name, or shows it again.
+    HideApp(String, bool),
+    /// Asks an open app to quit, by its windows' ids.
+    QuitApp(Vec<String>),
     /// Does nothing, for a row that only says something.
     Nothing,
 }
@@ -645,6 +659,9 @@ impl Action {
             Action::PinClip(..) => "Pin",
             Action::Nothing => "",
             Action::UnpinClip(..) => "Unpin",
+            Action::HideApp(_, true) => "Hide",
+            Action::HideApp(_, false) => "Show again",
+            Action::QuitApp(..) => "Quit",
             _ => "Run",
         }
     }
@@ -677,6 +694,8 @@ impl Action {
                 | Action::ResumeTracking
                 | Action::PinClip(..)
                 | Action::UnpinClip(..)
+                | Action::FavoriteApp(..)
+                | Action::HideApp(..)
         )
     }
 }
@@ -832,6 +851,10 @@ pub struct Live {
     pub timers: Vec<TimerNow>,
     /// The theme in use: a ground's id, or "system".
     pub theme: String,
+    /// The favorite apps' names, in the order they were marked.
+    pub favorites: Vec<String>,
+    /// The names of apps left out of the palette.
+    pub hidden: Vec<String>,
 }
 
 /// A meeting as the palette offers to join it, in local time.
@@ -1307,6 +1330,16 @@ fn window_rows(ctx: &Context, q: &str, all: bool) -> Vec<Item> {
         .collect()
 }
 
+/// The row that opens a web address typed as it is (`github.com`).
+fn address_item(ctx: &Context, query: &str) -> Option<Item> {
+    let url = super::address::typed(query)?;
+    let typed = query.trim();
+    let named = ctx.apps.iter().any(|a| a.name.eq_ignore_ascii_case(typed));
+    let mut item = web_item(format!("Open {typed}"), url.clone(), if named { ADDRESS_BEHIND_APP } else { ADDRESS_SCORE });
+    item.second = Some((Action::Copy(url), "Copy link"));
+    Some(item)
+}
+
 /// Text made safe for a web address: everything but ASCII letters, digits and `-_.~` written as
 /// %XX bytes, spaces included.
 fn url_escape(text: &str) -> String {
@@ -1564,6 +1597,8 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
         items.push(item);
     }
     items.extend(commands::rows(ctx, query));
+    items.extend(super::app_rows::rows(ctx, query));
+    items.extend(address_item(ctx, query));
     items.extend(pick_color_row(query));
     items.extend(task_items(ctx, query));
     items.extend(note_items(ctx, query));
@@ -1596,13 +1631,17 @@ pub fn search(ctx: &Context, query: &str) -> Vec<Item> {
     if let Some((subject, _)) = parse_last_used(query).and_then(|asked| last_used_subject(ctx, &asked)) {
         items.push(last_used_item(subject));
     }
-    for app in &ctx.apps {
+    for app in ctx.apps.iter().filter(|a| !has(&ctx.live.hidden, &a.name)) {
         let Some(m) = fuzzy(query, &app.name) else { continue };
         let mut item = Item::new(app.name.clone(), Icon::App(app.path.clone()), "Apps", Action::Launch(app.path.clone()));
         item.at = m.at;
         item.detail = (app.used_ms > 0).then(|| format!("{} this month", fmt_dur(app.used_ms)));
         // Apps you actually use rise above ones you don't.
         item.score = m.score + (app.used_ms as f64 / HOUR_MS as f64).min(40.0);
+        if has(&ctx.live.favorites, &app.name) {
+            item.score += FAVORITE_BONUS;
+        }
+        item.second = Some(favorite_action(ctx, &app.name));
         items.push(item);
     }
     for &(words, title, view, glyph, back) in &PAGES {
@@ -1774,7 +1813,7 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
         }
         let item = match &habit.thing {
             Thing::App(name) => {
-                let Some(app) = ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name)) else { continue };
+                let Some(app) = ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name) && !has(&ctx.live.hidden, &a.name)) else { continue };
                 Item::new(app.name.clone(), Icon::App(app.path.clone()), "Usually now", Action::Launch(app.path.clone()))
             }
             Thing::Site(site) => {
@@ -1793,9 +1832,24 @@ pub fn suggestions(ctx: &Context) -> Suggestions {
         item.sub = Some(format!("{} of {}", fmt_dur(*used), fmt_dur(*limit)));
         rows.push(item);
     }
+    // Your favorites, except those already offered above.
+    let favorites: Vec<Item> = ctx
+        .live
+        .favorites
+        .iter()
+        .filter_map(|name| ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name)))
+        .filter(|app| !rows.iter().any(|r| r.action == Action::Launch(app.path.clone())))
+        .take(MAX_FAVORITES)
+        .map(|app| {
+            let mut item = Item::new(app.name.clone(), Icon::App(app.path.clone()), "Favorites", Action::Launch(app.path.clone()));
+            item.second = Some(favorite_action(ctx, &app.name));
+            item
+        })
+        .collect();
+    rows.extend(favorites);
     // Today's busiest apps, where the Start menu has a way to open them.
     for (name, ms) in &ctx.today_apps {
-        let Some(app) = ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name)) else { continue };
+        let Some(app) = ctx.apps.iter().find(|a| a.name.eq_ignore_ascii_case(name) && !has(&ctx.live.hidden, &a.name)) else { continue };
         let mut item = Item::new(app.name.clone(), Icon::App(app.path.clone()), "Recent apps", Action::Launch(app.path.clone()));
         item.detail = Some(fmt_dur(*ms));
         tiles.push(item);

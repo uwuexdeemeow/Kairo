@@ -178,6 +178,9 @@ const HELP: &[(&str, &str, Glyph)] = &[
     ("Make a unique ID", "uuid", Glyph::Script),
     ("Encode, hash or tidy text", "base64 hello", Glyph::Script),
     ("Make filler text", "lorem 2", Glyph::Script),
+    ("Open a web address", "github.com", Glyph::Link),
+    ("Quit an app, or all of them", "quit all", Glyph::Window),
+    ("Hide apps you never open", "hidden apps", Glyph::Search),
 ];
 
 /// `?` or `help`: what the palette understands, each with an example to try.

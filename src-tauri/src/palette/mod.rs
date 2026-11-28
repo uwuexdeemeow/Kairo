@@ -19,6 +19,8 @@ use crate::{db, focus, goals};
 use mode::Mode;
 use search::{fmt_dur, Action, Context, Glyph, Icon, Item, Tone};
 
+pub mod address;
+pub mod app_rows;
 pub mod calc;
 pub mod cards;
 pub mod commands;
@@ -505,6 +507,8 @@ pub fn live(app: &AppHandle, conn: &Connection) -> search::Live {
             .filter_map(|t| Some(search::TimerNow { id: t.id, name: t.name(), left_ms: (t.ends_ms - now).max(0), ends: local(t.ends_ms)? }))
             .collect(),
         theme: crate::appearance::get(conn).unwrap_or_else(|_| "system".into()),
+        favorites: app_rows::names(conn, app_rows::List::Favorites).unwrap_or_default(),
+        hidden: app_rows::names(conn, app_rows::List::Hidden).unwrap_or_default(),
     }
 }
 
@@ -705,6 +709,10 @@ pub fn perform(app: &AppHandle, conn: &Connection, index: &Index, action: &Actio
             crate::commands::tick_task(conn, id, true)?;
             crate::commands::tasks_changed(app, conn).map(|_| ())
         }
+        Action::FavoriteApp(name, on) => app_rows::set(conn, app_rows::List::Favorites, name, *on).map_err(|e| e.to_string()),
+        Action::HideApp(name, on) => app_rows::set(conn, app_rows::List::Hidden, name, *on).map_err(|e| e.to_string()),
+        Action::QuitApp(ids) if crate::platform::quit_windows(ids) == 0 => Ok(()),
+        Action::QuitApp(_) => Err("It didn't let Kairo close it. It may be running as administrator.".into()),
         Action::CheckUpdates => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move { crate::updater::check(&app, true).await });

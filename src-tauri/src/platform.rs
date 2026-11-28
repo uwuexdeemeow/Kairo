@@ -155,7 +155,20 @@ pub fn window_exists(_id: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-pub use mac::{activate_window, can_close_windows, close_window, open_windows};
+pub use mac::{activate_window, can_close_windows, close_window, open_windows, quit_windows};
+
+/// Whether the app of this name can be quit; a Mac's Finder is part of the desktop and can't.
+pub fn can_quit(app: &str) -> bool {
+    !(cfg!(target_os = "macos") && app.eq_ignore_ascii_case("finder"))
+}
+
+/// Asks the apps these windows belong to to quit, leaving each to ask about unsaved work, and
+/// counts the ones that refused. On Windows and Linux that is closing each window, as its close
+/// button would; an app that lives on in the tray stays there.
+#[cfg(not(target_os = "macos"))]
+pub fn quit_windows(ids: &[String]) -> usize {
+    ids.iter().filter(|id| !close_window(id) && window_exists(id)).count()
+}
 
 /// The clipboard formats a password manager (KeePass, KeePassXC, 1Password, Bitwarden and
 /// others) puts beside a copy to say it mustn't be kept or shown: Windows' own two, the macOS
@@ -1121,6 +1134,19 @@ mod mac {
             }
         }
         activated
+    }
+
+    /// A Mac app stays open with its windows closed, so each is asked to quit as Command+Q would,
+    /// which needs no access. Finder is left alone.
+    pub fn quit_windows(ids: &[String]) -> usize {
+        let pids: std::collections::BTreeSet<i32> = ids.iter().filter_map(|id| window_of(id)).map(|(pid, _)| pid).collect();
+        autoreleasepool(|_| {
+            pids.into_iter()
+                .filter_map(NSRunningApplication::runningApplicationWithProcessIdentifier)
+                .filter(|app| !app.bundleIdentifier().is_some_and(|id| id.to_string() == "com.apple.finder"))
+                .filter(|app| !app.terminate())
+                .count()
+        })
     }
 
     /// Presses the window's close button; only with Accessibility access.
